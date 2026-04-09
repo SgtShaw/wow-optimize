@@ -998,9 +998,13 @@ static void ProcessGCRequests(lua_State* L) {
             Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_REQUEST");
 
             if (val < 0) {
-                Api.lua_gc(L, LUA_GCCOLLECT, 0);
-                State.fullCollects++;
-                Log("[LuaOpt] Addon requested full GC collect");
+                // CRITICAL FIX: Never do full collect — causes 500ms-2s stalls
+                // Instead, do incremental 1MB GC steps (same as emergency GC)
+                Log("[LuaOpt] Addon requested full GC collect — using incremental steps instead");
+                for (int i = 0; i < 10; i++) {
+                    Api.lua_gc(L, LUA_GCSTEP, 1024); // 1MB steps
+                }
+                State.gcStepsTotal += 10;
             } else if (val > 0) {
                 Api.lua_gc(L, LUA_GCSTEP, (int)val);
                 State.gcStepsTotal++;
@@ -1185,12 +1189,13 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     }
 
     if (!slowFrame && g_luaAllocReplaced) {
-        // Single client: collect every ~4096 steps (~68 seconds at 60fps)
-        // Multi-client: collect every ~1024 steps (~17 seconds at 60fps)
-        int collectInterval = g_isMultiClient ? 1023 : 4095;
+        // CRITICAL FIX: Reduce mi_collect frequency to prevent memory pressure
+        // Single client: collect every ~8192 steps (~136 seconds at 60fps)
+        // Multi-client: collect every ~2048 steps (~34 seconds at 60fps)
+        int collectInterval = g_isMultiClient ? 2047 : 8191;
         if ((State.statsUpdateCounter & collectInterval) == 0) {
             LogLuaAllocStats();
-            mi_collect(g_isMultiClient);  // true = aggressive in multi-client
+            mi_collect(false);  // Always use non-aggressive collect to reduce stalls
         }
     }
 }
