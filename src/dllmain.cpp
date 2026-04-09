@@ -2983,10 +2983,19 @@ typedef int (__thiscall* CombatLogEvent_fn)(int this_ptr, int luaState);
 static CombatLogEvent_fn orig_CombatLogEvent = nullptr;
 
 static inline uint64_t ComputeCombatEventFingerprint(int this_ptr) {
+    // Skip bytes 0-11 (includes floating-point timestamp at +8 which changes every frame)
+    // Hash only stable event data: eventType(+12), sourceGUID(+24), destGUID(+48),
+    // flags(+84), spellID(+92), etc.
     uint64_t hash = 0xCBF29CE484222325ULL;
-    const uint8_t* data = (const uint8_t*)this_ptr;
-    for (int i = 0; i < COMBATLOG_FINGERPRINT_BYTES; i++) {
+    const uint8_t* data = (const uint8_t*)this_ptr + 12; // skip timestamp
+    for (int i = 0; i < COMBATLOG_FINGERPRINT_BYTES - 12; i++) {
         hash ^= data[i];
+        hash *= 0x100000001B3ULL;
+    }
+    // Also XOR the flags+spellID region heavily (offset 84-116 is critical for dupe detection)
+    const uint32_t* flags = (const uint32_t*)(this_ptr + 84);
+    for (int i = 0; i < 8; i++) { // 32 bytes of spell damage fields
+        hash ^= flags[i];
         hash *= 0x100000001B3ULL;
     }
     return hash;
