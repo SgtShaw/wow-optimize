@@ -88,7 +88,7 @@
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap optimization — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention (rc1)
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr (0x0085C430) string-key table lookup cache
-#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  0   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache
+#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
