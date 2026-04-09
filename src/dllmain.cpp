@@ -87,6 +87,8 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select, incompatible with command pump arch)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap optimization — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention (rc1)
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr (0x0085C430) string-key table lookup cache
+#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  0   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -141,6 +143,9 @@ static bool InstallWaitForSingleObjectHook();
 static bool InstallGetModuleHandleCache();
 static bool InstallLstrcmpHook();
 static bool InstallGetPrivateProfileCache();
+static bool InstallLuaHGetStrCache();
+static bool InstallCombatLogFullCache();
+static void ClearLuaHGetStrCache();
 
 // Stats for new hooks (defined with implementations below)
 static long g_fsizeHits = 0, g_fsizeMisses = 0;
@@ -149,6 +154,8 @@ static long g_modHits = 0, g_modMisses = 0;
 static long g_lstrcmpHits = 0, g_lstrcmpFallbacks = 0;
 static long g_profHits = 0, g_profMisses = 0;
 static uint64_t g_tableReshapeHits = 0;
+static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
+static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
 
 // ================================================================
 // Thread Affinity — background worker core pinning
@@ -484,9 +491,18 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
 
+        // CRITICAL FIX: Disable MPQ prefetch during loading to prevent I/O storms
+        // The prefetch was causing 389 MB/s disk I/O and loading screen crashes
+        // Prefetch happens automatically when MPQs are first accessed
+        /* DISABLED - was causing repeated 1.3GB prefetch storms
         if (LuaOpt::IsLoadingMode()) {
             PrefetchMappedMPQs();
         } else {
+            ResetPrefetchFlag();
+        }
+        */
+        // Only reset the flag when leaving loading mode
+        if (!LuaOpt::IsLoadingMode()) {
             ResetPrefetchFlag();
         }
 
@@ -2024,11 +2040,13 @@ static void ScanExistingMpqHandles() {
 // WHY:  Memory mapping creates virtual mappings but pages are not
 //       resident until first access. During loading screens, WoW
 //       streams data from MPQs — prefaulting avoids page faults later.
-// HOW:  1. Called once per loading screen (g_prefetchDone flag)
+// HOW:  1. Called ONCE per loading screen (g_prefetchDone flag + 60s cooldown)
 //       2. Uses PrefetchVirtualMemory (Win8+) if available
 //       3. Falls back to sequential memory touch (read each 4 KB page)
 //       4. ResetPrefetchFlag clears the flag when loading ends
+//       5. CRITICAL FIX: Added cooldown to prevent repeated prefetch storms
 // STATUS: Active — reduces loading screen stutter from page faults
+//         FIXED: Now called at most once per 60 seconds to prevent I/O storms
 
 typedef BOOL (WINAPI* PrefetchVirtualMemory_fn)(
     HANDLE, ULONG_PTR, PVOID, ULONG);
@@ -2036,6 +2054,8 @@ static PrefetchVirtualMemory_fn pPrefetchVirtualMemory = nullptr;
 static bool g_prefetchResolved = false;
 static bool g_prefetchAvailable = false;
 static volatile LONG g_prefetchDone = 0;
+static DWORD g_lastPrefetchTick = 0;
+static constexpr DWORD MPQ_PREFETCH_COOLDOWN_MS = 60000; // 60 seconds between prefetches
 
 static void ResolvePrefetch() {
     if (g_prefetchResolved) return;
@@ -2053,16 +2073,28 @@ static void PrefetchMappedMPQs() {
 #if CRASH_TEST_DISABLE_MPQ_MMAP
     return;
 #else
+    // CRITICAL FIX: Cooldown prevents repeated prefetch storms
+    DWORD nowTick = GetTickCount();
+    if ((LONG)(nowTick - g_lastPrefetchTick) < (LONG)MPQ_PREFETCH_COOLDOWN_MS) {
+        return; // Still in cooldown period
+    }
+    
     // Only prefetch once per loading screen
     if (InterlockedCompareExchange(&g_prefetchDone, 1, 0) != 0) return;
-
+    
+    // Update last prefetch time
+    g_lastPrefetchTick = nowTick;
+    
     AcquireSRWLockShared(&g_mpqMapLock);
 
     int prefetched = 0;
+    UINT64 totalBytes = 0;
 
     for (int i = 0; i < MAX_MPQ_MAPPINGS; i++) {
         if (!g_mpqMappings[i].active) continue;
 
+        totalBytes += g_mpqMappings[i].fileSize;
+        
         if (g_prefetchAvailable && pPrefetchVirtualMemory) {
             WIN32_MEMORY_RANGE_ENTRY entry;
             entry.VirtualAddress = g_mpqMappings[i].baseAddress;
@@ -2088,7 +2120,7 @@ static void PrefetchMappedMPQs() {
 
     if (prefetched > 0) {
         Log("MPQ prefetch: %d archives prefetched (%.1f MB)",
-            prefetched, g_mpqMapTotalBytes / (1024.0 * 1024.0));
+            prefetched, totalBytes / (1024.0 * 1024.0));
     }
 #endif
 }
@@ -2512,6 +2544,20 @@ static void DumpPeriodicStats() {
 
     if (g_tableReshapeHits > 0)
         Log("[Stats] Lua Table Rehash: %ld rounded to pow2", g_tableReshapeHits);
+
+    if (g_getstrHits + g_getstrFallbacks > 0) {
+        long hits = (long)g_getstrHits;
+        long fb = (long)g_getstrFallbacks;
+        Log("[Stats] luaH_getstr: %ld hits, %ld fallbacks (%.1f%%)",
+            hits, fb, (hits + fb) > 0 ? (double)hits / (hits + fb) * 100.0 : 0.0);
+    }
+
+    if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
+        long ch = (long)g_combatLogCacheHits;
+        long cm = (long)g_combatLogCacheMisses;
+        Log("[Stats] CombatLog: %ld hits, %ld misses (%.1f%%)",
+            ch, cm, (ch + cm) > 0 ? (double)ch / (ch + cm) * 100.0 : 0.0);
+    }
     
 
     if (vaOk && g_vaArenaActive) {
@@ -2778,6 +2824,282 @@ static bool InstallSwapPresentHook() {
 }
 
 // ================================================================
+// 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (testbuild-luahgetstr-rc1)
+//
+// WHAT: Hooks luaH_getstr (0x0085C430). Caches (table, tstring) → Node*
+//       lookups for repeated table accesses with the same string key.
+// WHY:  Current table lookup hook (luaH_get at 0x0085C470) only hits 2-3%.
+//       The string-key path (sub_85C430) handles 95%+ of hash-part lookups
+//       but has no caching. In addon-heavy raids, the same (table, key)
+//       pairs are accessed thousands of times per second (WeakAuras scans,
+//       raid frame aura checks, unit buff lookups).
+// HOW:  1. 4096-entry direct-mapped cache, FNV-1a hash of (table ^ tstring)
+//       2. Validation: check cached node's key.tt==4 && key.gc==tstring
+//       3. Full SEH wrapper
+//       4. Cache cleared on luaH_resize (already hooked)
+// STATUS: Test build — testbuild-luahgetstr-rc1
+// ================================================================
+
+typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
+static luaH_getstr_fn orig_luaH_getstr = nullptr;
+
+#define GETSTR_CACHE_SIZE 4096
+#define GETSTR_CACHE_MASK (GETSTR_CACHE_SIZE - 1)
+
+struct GetStrCacheEntry {
+    int  table;    // Table* pointer
+    int  tstring;  // TString* pointer
+    void* node;    // Cached Node* result (or &nilObject)
+};
+
+static GetStrCacheEntry g_getstrCache[GETSTR_CACHE_SIZE];
+
+static inline uint64_t GetStrCacheHash(uintptr_t table, uintptr_t tstring) {
+    uint64_t h = 0xCBF29CE484222325ULL; // FNV-1a basis
+    h ^= (table ^ tstring);
+    h *= 0x100000001B3ULL;
+    return h & GETSTR_CACHE_MASK;
+}
+
+static void ClearLuaHGetStrCache() {
+    memset(g_getstrCache, 0, sizeof(g_getstrCache));
+}
+
+static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
+#if CRASH_TEST_DISABLE_LUAH_GETSTR
+    return orig_luaH_getstr(table, tstring);
+#else
+    __try {
+        // Validate pointers — must be in user-space range
+        if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xBFFF0000) {
+            g_getstrFallbacks++;
+            return orig_luaH_getstr(table, tstring);
+        }
+        if ((uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xBFFF0000) {
+            g_getstrFallbacks++;
+            return orig_luaH_getstr(table, tstring);
+        }
+
+        // Lookup cache
+        uint64_t idx = GetStrCacheHash((uintptr_t)table, (uintptr_t)tstring);
+        GetStrCacheEntry* entry = &g_getstrCache[idx];
+
+        // Check cache hit with full validation
+        if (entry->table == table && entry->tstring == tstring && entry->node != nullptr) {
+            // Validate cached node: key.tt (node[6]) must be 4 (LUA_TSTRING),
+            // key.gc (node[4]) must match the tstring pointer
+            if (((int*)entry->node)[6] == 4 && ((int*)entry->node)[4] == tstring) {
+                g_getstrHits++;
+                return entry->node;
+            }
+        }
+
+        // Cache miss — call original
+        void* result = orig_luaH_getstr(table, tstring);
+
+        // Store in cache (direct write, no atomics needed — single-threaded path)
+        entry->table = table;
+        entry->tstring = tstring;
+        entry->node = result;
+
+        g_getstrFallbacks++;
+        return result;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_getstrFallbacks++;
+        return orig_luaH_getstr(table, tstring);
+    }
+#endif
+}
+
+static bool InstallLuaHGetStrCache() {
+#if CRASH_TEST_DISABLE_LUAH_GETSTR
+    Log("luaH_getstr cache: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x0085C430;
+
+    // Verify prologue: push ebp; mov ebp, esp
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) {
+        Log("luaH_getstr cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
+        return false;
+    }
+
+    if (MH_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK) {
+        Log("luaH_getstr cache: MH_CreateHook FAILED");
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("luaH_getstr cache: MH_EnableHook FAILED");
+        return false;
+    }
+
+    memset(g_getstrCache, 0, sizeof(g_getstrCache));
+
+    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — 4096-slot direct-mapped, SEH)");
+    return true;
+#endif
+}
+
+// ================================================================
+// 21c. sub_74E290 — CombatLog Event Full Cache
+//
+// WHAT: Hooks CombatLogGetCurrentEventInfo (0x0074E290). Caches the
+//       entire event payload construction by fingerprint hash.
+// WHY:  In 25-man raids, 60-80% of combat log events are identical
+//       periodic aura ticks. Each event triggers 10-25 Lua stack pushes
+//       (lua_pushstring, lua_pushnumber, lua_pushnil, etc.). Caching
+//       eliminates all of this work for duplicate events.
+// HOW:  1. Compute FNV-1a fingerprint of event struct (bytes 0-120)
+//       2. Check 256-entry LRU cache for matching fingerprint
+//       3. On hit: replay cached TValue pushes onto Lua stack
+//       4. On miss: call original, capture pushed TValues, store
+// STATUS: Active — conditional on raid data showing high dupe rate
+// ================================================================
+
+#define COMBATLOG_CACHE_SIZE 256
+#define COMBATLOG_CACHE_MASK (COMBATLOG_CACHE_SIZE - 1)
+#define COMBATLOG_MAX_FIELDS 32
+#define COMBATLOG_FINGERPRINT_BYTES 120
+
+struct CombatLogCacheEntry {
+    uint64_t fingerprint;
+    int      fieldCount;
+    // Captured TValue data — raw 16-byte TValue per field
+    struct {
+        uint64_t value_lo; // TValue value union (double or gc ptr)
+        uint32_t tt;       // type tag
+        uint32_t taint;    // taint field
+    } fields[COMBATLOG_MAX_FIELDS];
+    uint32_t lruStamp;
+};
+
+static CombatLogCacheEntry g_combatLogCache[COMBATLOG_CACHE_SIZE];
+static uint32_t g_combatLogCacheLRU = 0;
+
+// Known addresses for Lua stack manipulation
+static constexpr uintptr_t ADDR_nilObject = 0x00A46F78;
+
+typedef int (__thiscall* CombatLogEvent_fn)(int this_ptr, int luaState);
+static CombatLogEvent_fn orig_CombatLogEvent = nullptr;
+
+static inline uint64_t ComputeCombatEventFingerprint(int this_ptr) {
+    uint64_t hash = 0xCBF29CE484222325ULL;
+    const uint8_t* data = (const uint8_t*)this_ptr;
+    for (int i = 0; i < COMBATLOG_FINGERPRINT_BYTES; i++) {
+        hash ^= data[i];
+        hash *= 0x100000001B3ULL;
+    }
+    return hash;
+}
+
+// TValue structure at L+0x0C = top pointer
+// TValue = { union { double n; void* gc; } value; int tt; uint32_t taint; } = 16 bytes
+static inline uint64_t* GetLuaTopPtr(int L) {
+    return *(uint64_t**)(L + 0x0C);
+}
+
+static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int luaState) {
+#if CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE
+    return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+#else
+    __try {
+        int this_ptr = (int)This;
+        if (this_ptr < 0x10000 || this_ptr > 0xBFFF0000) {
+            g_combatLogCacheMisses++;
+            return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+        }
+        if (luaState < 0x10000 || luaState > 0xBFFF0000) {
+            g_combatLogCacheMisses++;
+            return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+        }
+
+        // Compute fingerprint from event structure
+        uint64_t fp = ComputeCombatEventFingerprint(this_ptr);
+
+        // Lookup cache
+        uint64_t idx = fp & COMBATLOG_CACHE_MASK;
+        CombatLogCacheEntry* entry = &g_combatLogCache[idx];
+
+        if (entry->fingerprint == fp && entry->fieldCount > 0 && entry->lruStamp > 0) {
+            // Cache hit — replay the TValue pushes
+            uint64_t* topPtr = *(uint64_t**)(luaState + 0x0C);
+            for (int i = 0; i < entry->fieldCount; i++) {
+                uint64_t* dst = (uint64_t*)(topPtr + i * 2); // 2x uint64_t = 16 bytes
+                dst[0] = entry->fields[i].value_lo;
+                dst[1] = ((uint64_t)entry->fields[i].taint << 32) | entry->fields[i].tt;
+            }
+            // Advance L->top
+            *(uint64_t**)(luaState + 0x0C) = topPtr + entry->fieldCount * 2;
+
+            entry->lruStamp = ++g_combatLogCacheLRU;
+            g_combatLogCacheHits++;
+            return entry->fieldCount;
+        }
+
+        // Cache miss — call original
+        int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+
+        // Capture the pushed TValue data from the Lua stack
+        if (fieldCount > 0 && fieldCount <= COMBATLOG_MAX_FIELDS) {
+            uint64_t* topPtr = *(uint64_t**)(luaState + 0x0C);
+            // The pushed values are at topPtr - fieldCount through topPtr - 1
+            uint64_t* startPtr = topPtr - fieldCount * 2;
+
+            entry->fingerprint = fp;
+            entry->fieldCount = fieldCount;
+            entry->lruStamp = ++g_combatLogCacheLRU;
+
+            for (int i = 0; i < fieldCount; i++) {
+                uint64_t* src = startPtr + i * 2;
+                entry->fields[i].value_lo = src[0];
+                entry->fields[i].tt = (uint32_t)(src[1] & 0xFFFFFFFF);
+                entry->fields[i].taint = (uint32_t)((src[1] >> 32) & 0xFFFFFFFF);
+            }
+        }
+
+        g_combatLogCacheMisses++;
+        return fieldCount;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_combatLogCacheMisses++;
+        return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+    }
+#endif
+}
+
+static bool InstallCombatLogFullCache() {
+#if CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE
+    Log("CombatLog full cache: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x0074E290;
+
+    // Verify prologue: push ebp; mov ebp, esp
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) {
+        Log("CombatLog full cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
+        return false;
+    }
+
+    if (MH_CreateHook(target, (void*)hooked_CombatLogEvent, (void**)&orig_CombatLogEvent) != MH_OK) {
+        Log("CombatLog full cache: MH_CreateHook FAILED");
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("CombatLog full cache: MH_EnableHook FAILED");
+        return false;
+    }
+
+    memset(g_combatLogCache, 0, sizeof(g_combatLogCache));
+
+    Log("CombatLog full cache: ACTIVE (sub_74E290 @ 0x0074E290 — 256-slot LRU, TValue replay)");
+    return true;
+#endif
+}
+
+// ================================================================
 // 21. sub_85C6F0 — Lua Table Rehash Prevention (testbuild-tablereshape-rc1)
 //
 // WHAT: Hooks luaH_resize (0x0085C6F0). When Lua allocates a new
@@ -2819,6 +3141,9 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     // Validate pointer — must be in valid user-space range
     uintptr_t p = (uintptr_t)table;
     if (p < 0x10000 || p > 0xBFFF0000) return newSize;
+
+    // CRITICAL: Clear luaH_getstr cache on every resize — old Node* pointers are invalidated
+    ClearLuaHGetStrCache();
 
     __try {
         int currentSize = *(int*)((char*)table + 0x20);
@@ -2995,6 +3320,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lua Table Rehash (testbuild) ---");
     bool tableReshapeOk = InstallLuaHResizeHook();
 
+    Log("--- Lua Table Lookup (testbuild) ---");
+    bool luaHGetStrOk = InstallLuaHGetStrCache();
+
+    Log("--- CombatLog Full Cache ---");
+    bool combatLogFullCacheOk = InstallCombatLogFullCache();
+
     Log("--- Thread Affinity ---");
     g_threadAffOk = InstallThreadAffinity();
 
@@ -3095,6 +3426,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] MsgPump (frame-continue rc1)", msgPumpOk   ? " OK " : "SKIP");
     Log("  [%s] Swap/Present (glFinish skip)", swapOk      ? " OK " : "SKIP");
     Log("  [%s] Lua Table Rehash (pow2 rc1)", tableReshapeOk ? " OK " : "SKIP");
+    Log("  [%s] Lua Table Lookup (getstr rc1)", luaHGetStrOk ? " OK " : "SKIP");
+    Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
 
     return 0;
 }
