@@ -2546,17 +2546,15 @@ static void DumpPeriodicStats() {
         Log("[Stats] Lua Table Rehash: %ld rounded to pow2", g_tableReshapeHits);
 
     if (g_getstrHits + g_getstrFallbacks > 0) {
-        long hits = (long)g_getstrHits;
-        long fb = (long)g_getstrFallbacks;
-        Log("[Stats] luaH_getstr: %ld hits, %ld fallbacks (%.1f%%)",
-            hits, fb, (hits + fb) > 0 ? (double)hits / (hits + fb) * 100.0 : 0.0);
+        Log("[Stats] luaH_getstr: %I64u hits, %I64u fallbacks (%.1f%%)",
+            g_getstrHits, g_getstrFallbacks,
+            (double)g_getstrHits / (g_getstrHits + g_getstrFallbacks) * 100.0);
     }
 
     if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
-        long ch = (long)g_combatLogCacheHits;
-        long cm = (long)g_combatLogCacheMisses;
-        Log("[Stats] CombatLog: %ld hits, %ld misses (%.1f%%)",
-            ch, cm, (ch + cm) > 0 ? (double)ch / (ch + cm) * 100.0 : 0.0);
+        Log("[Stats] CombatLog: %I64u hits, %I64u misses (%.1f%%)",
+            g_combatLogCacheHits, g_combatLogCacheMisses,
+            (double)g_combatLogCacheHits / (g_combatLogCacheHits + g_combatLogCacheMisses) * 100.0);
     }
     
 
