@@ -40,4 +40,7 @@ Stats GetStats();
 
 } // namespace LuaOpt
 
+// Called on UI reload to clear luaH_getstr and lua_getfield caches
+extern "C" void ClearLuaOptCaches();
+
 #endif

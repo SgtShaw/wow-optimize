@@ -1145,6 +1145,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
 
         UICache::ClearCache();
         ApiCache::ClearCache();
+        ClearLuaOptCaches();
         ReplaceLuaAllocator(Api.L);
         OptimizeGC(Api.L);
         PreSizeStringTable(Api.L);
