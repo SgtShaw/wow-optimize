@@ -1000,12 +1000,33 @@ static void ProcessGCRequests(lua_State* L) {
             if (val < 0) {
                 // CRITICAL FIX: Never do full collect — causes 500ms-2s stalls
                 // Instead, do incremental 1MB GC steps (same as emergency GC)
-                Log("[LuaOpt] Addon requested full GC collect — using incremental steps instead");
+                // RATE LIMIT: max 1 full GC collect per 5 seconds
+                static DWORD lastFullGCTick = 0;
+                DWORD nowTick = GetTickCount();
+                if ((LONG)(nowTick - lastFullGCTick) < 5000) {
+                    // Rate limited — skip silently
+                    return;
+                }
+                lastFullGCTick = nowTick;
+                Log("[LuaOpt] Addon requested full GC collect — using incremental steps instead (rate limited: 1/5s)");
                 for (int i = 0; i < 10; i++) {
                     Api.lua_gc(L, LUA_GCSTEP, 1024); // 1MB steps
                 }
                 State.gcStepsTotal += 10;
             } else if (val > 0) {
+                // RATE LIMIT: max 10 GC step requests per second
+                static DWORD lastStepGCTick = 0;
+                static int stepGCCount = 0;
+                DWORD nowTick2 = GetTickCount();
+                if ((LONG)(nowTick2 - lastStepGCTick) >= 1000) {
+                    lastStepGCTick = nowTick2;
+                    stepGCCount = 0;
+                }
+                if (stepGCCount >= 10) {
+                    // Rate limited — skip silently
+                    return;
+                }
+                stepGCCount++;
                 Api.lua_gc(L, LUA_GCSTEP, (int)val);
                 State.gcStepsTotal++;
             }
