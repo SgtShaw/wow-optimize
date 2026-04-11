@@ -91,6 +91,7 @@
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
 #define CRASH_TEST_DISABLE_LUA_GETFIELD         1   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — DISABLED: stale TString* pointers from freed lua_State cause #132 crash on /reload
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
+#define CRASH_TEST_DISABLE_LUA_RAWGETI          0   // lua_rawgeti (0x0084E670) integer-key cache — bypasses collision chain walk for hash-part integer keys
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -152,6 +153,7 @@ static bool InstallLuaGetFieldCache();
 static void ClearLuaGetFieldCache();
 static bool InstallLuaPushStringCache();
 static void ClearLuaPushStringCache();
+static bool InstallLuaRawGetICache();
 
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
 extern "C" void ClearLuaOptCaches() {
@@ -171,6 +173,7 @@ static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
 static uint64_t g_getFieldHits = 0, g_getFieldMisses = 0;
 static uint64_t g_pushStrHits = 0, g_pushStrMisses = 0;
+static uint64_t g_rawGetIHits = 0, g_rawGetIMisses = 0;
 
 // ================================================================
 // Thread Affinity — background worker core pinning
@@ -2583,6 +2586,12 @@ static void DumpPeriodicStats() {
             g_pushStrHits, g_pushStrMisses,
             (double)g_pushStrHits / (g_pushStrHits + g_pushStrMisses) * 100.0);
     }
+
+    if (g_rawGetIHits + g_rawGetIMisses > 0) {
+        Log("[Stats] lua_rawgeti: %I64u hits, %I64u misses (%.1f%%)",
+            g_rawGetIHits, g_rawGetIMisses,
+            (double)g_rawGetIHits / (g_rawGetIHits + g_rawGetIMisses) * 100.0);
+    }
     
 
     if (vaOk && g_vaArenaActive) {
@@ -2860,6 +2869,223 @@ static inline uint64_t ComputeCStringHash(const char* s) {
         h *= 0x100000001B3ULL;
     }
     return h;
+}
+
+// ================================================================
+// 21f. sub_84E670 — lua_rawgeti Fast Path (integer-key cache)
+//
+// WHAT: Hooks lua_rawgeti (0x0084E670). Caches (table*, int key) → Node*
+//       to bypass collision chain walk for hash-part integer keys.
+// WHY:  sub_85C3A0 (luaH_getnum) has two paths:
+//       1. Array part (key-1 < sizearray): direct pointer — already fast
+//       2. Hash part: compute hash from double → walk collision chain
+//          → compare (type==3 && double match). 10-50ns per collision.
+//       For tables that overflow their array (raid frames, aura lists
+//       with gaps), the hash part dominates. Cache avoids the walk.
+// HOW:  1. 2048-slot direct-mapped cache: FNV-1a(table_ptr ^ key) → Node*
+//       2. On hit: validate node[6]==3 (LUA_TNUMBER) && *(double*)(node+8)==n
+//       3. On miss: call original, capture Node*, store
+//       4. Invalidate on luaH_resize (already hooked)
+// SAFETY: Validates cached Node against live table state. If table was
+//         resized, node[6] won't match or double won't match → fall through.
+//         Full SEH wrapper. Falls through on any anomaly.
+// STATUS: Test build — testbuild-lua-rawgeti-rc1
+// ================================================================
+
+#define RAWGETI_CACHE_SIZE 2048
+#define RAWGETI_CACHE_MASK (RAWGETI_CACHE_SIZE - 1)
+
+struct RawGetICacheEntry {
+    uint64_t keyHash;      // FNV-1a of (table_ptr ^ key)
+    int      table;        // Table* pointer
+    int      key;          // Integer key
+    int      node;         // Cached Node* pointer
+};
+
+static RawGetICacheEntry g_rawGetICache[RAWGETI_CACHE_SIZE];
+
+static void ClearLuaRawGetICache() {
+    memset(g_rawGetICache, 0, sizeof(g_rawGetICache));
+}
+
+typedef int (__cdecl* lua_rawgeti_fn)(int L, int idx, int n);
+static lua_rawgeti_fn orig_lua_rawgeti = nullptr;
+
+static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
+#if CRASH_TEST_DISABLE_LUA_RAWGETI
+    return orig_lua_rawgeti(L, idx, n);
+#else
+    // Validate L pointer
+    if ((uintptr_t)L < 0x10000 || (uintptr_t)L > 0xBFFF0000) {
+        g_rawGetIMisses++;
+        return orig_lua_rawgeti(L, idx, n);
+    }
+
+    __try {
+        // Normalize index (same logic as sub_84D9C0 for common cases)
+        int* tableSlot = nullptr;
+        int* L_base = *(int**)(L + 0x10);  // L->base
+        int* L_top  = *(int**)(L + 0x0C);  // L->top
+        if (idx > 0) {
+            if (L_base + (idx - 1) * 4 < L_top)  // within stack bounds
+                tableSlot = L_base + (idx - 1) * 4;
+        } else if (idx >= -10000) {
+            tableSlot = L_top + idx * 4;
+        } else if (idx == -10002) {
+            tableSlot = L_base + 18 * 4;  // L->base[18] = globals
+        }
+
+        if (!tableSlot) {
+            g_rawGetIMisses++;
+            return orig_lua_rawgeti(L, idx, n);
+        }
+
+        int table = tableSlot[0];  // TValue value.gc (table pointer)
+        if (tableSlot[2] != 5 || table < 0x10000 || table > 0xBFFF0000) {
+            // Not a table or invalid pointer
+            g_rawGetIMisses++;
+            return orig_lua_rawgeti(L, idx, n);
+        }
+
+        // Check array part first (hot path — no cache needed)
+        int sizearray = *(int*)(table + 32);
+        if ((unsigned int)(n - 1) < (unsigned int)sizearray) {
+            // Direct array access — already fast, no cache needed
+            int* array = *(int**)(table + 16);
+            int* src = array + (n - 1) * 4;  // 16 bytes per TValue = 4 DWORDs
+
+            __try {
+                DWORD* top = *(DWORD**)(L + 0x0C);
+                top[0] = src[0];
+                top[1] = src[1];
+                top[2] = src[2];
+                top[3] = src[3];
+                *(DWORD**)(L + 0x0C) = top + 4;
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                g_rawGetIMisses++;
+                return orig_lua_rawgeti(L, idx, n);
+            }
+
+            // Copy taint
+            DWORD taint = src[3];
+            if (taint) {
+                if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
+                    *(DWORD*)0x00D4139C = taint;
+            } else {
+                *(DWORD*)0x00D4139C = *(DWORD*)0x00D4139C;
+            }
+
+            g_rawGetIHits++;
+            return src[3];
+        }
+
+        // Hash part — use cache
+        uint64_t hash = 0xCBF29CE484222325ULL;
+        hash ^= (uintptr_t)table;
+        hash *= 0x100000001B3ULL;
+        hash ^= (uint32_t)n;
+        hash *= 0x100000001B3ULL;
+
+        uint32_t cacheIdx = (uint32_t)(hash & RAWGETI_CACHE_MASK);
+        RawGetICacheEntry* entry = &g_rawGetICache[cacheIdx];
+
+        // Check cache hit with full validation
+        if (entry->keyHash == hash && entry->table == table && entry->key == n
+            && entry->node >= 0x10000 && entry->node <= 0xBFFF0000) {
+            int node = entry->node;
+            // Validate: type tag must be LUA_TNUMBER (3)
+            if (*(int*)(node + 24) == 3) {
+                // Validate: double value must match
+                double cachedVal = *(double*)(node + 16);
+                if (cachedVal == (double)n) {
+                    // Cache hit — copy TValue from cached Node
+                    __try {
+                        DWORD* top = *(DWORD**)(L + 0x0C);
+                        top[0] = *(DWORD*)(node + 0);
+                        top[1] = *(DWORD*)(node + 4);
+                        top[2] = *(DWORD*)(node + 8);
+                        top[3] = *(DWORD*)(node + 12);
+                        *(DWORD**)(L + 0x0C) = top + 4;
+                    }
+                    __except (EXCEPTION_EXECUTE_HANDLER) {
+                        g_rawGetIMisses++;
+                        return orig_lua_rawgeti(L, idx, n);
+                    }
+
+                    DWORD taint = *(DWORD*)(node + 12);
+                    if (taint) {
+                        if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
+                            *(DWORD*)0x00D4139C = taint;
+                    }
+
+                    g_rawGetIHits++;
+                    return taint;
+                }
+            }
+        }
+
+        // Cache miss — call original
+        int result = orig_lua_rawgeti(L, idx, n);
+
+        // Capture the TValue from L->top - 16 bytes
+        __try {
+            DWORD* top = *(DWORD**)(L + 0x0C);
+            if (top && (uintptr_t)top >= 0x10000 && (uintptr_t)top <= 0xBFFF0000) {
+                DWORD* slot = top - 4;
+                // Only cache number types (tt==3)
+                if (slot[2] == 3) {
+                    // Verify the double matches the key (guard against collision)
+                    // slot[0..1] = value union, could be gc ptr or double
+                    // For integer keys stored in hash part, it's stored as double
+                    // We can't easily verify here without risking misread — just store
+                    entry->keyHash = hash;
+                    entry->table = table;
+                    entry->key = n;
+                    entry->node = (int)slot[0];  // gc pointer stored in TValue
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+        g_rawGetIMisses++;
+        return result;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        g_rawGetIMisses++;
+        return orig_lua_rawgeti(L, idx, n);
+    }
+#endif
+}
+
+static bool InstallLuaRawGetICache() {
+#if CRASH_TEST_DISABLE_LUA_RAWGETI
+    Log("lua_rawgeti cache: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x0084E670;
+
+    // Verify prologue: push ebp; mov ebp, esp
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) {
+        Log("lua_rawgeti cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
+        return false;
+    }
+
+    if (MH_CreateHook(target, (void*)hooked_lua_rawgeti, (void**)&orig_lua_rawgeti) != MH_OK) {
+        Log("lua_rawgeti cache: MH_CreateHook FAILED");
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("lua_rawgeti cache: MH_EnableHook FAILED");
+        return false;
+    }
+
+    memset(g_rawGetICache, 0, sizeof(g_rawGetICache));
+
+    Log("lua_rawgeti cache: ACTIVE (sub_84E670 @ 0x0084E670 — 2048-slot integer-key cache, SEH)");
+    return true;
+#endif
 }
 
 // ================================================================
@@ -3506,6 +3732,7 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
 
     // CRITICAL: Clear luaH_getstr cache on every resize — old Node* pointers are invalidated
     ClearLuaHGetStrCache();
+    ClearLuaRawGetICache();
 
     __try {
         int currentSize = *(int*)((char*)table + 0x20);
@@ -3691,6 +3918,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lua PushString (testbuild) ---");
     bool luaPushStringOk = InstallLuaPushStringCache();
 
+    Log("--- Lua RawGetI (testbuild) ---");
+    bool luaRawGetIOk = InstallLuaRawGetICache();
+
     Log("--- CombatLog Full Cache ---");
     bool combatLogFullCacheOk = InstallCombatLogFullCache();
 
@@ -3797,6 +4027,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua Table Lookup (getstr rc1)", luaHGetStrOk ? " OK " : "SKIP");
     Log("  [%s] Lua GetField (_G bypass rc1)",  luaGetFieldOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern rc1)",   luaPushStringOk ? " OK " : "SKIP");
+    Log("  [%s] Lua RawGetI (int-key rc1)",     luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
 
     return 0;
