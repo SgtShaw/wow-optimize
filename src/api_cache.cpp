@@ -65,7 +65,7 @@ static ScriptFunc_fn orig_GetItemInfo  = nullptr;
 
 // Cache structures.
 
-static constexpr int CACHE_SIZE    = 2048;
+static constexpr int CACHE_SIZE    = 8192;
 static constexpr int CACHE_MASK    = CACHE_SIZE - 1;
 static constexpr int MAX_RETVALS   = 11;  // GetItemInfo returns up to 11
 
