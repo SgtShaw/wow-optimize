@@ -3300,6 +3300,7 @@ typedef void        (__cdecl *fn_lua_pushstring)(int L, const char* s);
 typedef void        (__cdecl *fn_lua_pushnumber)(int L, double n);
 typedef void        (__cdecl *fn_lua_pushboolean)(int L, int b);
 typedef void        (__cdecl *fn_lua_pushnil)(int L);
+typedef void        (__cdecl *fn_lua_settop)(int L, int index);
 typedef int         (__cdecl *fn_lua_type)(int L, int index);
 typedef int         (__cdecl *fn_lua_gettop)(int L);
 
@@ -3309,6 +3310,7 @@ static fn_lua_pushstring  lua_pushstring_ = (fn_lua_pushstring)0x0084E350;
 static fn_lua_pushnumber  lua_pushnumber_ = (fn_lua_pushnumber)0x0084E2A0;
 static fn_lua_pushboolean lua_pushboolean_= (fn_lua_pushboolean)0x0084E4D0;
 static fn_lua_pushnil     lua_pushnil_    = (fn_lua_pushnil)0x0084E280;
+static fn_lua_settop      lua_settop_     = (fn_lua_settop)0x0084DBF0;
 static fn_lua_type        lua_type_       = (fn_lua_type)0x0084DEB0;
 static fn_lua_gettop      lua_gettop_     = (fn_lua_gettop)0x0084DBD0;
 
@@ -3338,29 +3340,38 @@ static int __cdecl hooked_lua_getfield(int L, int idx, const char* key) {
 
         // Check cache hit: same hash AND same generation
         if (entry->keyHash == hash && entry->generation == g_getFieldGen && entry->type != -1) {
-            // Cache hit — replay value using Lua API (safe string copy)
-            __try {
-                switch (entry->type) {
-                    case LUA_TSTRING:
-                        lua_pushstring_(L, entry->strVal);
-                        break;
-                    case LUA_TNUMBER:
-                        lua_pushnumber_(L, entry->numVal);
-                        break;
-                    case LUA_TBOOLEAN:
-                        lua_pushboolean_(L, (int)entry->numVal);
-                        break;
-                    default:  // LUA_TNIL or unknown
-                        lua_pushnil_(L);
-                        break;
-                }
-                g_getFieldHits++;
-                return 0;
+            // Cache hit — replace original value with cached one
+        // orig_lua_getfield already pushed a value and incremented L->top.
+        // We need to pop that value and push our cached one instead.
+        __try {
+            int topBefore = lua_gettop_(L);  // Save stack position BEFORE original push
+            int result = orig_lua_getfield(L, idx, key);
+            
+            // Remove the value that orig_lua_getfield pushed
+            lua_settop_(L, topBefore - 1);
+            
+            // Push our cached value
+            switch (entry->type) {
+                case LUA_TSTRING:
+                    lua_pushstring_(L, entry->strVal);
+                    break;
+                case LUA_TNUMBER:
+                    lua_pushnumber_(L, entry->numVal);
+                    break;
+                case LUA_TBOOLEAN:
+                    lua_pushboolean_(L, (int)entry->numVal);
+                    break;
+                default:  // LUA_TNIL or unknown
+                    lua_pushnil_(L);
+                    break;
             }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                g_getFieldMisses++;
-                return orig_lua_getfield(L, idx, key);
-            }
+            g_getFieldHits++;
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            g_getFieldMisses++;
+            return orig_lua_getfield(L, idx, key);
+        }
         }
 
         // Cache miss — call original
