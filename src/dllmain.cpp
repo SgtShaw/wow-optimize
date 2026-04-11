@@ -91,7 +91,7 @@
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
 #define CRASH_TEST_DISABLE_LUA_GETFIELD         1   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — DISABLED: stale TString* pointers from freed lua_State cause #132 crash on /reload
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
-#define CRASH_TEST_DISABLE_LUA_RAWGETI          0   // lua_rawgeti (0x0084E670) integer-key cache — bypasses collision chain walk for hash-part integer keys
+#define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti (0x0084E670) integer-key cache — DISABLED: TValue replay pushes corrupted Node data causing 0xC0000005 in lua_setfield at 0x0084E9DE
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -513,12 +513,15 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
 
-        // DBC pre-faulting during loading screen (x64-like resident data)
+        // DBC pre-faulting DISABLED — caused 10-second load freezes reading 38 MPQs
+        // and ICC zone transition freezes. Will revisit with async implementation.
+        /*
         if (LuaOpt::IsLoadingMode()) {
             PrefetchDBCData();
         } else {
             ResetDBCPrefetchFlag();
         }
+        */
 
         PreciseSleep((double)ms);
         return;
@@ -4032,7 +4035,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua GetField (_G bypass rc1)",  luaGetFieldOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern rc1)",   luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key rc1)",     luaRawGetIOk ? " OK " : "SKIP");
-    Log("  [%s] DBC pre-fault (x64-like)",      "WAIT");
+    Log("  [%s] DBC pre-fault (x64-like)",      "DISABLED — caused 10s load freezes, ICC zone freezes");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
 
     return 0;
