@@ -98,20 +98,28 @@ static bool IsExecutableMemory(uintptr_t addr);
 static bool InstallThreadAffinity();
 
 // ================================================================
-// VA Arena v2 — High-address reserved arena with caller filtering
+// VA Arena v3 — Full Coverage VirtualAlloc/VirtualFree Interceptor
 //
-// WHAT: Intercepts VirtualAlloc calls from Wow.exe and serves them
-//       from a pre-reserved 512 MB block in high address space.
-// WHY:  Prevents 32-bit address space fragmentation by keeping large
-//       allocations contiguous in a dedicated region.
-// HOW:  1. Reserves 512 MB with MEM_TOP_DOWN at DLL init
-//       2. Hooks VirtualAlloc/VirtualFree
-//       3. Filters callers — only services allocations from Wow.exe code
-//       4. Bitmap-based page allocator (64 KB pages, up to 8192)
-//       5. SEH-protected — falls back to original VirtualAlloc on exception
-// LIMITS: Only intercepts >=64 KB MEM_COMMIT allocations
-// STATUS: Enabled (disabled via CRASH_TEST_DISABLE_VA_ARENA if needed)
+// WHAT: Replaces ALL VirtualAlloc calls (not just Wow.exe callers).
+//       Catches 4KB+ allocations from any source (addons, mimalloc,
+//       textures, DBC loading, etc.)
+// WHY:  32-bit WoW fragments its 2GB address space. After 1-2 hours
+//       in raids, VA shows Free=39MB LargestBlock=1MB → crash/freeze.
+//       A 512MB high-address arena prevents fragmentation by keeping
+//       all allocations contiguous. This is the closest thing to
+//       64-bit WoW for address space stability.
+// HOW:  1. Reserve 512MB at high address (>=0xD0000000) at init
+//       2. Hook VirtualAlloc/VirtualFree for ALL callers
+//       3. Bitmap allocator (4KB pages, 131072 pages in 512MB)
+//       4. VirtualFree returns pages to arena bitmap
+//       5. Fallback to original VirtualAlloc on failure
+// STATUS: Test build — testbuild-va-arena-v3-rc1
 // ================================================================
+
+#define VA_ARENA_PAGE_SIZE  4096
+#define VA_ARENA_MAX_PAGES  131072  // 512MB
+#define VA_ARENA_BITMAP_SIZE (VA_ARENA_MAX_PAGES / 64)
+
 typedef LPVOID (WINAPI* VirtualAlloc_fn)(LPVOID, SIZE_T, DWORD, DWORD);
 typedef BOOL   (WINAPI* VirtualFree_fn)(LPVOID, SIZE_T, DWORD);
 
@@ -126,15 +134,11 @@ static SRWLOCK        g_vaArenaLock      = SRWLOCK_INIT;
 static long           g_vaArenaHits      = 0;
 static long           g_vaArenaFallbacks = 0;
 static long           g_vaArenaFailures  = 0;
+static DWORD          g_vaArenaUsedPages = 0;
 
-#define VA_ARENA_PAGE_SIZE  65536
-#define VA_ARENA_MAX_PAGES  8192  // 512 MB
-static uint64_t g_vaArenaBitmap[VA_ARENA_MAX_PAGES / 64] = {0};
-static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in pages
-static DWORD    g_vaArenaUsedPages = 0;
-
-static uintptr_t g_vaArenaWowBase = 0;
-static uintptr_t g_vaArenaWowEnd  = 0;
+// Bitmap + span tracking
+static uint64_t g_vaArenaBitmap[VA_ARENA_BITMAP_SIZE] = {0};
+static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in pages from this page
 
 // Forward declarations
 static bool InstallVAArena();
@@ -2598,7 +2602,7 @@ static void DumpPeriodicStats() {
         long total = g_vaArenaHits + g_vaArenaFallbacks;
         double arenaPct = total > 0 ? (double)g_vaArenaHits / total * 100.0 : 0.0;
         double usedMB = (double)g_vaArenaUsedPages * VA_ARENA_PAGE_SIZE / (1024.0 * 1024.0);
-        Log("[Stats] VA Arena: %ld hits, %ld fallback, %ld fail (%.1f%% arena, %.1f MB used)",
+        Log("[Stats] VA Arena v3: %ld hits, %ld fallbacks, %ld fail (%.1f%% arena, %.1f MB used)",
             g_vaArenaHits, g_vaArenaFallbacks, g_vaArenaFailures,
             arenaPct, usedMB);
     }
@@ -2908,6 +2912,8 @@ static void ClearLuaRawGetICache() {
     memset(g_rawGetICache, 0, sizeof(g_rawGetICache));
 }
 
+static void* (*orig_luaH_getnum)(int table, int key) = (void* (*)(int, int))0x0085C3A0;
+
 typedef int (__cdecl* lua_rawgeti_fn)(int L, int idx, int n);
 static lua_rawgeti_fn orig_lua_rawgeti = nullptr;
 
@@ -2922,17 +2928,17 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
     }
 
     __try {
-        // Normalize index (same logic as sub_84D9C0 for common cases)
+        // Normalize index to get the table pointer
         int* tableSlot = nullptr;
         int* L_base = *(int**)(L + 0x10);  // L->base
         int* L_top  = *(int**)(L + 0x0C);  // L->top
         if (idx > 0) {
-            if (L_base + (idx - 1) * 4 < L_top)  // within stack bounds
+            if (L_base + (idx - 1) * 4 < L_top)
                 tableSlot = L_base + (idx - 1) * 4;
         } else if (idx >= -10000) {
             tableSlot = L_top + idx * 4;
         } else if (idx == -10002) {
-            tableSlot = L_base + 18 * 4;  // L->base[18] = globals
+            tableSlot = L_base + 18 * 4;
         }
 
         if (!tableSlot) {
@@ -2940,19 +2946,17 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
             return orig_lua_rawgeti(L, idx, n);
         }
 
-        int table = tableSlot[0];  // TValue value.gc (table pointer)
+        int table = tableSlot[0];
         if (tableSlot[2] != 5 || table < 0x10000 || table > 0xBFFF0000) {
-            // Not a table or invalid pointer
             g_rawGetIMisses++;
             return orig_lua_rawgeti(L, idx, n);
         }
 
-        // Check array part first (hot path — no cache needed)
+        // Array part: direct access (already fast, no cache needed)
         int sizearray = *(int*)(table + 32);
         if ((unsigned int)(n - 1) < (unsigned int)sizearray) {
-            // Direct array access — already fast, no cache needed
             int* array = *(int**)(table + 16);
-            int* src = array + (n - 1) * 4;  // 16 bytes per TValue = 4 DWORDs
+            int* src = array + (n - 1) * 4;
 
             __try {
                 DWORD* top = *(DWORD**)(L + 0x0C);
@@ -2967,20 +2971,17 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
                 return orig_lua_rawgeti(L, idx, n);
             }
 
-            // Copy taint
             DWORD taint = src[3];
             if (taint) {
                 if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
                     *(DWORD*)0x00D4139C = taint;
-            } else {
-                *(DWORD*)0x00D4139C = *(DWORD*)0x00D4139C;
             }
 
             g_rawGetIHits++;
             return src[3];
         }
 
-        // Hash part — use cache
+        // Hash part — use cache with Node* from luaH_getnum (sub_85C3A0)
         uint64_t hash = 0xCBF29CE484222325ULL;
         hash ^= (uintptr_t)table;
         hash *= 0x100000001B3ULL;
@@ -2990,66 +2991,82 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
         uint32_t cacheIdx = (uint32_t)(hash & RAWGETI_CACHE_MASK);
         RawGetICacheEntry* entry = &g_rawGetICache[cacheIdx];
 
-        // Check cache hit with full validation
+        // Check cache hit
         if (entry->keyHash == hash && entry->table == table && entry->key == n
             && entry->node >= 0x10000 && entry->node <= 0xBFFF0000) {
             int node = entry->node;
-            // Validate: type tag must be LUA_TNUMBER (3)
-            if (*(int*)(node + 24) == 3) {
-                // Validate: double value must match
-                double cachedVal = *(double*)(node + 16);
-                if (cachedVal == (double)n) {
-                    // Cache hit — copy TValue from cached Node
-                    __try {
-                        DWORD* top = *(DWORD**)(L + 0x0C);
-                        top[0] = *(DWORD*)(node + 0);
-                        top[1] = *(DWORD*)(node + 4);
-                        top[2] = *(DWORD*)(node + 8);
-                        top[3] = *(DWORD*)(node + 12);
-                        *(DWORD**)(L + 0x0C) = top + 4;
-                    }
-                    __except (EXCEPTION_EXECUTE_HANDLER) {
-                        g_rawGetIMisses++;
-                        return orig_lua_rawgeti(L, idx, n);
-                    }
-
-                    DWORD taint = *(DWORD*)(node + 12);
-                    if (taint) {
-                        if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
-                            *(DWORD*)0x00D4139C = taint;
-                    }
-
-                    g_rawGetIHits++;
-                    return taint;
+            // Validate: key type tag (node+24 = key.tt) must be LUA_TNUMBER (3)
+            // Validate: key value (node+16 = key.n) must match n
+            if (*(int*)(node + 24) == 3 && *(double*)(node + 16) == (double)n) {
+                // Cache hit — push TValue from Node[0..3]
+                __try {
+                    DWORD* top = *(DWORD**)(L + 0x0C);
+                    top[0] = *(DWORD*)(node + 0);
+                    top[1] = *(DWORD*)(node + 4);
+                    top[2] = *(DWORD*)(node + 8);
+                    top[3] = *(DWORD*)(node + 12);
+                    *(DWORD**)(L + 0x0C) = top + 4;
                 }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    g_rawGetIMisses++;
+                    return orig_lua_rawgeti(L, idx, n);
+                }
+
+                DWORD taint = *(DWORD*)(node + 12);
+                if (taint) {
+                    if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
+                        *(DWORD*)0x00D4139C = taint;
+                }
+
+                g_rawGetIHits++;
+                return taint;
             }
         }
 
-        // Cache miss — call original
-        int result = orig_lua_rawgeti(L, idx, n);
+        // Cache miss — call luaH_getnum directly (bypass lua_rawgeti entirely)
+        void* nodePtr = orig_luaH_getnum(table, n);
 
-        // Capture the TValue from L->top - 16 bytes
-        __try {
-            DWORD* top = *(DWORD**)(L + 0x0C);
-            if (top && (uintptr_t)top >= 0x10000 && (uintptr_t)top <= 0xBFFF0000) {
-                DWORD* slot = top - 4;
-                // Only cache number types (tt==3)
-                if (slot[2] == 3) {
-                    // Verify the double matches the key (guard against collision)
-                    // slot[0..1] = value union, could be gc ptr or double
-                    // For integer keys stored in hash part, it's stored as double
-                    // We can't easily verify here without risking misread — just store
-                    entry->keyHash = hash;
-                    entry->table = table;
-                    entry->key = n;
-                    entry->node = (int)slot[0];  // gc pointer stored in TValue
+        // Check if it's a real Node (not nil sentinel at 0x00A46F78)
+        if (nodePtr && (uintptr_t)nodePtr >= 0x10000 && (uintptr_t)nodePtr <= 0xBFFF0000
+            && (uintptr_t)nodePtr != 0x00A46F78) {
+            int* nodeArr = (int*)nodePtr;
+
+            // Verify: key type must be number, key value must match n
+            if (nodeArr[6] == 3 && *(double*)(nodeArr + 4) == (double)n) {
+                // Cache the Node*
+                entry->keyHash = hash;
+                entry->table = table;
+                entry->key = n;
+                entry->node = (int)nodePtr;
+
+                // Push TValue from Node[0..3]
+                __try {
+                    DWORD* top = *(DWORD**)(L + 0x0C);
+                    top[0] = *(DWORD*)(nodeArr + 0);
+                    top[1] = *(DWORD*)(nodeArr + 1);
+                    top[2] = *(DWORD*)(nodeArr + 2);
+                    top[3] = *(DWORD*)(nodeArr + 3);
+                    *(DWORD**)(L + 0x0C) = top + 4;
                 }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    g_rawGetIMisses++;
+                    return orig_lua_rawgeti(L, idx, n);
+                }
+
+                DWORD taint = *(DWORD*)(nodeArr + 3);
+                if (taint) {
+                    if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
+                        *(DWORD*)0x00D4139C = taint;
+                }
+
+                g_rawGetIHits++;
+                return taint;
             }
         }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
 
+        // Nil or invalid — fall through to original
         g_rawGetIMisses++;
-        return result;
+        return orig_lua_rawgeti(L, idx, n);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         g_rawGetIMisses++;
@@ -4498,37 +4515,34 @@ static bool InstallThreadAffinity() {
 // VA Arena v2 — High-address reserved arena with caller filtering
 // ================================================================
 
-static bool IsWowExeCaller(uintptr_t retAddr) {
-    if (g_vaArenaWowBase == 0 || g_vaArenaWowEnd == 0) return false;
-    return (retAddr >= g_vaArenaWowBase && retAddr < g_vaArenaWowEnd);
-}
-
 static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flType, DWORD flProtect) {
-    // Strict filter: only intercept large, committed, non-fixed allocations
+    // Intercept ALL committed, non-fixed, non-reserve allocations
+    // No caller filtering — serve everyone (Wow.exe, addons, mimalloc, D3D9, etc.)
     if (g_vaArenaActive &&
         lpAddress == NULL &&
         dwSize >= VA_ARENA_PAGE_SIZE &&
+        dwSize <= 256 * 1024 * 1024 &&  // cap at 256MB per alloc
         (flType & MEM_COMMIT) &&
         !(flType & MEM_RESERVE) &&
         !(flType & MEM_RESET) &&
         !(flType & MEM_PHYSICAL) &&
         !(flType & MEM_LARGE_PAGES) &&
         (flProtect == PAGE_READONLY || flProtect == PAGE_READWRITE ||
-         flProtect == PAGE_EXECUTE_READ || flProtect == PAGE_EXECUTE_READWRITE))
+         flProtect == PAGE_EXECUTE_READ || flProtect == PAGE_EXECUTE_READWRITE ||
+         flProtect == PAGE_NOACCESS))
     {
 #if !CRASH_TEST_DISABLE_VA_ARENA
-        // Caller filter: only service allocations from Wow.exe code
-        uintptr_t retAddr = (uintptr_t)_ReturnAddress();
-        if (!IsWowExeCaller(retAddr)) {
-            goto va_fallback;
-        }
-
         __try {
             SIZE_T pagesNeeded = (dwSize + VA_ARENA_PAGE_SIZE - 1) / VA_ARENA_PAGE_SIZE;
-            if (pagesNeeded > VA_ARENA_MAX_PAGES - g_vaArenaUsedPages)
-                goto va_fallback;
 
             AcquireSRWLockExclusive(&g_vaArenaLock);
+
+            if (pagesNeeded > VA_ARENA_MAX_PAGES - g_vaArenaUsedPages) {
+                ReleaseSRWLockExclusive(&g_vaArenaLock);
+                goto va_fallback;
+            }
+
+            // First-fit bitmap scan for consecutive free pages
             DWORD startPage = 0;
             DWORD consecutive = 0;
             bool found = false;
@@ -4559,7 +4573,7 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
 
             LPVOID result = (LPVOID)((uintptr_t)g_vaArenaBase + (startPage * VA_ARENA_PAGE_SIZE));
 
-            // Commit the full span from OS
+            // Commit the pages from OS
             SIZE_T spanSize = (SIZE_T)pagesNeeded * VA_ARENA_PAGE_SIZE;
             LPVOID committed = orig_VirtualAlloc(result, spanSize, MEM_COMMIT, flProtect);
             if (!committed) {
@@ -4656,36 +4670,26 @@ static bool InstallVAArena() {
     Log("VA Arena: DISABLED (crash isolation)");
     return false;
 #else
-    // Determine Wow.exe image range for caller filtering
-    HMODULE hWow = GetModuleHandleA(NULL);
-    if (!hWow) {
-        Log("VA Arena: SKIP (cannot get Wow.exe handle)");
-        return false;
-    }
-    MODULEINFO modInfo;
-    if (!GetModuleInformation(GetCurrentProcess(), hWow, &modInfo, sizeof(modInfo))) {
-        Log("VA Arena: SKIP (cannot get Wow.exe module info)");
-        return false;
-    }
-    g_vaArenaWowBase = (uintptr_t)hWow;
-    g_vaArenaWowEnd  = g_vaArenaWowBase + modInfo.SizeOfImage;
-
-    // Pre-reserve 512MB in high address space
+    // Pre-reserve 512MB in high address space (>=0xD0000000)
+    // This avoids low-address fragmentation that causes 32-bit crashes
     g_vaArenaSize = VA_ARENA_MAX_PAGES * VA_ARENA_PAGE_SIZE;
-    g_vaArenaBase = VirtualAlloc(NULL, g_vaArenaSize, MEM_RESERVE | MEM_TOP_DOWN, PAGE_NOACCESS);
+
+    // Try high addresses first with MEM_TOP_DOWN
+    g_vaArenaBase = VirtualAlloc((LPVOID)0xF0000000, g_vaArenaSize, MEM_RESERVE | MEM_TOP_DOWN, PAGE_NOACCESS);
     if (!g_vaArenaBase) {
-        // Fallback: normal reserve without MEM_TOP_DOWN
-        g_vaArenaBase = VirtualAlloc(NULL, g_vaArenaSize, MEM_RESERVE, PAGE_NOACCESS);
+        // Try without specific address
+        g_vaArenaBase = VirtualAlloc(NULL, g_vaArenaSize, MEM_RESERVE | MEM_TOP_DOWN, PAGE_NOACCESS);
         if (!g_vaArenaBase) {
-            Log("VA Arena: SKIP (cannot reserve 512MB block)");
-            return false;
+            g_vaArenaBase = VirtualAlloc(NULL, g_vaArenaSize, MEM_RESERVE, PAGE_NOACCESS);
+            if (!g_vaArenaBase) {
+                Log("VA Arena: SKIP (cannot reserve 512MB block)");
+                return false;
+            }
         }
-        Log("VA Arena: ACTIVE (512MB block @ 0x%08X, Wow.exe caller-filtered, >=64KB, SEH-guarded)",
-            (unsigned)(uintptr_t)g_vaArenaBase);
-    } else {
-        Log("VA Arena: ACTIVE (512MB high block @ 0x%08X, Wow.exe caller-filtered, >=64KB, SEH-guarded)",
-            (unsigned)(uintptr_t)g_vaArenaBase);
     }
+
+    Log("VA Arena: ACTIVE (512MB block @ 0x%08X, 4KB pages, ALL callers, SEH-guarded)",
+        (unsigned)(uintptr_t)g_vaArenaBase);
 
     void* pAlloc = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "VirtualAlloc");
     void* pFree  = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "VirtualFree");
