@@ -87,7 +87,7 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select, incompatible with command pump arch)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap optimization — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention (rc1)
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr (0x0085C430) string-key table lookup cache
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr (0x0085C430) string-key table lookup cache — DISABLED: stale Node* after table destroy causes 0xC0000005 at 0x0085BC2C and 0x0085C3B0
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
 #define CRASH_TEST_DISABLE_LUA_GETFIELD         1   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — DISABLED: stale TString* pointers from freed lua_State cause #132 crash on /reload
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
