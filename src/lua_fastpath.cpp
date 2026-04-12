@@ -1741,8 +1741,7 @@ fallback:
 // Phase 2: discovery and hook installation.
 
 // ================================================================
-// TEST BUILD #3: ALL Phase 2 hooks DISABLED — isolating hang on
-// enter world after character select.
+// Permanently disabled — all Phase 2 hooks disabled
 // ================================================================
 #if !TEST_DISABLE_ALL_PHASE2
 
@@ -1786,7 +1785,7 @@ static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0
 
 #else
 
-// All Phase 2 hooks disabled for testing
+// Permanently disabled — all Phase 2 hooks disabled for testing
 static constexpr int NUM_FUNC_HOOKS = 0;
 
 #endif // TEST_DISABLE_ALL_PHASE2
@@ -1827,7 +1826,7 @@ bool Init() {
 bool InitPhase2(lua_State* L) {
 #if TEST_DISABLE_ALL_PHASE2
     (void)L;
-    Log("[FastPath] Phase 2: DISABLED (test build)");
+    Log("[FastPath] Phase 2: DISABLED (production — permanently)");
     return false;
 #else
     if (!L) return false;
@@ -1913,9 +1912,8 @@ bool InitPhase2(lua_State* L) {
 #endif
 
 #if TEST_DISABLE_PHASE2_NEW_DMA
-        // Disabled: all new DMA hooks added during refactoring
-        // These use GetStackBaseFast + direct TValue reads
-        // Suspected of causing hangs — need investigation
+        // Disabled: hooks that directly write to Lua tables/stack via RawTValue*
+        // Proven to cause hangs in real gameplay during isolation testing
         if (strcmp(e.name, "type") == 0 ||
             strcmp(e.name, "floor") == 0 ||
             strcmp(e.name, "ceil") == 0 ||
@@ -1928,7 +1926,7 @@ bool InitPhase2(lua_State* L) {
             strcmp(e.name, "tonumber") == 0 ||
             strcmp(e.name, "select") == 0 ||
             strcmp(e.name, "rawequal") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (test build — new DMA hooks disabled)",
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — proven to cause hangs)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
@@ -2043,7 +2041,7 @@ void Shutdown() {
 // Permanently disabled — UnitName had 0% hit rate in real sessions.
 // Dynamic units (raid1, nameplate1) change every frame — cache never
 // reuses. Static units (player, target) are called once at UI load.
-// Keeping code available for future test builds only.
+// Code kept available for future production use only.
 // ================================================================
 
 bool InitWoWHooks(lua_State* L) {

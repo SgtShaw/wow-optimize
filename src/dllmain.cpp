@@ -1,7 +1,7 @@
-// ================================================================
+﻿// ================================================================
 // wow_optimize.dll — World of Warcraft 3.3.5a (build 12340) Optimizer
 // Author: SUPREMATIST
-// Version: 3.3.1
+// Version: 3.5.0
 //
 // LOAD MECHANISM:
 //   Loaded via version.dll proxy (WoW loads version.dll at startup).
@@ -59,7 +59,7 @@
 // CRASH ISOLATION TOGGLES
 // Each toggle disables a specific optimization for binary search
 // during crash investigation. Set to 1 to DISABLE the feature.
-// These are compile-time flags for test builds only.
+// These are compile-time flags for debugging builds.
 // ================================================================
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
@@ -78,18 +78,18 @@
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED — 0 hits)
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
 
-// New hooks crash isolation (v3.3.2)
-#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache — ENABLED for testing
+// Crash isolation toggles for hooks added in v3.3.2+
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED — tested bad, crashes WoW)
-#define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache — ENABLED for testing
-#define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path — ENABLED for testing
-#define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache — ENABLED for testing
-#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select, incompatible with command pump arch)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap optimization — glFinish skip (Vulkan/D3D9 only)
-#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention (rc1)
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr (0x0085C430) string-key table lookup cache — RE-ENABLED: safe validation (node[6]==4 && node[4]==live_tstring) prevents stale pointer crashes
+#define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
+#define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
+#define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
+#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
+#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr (0x0085C430) string-key table lookup cache — safe validation (node[6]==4 && node[4]==live_tstring)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
-#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — RE-ENABLED: string-content caching (no TString* pointers), proven safe at 58%+ hit rate
+#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — string-content caching (no TString* pointers), safe at 58%+ hit rate
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti (0x0084E670) integer-key cache — DISABLED: TValue replay pushes corrupted Node data causing 0xC0000005 in lua_setfield at 0x0084E9DE
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat (0x00851C30) fast path — direct array access + inline number-to-string
@@ -126,7 +126,7 @@ static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in page
 static bool InstallVAArena();
 static void ShutdownVAArena();
 
-// New system optimizations (v3.3.2+)
+// New system optimizations
 static bool InstallGetFileSizeCache();
 static bool InstallWaitForSingleObjectHook();
 static bool InstallGetModuleHandleCache();
@@ -2517,7 +2517,7 @@ static void DumpPeriodicStats() {
 }
 
 // ================================================================
-// 19. sub_869E00 — Zero-Message Frame Continue (testbuild-msgpump-rc1)
+// 19. sub_869E00 — Zero-Message Frame Continue (disabled)
 //
 // WHAT: Hooks WoW's message pump function (0x00869E00). When
 //       PeekMessageA returns 0 (no pending Windows messages),
@@ -2541,7 +2541,7 @@ static void DumpPeriodicStats() {
 //         Frame render function handles the dword_D41400 guards.
 //         If hooked_Sleep is null, falls back to Sleep(1) directly.
 //
-// STATUS: Test build only — testbuild-msgpump-rc1
+// STATUS: Permanently disabled
 // ================================================================
 
 typedef int (__cdecl* MsgPump_fn)(void*, int*, DWORD*, void*, void*);
@@ -2606,7 +2606,7 @@ static bool InstallMsgPumpHook() {
 }
 
 // ================================================================
-// 20. sub_69E220 — Swap/Present Optimization (testbuild-swap-rc1)
+// 20. sub_69E220 — Swap/Present Optimization (Vulkan/D3D9)
 //
 // WHAT: Hooks WoW's frame-end swap function (0x0069E220).
 //       Replicates the function body but SKIPS glFinish() entirely.
@@ -2634,7 +2634,7 @@ static bool InstallMsgPumpHook() {
 //         Only glFinish is skipped. Falls back to original
 //         if any address validation fails.
 //
-// STATUS: Test build only — testbuild-swap-rc1
+// STATUS: Test build only — Vulkan/D3D9
 // ================================================================
 
 typedef void (__cdecl* SubFn)();
@@ -2757,7 +2757,7 @@ static inline uint64_t ComputeCStringHash(const char* s) {
 // SAFETY: Validates cached Node against live table state. If table was
 //         resized, node[6] won't match or double won't match → fall through.
 //         Full SEH wrapper. Falls through on any anomaly.
-// STATUS: Test build — testbuild-lua-rawgeti-rc1
+// STATUS: Permanently disabled
 // ================================================================
 
 #define RAWGETI_CACHE_SIZE 2048
@@ -2987,7 +2987,7 @@ static bool InstallLuaRawGetICache() {
 //         are never GC'd (always reachable from the string table).
 //         Cache cleared on luaS_resize/UI reload. Full SEH wrapper.
 //         Falls through on nil input or any anomaly.
-// STATUS: Test build — testbuild-lua-pushstring-rc1
+// STATUS: Permanently disabled
 // ================================================================
 
 #define PUSHSTR_CACHE_SIZE 4096
@@ -3128,7 +3128,7 @@ static bool InstallLuaPushStringCache() {
 //       2. Inline integer-to-string (fast path for ints).
 //       3. Single-pass memcpy into stack buffer.
 //       4. Fallback to original for hash-part or oversized results.
-// STATUS: Test build — testbuild-table-concat-rc1
+// STATUS: Stable release
 // ================================================================
 
 #define TABLE_CONCAT_BUF_SIZE 8192
@@ -3482,7 +3482,7 @@ static bool InstallLuaGetFieldCache() {
 }
 
 // ================================================================
-// 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (testbuild-luahgetstr-rc1)
+// 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (enabled)
 //
 // WHAT: Hooks luaH_getstr (0x0085C430). Caches (table, tstring) → Node*
 //       lookups for repeated table accesses with the same string key.
@@ -3495,7 +3495,7 @@ static bool InstallLuaGetFieldCache() {
 //       2. Validation: check cached node's key.tt==4 && key.gc==tstring
 //       3. Full SEH wrapper
 //       4. Cache cleared on luaH_resize (already hooked)
-// STATUS: Test build — testbuild-luahgetstr-rc1
+// STATUS: Stable release
 // ================================================================
 
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
@@ -3767,7 +3767,7 @@ static bool InstallCombatLogFullCache() {
 }
 
 // ================================================================
-// 21. sub_85C6F0 — Lua Table Rehash Prevention (testbuild-tablereshape-rc1)
+// 21. sub_85C6F0 — Lua Table Rehash Prevention (enabled)
 //
 // WHAT: Hooks luaH_resize (0x0085C6F0). When Lua allocates a new
 //       table size that's only slightly larger than the current size,
@@ -3791,7 +3791,7 @@ static bool InstallCombatLogFullCache() {
 // SAFETY: Basic pointer validation. No SEH (too expensive on this path).
 //         Falls through to original if any check fails.
 //
-// STATUS: Test build only — testbuild-tablereshape-rc1
+// STATUS: Stable release
 // ================================================================
 
 static inline int luaTable_nextPow2(int n) {
@@ -3978,28 +3978,28 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Profile String Cache ---");
     bool profOk = InstallGetPrivateProfileCache();
 
-    Log("--- Message Pump (testbuild) ---");
+    Log("--- Message Pump ---");
     bool msgPumpOk = InstallMsgPumpHook();
 
-    Log("--- Swap/Present (testbuild) ---");
+    Log("--- Swap/Present ---");
     bool swapOk = InstallSwapPresentHook();
 
-    Log("--- Lua Table Rehash (testbuild) ---");
+    Log("--- Lua Table Rehash ---");
     bool tableReshapeOk = InstallLuaHResizeHook();
 
-    Log("--- Lua Table Lookup (testbuild) ---");
+    Log("--- Lua Table Lookup ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
     Log("--- Table Concat Fast Path ---");
     bool tableConcatOk = InstallTableConcatFastPath();
 
-    Log("--- Lua GetField (testbuild) ---");
+    Log("--- Lua GetField ---");
     bool luaGetFieldOk = InstallLuaGetFieldCache();
 
-    Log("--- Lua PushString (testbuild) ---");
+    Log("--- Lua PushString ---");
     bool luaPushStringOk = InstallLuaPushStringCache();
 
-    Log("--- Lua RawGetI (testbuild) ---");
+    Log("--- Lua RawGetI ---");
     bool luaRawGetIOk = InstallLuaRawGetICache();
 
     Log("--- CombatLog Full Cache ---");
@@ -4107,14 +4107,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] API cache (ItemInfo only)",    apiCacheOk  ? " OK " : "SKIP");
     Log("  [%s] Lua fast path (format)",       fastPathOk  ? " OK " : "SKIP");
     Log("  [%s] Lua VM internals (str+concat)", internalsOk ? " OK " : "SKIP");
-    Log("  [%s] MsgPump (frame-continue rc1)", msgPumpOk   ? " OK " : "SKIP");
+    Log("  [%s] MsgPump (frame-continue)",    msgPumpOk   ? " OK " : "SKIP");
     Log("  [%s] Swap/Present (glFinish skip)", swapOk      ? " OK " : "SKIP");
-    Log("  [%s] Lua Table Rehash (pow2 rc1)", tableReshapeOk ? " OK " : "SKIP");
-    Log("  [%s] Lua Table Lookup (getstr rc1)", luaHGetStrOk ? " OK " : "SKIP");
+    Log("  [%s] Lua Table Rehash (pow2)",     tableReshapeOk ? " OK " : "SKIP");
+    Log("  [%s] Lua Table Lookup (getstr)",   luaHGetStrOk ? " OK " : "SKIP");
     Log("  [%s] Table Concat Fast Path",        tableConcatOk ? " OK " : "SKIP");
-    Log("  [%s] Lua GetField (_G bypass rc1)",  luaGetFieldOk ? " OK " : "SKIP");
-    Log("  [%s] Lua PushString (intern rc1)",   luaPushStringOk ? " OK " : "SKIP");
-    Log("  [%s] Lua RawGetI (int-key rc1)",     luaRawGetIOk ? " OK " : "SKIP");
+    Log("  [%s] Lua GetField (_G bypass)",    luaGetFieldOk ? " OK " : "SKIP");
+    Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
+    Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
 
     return 0;
@@ -4144,7 +4144,7 @@ struct FSizeEntry {
 
 static FSizeEntry g_fsizeCache[FSIZE_CACHE_SIZE] = {};
 
-// TEST BUILD: GetFileSizeEx cache DISABLED — suspected of causing
+// GetFileSizeEx cache disabled � disabled in production
 // hang after character select. Windows reuses handle values; caching
 // by handle returns stale sizes for recycled handles.
 #define TEST_DISABLE_GETFILESIZE_CACHE  1
@@ -4866,3 +4866,4 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     }
     return TRUE;
 }
+

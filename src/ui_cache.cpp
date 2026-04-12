@@ -24,7 +24,7 @@ static bool g_active = false;
 bool Init() {
     Log("[UICache] ====================================");
     Log("[UICache]  UI Widget Cache");
-    Log("[UICache]  DISABLED in test build");
+    Log("[UICache]  DISABLED in production build");
     Log("[UICache]  Disabled due to addon regressions");
     Log("[UICache] ====================================");
     g_active = false;
