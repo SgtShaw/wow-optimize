@@ -1,11 +1,11 @@
 # wow_optimize
 
-Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)  
+Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
 
 wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, and other low-level bottlenecks.
 
-The current public build is focused on real frametime stability, long-session smoothness, addon-heavy gameplay, and lower Lua/runtime overhead while keeping historically unsafe public features disabled.
+The current public build is focused on real frametime stability, long-session smoothness, addon-heavy gameplay, and lower Lua/runtime overhead while keeping historically unsafe features disabled.
 
 > Disclaimer: This project is provided as-is for educational purposes. DLL injection may violate the Terms of Service of private servers. Use at your own risk.
 
@@ -37,10 +37,14 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 - safe Lua stats export to addon
 - Lua reload detection and clean reinitialization
 
+### WoW API result cache
+- `GetItemInfo` — 8192-slot cache, Direct Memory Access
+- `GetSpellInfo` — 8192-slot cache, Direct Memory Access
+
 ### Lua fast paths
 - Phase 1:
   - `string.format`
-- Phase 2:
+- Phase 2 (safe, Lua API based):
   - `string.find` (plain mode)
   - `string.match` (safe partial fast path)
   - `type`
@@ -53,11 +57,11 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
   - `string.byte`
   - `tostring`
   - `tonumber`
-  - `next`
-  - `rawget`
-  - `rawset`
-  - `table.insert` (append-only fast path)
-  - `table.remove` (pop-last fast path)
+  - `select`
+  - `rawequal`
+  - `string.sub`
+  - `string.lower`
+  - `string.upper`
   - `table.concat` (single-pass, SEH-guarded)
   - `unpack` (dense array fast path)
   - `select` (fast index & "#" count)

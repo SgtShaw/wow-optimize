@@ -4014,7 +4014,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaOk = false;
     Log("");
     Log("--- Lua VM Optimizer ---");
+#if TEST_DISABLE_LUA_VM_OPT
+    Log("[LuaOpt] DISABLED (baseline test — system hooks only)");
+#else
     luaOk = LuaOpt::PrepareFromWorkerThread();
+#endif
 
     Log("");
     Log("--- Combat Log ---");
@@ -4026,29 +4030,30 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- API Cache ---");
+#if TEST_DISABLE_ALL_APICACHE
+    Log("[ApiCache] DISABLED (baseline test)");
+    bool apiCacheOk = false;
+#else
     bool apiCacheOk = ApiCache::Init();
+#endif
 
     bool fastPathOk = false;
     Log("");
     Log("--- Lua Fast Path ---");
+#if TEST_DISABLE_ALL_PHASE2
+    Log("[FastPath] DISABLED (baseline test)");
+#else
     __try {
         fastPathOk = LuaFastPath::Init();
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[FastPath] EXCEPTION 0x%08X — SKIPPED", GetExceptionCode());
     }
+#endif
 
     bool internalsOk = false;
     Log("");
     Log("--- Lua VM Internals ---");
-#if !CRASH_TEST_DISABLE_LUA_INTERNALS
-    __try {
-        internalsOk = LuaInternals::Init();
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[LuaVM] EXCEPTION 0x%08X — SKIPPED", GetExceptionCode());
-    }
-#else
-    Log("[LuaVM] DISABLED (crash isolation)");
-#endif
+    Log("[LuaVM] DISABLED (baseline test)");
 
 
 

@@ -24,18 +24,14 @@
 //
 // STATUS: Active — reduces repeated database queries by 80%+
 // ================================================================
-
-// ================================================================
-// TEST BUILD: GetSpellInfo cache DISABLED — suspected of breaking
-// keyboard keybinds for abilities. Re-enable after investigation.
-// ================================================================
-#define TEST_DISABLE_GETSPELLINFO_CACHE  1
+// TEST BUILD #4 flags are in version.h (global, shared across all files)
 
 #include "api_cache.h"
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include "MinHook.h"
+#include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
 
