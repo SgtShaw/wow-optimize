@@ -4139,34 +4139,17 @@ struct FSizeEntry {
 
 static FSizeEntry g_fsizeCache[FSIZE_CACHE_SIZE] = {};
 
+// TEST BUILD: GetFileSizeEx cache DISABLED — suspected of causing
+// hang after character select. Windows reuses handle values; caching
+// by handle returns stale sizes for recycled handles.
+#define TEST_DISABLE_GETFILESIZE_CACHE  1
+
 typedef BOOL (WINAPI* GetFileSizeEx_fn)(HANDLE, PLARGE_INTEGER);
 static GetFileSizeEx_fn orig_GetFileSizeEx = nullptr;
 
 static BOOL WINAPI hooked_GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
-    // Cache lookup by handle value (handles are stable within a session)
-    uint32_t h = (uint32_t)((uintptr_t)hFile >> 2);  // shift for distribution
-    int slot = h & FSIZE_CACHE_MASK;
-    FSizeEntry* e = &g_fsizeCache[slot];
-
-    if (e->valid && e->pathHash == h) {
-        *lpFileSize = e->fileSize;
-        InterlockedIncrement(&g_fsizeHits);
-        return TRUE;
-    }
-
-    // Cache miss — call original
-    BOOL result = orig_GetFileSizeEx(hFile, lpFileSize);
-    if (!result) {
-        InterlockedIncrement(&g_fsizeMisses);
-        return FALSE;
-    }
-
-    // Cache the result
-    e->pathHash = h;
-    e->fileSize = *lpFileSize;
-    e->valid = true;
-    InterlockedIncrement(&g_fsizeMisses);
-    return TRUE;
+    // Cache disabled for testing — pass through to original
+    return orig_GetFileSizeEx(hFile, lpFileSize);
 }
 
 static bool InstallGetFileSizeCache() {
