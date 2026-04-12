@@ -25,6 +25,12 @@
 // STATUS: Active — reduces repeated database queries by 80%+
 // ================================================================
 
+// ================================================================
+// TEST BUILD: GetSpellInfo cache DISABLED — suspected of breaking
+// keyboard keybinds for abilities. Re-enable after investigation.
+// ================================================================
+#define TEST_DISABLE_GETSPELLINFO_CACHE  1
+
 #include "api_cache.h"
 #include <cstdint>
 #include <cstring>
@@ -421,15 +427,23 @@ static bool HookFunc(const char* name, uintptr_t addr, void* hookFn, void** orig
 namespace ApiCache {
 
 bool Init() {
+#if TEST_DISABLE_GETSPELLINFO_CACHE
+    Log("[ApiCache] Init (build 12340) — Direct Memory Access | TEST: GetSpellInfo DISABLED");
+#else
     Log("[ApiCache] Init (build 12340) — Direct Memory Access");
+#endif
 
     int hooked = 0;
 
     if (HookFunc("GetItemInfo", ADDR_GetItemInfo, (void*)Hooked_GetItemInfo, (void**)&orig_GetItemInfo))
         hooked++;
 
+#if !TEST_DISABLE_GETSPELLINFO_CACHE
     if (HookFunc("GetSpellInfo", ADDR_GetSpellInfo, (void*)Hooked_GetSpellInfo, (void**)&orig_GetSpellInfo))
         hooked++;
+#else
+    Log("[ApiCache]   GetSpellInfo              [ SKIP — test build ]");
+#endif
 
     if (hooked == 0) {
         Log("[ApiCache]  DISABLED — no hooks installed");
