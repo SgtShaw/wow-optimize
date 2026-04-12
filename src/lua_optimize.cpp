@@ -876,8 +876,10 @@ static void UpdateLuaStats(lua_State* L) {
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_UICACHE_ACTIVE",  uiStats.active);
 
         ApiCache::Stats apiStats = ApiCache::GetStats();
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_HITS",   (double)apiStats.hits);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_MISSES", (double)apiStats.misses);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_ITEM_HITS",   (double)apiStats.itemHits);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_ITEM_MISSES", (double)apiStats.itemMisses);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_SPELL_HITS",  (double)apiStats.spellHits);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_SPELL_MISSES",(double)apiStats.spellMisses);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_APICACHE_ACTIVE", apiStats.active);
 
         LuaFastPath::Stats fpStats = LuaFastPath::GetStats();
@@ -954,8 +956,10 @@ static void SetupLuaInterface(lua_State* L) {
 
             "function LuaBoostC_GetApiStats() "
             "  return "
-            "    LUABOOST_DLL_APICACHE_HITS or 0, "
-            "    LUABOOST_DLL_APICACHE_MISSES or 0, "
+            "    LUABOOST_DLL_APICACHE_ITEM_HITS or 0, "
+            "    LUABOOST_DLL_APICACHE_ITEM_MISSES or 0, "
+            "    LUABOOST_DLL_APICACHE_SPELL_HITS or 0, "
+            "    LUABOOST_DLL_APICACHE_SPELL_MISSES or 0, "
             "    LUABOOST_DLL_APICACHE_ACTIVE or false "
             "end "
 

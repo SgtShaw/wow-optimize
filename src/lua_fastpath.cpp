@@ -1198,6 +1198,12 @@ static int __cdecl Hooked_RawSet_Global(lua_State* L) {
             return orig_luaB_rawset(L);
         }
 
+        // SAFETY: validate destination pointer before write
+        if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
+            NoteRawSetFallback();
+            return orig_luaB_rawset(L);
+        }
+
         *dst = *valueSlot;
 
         if (valueSlot->taint) {
@@ -1338,6 +1344,12 @@ static int __cdecl Hooked_TableInsert(lua_State* L) {
 
         RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)(len + 1));
         if (!dst) {
+            NoteTableInsertFallback();
+            return orig_tbl_insert(L);
+        }
+
+        // SAFETY: validate destination pointer before write
+        if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
             NoteTableInsertFallback();
             return orig_tbl_insert(L);
         }
@@ -1542,9 +1554,27 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
         char* p = buf;
         for (int i = 0; i < count; i++) {
             RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
-            size_t slen = *(uint32_t*)((uintptr_t)val->value.gc + 0x10);
-            const char* sdata = (const char*)((uintptr_t)val->value.gc + 0x14);
-            memcpy(p, sdata, slen);
+            if (!val || val->tt != LUA_TSTRING) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+
+            // SAFETY: validate GC string object before direct memory read
+            uintptr_t gcPtr = (uintptr_t)val->value.gc;
+            if (!gcPtr || !IsReadableMemory(gcPtr) || !IsReadableMemory(gcPtr + 0x14)) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+
+            // Validate string type byte at offset 9 (LUA_TSTRING = 4)
+            uint8_t typeByte = *(uint8_t*)(gcPtr + 9);
+            if ((typeByte & 0x1F) != 4) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+
+            size_t slen = *(uint32_t*)(gcPtr + 0x10);
+            if (slen == 0 || slen > 32768) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+
+            const char* sdata = (const char*)(gcPtr + 0x14);
+
+            __try {
+                memcpy(p, sdata, slen);
+            }
+            __except(EXCEPTION_EXECUTE_HANDLER) {
+                mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L);
+            }
             p += slen;
 
             if (i < count - 1 && sepLen > 0) {
@@ -1561,6 +1591,7 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
 
         // Push result
         RawTValue* top = GetStackTopFast(L);
+        if (!top) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
         top->value.gc = ts;
         top->tt = LUA_TSTRING;
         top->taint = *(uint32_t*)ADDR_taint_global;
@@ -1612,9 +1643,16 @@ static int __cdecl Hooked_Unpack(lua_State* L) {
         if (count <= 0 || count > 256) goto fallback;
 
         RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
         for (int i = 0; i < count; i++) {
             RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
             if (!val || val->tt == LUA_TNIL) goto fallback;
+
+            // SAFETY: validate GC object pointer before copy
+            if (val->tt >= LUA_TSTRING && (!val->value.gc || !IsReadableMemory((uintptr_t)val->value.gc)))
+                goto fallback;
+
             *top = *val;
             top++;
         }
