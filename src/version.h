@@ -9,7 +9,7 @@
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 // Crash isolation toggle for Phase 2 Lua fast paths
-// Set to 1 to disable Phase 2 hooks for testing
+// Set to 1 to disable Phase 2 hooks for debugging
 #ifndef CRASH_TEST_DISABLE_PHASE2
 #define CRASH_TEST_DISABLE_PHASE2   0
 #endif

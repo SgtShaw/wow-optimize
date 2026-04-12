@@ -24,7 +24,7 @@
 //
 // STATUS: Active — reduces repeated database queries by 80%+
 // ================================================================
-// TEST BUILD #4 flags are in version.h (global, shared across all files)
+// Production flags are in version.h (shared across all files)
 
 #include "api_cache.h"
 #include <cstdint>
@@ -438,7 +438,7 @@ bool Init() {
     if (HookFunc("GetSpellInfo", ADDR_GetSpellInfo, (void*)Hooked_GetSpellInfo, (void**)&orig_GetSpellInfo))
         hooked++;
 #else
-    Log("[ApiCache]   GetSpellInfo              [ SKIP — test build ]");
+    Log("[ApiCache]   GetSpellInfo              [ SKIP — permanently disabled ]");
 #endif
 
     if (hooked == 0) {
