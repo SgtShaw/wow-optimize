@@ -815,13 +815,19 @@ static const char* const TYPE_NAMES[] = {
 };
 
 static int __cdecl Hooked_Type(lua_State* L) {
-    if (lua_gettop_(L) < 1) return orig_luaB_type(L);
-    int t = lua_type_(L, 1);
-    if (t >= 0 && t <= 8) {
-        lua_pushstring_(L, TYPE_NAMES[t]);
-        g_typeHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base) goto type_fallback;
+
+        int t = base[0].tt;
+        if (t >= 0 && t <= 8) {
+            lua_pushstring_(L, TYPE_NAMES[t]);
+            g_typeHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+type_fallback:
     g_typeFallbacks++;
     return orig_luaB_type(L);
 }
@@ -829,11 +835,15 @@ static int __cdecl Hooked_Type(lua_State* L) {
 static lua_CFunction_t orig_math_floor = nullptr;
 
 static int __cdecl Hooked_MathFloor(lua_State* L) {
-    if (lua_type_(L, 1) == LUA_TNUMBER) {
-        lua_pushnumber_(L, floor(lua_tonumber_(L, 1)));
-        g_mathHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER) {
+            lua_pushnumber_(L, floor(ReadRawNumber(&base[0])));
+            g_mathHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_floor(L);
 }
@@ -841,11 +851,15 @@ static int __cdecl Hooked_MathFloor(lua_State* L) {
 static lua_CFunction_t orig_math_ceil = nullptr;
 
 static int __cdecl Hooked_MathCeil(lua_State* L) {
-    if (lua_type_(L, 1) == LUA_TNUMBER) {
-        lua_pushnumber_(L, ceil(lua_tonumber_(L, 1)));
-        g_mathHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER) {
+            lua_pushnumber_(L, ceil(ReadRawNumber(&base[0])));
+            g_mathHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_ceil(L);
 }
@@ -853,11 +867,15 @@ static int __cdecl Hooked_MathCeil(lua_State* L) {
 static lua_CFunction_t orig_math_abs = nullptr;
 
 static int __cdecl Hooked_MathAbs(lua_State* L) {
-    if (lua_type_(L, 1) == LUA_TNUMBER) {
-        lua_pushnumber_(L, fabs(lua_tonumber_(L, 1)));
-        g_mathHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER) {
+            lua_pushnumber_(L, fabs(ReadRawNumber(&base[0])));
+            g_mathHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_abs(L);
 }
@@ -865,58 +883,74 @@ static int __cdecl Hooked_MathAbs(lua_State* L) {
 static lua_CFunction_t orig_math_max = nullptr;
 
 static int __cdecl Hooked_MathMax(lua_State* L) {
-    int n = lua_gettop_(L);
-    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
-        double a = lua_tonumber_(L, 1);
-        double b = lua_tonumber_(L, 2);
-        lua_pushnumber_(L, a > b ? a : b);
-        g_mathHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER && base[1].tt == LUA_TNUMBER) {
+            double a = ReadRawNumber(&base[0]);
+            double b = ReadRawNumber(&base[1]);
+            lua_pushnumber_(L, a > b ? a : b);
+            g_mathHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_math_max(L);
 }
 
 static lua_CFunction_t orig_math_min = nullptr;
 
 static int __cdecl Hooked_MathMin(lua_State* L) {
-    int n = lua_gettop_(L);
-    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
-        double a = lua_tonumber_(L, 1);
-        double b = lua_tonumber_(L, 2);
-        lua_pushnumber_(L, a < b ? a : b);
-        g_mathHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER && base[1].tt == LUA_TNUMBER) {
+            double a = ReadRawNumber(&base[0]);
+            double b = ReadRawNumber(&base[1]);
+            lua_pushnumber_(L, a < b ? a : b);
+            g_mathHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_math_min(L);
 }
 
 static lua_CFunction_t orig_str_len = nullptr;
 
 static int __cdecl Hooked_StrLen(lua_State* L) {
-    if (lua_type_(L, 1) == LUA_TSTRING) {
-        size_t len = 0;
-        lua_tolstring_(L, 1, &len);
-        lua_pushnumber_(L, (double)len);
-        g_strlenHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TSTRING) {
+            void* ts = base[0].value.gc;
+            if (ts) {
+                size_t len = (size_t)*(uint32_t*)((char*)ts + 8);
+                lua_pushnumber_(L, (double)len);
+                g_strlenHits++;
+                return 1;
+            }
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_str_len(L);
 }
 
 static lua_CFunction_t orig_str_byte = nullptr;
 
 static int __cdecl Hooked_StrByte(lua_State* L) {
-    int nargs = lua_gettop_(L);
-    if (lua_type_(L, 1) != LUA_TSTRING) return orig_str_byte(L);
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base[0].tt != LUA_TSTRING) return orig_str_byte(L);
 
-    if (nargs <= 2) {
-        size_t sLen = 0;
-        const char* s = lua_tolstring_(L, 1, &sLen);
+        void* ts = base[0].value.gc;
+        if (!ts) return orig_str_byte(L);
+
+        size_t sLen = (size_t)*(uint32_t*)((char*)ts + 8);
+        const char* s = (const char*)((char*)ts + 16);
         if (!s || sLen == 0) return orig_str_byte(L);
 
+        int nargs = lua_gettop_(L);
         int pos = 1;
-        if (nargs >= 2 && lua_type_(L, 2) == LUA_TNUMBER)
-            pos = (int)lua_tonumber_(L, 2);
+        if (nargs >= 2 && base[1].tt == LUA_TNUMBER)
+            pos = (int)ReadRawNumber(&base[1]);
 
         if (pos < 0) pos = (int)sLen + pos + 1;
         if (pos < 1 || pos > (int)sLen) { return 0; }
@@ -925,56 +959,63 @@ static int __cdecl Hooked_StrByte(lua_State* L) {
         g_strbyteHits++;
         return 1;
     }
-
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_str_byte(L);
 }
 
 static lua_CFunction_t orig_luaB_tostring = nullptr;
 
 static int __cdecl Hooked_ToString(lua_State* L) {
-    if (lua_gettop_(L) < 1) return orig_luaB_tostring(L);
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base) goto tostring_fallback;
 
-    int t = lua_type_(L, 1);
-    switch (t) {
-        case LUA_TNIL:
-            lua_pushstring_(L, "nil");
-            g_tostringHits++;
-            return 1;
+        RawTValue* v = &base[0];
+        switch (v->tt) {
+            case LUA_TNIL:
+                lua_pushstring_(L, "nil");
+                g_tostringHits++;
+                return 1;
 
-        case LUA_TBOOLEAN:
-            lua_pushstring_(L, lua_toboolean_(L, 1) ? "true" : "false");
-            g_tostringHits++;
-            return 1;
+            case LUA_TBOOLEAN:
+                lua_pushstring_(L, v->value.gc ? "true" : "false");
+                g_tostringHits++;
+                return 1;
 
-        case LUA_TNUMBER: {
-            char buf[64];
-            _snprintf(buf, 63, "%.14g", lua_tonumber_(L, 1));
-            buf[63] = '\0';
-            lua_pushstring_(L, buf);
-            g_tostringHits++;
-            return 1;
-        }
-
-        case LUA_TSTRING: {
-            // Already a string — re-push via Lua interning (hash lookup, not copy)
-            size_t len = 0;
-            const char* s = lua_tolstring_(L, 1, &len);
-            if (s && len <= 4096) {
-                // Bail on embedded NULs (lua_pushstring uses strlen)
-                for (size_t i = 0; i < len; i++) {
-                    if (s[i] == '\0') goto tostring_fallback;
-                }
-                lua_pushstring_(L, s);
+            case LUA_TNUMBER: {
+                char buf[64];
+                _snprintf(buf, 63, "%.14g", ReadRawNumber(v));
+                buf[63] = '\0';
+                lua_pushstring_(L, buf);
                 g_tostringHits++;
                 return 1;
             }
-            break;
-        }
 
-        default:
-            // table, function, userdata, thread need __tostring metamethod
-            break;
+            case LUA_TSTRING: {
+                // Already a string — re-push via Lua interning (hash lookup, not copy)
+                void* ts = v->value.gc;
+                if (ts) {
+                    size_t len = (size_t)*(uint32_t*)((char*)ts + 8);
+                    const char* s = (const char*)((char*)ts + 16);
+                    if (len <= 4096) {
+                        // Bail on embedded NULs (lua_pushstring uses strlen)
+                        for (size_t i = 0; i < len; i++) {
+                            if (s[i] == '\0') goto tostring_fallback;
+                        }
+                        lua_pushstring_(L, s);
+                        g_tostringHits++;
+                        return 1;
+                    }
+                }
+                break;
+            }
+
+            default:
+                // table, function, userdata, thread need __tostring metamethod
+                break;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
 tostring_fallback:
     g_tostringFallbacks++;
@@ -984,16 +1025,15 @@ tostring_fallback:
 static lua_CFunction_t orig_luaB_tonumber = nullptr;
 
 static int __cdecl Hooked_ToNumber_Global(lua_State* L) {
-    int nargs = lua_gettop_(L);
-
-    // Only fast-path single-arg (no explicit base)
-    if (nargs != 1) return orig_luaB_tonumber(L);
-
-    if (lua_type_(L, 1) == LUA_TNUMBER) {
-        lua_pushnumber_(L, lua_tonumber_(L, 1));
-        g_tonumberHits++;
-        return 1;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (base && base[0].tt == LUA_TNUMBER) {
+            lua_pushnumber_(L, ReadRawNumber(&base[0]));
+            g_tonumberHits++;
+            return 1;
+        }
     }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     // String parsing, nil, boolean, etc. — let original handle
     return orig_luaB_tonumber(L);
@@ -1494,10 +1534,15 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
         const char* sep = "";
         size_t sepLen = 0;
         if (nargs >= 2) {
-            if (lua_type_(L, 2) == LUA_TSTRING) {
-                sep = lua_tolstring_(L, 2, &sepLen);
-                if (!sep) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
-            } else if (lua_type_(L, 2) != LUA_TNIL) {
+            RawTValue* sepSlot = &base[1];
+            if (sepSlot->tt == LUA_TSTRING) {
+                void* ts = sepSlot->value.gc;
+                if (ts) {
+                    sepLen = (size_t)*(uint32_t*)((char*)ts + 8);
+                    sep = (const char*)((char*)ts + 16);
+                    if (!sep) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+                }
+            } else if (sepSlot->tt != LUA_TNIL) {
                 g_tblConcatFallbacks++; return orig_tbl_concat(L);
             }
         }
@@ -1505,15 +1550,25 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
         // Start/End indices
         int start = 1;
         int end = (int)luaH_getn_(tablePtr);
-        if (nargs >= 3 && lua_type_(L, 3) == LUA_TNUMBER) {
-            double n = lua_tonumber_(L, 3);
-            start = (int)n;
-            if (n != start || start < 1) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+        if (nargs >= 3) {
+            RawTValue* sSlot = &base[2];
+            if (sSlot->tt == LUA_TNUMBER) {
+                double n = ReadRawNumber(sSlot);
+                start = (int)n;
+                if (n != start || start < 1) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+            } else {
+                g_tblConcatFallbacks++; return orig_tbl_concat(L);
+            }
         }
-        if (nargs >= 4 && lua_type_(L, 4) == LUA_TNUMBER) {
-            double n = lua_tonumber_(L, 4);
-            end = (int)n;
-            if (n != end || end < start) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+        if (nargs >= 4) {
+            RawTValue* eSlot = &base[3];
+            if (eSlot->tt == LUA_TNUMBER) {
+                double n = ReadRawNumber(eSlot);
+                end = (int)n;
+                if (n != end || end < start) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+            } else {
+                g_tblConcatFallbacks++; return orig_tbl_concat(L);
+            }
         }
 
         if (start > end) {
@@ -1985,168 +2040,20 @@ void Shutdown() {
 // ================================================================
 // Phase 3: WoW C-level API hooks
 //
-// DISABLED HOOKS:
-//   UnitName — 0% hit rate in real sessions (1000+ fallbacks, 0 hits).
-//     Dynamic units (raid1, nameplate1, etc.) change every frame — cache
-//     never reuses. Static units (player, target) are called once at UI load.
-//     Permanently disabled — adds overhead with zero benefit.
-
-#define PHASE3_DISABLE_UNITNAME  1   // permanently disabled (0% hit rate)
-// UnitName returns 2 values: name, realm (or nil for unknown).
-// Cached results are pushed directly to Lua stack, skipping all
-// WoW's internal unit lookup + object resolution code.
-//
-// Addresses: hardcoded for build 12340 (IDA Pro verified)
-// Safety:  Falls back to original on any type mismatch or unknown unit.
-//          Cache is invalidated on lua_State change (UI reload).
+// Permanently disabled — UnitName had 0% hit rate in real sessions.
+// Dynamic units (raid1, nameplate1) change every frame — cache never
+// reuses. Static units (player, target) are called once at UI load.
+// Keeping code available for future test builds only.
 // ================================================================
 
-// UnitName: 0x0060E740 — returns (name, realm) for a unit string
-static constexpr uintptr_t ADDR_UnitName = 0x0060E740;
-static lua_CFunction_t orig_UnitName = nullptr;
-
-static constexpr int UNITNAME_CACHE_SIZE = 128;
-static constexpr int UNITNAME_CACHE_MASK = UNITNAME_CACHE_SIZE - 1;
-static constexpr int UNITNAME_MAX_LEN  = 64;
-
-struct UnitNameCacheEntry {
-    uint32_t unitHash;
-    char     name[UNITNAME_MAX_LEN];
-    char     realm[UNITNAME_MAX_LEN];
-    bool     hasName;
-    bool     hasRealm;
-    bool     valid;
-};
-
-static UnitNameCacheEntry g_unitNameCache[UNITNAME_CACHE_SIZE] = {};
-static long g_unitNameHits = 0;
-static long g_unitNameFallbacks = 0;
-
-static inline uint32_t HashUnitStr(const char* s, size_t len) {
-    uint32_t h = 0x811C9DC5;
-    for (size_t i = 0; i < len; i++) {
-        char c = s[i];
-        if (c >= 'A' && c <= 'Z') c += 32;
-        h ^= (uint8_t)c;
-        h *= 0x01000193;
-    }
-    return h;
-}
-
-static int __cdecl Hooked_UnitName(lua_State* L) {
-    int nargs = lua_gettop_(L);
-    if (nargs < 1) return orig_UnitName(L);
-    if (lua_type_(L, 1) != LUA_TSTRING) return orig_UnitName(L);
-
-    size_t unitLen = 0;
-    const char* unit = lua_tolstring_(L, 1, &unitLen);
-    if (!unit || unitLen == 0) return orig_UnitName(L);
-
-    uint32_t hash = HashUnitStr(unit, unitLen);
-    int slot = hash & UNITNAME_CACHE_MASK;
-    UnitNameCacheEntry* e = &g_unitNameCache[slot];
-
-    if (e->valid && e->unitHash == hash) {
-        // Cache hit — push cached results
-        lua_settop_(L, 0);  // clear stack (pop the unit arg)
-        if (e->hasName)  lua_pushstring_(L, e->name);
-        else             lua_pushnil_(L);
-        if (e->hasRealm) lua_pushstring_(L, e->realm);
-        else             lua_pushnil_(L);
-        g_unitNameHits++;
-        return 2;
-    }
-
-    // Cache miss — call original
-    int ret = orig_UnitName(L);
-    g_unitNameFallbacks++;
-
-    // Capture results
-    if (ret >= 1 && lua_type_(L, -ret + 1) == LUA_TSTRING) {
-        size_t nLen = 0;
-        const char* name = lua_tolstring_(L, -ret + 1, &nLen);
-        if (name && nLen < UNITNAME_MAX_LEN) {
-            e->unitHash = hash;
-            memcpy(e->name, name, nLen);
-            e->name[nLen] = '\0';
-            e->hasName = true;
-
-            if (ret >= 2 && lua_type_(L, -ret + 2) == LUA_TSTRING) {
-                size_t rLen = 0;
-                const char* realm = lua_tolstring_(L, -ret + 2, &rLen);
-                if (realm && rLen < UNITNAME_MAX_LEN) {
-                    memcpy(e->realm, realm, rLen);
-                    e->realm[rLen] = '\0';
-                    e->hasRealm = true;
-                } else {
-                    e->hasRealm = false;
-                }
-            } else {
-                e->hasRealm = false;
-            }
-
-            e->valid = true;
-        }
-    }
-
-    return ret;
-}
-
-static bool IsWoWExeMemory(uintptr_t addr);  // forward declaration
-
 bool InitWoWHooks(lua_State* L) {
-    Log("[FastPath] ====================================");
-    Log("[FastPath]  WoW C-level API Hooks — Phase 3");
-    Log("[FastPath]  Build 12340");
-    Log("[FastPath] ====================================");
-
-    int hooked = 0;
-
-    // Hook UnitName — DISABLED (0% hit rate, permanently)
-#if !PHASE3_DISABLE_UNITNAME
-    if (IsWoWExeMemory(ADDR_UnitName)) {
-        MH_STATUS s = MH_CreateHook((void*)ADDR_UnitName, (void*)Hooked_UnitName, (void**)&orig_UnitName);
-        if (s == MH_OK) {
-            s = MH_EnableHook((void*)ADDR_UnitName);
-            if (s == MH_OK) {
-                hooked++;
-                Log("[FastPath]   UnitName  0x%08X  [ OK ]", (unsigned)ADDR_UnitName);
-            }
-        }
-    }
-#else
-    Log("[FastPath]   UnitName  DISABLED (0%% hit rate — dynamic units never cache-hit)");
-#endif
-
-#if !PHASE3_DISABLE_UNITNAME
-    if (hooked == 0) {
-        Log("[FastPath]  No WoW API hooks installed");
-        return false;
-    }
-#else
-    // All Phase 3 hooks are disabled — this is expected
-    Log("[FastPath]  Phase 3 [ SKIP ] — all WoW API hooks disabled (0%% hit rate)");
-    Log("[FastPath] ====================================");
+    (void)L;
+    Log("[FastPath]  Phase 3 [ SKIP ] — WoW C-level API hooks disabled");
     return false;
-#endif
-
-    Log("[FastPath]  Phase 3 [ OK ] — %d WoW API hook(s) active", hooked);
-    Log("[FastPath] ====================================");
-    return hooked > 0;
-}
-
-static bool IsWoWExeMemory(uintptr_t addr) {
-    if (addr == 0) return false;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
-    if (mbi.State != MEM_COMMIT) return false;
-    return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                            PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
 }
 
 void InvalidateWoWCache() {
-    memset(g_unitNameCache, 0, sizeof(g_unitNameCache));
-    Log("[FastPath] WoW API cache cleared");
+    // No-op — reserved for future use
 }
 
 Stats GetStats() {
@@ -2182,19 +2089,14 @@ Stats GetStats() {
     s.phase2Hooks         = g_phase2Hooks;
     s.active              = g_active;
     s.phase2Active        = g_phase2Active;
-    s.tableRemoveHits     = g_tblRemoveHits;
-    s.tableRemoveFallbacks= g_tblRemoveFallbacks;
     s.tableConcatHits     = g_tblConcatHits;
     s.tableConcatFallbacks= g_tblConcatFallbacks;
     s.rawequalHits        = g_rawequalHits;
-    s.rawequalFallbacks   = g_rawequalFallbacks;    
+    s.rawequalFallbacks   = g_rawequalFallbacks;
     s.unpackHits          = g_unpackHits;
     s.unpackFallbacks     = g_unpackFallbacks;
     s.selectHits          = g_selectHits;
     s.selectFallbacks     = g_selectFallbacks;
-    s.strsubHits          = g_strsubHits;
-    s.unitNameHits        = g_unitNameHits;
-    s.unitNameFallbacks   = g_unitNameFallbacks;
     return s;
 }
 
