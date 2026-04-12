@@ -92,6 +92,7 @@
 #define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — RE-ENABLED: string-content caching (no TString* pointers), proven safe at 58%+ hit rate
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti (0x0084E670) integer-key cache — DISABLED: TValue replay pushes corrupted Node data causing 0xC0000005 in lua_setfield at 0x0084E9DE
+#define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat (0x00851C30) fast path — direct array access + inline number-to-string
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -3244,6 +3245,149 @@ static bool InstallLuaPushStringCache() {
 }
 
 // ================================================================
+// 21c. sub_851C30 — table.concat Fast Path (Direct Array + Inline Nums)
+//
+// WHAT: Replaces table.concat implementation with optimized loop.
+// WHY:  Original calls lua_rawgeti (stack push), type check, lua_tolstring
+//       for EVERY element. High overhead for large arrays.
+//       Also fails on numbers; this hook supports them automatically.
+// HOW:  1. Direct access to table array part (no stack ops).
+//       2. Inline integer-to-string (fast path for ints).
+//       3. Single-pass memcpy into stack buffer.
+//       4. Fallback to original for hash-part or oversized results.
+// STATUS: Test build — testbuild-table-concat-rc1
+// ================================================================
+
+#define TABLE_CONCAT_BUF_SIZE 8192
+
+typedef int (__cdecl* table_concat_fn)(int L);
+static table_concat_fn orig_table_concat = nullptr;
+
+static int __cdecl hooked_table_concat(int L) {
+#if CRASH_TEST_DISABLE_TABLE_CONCAT
+    return orig_table_concat(L);
+#else
+    // L->base is at L+0x10
+    int* base = *(int**)(L + 0x10);
+    if (!base) return orig_table_concat(L);
+
+    // Arg 1: Table. Check type 5.
+    if (base[2] != 5) return orig_table_concat(L);
+    int table = base[0];
+    if (!table) return orig_table_concat(L);
+
+    // Arg 2: Separator. Must be string or nil.
+    int sep_type = base[5];
+    const char* sep = "";
+    int sep_len = 0;
+    if (sep_type == 4) { // String
+        int ts = base[4]; // TString*
+        if (!ts) return orig_table_concat(L);
+        // TString layout: +8=len, +16=str
+        sep = (const char*)(ts + 16);
+        sep_len = *(int*)(ts + 8);
+    } else if (sep_type == 3) {
+        // Number separator — fallback to original
+        return orig_table_concat(L);
+    } else if (sep_type != 0) {
+        return orig_table_concat(L);
+    }
+
+    // Arg 3: i (default 1)
+    int i = 1;
+    if (base[8] == 3) i = (int)*(double*)(base + 8);
+    else if (base[8] != 0) return orig_table_concat(L);
+
+    // Arg 4: j (default sizearray)
+    int sizearray = *(int*)(table + 32);
+    int j = sizearray;
+    if (base[11] == 3) j = (int)*(double*)(base + 11);
+    else if (base[11] != 0) return orig_table_concat(L);
+
+    if (i < 1) i = 1;
+    if (j > sizearray) return orig_table_concat(L); // Hash part fallback
+    if (i > j) {
+        // Push empty string
+        ((void (*)(int, const char*))0x0084E350)(L, "");
+        return 1;
+    }
+
+    // Direct array loop
+    int* array = *(int**)(table + 16);
+
+    // Stack buffer for result
+    char buf[TABLE_CONCAT_BUF_SIZE];
+    int used = 0;
+
+    char int_buf[32];
+    char num_buf[64];
+
+    for (int k = i; k <= j; k++) {
+        int* val = array + (k - 1) * 4;
+        int tt = val[2];
+
+        const char* s = nullptr;
+        int len = 0;
+
+        if (tt == 4) { // String
+            int ts = val[0];
+            if (!ts) return orig_table_concat(L);
+            s = (const char*)(ts + 16);
+            len = *(int*)(ts + 8);
+        } else if (tt == 3) { // Number
+            double n = *(double*)val;
+            // Fast integer check
+            if (n >= -999999999.0 && n <= 999999999.0 && n == (int)n) {
+                len = sprintf(int_buf, "%d", (int)n);
+                s = int_buf;
+            } else {
+                len = sprintf(num_buf, "%.17g", n);
+                s = num_buf;
+            }
+        } else {
+            return orig_table_concat(L); // Type error fallback
+        }
+
+        // Append separator
+        if (k > i && sep_len > 0) {
+            if (used + sep_len + len > TABLE_CONCAT_BUF_SIZE - 100)
+                return orig_table_concat(L);
+            memcpy(buf + used, sep, sep_len);
+            used += sep_len;
+        }
+
+        // Append string/number
+        if (used + len > TABLE_CONCAT_BUF_SIZE - 100)
+            return orig_table_concat(L);
+        memcpy(buf + used, s, len);
+        used += len;
+    }
+
+    // Push result
+    buf[used] = '\0';
+    ((void (*)(int, const char*))0x0084E350)(L, buf);
+    return 1;
+#endif
+}
+
+static bool InstallTableConcatFastPath() {
+#if CRASH_TEST_DISABLE_TABLE_CONCAT
+    Log("table.concat fast path: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x00851C30;
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) return false;
+
+    if (MH_CreateHook(target, (void*)hooked_table_concat, (void**)&orig_table_concat) != MH_OK) return false;
+    if (MH_EnableHook(target) != MH_OK) return false;
+
+    Log("table.concat fast path: ACTIVE (sub_851C30 @ 0x00851C30 — array direct + inline nums)");
+    return true;
+#endif
+}
+
+// ================================================================
 // 21d. sub_84E590 — lua_getfield Fast Path for LUA_GLOBALSINDEX
 //
 // WHAT: Hooks lua_getfield (0x0084E590). For LUA_GLOBALSINDEX (-10002),
@@ -3974,6 +4118,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lua Table Lookup (testbuild) ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
+    Log("--- Table Concat Fast Path ---");
+    bool tableConcatOk = InstallTableConcatFastPath();
+
     Log("--- Lua GetField (testbuild) ---");
     bool luaGetFieldOk = InstallLuaGetFieldCache();
 
@@ -4087,6 +4234,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Swap/Present (glFinish skip)", swapOk      ? " OK " : "SKIP");
     Log("  [%s] Lua Table Rehash (pow2 rc1)", tableReshapeOk ? " OK " : "SKIP");
     Log("  [%s] Lua Table Lookup (getstr rc1)", luaHGetStrOk ? " OK " : "SKIP");
+    Log("  [%s] Table Concat Fast Path",        tableConcatOk ? " OK " : "SKIP");
     Log("  [%s] Lua GetField (_G bypass rc1)",  luaGetFieldOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern rc1)",   luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key rc1)",     luaRawGetIOk ? " OK " : "SKIP");
