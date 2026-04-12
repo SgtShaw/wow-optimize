@@ -12,8 +12,10 @@ void OnNewFrame();
 void ClearCache();
 
 struct Stats {
-    long hits;
-    long misses;
+    long itemHits;
+    long itemMisses;
+    long spellHits;
+    long spellMisses;
     bool active;
 };
 
