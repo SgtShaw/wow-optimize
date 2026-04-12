@@ -3286,7 +3286,7 @@ struct GetFieldCacheEntry {
 static GetFieldCacheEntry g_getFieldCache[GETFIELD_CACHE_SIZE];
 
 static void ClearLuaGetFieldCache() {
-    memset(g_getFieldCache, 0, sizeof(g_getFieldCache));
+    memset(g_getFieldCache, 0xFF, sizeof(g_getFieldCache));  // 0xFF = type=-1 (invalid)
     g_getFieldGen++;
 }
 
@@ -3338,40 +3338,42 @@ static int __cdecl hooked_lua_getfield(int L, int idx, const char* key) {
         uint32_t cacheIdx = (uint32_t)(hash & GETFIELD_CACHE_MASK);
         GetFieldCacheEntry* entry = &g_getFieldCache[cacheIdx];
 
-        // Check cache hit: same hash AND same generation
-        if (entry->keyHash == hash && entry->generation == g_getFieldGen && entry->type != -1) {
-            // Cache hit — replace original value with cached one
-        // orig_lua_getfield already pushed a value and incremented L->top.
-        // We need to pop that value and push our cached one instead.
-        __try {
-            int topBefore = lua_gettop_(L);  // Save stack position BEFORE original push
-            int result = orig_lua_getfield(L, idx, key);
-            
-            // Remove the value that orig_lua_getfield pushed
-            lua_settop_(L, topBefore - 1);
-            
-            // Push our cached value
-            switch (entry->type) {
-                case LUA_TSTRING:
-                    lua_pushstring_(L, entry->strVal);
-                    break;
-                case LUA_TNUMBER:
-                    lua_pushnumber_(L, entry->numVal);
-                    break;
-                case LUA_TBOOLEAN:
-                    lua_pushboolean_(L, (int)entry->numVal);
-                    break;
-                default:  // LUA_TNIL or unknown
-                    lua_pushnil_(L);
-                    break;
+        // Check cache hit: same hash AND same generation AND type >= 0 (initialized with 0xFF)
+        if (entry->keyHash == hash && entry->generation == g_getFieldGen && entry->type >= 0) {
+            // CACHE HIT — write directly to L->top, skip original entirely
+            __try {
+                DWORD* top = *(DWORD**)(L + 0x0C);
+                if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
+                    g_getFieldMisses++;
+                    return orig_lua_getfield(L, idx, key);
+                }
+
+                switch (entry->type) {
+                    case LUA_TSTRING:
+                        lua_pushstring_(L, entry->strVal);
+                        break;
+                    case LUA_TNUMBER:
+                        *(double*)(top) = entry->numVal;
+                        top[2] = LUA_TNUMBER; top[3] = 0;
+                        *(DWORD**)(L + 0x0C) = top + 4;
+                        break;
+                    case LUA_TBOOLEAN:
+                        top[0] = (int)entry->numVal;
+                        top[1] = 0; top[2] = LUA_TBOOLEAN; top[3] = 0;
+                        *(DWORD**)(L + 0x0C) = top + 4;
+                        break;
+                    default:
+                        top[0] = 0; top[1] = 0; top[2] = LUA_TNIL; top[3] = 0;
+                        *(DWORD**)(L + 0x0C) = top + 4;
+                        break;
+                }
+                g_getFieldHits++;
+                return 0;
             }
-            g_getFieldHits++;
-            return 0;
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            g_getFieldMisses++;
-            return orig_lua_getfield(L, idx, key);
-        }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                g_getFieldMisses++;
+                return orig_lua_getfield(L, idx, key);
+            }
         }
 
         // Cache miss — call original
