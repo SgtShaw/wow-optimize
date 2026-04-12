@@ -36,6 +36,7 @@
 #include <cmath>
 #include "MinHook.h"
 #include <mimalloc.h>
+#include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -815,19 +816,13 @@ static const char* const TYPE_NAMES[] = {
 };
 
 static int __cdecl Hooked_Type(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) goto type_fallback;
-
-        int t = base[0].tt;
-        if (t >= 0 && t <= 8) {
-            lua_pushstring_(L, TYPE_NAMES[t]);
-            g_typeHits++;
-            return 1;
-        }
+    if (lua_gettop_(L) < 1) return orig_luaB_type(L);
+    int t = lua_type_(L, 1);
+    if (t >= 0 && t <= 8) {
+        lua_pushstring_(L, TYPE_NAMES[t]);
+        g_typeHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
-type_fallback:
     g_typeFallbacks++;
     return orig_luaB_type(L);
 }
@@ -835,15 +830,11 @@ type_fallback:
 static lua_CFunction_t orig_math_floor = nullptr;
 
 static int __cdecl Hooked_MathFloor(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER) {
-            lua_pushnumber_(L, floor(ReadRawNumber(&base[0])));
-            g_mathHits++;
-            return 1;
-        }
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, floor(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_floor(L);
 }
@@ -851,15 +842,11 @@ static int __cdecl Hooked_MathFloor(lua_State* L) {
 static lua_CFunction_t orig_math_ceil = nullptr;
 
 static int __cdecl Hooked_MathCeil(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER) {
-            lua_pushnumber_(L, ceil(ReadRawNumber(&base[0])));
-            g_mathHits++;
-            return 1;
-        }
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, ceil(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_ceil(L);
 }
@@ -867,15 +854,11 @@ static int __cdecl Hooked_MathCeil(lua_State* L) {
 static lua_CFunction_t orig_math_abs = nullptr;
 
 static int __cdecl Hooked_MathAbs(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER) {
-            lua_pushnumber_(L, fabs(ReadRawNumber(&base[0])));
-            g_mathHits++;
-            return 1;
-        }
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, fabs(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     g_mathFallbacks++;
     return orig_math_abs(L);
 }
@@ -883,74 +866,58 @@ static int __cdecl Hooked_MathAbs(lua_State* L) {
 static lua_CFunction_t orig_math_max = nullptr;
 
 static int __cdecl Hooked_MathMax(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER && base[1].tt == LUA_TNUMBER) {
-            double a = ReadRawNumber(&base[0]);
-            double b = ReadRawNumber(&base[1]);
-            lua_pushnumber_(L, a > b ? a : b);
-            g_mathHits++;
-            return 1;
-        }
+    int n = lua_gettop_(L);
+    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        double a = lua_tonumber_(L, 1);
+        double b = lua_tonumber_(L, 2);
+        lua_pushnumber_(L, a > b ? a : b);
+        g_mathHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_math_max(L);
 }
 
 static lua_CFunction_t orig_math_min = nullptr;
 
 static int __cdecl Hooked_MathMin(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER && base[1].tt == LUA_TNUMBER) {
-            double a = ReadRawNumber(&base[0]);
-            double b = ReadRawNumber(&base[1]);
-            lua_pushnumber_(L, a < b ? a : b);
-            g_mathHits++;
-            return 1;
-        }
+    int n = lua_gettop_(L);
+    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        double a = lua_tonumber_(L, 1);
+        double b = lua_tonumber_(L, 2);
+        lua_pushnumber_(L, a < b ? a : b);
+        g_mathHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_math_min(L);
 }
 
 static lua_CFunction_t orig_str_len = nullptr;
 
 static int __cdecl Hooked_StrLen(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TSTRING) {
-            void* ts = base[0].value.gc;
-            if (ts) {
-                size_t len = (size_t)*(uint32_t*)((char*)ts + 8);
-                lua_pushnumber_(L, (double)len);
-                g_strlenHits++;
-                return 1;
-            }
-        }
+    if (lua_type_(L, 1) == LUA_TSTRING) {
+        size_t len = 0;
+        lua_tolstring_(L, 1, &len);
+        lua_pushnumber_(L, (double)len);
+        g_strlenHits++;
+        return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_str_len(L);
 }
 
 static lua_CFunction_t orig_str_byte = nullptr;
 
 static int __cdecl Hooked_StrByte(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base || base[0].tt != LUA_TSTRING) return orig_str_byte(L);
+    int nargs = lua_gettop_(L);
+    if (lua_type_(L, 1) != LUA_TSTRING) return orig_str_byte(L);
 
-        void* ts = base[0].value.gc;
-        if (!ts) return orig_str_byte(L);
-
-        size_t sLen = (size_t)*(uint32_t*)((char*)ts + 8);
-        const char* s = (const char*)((char*)ts + 16);
+    if (nargs <= 2) {
+        size_t sLen = 0;
+        const char* s = lua_tolstring_(L, 1, &sLen);
         if (!s || sLen == 0) return orig_str_byte(L);
 
-        int nargs = lua_gettop_(L);
         int pos = 1;
-        if (nargs >= 2 && base[1].tt == LUA_TNUMBER)
-            pos = (int)ReadRawNumber(&base[1]);
+        if (nargs >= 2 && lua_type_(L, 2) == LUA_TNUMBER)
+            pos = (int)lua_tonumber_(L, 2);
 
         if (pos < 0) pos = (int)sLen + pos + 1;
         if (pos < 1 || pos > (int)sLen) { return 0; }
@@ -959,63 +926,53 @@ static int __cdecl Hooked_StrByte(lua_State* L) {
         g_strbyteHits++;
         return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
     return orig_str_byte(L);
 }
 
 static lua_CFunction_t orig_luaB_tostring = nullptr;
 
 static int __cdecl Hooked_ToString(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) goto tostring_fallback;
+    if (lua_gettop_(L) < 1) return orig_luaB_tostring(L);
 
-        RawTValue* v = &base[0];
-        switch (v->tt) {
-            case LUA_TNIL:
-                lua_pushstring_(L, "nil");
-                g_tostringHits++;
-                return 1;
+    int t = lua_type_(L, 1);
+    switch (t) {
+        case LUA_TNIL:
+            lua_pushstring_(L, "nil");
+            g_tostringHits++;
+            return 1;
 
-            case LUA_TBOOLEAN:
-                lua_pushstring_(L, v->value.gc ? "true" : "false");
-                g_tostringHits++;
-                return 1;
+        case LUA_TBOOLEAN:
+            lua_pushstring_(L, lua_toboolean_(L, 1) ? "true" : "false");
+            g_tostringHits++;
+            return 1;
 
-            case LUA_TNUMBER: {
-                char buf[64];
-                _snprintf(buf, 63, "%.14g", ReadRawNumber(v));
-                buf[63] = '\0';
-                lua_pushstring_(L, buf);
-                g_tostringHits++;
-                return 1;
-            }
-
-            case LUA_TSTRING: {
-                // Already a string — re-push via Lua interning (hash lookup, not copy)
-                void* ts = v->value.gc;
-                if (ts) {
-                    size_t len = (size_t)*(uint32_t*)((char*)ts + 8);
-                    const char* s = (const char*)((char*)ts + 16);
-                    if (len <= 4096) {
-                        // Bail on embedded NULs (lua_pushstring uses strlen)
-                        for (size_t i = 0; i < len; i++) {
-                            if (s[i] == '\0') goto tostring_fallback;
-                        }
-                        lua_pushstring_(L, s);
-                        g_tostringHits++;
-                        return 1;
-                    }
-                }
-                break;
-            }
-
-            default:
-                // table, function, userdata, thread need __tostring metamethod
-                break;
+        case LUA_TNUMBER: {
+            char buf[64];
+            _snprintf(buf, 63, "%.14g", lua_tonumber_(L, 1));
+            buf[63] = '\0';
+            lua_pushstring_(L, buf);
+            g_tostringHits++;
+            return 1;
         }
+
+        case LUA_TSTRING: {
+            size_t len = 0;
+            const char* s = lua_tolstring_(L, 1, &len);
+            if (s && len <= 4096) {
+                for (size_t i = 0; i < len; i++) {
+                    if (s[i] == '\0') goto tostring_fallback;
+                }
+                lua_pushstring_(L, s);
+                g_tostringHits++;
+                return 1;
+            }
+            break;
+        }
+
+        default:
+            break;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
 tostring_fallback:
     g_tostringFallbacks++;
@@ -1025,17 +982,15 @@ tostring_fallback:
 static lua_CFunction_t orig_luaB_tonumber = nullptr;
 
 static int __cdecl Hooked_ToNumber_Global(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (base && base[0].tt == LUA_TNUMBER) {
-            lua_pushnumber_(L, ReadRawNumber(&base[0]));
-            g_tonumberHits++;
-            return 1;
-        }
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+    int nargs = lua_gettop_(L);
+    if (nargs != 1) return orig_luaB_tonumber(L);
 
-    // String parsing, nil, boolean, etc. — let original handle
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, lua_tonumber_(L, 1));
+        g_tonumberHits++;
+        return 1;
+    }
+
     return orig_luaB_tonumber(L);
 }
 
@@ -1723,92 +1678,73 @@ fallback:
 }
 
 static int __cdecl Hooked_Select(lua_State* L) {
-    __try {
-        int nargs = lua_gettop_(L);
-        if (nargs < 2) goto fallback;
+    int nargs = lua_gettop_(L);
+    if (nargs < 2) goto fallback;
 
-        RawTValue* base = GetStackBaseFast(L);
-        RawTValue* idxSlot = base;
-
-        // select("#", ...)
-        if (idxSlot->tt == LUA_TSTRING) {
-            uintptr_t ts = (uintptr_t)idxSlot->value.gc;
-            if (ts && *(uint32_t*)(ts + 0x10) == 1 && *(const char*)(ts + 0x14) == '#') {
-                lua_pushnumber_(L, (double)(nargs - 1));
-                g_selectHits++;
-                return 1;
-            }
-        }
-
-        // select(n, ...)
-        if (idxSlot->tt == LUA_TNUMBER) {
-            double nd = ReadRawNumber(idxSlot);
-            int n = (int)nd;
-            if (nd != n) goto fallback;
-
-            if (n < 0) n += nargs;
-            if (n < 1) goto fallback;
-            if (n > nargs) n = nargs;
-
-            int ret = nargs - n;
+    if (lua_type_(L, 1) == LUA_TSTRING) {
+        size_t len = 0;
+        const char* s = lua_tolstring_(L, 1, &len);
+        if (len == 1 && s[0] == '#') {
+            lua_pushnumber_(L, (double)(nargs - 1));
             g_selectHits++;
-            return ret;
+            return 1;
         }
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        double nd = lua_tonumber_(L, 1);
+        int n = (int)nd;
+        if (nd != n) goto fallback;
+
+        if (n < 0) n += nargs;
+        if (n < 1) goto fallback;
+        if (n > nargs) n = nargs;
+
+        int ret = nargs - n;
+        g_selectHits++;
+        return ret;
+    }
+
 fallback:
     g_selectFallbacks++;
     return orig_luaB_select(L);
 }
 
 static int __cdecl Hooked_RawEqual(lua_State* L) {
-    __try {
-        if (lua_gettop_(L) != 2) goto fallback;
+    if (lua_gettop_(L) != 2) goto fallback;
 
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) goto fallback;
+    int t1 = lua_type_(L, 1);
+    int t2 = lua_type_(L, 2);
 
-        RawTValue* t1 = base;
-        RawTValue* t2 = base + 1;
-
-        // Type mismatch -> not equal
-        if (t1->tt != t2->tt) {
-            lua_pushboolean_(L, 0);
-            g_rawequalHits++;
-            return 1;
-        }
-
-        bool eq = false;
-        switch (t1->tt) {
-            case LUA_TNIL:
-                eq = true;
-                break;
-            case LUA_TBOOLEAN:
-                // WoW stores booleans in value field; fallback to original for strict safety
-                goto fallback;
-            case LUA_TNUMBER: {
-                double d1 = ReadRawNumber(t1);
-                double d2 = ReadRawNumber(t2);
-                eq = (d1 == d2);
-                break;
-            }
-            default:
-                // All GC types (string, table, userdata, function, thread) compare pointers
-                eq = (t1->value.gc == t2->value.gc);
-                break;
-        }
-
-        lua_pushboolean_(L, eq ? 1 : 0);
+    // Type mismatch -> not equal
+    if (t1 != t2) {
+        lua_pushboolean_(L, 0);
         g_rawequalHits++;
         return 1;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    // Type match — nil is always equal
+    if (t1 == LUA_TNIL) {
+        lua_pushboolean_(L, 1);
+        g_rawequalHits++;
+        return 1;
+    }
+
+    // All other types — fallback to original for safety
+    goto fallback;
+
 fallback:
     g_rawequalFallbacks++;
     return orig_luaB_rawequal(L);
 }
 
 // Phase 2: discovery and hook installation.
+
+// ================================================================
+// TEST BUILD #3: ALL Phase 2 hooks DISABLED — isolating hang on
+// enter world after character select.
+// ================================================================
+#if !TEST_DISABLE_ALL_PHASE2
 
 struct FuncHookEntry {
     const char*        table;
@@ -1848,6 +1784,13 @@ static FuncHookEntry g_funcHooks[] = {
 
 static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0]);
 
+#else
+
+// All Phase 2 hooks disabled for testing
+static constexpr int NUM_FUNC_HOOKS = 0;
+
+#endif // TEST_DISABLE_ALL_PHASE2
+
 namespace LuaFastPath {
 
 bool Init() {
@@ -1882,6 +1825,11 @@ bool Init() {
 }
 
 bool InitPhase2(lua_State* L) {
+#if TEST_DISABLE_ALL_PHASE2
+    (void)L;
+    Log("[FastPath] Phase 2: DISABLED (test build)");
+    return false;
+#else
     if (!L) return false;
 
     Log("[FastPath] Phase 2: runtime function discovery");
@@ -1939,6 +1887,53 @@ bool InitPhase2(lua_State* L) {
             continue;
         }
 
+#if TEST_DISABLE_PHASE2_WRITES
+        // Permanently disabled: write hooks that modify Lua tables/stack
+        // via RawTValue* copies — proven to cause hangs in real gameplay
+        if (strcmp(e.name, "rawset") == 0 ||
+            strcmp(e.name, "insert") == 0 ||
+            strcmp(e.name, "remove") == 0 ||
+            strcmp(e.name, "next") == 0) {
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* table writes)",
+                e.table ? e.table : "_G", e.name);
+            continue;
+        }
+#endif
+
+#if TEST_DISABLE_PHASE2_READS
+        // Permanently disabled: table read hooks that write to stack
+        // via RawTValue* copies — proven to cause hangs in real gameplay
+        if (strcmp(e.name, "rawget") == 0 ||
+            strcmp(e.name, "concat") == 0 ||
+            strcmp(e.name, "unpack") == 0) {
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
+                e.table ? e.table : "_G", e.name);
+            continue;
+        }
+#endif
+
+#if TEST_DISABLE_PHASE2_NEW_DMA
+        // Disabled: all new DMA hooks added during refactoring
+        // These use GetStackBaseFast + direct TValue reads
+        // Suspected of causing hangs — need investigation
+        if (strcmp(e.name, "type") == 0 ||
+            strcmp(e.name, "floor") == 0 ||
+            strcmp(e.name, "ceil") == 0 ||
+            strcmp(e.name, "abs") == 0 ||
+            strcmp(e.name, "max") == 0 ||
+            strcmp(e.name, "min") == 0 ||
+            strcmp(e.name, "len") == 0 ||
+            strcmp(e.name, "byte") == 0 ||
+            strcmp(e.name, "tostring") == 0 ||
+            strcmp(e.name, "tonumber") == 0 ||
+            strcmp(e.name, "select") == 0 ||
+            strcmp(e.name, "rawequal") == 0) {
+            Log("[FastPath]   %-8s.%-8s  SKIP (test build — new DMA hooks disabled)",
+                e.table ? e.table : "_G", e.name);
+            continue;
+        }
+#endif
+
         __try {
             MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
             if (s != MH_OK) {
@@ -1972,12 +1967,15 @@ bool InitPhase2(lua_State* L) {
         discoveredTotal, NUM_FUNC_HOOKS, discoveredNow,
         hookedTotal, discoveredTotal, hookedNow);
     return g_phase2Active;
+#endif // TEST_DISABLE_ALL_PHASE2
 }
 
 void ResetPhase2Discovery() {
+#if !TEST_DISABLE_ALL_PHASE2
     // Do NOT remove already installed hooks.
     // We only want late rediscovery for functions that were not found in glue VM.
     g_layout.valid = false;
+#endif
 }
 
 void Shutdown() {
@@ -1985,12 +1983,14 @@ void Shutdown() {
         MH_DisableHook((void*)ADDR_str_format);
     }
 
+#if !TEST_DISABLE_ALL_PHASE2
     for (int i = 0; i < NUM_FUNC_HOOKS; i++) {
         if (g_funcHooks[i].hooked && g_funcHooks[i].address) {
             MH_DisableHook((void*)g_funcHooks[i].address);
             g_funcHooks[i].hooked = false;
         }
     }
+#endif
 
     long fmtTotal = g_formatFastHits + g_formatFallbacks;
     if (fmtTotal > 0) {
