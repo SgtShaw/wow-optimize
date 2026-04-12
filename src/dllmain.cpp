@@ -98,25 +98,6 @@
 static bool IsExecutableMemory(uintptr_t addr);
 static bool InstallThreadAffinity();
 
-// ================================================================
-// VA Arena v3 — Full Coverage VirtualAlloc/VirtualFree Interceptor
-//
-// WHAT: Replaces ALL VirtualAlloc calls (not just Wow.exe callers).
-//       Catches 4KB+ allocations from any source (addons, mimalloc,
-//       textures, DBC loading, etc.)
-// WHY:  32-bit WoW fragments its 2GB address space. After 1-2 hours
-//       in raids, VA shows Free=39MB LargestBlock=1MB → crash/freeze.
-//       A 512MB high-address arena prevents fragmentation by keeping
-//       all allocations contiguous. This is the closest thing to
-//       64-bit WoW for address space stability.
-// HOW:  1. Reserve 512MB at high address (>=0xD0000000) at init
-//       2. Hook VirtualAlloc/VirtualFree for ALL callers
-//       3. Bitmap allocator (4KB pages, 131072 pages in 512MB)
-//       4. VirtualFree returns pages to arena bitmap
-//       5. Fallback to original VirtualAlloc on failure
-// STATUS: Test build — testbuild-va-arena-v3-rc1
-// ================================================================
-
 #define VA_ARENA_PAGE_SIZE  4096
 #define VA_ARENA_MAX_PAGES  131072  // 512MB
 #define VA_ARENA_BITMAP_SIZE (VA_ARENA_MAX_PAGES / 64)
@@ -204,9 +185,6 @@ static HANDLE g_instanceMutex = NULL;   // "wow_optimize_instance_v2" mutex
 static DWORD  g_nextStatsDumpTick = 0;  // Next periodic stats dump (GetTickCount)
 static DWORD  g_nextMiCollectTick = 0;  // Next mimalloc collect (multi-client only)
 static void   DumpPeriodicStats();
-// Forward declarations for MPQ prefetch
-static void PrefetchDBCData();
-static void ResetDBCPrefetchFlag();
 
 // ================================================================
 // Logging — ring buffer + background thread
@@ -513,16 +491,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
-
-        // DBC pre-faulting DISABLED — caused 10-second load freezes reading 38 MPQs
-        // and ICC zone transition freezes. Will revisit with async implementation.
-        /*
-        if (LuaOpt::IsLoadingMode()) {
-            PrefetchDBCData();
-        } else {
-            ResetDBCPrefetchFlag();
-        }
-        */
 
         PreciseSleep((double)ms);
         return;
@@ -832,7 +800,7 @@ static void UntrackMpqHandle(HANDLE h) {
 // MPQ map lock — always defined (used by scanner even when mmap disabled)
 static SRWLOCK g_mpqMapLock = SRWLOCK_INIT;
 
-// MPQ handle tracking — always defined (used by DBC pre-faulting)
+// MPQ handle tracking — always defined
 struct MpqMapping {
     HANDLE fileHandle;
     HANDLE mappingHandle;
@@ -2055,89 +2023,6 @@ static void ScanExistingMpqHandles() {
 }
 
 // ================================================================
-// 9e. DBC Pre-Faulting — x64-like resident data
-//
-// WHAT: Sequentially reads all tracked MPQ handles during loading
-//       screens to fault all pages (including DBC data) into RAM.
-// WHY:  In 32-bit WoW, DBC data is streamed on-demand from MPQ.
-//       First-time item tooltip = blocking MPQ read + DBC parse = 2-10ms.
-//       In x64 WoW, all DBC data is resident at startup.
-//       This bridges the gap by pre-faulting MPQ pages into RAM.
-// HOW:  1. During loading screen, read each MPQ sequentially in 256KB chunks
-//       2. Uses existing ReadFile hook (has adaptive read-ahead cache)
-//       3. Throttled: max 1 pass per 90 seconds
-//       4. Only triggers once per loading screen
-// STATUS: Test build — testbuild-dbc-prefault-rc1
-// ================================================================
-
-static volatile LONG g_dbcPrefetchDone = 0;
-static DWORD g_lastDbcPrefetchTick = 0;
-static constexpr DWORD DBC_PREFETCH_COOLDOWN_MS = 90000;  // 90 seconds
-static long g_dbcPrefetchHandles = 0;
-static float g_dbcPrefetchMB = 0.0f;
-
-static void PrefetchDBCData() {
-    // Only once per loading screen + cooldown
-    if (InterlockedCompareExchange(&g_dbcPrefetchDone, 1, 0) != 0) return;
-
-    DWORD nowTick = GetTickCount();
-    if ((LONG)(nowTick - g_lastDbcPrefetchTick) < (LONG)DBC_PREFETCH_COOLDOWN_MS) return;
-    g_lastDbcPrefetchTick = nowTick;
-
-    AcquireSRWLockShared(&g_mpqMapLock);
-
-    // Reusable 256KB read buffer
-    const DWORD BUF_SIZE = 256 * 1024;
-    void* buf = mi_malloc(BUF_SIZE);
-    if (!buf) { ReleaseSRWLockShared(&g_mpqMapLock); return; }
-
-    int prefetched = 0;
-    float totalMB = 0.0f;
-
-    for (int i = 0; i < MAX_MPQ_MAPPINGS; i++) {
-        if (!g_mpqMappings[i].active) continue;
-        if (!g_mpqMappings[i].fileHandle) continue;
-
-        HANDLE hFile = g_mpqMappings[i].fileHandle;
-        DWORD fileSize = g_mpqMappings[i].fileSize;
-
-        // Sequentially read the entire MPQ to fault all pages
-        __try {
-            SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
-            DWORD remaining = fileSize;
-            while (remaining > 0) {
-                DWORD toRead = (remaining < BUF_SIZE) ? remaining : BUF_SIZE;
-                DWORD bytesRead = 0;
-                if (!ReadFile(hFile, buf, toRead, &bytesRead, NULL) || bytesRead == 0)
-                    break;
-                remaining -= bytesRead;
-            }
-            // Reset file pointer back to beginning
-            SetFilePointer(hFile, 0, NULL, FILE_BEGIN);
-
-            prefetched++;
-            totalMB += (float)fileSize / (1024.0f * 1024.0f);
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
-    }
-
-    mi_free(buf);
-    ReleaseSRWLockShared(&g_mpqMapLock);
-
-    g_dbcPrefetchHandles = prefetched;
-    g_dbcPrefetchMB = totalMB;
-
-    if (prefetched > 0) {
-        Log("DBC pre-fault: %d MPQs read (%.1f MB total, all DBC data now resident)",
-            prefetched, totalMB);
-    }
-}
-
-static void ResetDBCPrefetchFlag() {
-    InterlockedExchange(&g_dbcPrefetchDone, 0);
-}
-
-// ================================================================
 // 9b. FlushFileBuffers — Skip for MPQ (read-only)
 //
 // WHAT: Skips FlushFileBuffers calls for MPQ handles.
@@ -2583,11 +2468,6 @@ static void DumpPeriodicStats() {
             (double)g_rawGetIHits / (g_rawGetIHits + g_rawGetIMisses) * 100.0);
     }
 
-    if (g_dbcPrefetchHandles > 0) {
-        Log("[Stats] DBC pre-fault: %d MPQs, %.1f MB (all DBC data resident)",
-            g_dbcPrefetchHandles, g_dbcPrefetchMB);
-    }
-    
 
     if (vaOk && g_vaArenaActive) {
         long total = g_vaArenaHits + g_vaArenaFallbacks;
@@ -4075,7 +3955,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool flushOk = InstallFlushFileBuffersHook();
     Log("--- MPQ Scan ---");
     ScanExistingMpqHandles();
-    Log("DBC pre-fault: %d MPQ handles ready for pre-faulting", MAX_MPQ_MAPPINGS);
     Log("--- File Attributes ---");
     bool faOk = InstallGetFileAttributesHook();
     Log("--- File Pointer ---");
@@ -4238,7 +4117,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua GetField (_G bypass rc1)",  luaGetFieldOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern rc1)",   luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key rc1)",     luaRawGetIOk ? " OK " : "SKIP");
-    Log("  [%s] DBC pre-fault (x64-like)",      "DISABLED — caused 10s load freezes, ICC zone freezes");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
 
     return 0;
@@ -4272,32 +4150,29 @@ typedef BOOL (WINAPI* GetFileSizeEx_fn)(HANDLE, PLARGE_INTEGER);
 static GetFileSizeEx_fn orig_GetFileSizeEx = nullptr;
 
 static BOOL WINAPI hooked_GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
-    BOOL result = orig_GetFileSizeEx(hFile, lpFileSize);
-    if (!result) return FALSE;
+    // Cache lookup by handle value (handles are stable within a session)
+    uint32_t h = (uint32_t)((uintptr_t)hFile >> 2);  // shift for distribution
+    int slot = h & FSIZE_CACHE_MASK;
+    FSizeEntry* e = &g_fsizeCache[slot];
 
-    // Try to resolve path for caching
-    __try {
-        FILE_NAME_INFO fni;
-        if (GetFileInformationByHandleEx(hFile, FileNameInfo, &fni, sizeof(fni))) {
-            // Simple hash from filename
-            uint32_t h = 0x811C9DC5;
-            for (DWORD i = 0; i < fni.FileNameLength / 2 && i < 64; i++) {
-                wchar_t c = fni.FileName[i];
-                if (c >= 'A' && c <= 'Z') c += 32;
-                h ^= (uint32_t)(c & 0xFF);
-                h *= 0x01000193;
-            }
-            int slot = h & FSIZE_CACHE_MASK;
-            g_fsizeCache[slot].pathHash = h;
-            g_fsizeCache[slot].fileSize = *lpFileSize;
-            g_fsizeCache[slot].valid = true;
-            g_fsizeMisses++;
-            return TRUE;
-        }
+    if (e->valid && e->pathHash == h) {
+        *lpFileSize = e->fileSize;
+        InterlockedIncrement(&g_fsizeHits);
+        return TRUE;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-    g_fsizeMisses++;
+    // Cache miss — call original
+    BOOL result = orig_GetFileSizeEx(hFile, lpFileSize);
+    if (!result) {
+        InterlockedIncrement(&g_fsizeMisses);
+        return FALSE;
+    }
+
+    // Cache the result
+    e->pathHash = h;
+    e->fileSize = *lpFileSize;
+    e->valid = true;
+    InterlockedIncrement(&g_fsizeMisses);
     return TRUE;
 }
 
