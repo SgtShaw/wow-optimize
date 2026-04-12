@@ -17,8 +17,7 @@ bool InitPhase2(lua_State* L);
 // Allow Phase 2 discovery to re-run after lua_State / VM change
 void ResetPhase2Discovery();
 
-// Phase 3: WoW C-level API hooks (UnitName, etc.)
-// Addresses hardcoded for build 12340, called after Lua state ready
+// Phase 3: WoW C-level API hooks (permanently disabled)
 bool InitWoWHooks(lua_State* L);
 void InvalidateWoWCache();
 
@@ -62,9 +61,6 @@ struct Stats {
     long strsubHits;
     long strlowerHits;
     long strupperHits;
-    // Phase 3: WoW API
-    long unitNameHits;
-    long unitNameFallbacks;
     int  phase2Hooks;
     bool active;
     bool phase2Active;
