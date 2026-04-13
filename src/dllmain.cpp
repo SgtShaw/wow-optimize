@@ -77,8 +77,8 @@
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED — 0 hits)
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
 
-// Crash isolation toggles for hooks added in v3.3.2+
-#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    1   // GetFileSizeEx cache (causes char select crash — 0xC0000005 at 0x0083231C)
+// Crash isolation toggles for hooks
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    1   // GetFileSizeEx cache (causes char select crash)
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED — tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
@@ -86,12 +86,12 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — stale Node* pointers cause enter-world crashes (ruRU + large pages)
-#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLogGetCurrentEventInfo (0x0074E290) full event cache — DISABLED: TValue replay with stale TString* pointers causes 0xC0000005 in lua_setfield after GC frees cached strings
-#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield (0x0084E590) LUA_GLOBALSINDEX fast path — string-content caching (no TString* pointers), safe at 58%+ hit rate
-#define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring (0x0084E350) TString* intern cache — DISABLED: stale TString* pointers from freed lua_State cause 0xC0000005 at 0x0085CB43 during char select/load transition
-#define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti (0x0084E670) integer-key cache — DISABLED: TValue replay pushes corrupted Node data causing 0xC0000005 in lua_setfield at 0x0084E9DE
-#define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat (0x00851C30) fast path — direct array access + inline number-to-string
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr (stale Node* crash)
+#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
+#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield _G cache (safe but 0% hit rate)
+#define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
+#define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
+#define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -3990,7 +3990,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
     Log("--- Table Concat Fast Path ---");
-    // DISABLED in v3.5.3: table.concat fast path causes 0xC0000005 crashes
+    // DISABLED: table.concat fast path causes 0xC0000005 crashes
     // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
     // The hook performs direct Lua stack writes via TValue* which conflicts
     // with addon execution flow during world load.
