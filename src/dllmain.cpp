@@ -3990,7 +3990,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
     Log("--- Table Concat Fast Path ---");
-    bool tableConcatOk = InstallTableConcatFastPath();
+    // DISABLED in v3.5.3: table.concat fast path causes 0xC0000005 crashes
+    // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
+    // The hook performs direct Lua stack writes via TValue* which conflicts
+    // with addon execution flow during world load.
+    bool tableConcatOk = false;
 
     Log("--- Lua GetField ---");
     bool luaGetFieldOk = InstallLuaGetFieldCache();
