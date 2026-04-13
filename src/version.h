@@ -13,7 +13,7 @@
 #endif
 
 // ================================================================
-// PRODUCTION FLAGS — v3.5.3 stable configuration
+// PRODUCTION FLAGS — stable configuration
 // ================================================================
 #define TEST_DISABLE_ALL_APICACHE       1   // DISABLED: breaks Aux/WCollections/ElvUI
 #define TEST_DISABLE_ALL_PHASE2         1   // ALL Phase 2 — crash with addons
