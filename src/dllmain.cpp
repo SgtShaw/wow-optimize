@@ -1,7 +1,7 @@
 ﻿// ================================================================
 // wow_optimize.dll — World of Warcraft 3.3.5a (build 12340) Optimizer
 // Author: SUPREMATIST
-// Version: 3.5.0
+// Version: 3.5.1
 //
 // LOAD MECHANISM:
 //   Loaded via version.dll proxy (WoW loads version.dll at startup).
@@ -79,7 +79,7 @@
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
 
 // Crash isolation toggles for hooks added in v3.3.2+
-#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    1   // GetFileSizeEx cache (causes char select crash — 0xC0000005 at 0x0083231C)
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED — tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
