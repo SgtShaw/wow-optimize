@@ -3,7 +3,7 @@
 Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
 
-wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, and other low-level bottlenecks.
+wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, 16-year combatlog bug fix, and other low-level bottlenecks.
 
 The current public build is focused on real frametime stability, long-session smoothness, addon-heavy gameplay, and lower Lua/runtime overhead while keeping historically unsafe features disabled.
 
@@ -14,6 +14,16 @@ The current public build is focused on real frametime stability, long-session sm
 ## Reviews
 
 See what other players say: [Reviews and Testimonials](https://github.com/suprepupre/wow-optimize/discussions/10)
+
+### Stability Testing Team 
+
+Huge thanks to the community members who extensively tested pre-release builds:
+
+- **Morbent** — tested 9 test builds, verified addon compatibility (Outfitter, GearScore, Aux, WCollections, ElvUI), reported cache-related addon breakage
+- **Billy Hoyle** — benchmarked all configurations with detailed FPS/RAM/CPU/GPU metrics, identified best-performing builds
+- **NoGoodLife** — additional and previous stability testing across multiple sessions
+
+Their feedback directly shaped the stable v3.5.5 release configuration.
 
 ---
 
@@ -41,10 +51,14 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 - `GetItemInfo` — 8192-slot cache, Direct Memory Access
 - `GetSpellInfo` — disabled (icon corruption, crashes on relog)
 
+### Lua internal caches (v3.5.5+)
+- `luaH_getstr` — table string-key lookup cache (tested stable)
+- `lua_getfield` — `_G` field access cache (tested stable)
+
 ### Lua fast paths
 - Phase 1:
   - `string.format`
-- Phase 2 (safe, Lua API based):
+- Phase 2 (safe, Lua API based) — **ENABLED in v3.5.5**:
   - `string.find` (plain mode)
   - `string.match` (safe partial fast path)
   - `type`
@@ -109,7 +123,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 - fast keepalive settings
 
 ### Other runtime optimizations
-- combat log optimizer
+- combat log optimizer — **fixes 16-year combatlog bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
 - `GetItemInfo` cache
 - `CompareStringA` fast ASCII path
 - `OutputDebugStringA` no-op when no debugger
@@ -132,9 +146,13 @@ These features are disabled in public-safe builds because they previously caused
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
 - GetSpellInfo cache (disabled)
+- ApiCache (`GetItemInfo` result cache — disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
-- `luaS_newlstr` string cache (removed due to 0xC0000005 crashes on reload)
+- `lua_pushstring` intern cache (disabled — stale TString* crashes)
+- `lua_rawgeti` int-key cache (disabled — TValue replay corruption)
+- CombatLog full event cache (disabled — stale TString* crashes)
+- `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
 - `luaV_concat` hook (removed due to 0% hit-rate overhead)
 
 ### Removed Features
@@ -145,6 +163,28 @@ These experimental features were tested and found to provide no measurable benef
 - DispatchPool (dispatcher pool for 20-byte allocations) — hooks active but no real hit in sessions
 - bgpreloadsleep cache — 0 calls in real sessions
 - Subtask Event Pool — 0 reuse / 0 new / 0 returned in real stats
+
+---
+
+## New in v3.5.5
+
+Based on extensive community testing (Morbent, Billy Hoyle, NoGoodLife), the following optimizations are now **enabled by default**:
+
+| Feature | Status in v3.5.4 | Status in v3.5.5 | Impact |
+|---------|------------------|-------------------|--------|
+| **Phase 2 Lua fast paths** | Disabled | ✅ Enabled | FPS 97-158 (best result) |
+| **GetFileSizeEx cache** | Disabled | ✅ Enabled | FPS 94-151 |
+| **luaH_getstr cache** | Disabled | ✅ Enabled | FPS 87-144 |
+| **lua_getfield cache** | Disabled | ✅ Enabled | FPS 85-146 |
+
+The following remain **disabled** due to confirmed crashes across multiple testers:
+
+| Feature | Reason |
+|---------|--------|
+| CombatLog full event cache | Crash on character world login |
+| lua_pushstring cache | Crash on character world login |
+| lua_rawgeti cache | Crash on character world login |
+| ApiCache | Breaks Outfitter + GearScore addons |
 
 ---
 

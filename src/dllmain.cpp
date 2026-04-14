@@ -78,7 +78,7 @@
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
 
 // Crash isolation toggles for hooks
-#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    1   // GetFileSizeEx cache (causes char select crash)
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED — tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
@@ -86,9 +86,9 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr (stale Node* crash)
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
-#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield _G cache (safe but 0% hit rate)
+#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield _G cache — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
@@ -242,6 +242,11 @@ static DWORD WINAPI LogThreadProc(LPVOID) {
 static void LogOpen() {
     CreateDirectoryA("Logs", NULL);
     g_log = fopen("Logs\\wow_optimize.log", "w");
+    if (g_log) {
+        // Write UTF-8 BOM so editors interpret em-dashes and other UTF-8 correctly
+        static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+        fwrite(bom, 1, 3, g_log);
+    }
     g_logShutdown = false;
     g_logEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     g_logThread = CreateThread(NULL, 0, LogThreadProc, NULL, 0, NULL);
