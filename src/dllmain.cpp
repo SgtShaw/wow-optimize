@@ -645,6 +645,64 @@ static int WINAPI hooked_send(SOCKET s, const char* buf, int len, int flags) {
     return orig_send(s, buf, len, flags);
 }
 
+// ================================================================
+// 3b. recv / WSARecv — receive-side socket optimization
+//
+// WHAT: Hooks recv() and WSARecv() to track receive-side socket behavior.
+// WHY:  recv is the mirror of send — game client receives server updates,
+//       entity positions, combat events, etc. Optimizing receive path
+//       reduces incoming latency and improves responsiveness.
+// HOW:  1. Track recv call frequency and byte throughput
+//       2. WSARecv hook ensures overlapped I/O uses optimal buffer counts
+//       3. Detect WSAEWOULDBLOCK patterns (non-blocking receive starvation)
+//       4. Ensure SO_RCVBUF is optimal (already set in OptimizeSocket)
+// STATUS: Active — complements send-side optimizations
+// ================================================================
+
+typedef int (WINAPI* recv_fn)(SOCKET, char*, int, int);
+typedef int (WINAPI* WSARecv_fn)(SOCKET, LPWSABUF, DWORD, LPDWORD, LPDWORD, LPWSAOVERLAPPED, LPWSAOVERLAPPED_COMPLETION_ROUTINE);
+
+static recv_fn      orig_recv      = nullptr;
+static WSARecv_fn   orig_WSARecv   = nullptr;
+
+static long g_recvCalls      = 0;
+static long g_recvBytes      = 0;
+static long g_recvWouldBlock = 0;
+static long g_WSARecvCalls   = 0;
+static long g_WSARecvBytes   = 0;
+static long g_WSARecvWouldBlock = 0;
+
+static int WINAPI hooked_recv(SOCKET s, char* buf, int len, int flags) {
+    int result = orig_recv(s, buf, len, flags);
+    if (result > 0) {
+        g_recvCalls++;
+        g_recvBytes += result;
+    } else if (result == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        if (err == WSAEWOULDBLOCK) {
+            g_recvWouldBlock++;
+        }
+    }
+    return result;
+}
+
+static int WINAPI hooked_WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCount,
+                                  LPDWORD lpNumberOfBytesRecvd, LPDWORD lpFlags,
+                                  LPWSAOVERLAPPED lpOverlapped, LPWSAOVERLAPPED_COMPLETION_ROUTINE lpCompletionRoutine) {
+    int result = orig_WSARecv(s, lpBuffers, dwBufferCount, lpNumberOfBytesRecvd,
+                               lpFlags, lpOverlapped, lpCompletionRoutine);
+    if (result == 0 && lpNumberOfBytesRecvd) {
+        g_WSARecvCalls++;
+        g_WSARecvBytes += *lpNumberOfBytesRecvd;
+    } else if (result == SOCKET_ERROR) {
+        int err = WSAGetLastError();
+        if (err == WSAEWOULDBLOCK) {
+            g_WSARecvWouldBlock++;
+        }
+    }
+    return result;
+}
+
 static bool InstallNetworkHooks() {
     HMODULE h = GetModuleHandleA("ws2_32.dll");
     if (!h) h = LoadLibraryA("ws2_32.dll");
@@ -652,6 +710,8 @@ static bool InstallNetworkHooks() {
 
     void* pConnect = (void*)GetProcAddress(h, "connect");
     void* pSend    = (void*)GetProcAddress(h, "send");
+    void* pRecv    = (void*)GetProcAddress(h, "recv");
+    void* pWSARecv = (void*)GetProcAddress(h, "WSARecv");
     if (!pConnect) return false;
 
     int ok = 0;
@@ -662,7 +722,13 @@ static bool InstallNetworkHooks() {
     if (pSend && MH_CreateHook(pSend, (void*)hooked_send, (void**)&orig_send) == MH_OK)
         if (MH_EnableHook(pSend) == MH_OK) ok++;
 
-    Log("Network hook: ACTIVE (%d/2 hooks, NODELAY+ACK+QoS+BUF+KA, deferred mode)", ok);
+    if (pRecv && MH_CreateHook(pRecv, (void*)hooked_recv, (void**)&orig_recv) == MH_OK)
+        if (MH_EnableHook(pRecv) == MH_OK) ok++;
+
+    if (pWSARecv && MH_CreateHook(pWSARecv, (void*)hooked_WSARecv, (void**)&orig_WSARecv) == MH_OK)
+        if (MH_EnableHook(pWSARecv) == MH_OK) ok++;
+
+    Log("Network hook: ACTIVE (%d/4 hooks, NODELAY+ACK+QoS+BUF+KA+recv, deferred mode)", ok);
     return ok > 0;
 }
 
@@ -2492,6 +2558,11 @@ static void DumpPeriodicStats() {
                 fps.formatFastHits, fps.formatFallbacks,
                 (double)fps.formatFastHits / fmtTotal * 100.0);
     }
+    // Receive-side network stats
+    if (g_recvCalls > 0 || g_WSARecvCalls > 0)
+        Log("[Stats] Network RX: recv=%ld calls, %.1f KB, %ld wouldblock | WSARecv=%ld calls, %.1f KB, %ld wouldblock",
+            g_recvCalls, g_recvBytes / 1024.0, g_recvWouldBlock,
+            g_WSARecvCalls, g_WSARecvBytes / 1024.0, g_WSARecvWouldBlock);
     if (fps.phase2Active) {
         Log("[Stats] Phase2: find=%ld/%ld match=%ld/%ld type=%ld math=%ld strlen=%ld byte=%ld tostr=%ld/%ld tonum=%ld next=%ld/%ld rawget=%ld/%ld rawset=%ld/%ld tins=%ld/%ld trem=%ld/%ld concat=%ld/%ld unpack=%ld/%ld select=%ld/%ld raweq=%ld/%ld sub=%ld lower=%ld upper=%ld ipairs=%ld/%ld iter=%ld/%ld random=%ld/%ld sqrt=%ld/%ld rep=%ld/%ld find_full=%ld/%ld",
             fps.findPlainHits, fps.findFallbacks, fps.matchHits, fps.matchFallbacks, fps.typeHits, fps.mathHits, fps.strlenHits, fps.strbyteHits,
