@@ -72,7 +72,7 @@
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED — tested bad)
-#define CRASH_TEST_DISABLE_VA_ARENA          0   // VA Arena virtual alloc
+#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc — DISABLED: causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED — tested bad)
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED — 0 hits)
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
