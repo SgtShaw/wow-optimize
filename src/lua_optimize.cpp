@@ -720,20 +720,21 @@ static void StepGC(lua_State* L, double frameMs) {
     // Emergency GC: INCREMENTAL only — never block main thread with full collect.
     // Full collect (LUA_GCCOLLECT) causes 500ms-2s stalls → network timeout → ping spike.
     // Instead: aggressive incremental steps spread over multiple frames.
-    // Threshold raised to 500 MB — 300 MB is normal for HD client + 20+ addons.
-    // Cooldown: 30 seconds to prevent continuous GC during raids.
+    // Threshold: 300 MB (355 MB was causing OOM crashes — 32-bit address space fragmentation).
+    // Step size: 16 MB (stronger collection to prevent memory pressure on M2 model loads).
+    // Cooldown: 10 seconds (balance between memory pressure and raid performance).
     static double g_lastEmergencyMem = 0.0;
     static DWORD  g_lastEmergencyTick = 0;
 
-    if (State.luaMemoryKB > 500 * 1024 && !Config.isLoading) {
+    if (State.luaMemoryKB > 300 * 1024 && !Config.isLoading) {
         DWORD nowTick = GetTickCount();
         double memMB = State.luaMemoryKB / 1024.0;
 
-        // Only trigger if memory grew since last emergency GC AND cooldown expired (30 sec)
-        if (memMB > g_lastEmergencyMem + 10.0 && (nowTick - g_lastEmergencyTick) > 30000) {
-            // Incremental step: 1 MB per frame, spread across multiple frames.
-            // This avoids the stop-the-world stall of LUA_GCCOLLECT.
-            Api.lua_gc(L, LUA_GCSTEP, 1024);  // 1 MB step
+        // Only trigger if memory grew since last emergency GC AND cooldown expired (10 sec)
+        if (memMB > g_lastEmergencyMem + 5.0 && (nowTick - g_lastEmergencyTick) > 10000) {
+            // Incremental step: 16 MB per frame, spread across multiple frames.
+            // Stronger collection prevents M2 model allocation failures (~20MB contiguous).
+            Api.lua_gc(L, LUA_GCSTEP, 16384);  // 16 MB step
             State.fullCollects++;
 
             int kb = Api.lua_gc(L, LUA_GCCOUNT, 0);
