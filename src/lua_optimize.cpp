@@ -133,15 +133,17 @@ static struct {
 
 // ================================================================
 //  Configuration — 4-tier GC stepping
+//  Increased from v3.5.5 defaults to handle heavy addon sessions (300-400MB Lua memory).
+//  At 60fps: normal=128KB → 7.7 MB/sec, idle=256KB → 15 MB/sec, loading=512KB → 30 MB/sec.
 // ================================================================
 
 static struct {
     int  gcPause        = 110;
     int  gcStepMul      = 300;
-    int  normalStepKB   = 64;
-    int  combatStepKB   = 16;
-    int  idleStepKB     = 128;
-    int  loadingStepKB  = 256;
+    int  normalStepKB   = 128;   // was 64 — heavy sessions need faster collection
+    int  combatStepKB   = 32;    // was 16 — balance between stutter and collection
+    int  idleStepKB     = 256;   // was 128 — aggressive cleanup while AFK
+    int  loadingStepKB  = 512;   // was 256 — rapid cleanup during zone transitions
     bool manualGCMode   = true;
 
     bool inCombat       = false;
@@ -687,26 +689,30 @@ static void StepGC(lua_State* L, double frameMs) {
     double gcMs = (double)(after.QuadPart - before.QuadPart) * 1000.0 / (double)g_gcPerfFreq.QuadPart;
     g_smoothedGcMs = g_smoothedGcMs * 0.95 + gcMs * 0.05;
 
-    // Post-GC adaptive: adjust base step sizes based on GC time
+    // Post-GC adaptive: adjust base step sizes based on GC time.
+    // SLOW adaptation — prevent step sizes from collapsing during heavy sessions.
     if (g_smoothedGcMs > 2.0) {
-        if (Config.isLoading) {
-            if (Config.loadingStepKB > 32) Config.loadingStepKB -= 16;
-        } else if (Config.inCombat) {
-            if (Config.combatStepKB > 4) Config.combatStepKB -= 2;
-        } else if (Config.isIdle) {
-            if (Config.idleStepKB > 16) Config.idleStepKB -= 8;
-        } else {
-            if (Config.normalStepKB > 8) Config.normalStepKB -= 4;
+        // Only decrease if GC is VERY slow (>5ms) — avoid over-reacting to temporary spikes.
+        if (g_smoothedGcMs > 5.0) {
+            if (Config.isLoading) {
+                if (Config.loadingStepKB > 64) Config.loadingStepKB -= 32;
+            } else if (Config.inCombat) {
+                if (Config.combatStepKB > 8) Config.combatStepKB -= 4;
+            } else if (Config.isIdle) {
+                if (Config.idleStepKB > 32) Config.idleStepKB -= 16;
+            } else {
+                if (Config.normalStepKB > 16) Config.normalStepKB -= 8;
+            }
         }
     } else if (g_smoothedGcMs < 0.6) {
         if (Config.isLoading) {
-            if (Config.loadingStepKB < 300) Config.loadingStepKB += 8;
+            if (Config.loadingStepKB < 512) Config.loadingStepKB += 16;
         } else if (Config.inCombat) {
-            if (Config.combatStepKB < 24) Config.combatStepKB += 1;
+            if (Config.combatStepKB < 48) Config.combatStepKB += 2;
         } else if (Config.isIdle) {
-            if (Config.idleStepKB < 256) Config.idleStepKB += 4;
+            if (Config.idleStepKB < 512) Config.idleStepKB += 8;
         } else {
-            if (Config.normalStepKB < 100) Config.normalStepKB += 2;
+            if (Config.normalStepKB < 256) Config.normalStepKB += 4;
         }
     }
 
@@ -721,19 +727,37 @@ static void StepGC(lua_State* L, double frameMs) {
     // Full collect (LUA_GCCOLLECT) causes 500ms-2s stalls → network timeout → ping spike.
     // Instead: aggressive incremental steps spread over multiple frames.
     // Threshold: 300 MB (355 MB was causing OOM crashes — 32-bit address space fragmentation).
-    // Step size: 16 MB (stronger collection to prevent memory pressure on M2 model loads).
-    // Cooldown: 10 seconds (balance between memory pressure and raid performance).
+    // Loading mode: MUCH more aggressive — 64 MB steps, 2s cooldown (teleport safety).
+    // Normal mode: 16 MB steps, 10s cooldown (balance for raid performance).
     static double g_lastEmergencyMem = 0.0;
     static DWORD  g_lastEmergencyTick = 0;
 
-    if (State.luaMemoryKB > 300 * 1024 && !Config.isLoading) {
+    if (State.luaMemoryKB > 300 * 1024) {
         DWORD nowTick = GetTickCount();
         double memMB = State.luaMemoryKB / 1024.0;
 
-        // Only trigger if memory grew since last emergency GC AND cooldown expired (10 sec)
-        if (memMB > g_lastEmergencyMem + 5.0 && (nowTick - g_lastEmergencyTick) > 10000) {
-            // Incremental step: 16 MB per frame, spread across multiple frames.
-            // Stronger collection prevents M2 model allocation failures (~20MB contiguous).
+        // Loading mode: aggressive emergency GC (teleport/zone transition safety).
+        // During loading there is no rendering — we can collect hard without affecting FPS.
+        // This prevents M2 model allocation failures when memory is already high.
+        if (Config.isLoading) {
+            // 64 MB step every 2 seconds during loading — clear memory fast.
+            if ((nowTick - g_lastEmergencyTick) > 2000) {
+                Api.lua_gc(L, LUA_GCSTEP, 65536);  // 64 MB step
+                State.fullCollects++;
+
+                int kb = Api.lua_gc(L, LUA_GCCOUNT, 0);
+                int b  = Api.lua_gc(L, LUA_GCCOUNTB, 0);
+                double afterMB = (kb + (b / 1024.0)) / 1024.0;
+
+                g_lastEmergencyMem = afterMB;
+                g_lastEmergencyTick = nowTick;
+
+                Log("[LuaOpt] EMERGENCY GC (loading, incremental): %.1f MB -> %.1f MB", memMB, afterMB);
+            }
+        }
+        // Normal/combat/idle mode: moderate emergency GC.
+        else if (memMB > g_lastEmergencyMem + 5.0 && (nowTick - g_lastEmergencyTick) > 10000) {
+            // Incremental step: 16 MB per trigger.
             Api.lua_gc(L, LUA_GCSTEP, 16384);  // 16 MB step
             State.fullCollects++;
 
