@@ -2493,7 +2493,7 @@ static void DumpPeriodicStats() {
                 (double)fps.formatFastHits / fmtTotal * 100.0);
     }
     if (fps.phase2Active) {
-        Log("[Stats] Phase2: find=%ld/%ld match=%ld/%ld type=%ld math=%ld strlen=%ld byte=%ld tostr=%ld/%ld tonum=%ld next=%ld/%ld rawget=%ld/%ld rawset=%ld/%ld tins=%ld/%ld trem=%ld/%ld concat=%ld/%ld unpack=%ld/%ld select=%ld/%ld raweq=%ld/%ld sub=%ld lower=%ld upper=%ld",
+        Log("[Stats] Phase2: find=%ld/%ld match=%ld/%ld type=%ld math=%ld strlen=%ld byte=%ld tostr=%ld/%ld tonum=%ld next=%ld/%ld rawget=%ld/%ld rawset=%ld/%ld tins=%ld/%ld trem=%ld/%ld concat=%ld/%ld unpack=%ld/%ld select=%ld/%ld raweq=%ld/%ld sub=%ld lower=%ld upper=%ld ipairs=%ld/%ld iter=%ld/%ld random=%ld/%ld sqrt=%ld/%ld rep=%ld/%ld find_full=%ld/%ld",
             fps.findPlainHits, fps.findFallbacks, fps.matchHits, fps.matchFallbacks, fps.typeHits, fps.mathHits, fps.strlenHits, fps.strbyteHits,
             fps.tostringHits, fps.tostringFallbacks, fps.tonumberHits,
             fps.nextHits, fps.nextFallbacks, fps.rawgetHits, fps.rawgetFallbacks,
@@ -2504,7 +2504,13 @@ static void DumpPeriodicStats() {
             fps.unpackHits, fps.unpackFallbacks,
             fps.selectHits, fps.selectFallbacks,
             fps.rawequalHits, fps.rawequalFallbacks,
-            fps.strsubHits, fps.strlowerHits, fps.strupperHits);
+            fps.strsubHits, fps.strlowerHits, fps.strupperHits,
+            fps.ipairsHits, fps.ipairsFallbacks,
+            fps.ipairsIteratorHits, fps.ipairsIteratorFallbacks,
+            fps.mathRandomHits, fps.mathRandomFallbacks,
+            fps.mathSqrtHits, fps.mathSqrtFallbacks,
+            fps.strRepHits, fps.strRepFallbacks,
+            fps.findFullHits, fps.findFullFallbacks);
     }
     LuaInternals::Stats lis = LuaInternals::GetStats();
     if (lis.active) {
