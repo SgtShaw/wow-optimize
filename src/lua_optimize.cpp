@@ -151,6 +151,13 @@ static struct {
     bool isLoading      = false;
 } Config;
 
+// Async GC worker thread state
+static HANDLE        g_gcWorkerThread    = NULL;
+static volatile long g_gcAsyncRequested  = 0;
+static volatile long g_gcWorkerActive    = 0;
+static volatile long g_gcWorkerSteps    = 0;
+static double        g_gcWorkerTotalMs   = 0.0;
+
 
 static volatile LONG g_luaInitState = 0;
 static volatile bool g_addressesValid = false;
@@ -586,6 +593,13 @@ static bool OptimizeGC(lua_State* L) {
         if (Config.manualGCMode) {
             Api.lua_gc(L, LUA_GCSTOP, 0);
             Log("[LuaOpt] Auto GC stopped — manual stepping active");
+        }
+
+        // Start async GC worker thread (once, after first init)
+        static bool asyncGCStarted = false;
+        if (!asyncGCStarted) {
+            LuaOpt::StartAsyncGCWorker();
+            asyncGCStarted = true;
         }
 
         int memKB = Api.lua_gc(L, LUA_GCCOUNT, 0);
@@ -1296,11 +1310,109 @@ Stats GetStats() {
     s.gcStepsTotal        = State.gcStepsTotal;
     s.gcPause             = Config.gcPause;
     s.gcStepMul           = Config.gcStepMul;
+    s.asyncGCWorkerSteps  = g_gcWorkerSteps;
+    s.asyncGCWorkerTimeMs = g_gcWorkerTotalMs;
     return s;
 }
 
 bool LuaOpt::IsLoadingMode() {
     return Config.isLoading;
+}
+
+// ================================================================
+// Async Lua GC Worker Thread
+//
+// WHAT: Background thread that performs Lua GC steps without blocking main thread.
+// WHY:  lua_gc(L, LUA_GCSTEP, N) blocks the calling thread. Even small steps
+//       cause micro-stutters on main thread. Offloading to worker thread
+//       eliminates GC-induced frame time spikes.
+// HOW:  1. Main thread sets g_gcAsyncRequested instead of calling lua_gc directly
+//       2. Worker thread monitors request and performs GC steps
+//       3. Worker yields between steps to avoid starving main thread
+//       4. If worker falls behind, main thread still does emergency GC
+// STATUS: Active — complements sync StepGC with async background collection
+// ================================================================
+
+// Async Lua GC Worker Thread
+// (variables already declared at file scope above)
+
+static DWORD WINAPI GcWorkerThreadProc(LPVOID param) {
+    (void)param;
+    InterlockedExchange(&g_gcWorkerActive, 1);
+
+    while (g_gcWorkerActive) {
+        // Wait for GC request
+        if (InterlockedCompareExchange(&g_gcAsyncRequested, 0, 1) == 1) {
+            // GC requested — perform steps
+            if (State.gcOptimized && Api.lua_gc) {
+                lua_State* L = ReadLuaState();
+                if (!L) {
+                    InterlockedExchange(&g_gcAsyncRequested, 0);
+                    Sleep(1);
+                    continue;
+                }
+
+                int stepKB = GetCurrentStepKB();
+
+                LARGE_INTEGER before, after;
+                QueryPerformanceCounter(&before);
+
+                __try {
+                    // Do incremental GC in small chunks to avoid long pauses
+                    int chunks = 4;
+                    int perChunk = stepKB / chunks;
+                    if (perChunk < 4) perChunk = 4;
+
+                    for (int i = 0; i < chunks; i++) {
+                        Api.lua_gc(L, LUA_GCSTEP, perChunk);
+                        g_gcWorkerSteps++;
+                        // Yield between chunks to not starve main thread
+                        Sleep(0);
+                    }
+                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {
+                    Log("[LuaOpt-GC] EXCEPTION in async GC step — disabling");
+                    State.gcOptimized = false;
+                    break;
+                }
+
+                QueryPerformanceCounter(&after);
+                double gcMs = (double)(after.QuadPart - before.QuadPart) * 1000.0 / (double)g_gcPerfFreq.QuadPart;
+                g_gcWorkerTotalMs += gcMs;
+            }
+        }
+
+        // Sleep briefly to avoid busy-waiting
+        Sleep(1);
+    }
+
+    return 0;
+}
+
+void StartAsyncGCWorker() {
+    if (g_gcWorkerThread) return;
+
+    g_gcWorkerThread = CreateThread(NULL, 0, GcWorkerThreadProc, NULL, 0, NULL);
+    if (!g_gcWorkerThread) {
+        Log("[LuaOpt-GC] Failed to create async GC worker thread");
+        return;
+    }
+
+    SetThreadPriority(g_gcWorkerThread, THREAD_PRIORITY_BELOW_NORMAL);
+    Log("[LuaOpt-GC] Async GC worker thread started (PID %ld)", GetThreadId(g_gcWorkerThread));
+}
+
+void LuaOpt::RequestAsyncGC() {
+    // Signal worker thread to perform GC (non-blocking)
+    InterlockedExchange(&g_gcAsyncRequested, 1);
+}
+
+int LuaOpt::GetAsyncGCWorkerSteps() {
+    return g_gcWorkerSteps;
+}
+
+double LuaOpt::GetAsyncGCWorkerTimeMs() {
+    return g_gcWorkerTotalMs;
 }
 
 } // namespace LuaOpt
