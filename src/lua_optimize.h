@@ -25,6 +25,12 @@ void SetCombatMode(bool inCombat);
 // Returns true if client is in loading screen
 bool IsLoadingMode();
 
+// Async GC worker — offloads GC steps from main thread
+void RequestAsyncGC();
+int  GetAsyncGCWorkerSteps();
+double GetAsyncGCWorkerTimeMs();
+void StartAsyncGCWorker();
+
 struct Stats {
     bool   initialized;
     bool   gcOptimized;
@@ -34,6 +40,8 @@ struct Stats {
     int    gcStepsTotal;
     int    gcPause;
     int    gcStepMul;
+    int    asyncGCWorkerSteps;
+    double asyncGCWorkerTimeMs;
 };
 
 Stats GetStats();
