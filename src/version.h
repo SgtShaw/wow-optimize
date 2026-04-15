@@ -26,7 +26,7 @@
 // ================================================================
 // TEST FLAGS — individual new hooks (set 1 to DISABLE)
 // ================================================================
-#define TEST_DISABLE_HOOK_IPAIRS        1   // REMOVED — architectural issue (breaks Lua)
+#define TEST_DISABLE_HOOK_IPAIRS        1   // DISABLED — closure creation causes EXCEPTION crashes
 #define TEST_DISABLE_HOOK_MATH_RANDOM   0   // ENABLED — tested stable
 #define TEST_DISABLE_HOOK_MATH_SQRT     0   // ENABLED — tested stable
 #define TEST_DISABLE_HOOK_STRING_REP    0   // ENABLED — tested stable

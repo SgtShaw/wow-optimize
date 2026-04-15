@@ -61,6 +61,10 @@ struct Stats {
     long strsubHits;
     long strlowerHits;
     long strupperHits;
+    long ipairsHits;
+    long ipairsFallbacks;
+    long ipairsIteratorHits;
+    long ipairsIteratorFallbacks;
     long findFullHits;
     long findFullFallbacks;
     long mathRandomHits;

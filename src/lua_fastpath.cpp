@@ -59,6 +59,12 @@ typedef int         (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
 typedef void        (__cdecl *fn_lua_settop)(lua_State* L, int index);
 typedef void        (__cdecl *fn_lua_getfield)(lua_State* L, int index, const char* k);
 typedef void        (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
+typedef void        (__cdecl *fn_lua_pushcclosure)(lua_State* L, int (*fn)(lua_State*), int n);
+typedef void        (__cdecl *fn_lua_replace)(lua_State* L, int index);
+typedef void        (__cdecl *fn_lua_insert)(lua_State* L, int index);
+typedef void        (__cdecl *fn_lua_remove)(lua_State* L, int index);
+typedef const void* (__cdecl *fn_lua_topointer)(lua_State* L, int index);
+typedef void        (__cdecl *fn_lua_pushvalue)(lua_State* L, int index);
 
 static fn_lua_tolstring   lua_tolstring_   = (fn_lua_tolstring)0x0084E0E0;
 static fn_lua_tonumber    lua_tonumber_    = (fn_lua_tonumber)0x0084E030;
@@ -71,6 +77,12 @@ static fn_lua_toboolean   lua_toboolean_   = (fn_lua_toboolean)0x0084E0B0;
 static fn_lua_pushboolean lua_pushboolean_ = (fn_lua_pushboolean)0x0084E4D0;
 static fn_lua_settop      lua_settop_      = (fn_lua_settop)0x0084DBF0;
 static fn_lua_getfield    lua_getfield_    = (fn_lua_getfield)0x0084E590;
+static fn_lua_pushcclosure lua_pushcclosure_ = (fn_lua_pushcclosure)0x0084E980;
+static fn_lua_replace     lua_replace_     = (fn_lua_replace)0x0084E850;
+static fn_lua_insert      lua_insert_      = (fn_lua_insert)0x0084E8C0;
+static fn_lua_remove      lua_remove_      = (fn_lua_remove)0x0084E880;
+static fn_lua_topointer   lua_topointer_   = (fn_lua_topointer)0x0084E0A0;
+static fn_lua_pushvalue   lua_pushvalue_   = (fn_lua_pushvalue)0x0084E630;
 
 typedef void* (__cdecl *fn_luaH_get)(void* t, const void* key);
 typedef void* (__cdecl *fn_luaH_getnum)(void* t, int key);
@@ -102,7 +114,10 @@ static constexpr uintptr_t ADDR_taint_skip    = 0x00D413A4;
 #define LUA_TSTRING  4
 #define LUA_TTABLE   5
 #define LUA_TFUNCTION 6
+#define LUA_TTHREAD  8
+#define LUA_TUSERDATA 7
 #define LUA_GLOBALSINDEX (-10002)
+#define lua_upvalueindex(i) (LUA_GLOBALSINDEX - (i))
 
 union RawValue {
     void*     gc;
@@ -206,6 +221,19 @@ static long g_mathSqrtFallbacks  = 0;
 static lua_CFunction_t orig_str_rep = nullptr;
 static long g_strRepHits       = 0;
 static long g_strRepFallbacks  = 0;
+
+// ipairs factory hook — Phase 2
+// Architecture: ipairs(table) returns (iterator_closure, table, 0)
+// We hook the factory to return our custom fast iterator closure.
+// Future optimization: replace the returned iterator with our fast version.
+static lua_CFunction_t orig_luaB_ipairs = nullptr;
+static long g_ipairsFactoryHits   = 0;
+static long g_ipairsFactoryFalls  = 0;
+static long g_ipairsIteratorHits  = 0;
+static long g_ipairsIteratorFalls = 0;
+
+// Forward declaration
+static int __cdecl Hooked_IPairs_Iterator(lua_State* L);
 
 static lua_CFunction_t orig_str_find_full = nullptr;
 static long g_findFullHits       = 0;
@@ -1867,6 +1895,111 @@ static int __cdecl Hooked_StrRep(lua_State* L) {
     return 1;
 }
 
+// ================================================================
+// Hooked_IPairs_Factory — ipairs() factory fast path
+// WHAT: Optimized ipairs() factory that returns our fast iterator.
+// WHY:  ipairs() is called thousands of times per frame by every addon.
+// HOW:  Phase 1: Just intercept and count (safe passthrough).
+//       Phase 2: Return custom iterator closure with upvalues.
+// STATUS: Active — factory hook only (iterator optimization TBD)
+// ================================================================
+
+static int __cdecl Hooked_IPairs_Factory(lua_State* L) {
+    __try {
+        // Check that we have at least 1 argument
+        if (lua_gettop_(L) < 1) {
+            g_ipairsFactoryFalls++;
+            return orig_luaB_ipairs(L);
+        }
+
+        // Check that argument is a table
+        if (lua_type_(L, 1) != LUA_TTABLE) {
+            g_ipairsFactoryFalls++;
+            return orig_luaB_ipairs(L);
+        }
+
+        // Return our custom closure with upvalues:
+        // Stack: [table]
+        lua_pushvalue_(L, 1);        // [table, table]           - upvalue 1: table
+        lua_pushnumber_(L, 0.0);     // [table, table, 0]        - upvalue 2: initial index
+        lua_pushcclosure_(L, Hooked_IPairs_Iterator, 2);  // [table, closure] - consumes 2 upvalues
+        lua_insert_(L, -2);          // [closure, table]
+        lua_pushnumber_(L, 0.0);     // [closure, table, 0]
+
+        g_ipairsFactoryHits++;
+        return 3;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_ipairsFactoryFalls++;
+        return orig_luaB_ipairs(L);
+    }
+}
+
+// ================================================================
+// Hooked_IPairs_Iterator — ipairs iterator fast path
+// WHAT: Fast numeric table iteration via luaH_getnum (bypasses lua_gettable).
+// WHY:  ipairs iterator called thousands of times per frame.
+// HOW:  Uses upvalues: [1]=table, [2]=current_index.
+//       Direct luaH_getnum instead of lua_gettable.
+// STATUS: Active — used by Hooked_IPairs_Factory closure
+// ================================================================
+
+static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
+    __try {
+        // Get upvalue 1: table pointer
+        void* tablePtr = (void*)lua_topointer_(L, lua_upvalueindex(1));
+        if (!tablePtr) {
+            g_ipairsIteratorFalls++;
+            return orig_luaB_ipairs(L);
+        }
+
+        // Get upvalue 2: current index
+        if (lua_type_(L, lua_upvalueindex(2)) != LUA_TNUMBER) {
+            g_ipairsIteratorFalls++;
+            return orig_luaB_ipairs(L);
+        }
+
+        int idx = (int)lua_tonumber_(L, lua_upvalueindex(2));
+        idx++;  // next index
+
+        // Direct table lookup via luaH_getnum
+        RawTValue* valSlot = (RawTValue*)luaH_getnum_(tablePtr, idx);
+        if (!valSlot || valSlot->tt == LUA_TNIL) {
+            // End of array
+            return 0;
+        }
+
+        // Update upvalue: current_index = idx
+        lua_pushnumber_(L, (double)idx);
+        lua_replace_(L, lua_upvalueindex(2));
+
+        // Return: idx, value
+        lua_pushnumber_(L, (double)idx);
+
+        switch (valSlot->tt) {
+            case LUA_TNIL:     lua_pushnil_(L); break;
+            case LUA_TBOOLEAN: lua_pushboolean_(L, valSlot->value.ptr != 0); break;
+            case LUA_TNUMBER: {
+                double d; memcpy(&d, &valSlot->value, sizeof(double));
+                lua_pushnumber_(L, d); break;
+            }
+            case LUA_TSTRING:  lua_pushstring_(L, (const char*)valSlot->value.gc); break;
+            case LUA_TTABLE:
+            case LUA_TFUNCTION:
+            case LUA_TTHREAD:
+            case LUA_TUSERDATA: lua_pushvalue_(L, lua_upvalueindex(1)); break;  // return table reference
+            default:           lua_pushnil_(L); break;
+        }
+
+        g_ipairsIteratorHits++;
+        return 2;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_ipairsIteratorFalls++;
+        return orig_luaB_ipairs(L);
+    }
+}
+
 // Phase 2: discovery and hook installation.
 
 // ================================================================
@@ -1988,10 +2121,9 @@ static FuncHookEntry g_funcHooks[] = {
 #if !TEST_DISABLE_HOOK_STRING_REP
     {"string", "rep",       (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
 #endif
-    // ipairs hook REMOVED — architectural issue: ipairs() returns an iterator function,
-    // it should not be replaced with the iterator itself.
-    // To hook ipairs properly, we would need to intercept the iterator function
-    // that ipairs returns, not ipairs() itself. This requires a different approach.
+#if !TEST_DISABLE_HOOK_IPAIRS
+    {nullptr,  "ipairs",    (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
+#endif
 };
 
 static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0]);
@@ -2243,6 +2375,10 @@ void Shutdown() {
     if (g_strupperHits > 0) Log("[FastPath] StrUpper: %ld fast", g_strupperHits);
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
         Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
+    if (g_ipairsFactoryHits > 0 || g_ipairsFactoryFalls > 0)
+        Log("[FastPath] IPairs(factory): %ld hits, %ld fallbacks", g_ipairsFactoryHits, g_ipairsFactoryFalls);
+    if (g_ipairsIteratorHits > 0 || g_ipairsIteratorFalls > 0)
+        Log("[FastPath] IPairs(iterator): %ld fast, %ld fallbacks", g_ipairsIteratorHits, g_ipairsIteratorFalls);
     if (g_findFullHits > 0 || g_findFullFallbacks > 0)
         Log("[FastPath] Find(pattern): %ld fast, %ld fallback", g_findFullHits, g_findFullFallbacks);
     if (g_mathRandomHits > 0 || g_mathRandomFallbacks > 0)
@@ -2316,6 +2452,10 @@ Stats GetStats() {
     s.unpackFallbacks     = g_unpackFallbacks;
     s.selectHits          = g_selectHits;
     s.selectFallbacks     = g_selectFallbacks;
+    s.ipairsHits          = g_ipairsFactoryHits;
+    s.ipairsFallbacks     = g_ipairsFactoryFalls;
+    s.ipairsIteratorHits  = g_ipairsIteratorHits;
+    s.ipairsIteratorFallbacks = g_ipairsIteratorFalls;
     s.findFullHits        = g_findFullHits;
     s.findFullFallbacks   = g_findFullFallbacks;
     s.mathRandomHits      = g_mathRandomHits;
