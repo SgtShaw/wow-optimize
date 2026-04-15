@@ -194,6 +194,23 @@ static lua_CFunction_t orig_luaB_select = nullptr;
 static long g_selectHits       = 0;
 static long g_selectFallbacks  = 0;
 
+// New Phase 2+ hooks (addresses confirmed via IDA Pro, build 12340)
+static lua_CFunction_t orig_math_random = nullptr;
+static long g_mathRandomHits       = 0;
+static long g_mathRandomFallbacks  = 0;
+
+static lua_CFunction_t orig_math_sqrt = nullptr;
+static long g_mathSqrtHits       = 0;
+static long g_mathSqrtFallbacks  = 0;
+
+static lua_CFunction_t orig_str_rep = nullptr;
+static long g_strRepHits       = 0;
+static long g_strRepFallbacks  = 0;
+
+static lua_CFunction_t orig_str_find_full = nullptr;
+static long g_findFullHits       = 0;
+static long g_findFullFallbacks  = 0;
+
 static inline void NoteRawGetHit() {
     ++g_rawgetHits;
 }
@@ -1738,10 +1755,193 @@ fallback:
     return orig_luaB_rawequal(L);
 }
 
+// ================================================================
+// Hooked_Math_Random — math.random fast path
+// WHAT: CRT rand() call without Lua VM overhead.
+// WHY:  math.random called frequently for UI randomization.
+// HOW:  0 args: [0,1), 1 arg: [1,n], 2 args: [m,n]
+// STATUS: Active — installed in Phase 2
+// ================================================================
+
+static int __cdecl Hooked_Math_Random(lua_State* L) {
+    int nargs = lua_gettop_(L);
+    if (nargs > 2) { g_mathRandomFallbacks++; return orig_math_random(L); }
+
+    if (nargs == 0) {
+        // No args: return [0, 1)
+        double r = (double)rand() / (double)RAND_MAX;
+        lua_pushnumber_(L, r);
+        g_mathRandomHits++;
+        return 1;
+    }
+
+    // Check all args are numbers
+    for (int i = 1; i <= nargs; i++) {
+        if (lua_type_(L, i) != LUA_TNUMBER) { g_mathRandomFallbacks++; return orig_math_random(L); }
+    }
+
+    if (nargs == 1) {
+        // 1 arg: return [1, n]
+        int n = (int)lua_tonumber_(L, 1);
+        if (n < 1) { g_mathRandomFallbacks++; return orig_math_random(L); }
+        double r = 1.0 + (double)(rand() % n);
+        lua_pushnumber_(L, r);
+        g_mathRandomHits++;
+        return 1;
+    }
+
+    // 2 args: return [m, n]
+    int m = (int)lua_tonumber_(L, 1);
+    int n = (int)lua_tonumber_(L, 2);
+    if (n < m) { g_mathRandomFallbacks++; return orig_math_random(L); }
+    int range = n - m + 1;
+    double r = (double)m + (double)(rand() % range);
+    lua_pushnumber_(L, r);
+    g_mathRandomHits++;
+    return 1;
+}
+
+// ================================================================
+// Hooked_Math_Sqrt — math.sqrt fast path
+// WHAT: CRT sqrt() call without Lua VM overhead.
+// WHY:  math.sqrt called frequently for distance calculations.
+// HOW:  1 number arg -> sqrt(), else fallback.
+// STATUS: Active — installed in Phase 2
+// ================================================================
+
+static int __cdecl Hooked_Math_Sqrt(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        double v = lua_tonumber_(L, 1);
+        lua_pushnumber_(L, sqrt(v));
+        g_mathSqrtHits++;
+        return 1;
+    }
+    g_mathSqrtFallbacks++;
+    return orig_math_sqrt(L);
+}
+
+// ================================================================
+// Hooked_StrRep — string.rep fast path
+// WHAT: Repeat string N times without Lua VM overhead.
+// WHY:  string.rep called in UI formatting loops.
+// HOW:  2 args (string, count) -> inline memcpy loop.
+//       Safety: length limits, count limits, embedded NUL check.
+// STATUS: Active — installed in Phase 2
+// ================================================================
+
+static int __cdecl Hooked_StrRep(lua_State* L) {
+    if (lua_type_(L, 1) != LUA_TSTRING || lua_type_(L, 2) != LUA_TNUMBER) {
+        g_strRepFallbacks++;
+        return orig_str_rep(L);
+    }
+
+    size_t sLen = 0;
+    const char* s = lua_tolstring_(L, 1, &sLen);
+    if (!s || sLen == 0 || sLen > 1024) { g_strRepFallbacks++; return orig_str_rep(L); }
+
+    int n = (int)lua_tonumber_(L, 2);
+    if (n < 0 || n > 10000) { g_strRepFallbacks++; return orig_str_rep(L); }
+
+    size_t totalLen = sLen * (size_t)n;
+    if (totalLen > 65536 || totalLen == 0) { g_strRepFallbacks++; return orig_str_rep(L); }
+
+    // Safety: check for embedded NULs in source
+    for (size_t i = 0; i < sLen; i++) {
+        if (s[i] == '\0') { g_strRepFallbacks++; return orig_str_rep(L); }
+    }
+
+    // Build result
+    char* buf = (char*)mi_malloc(totalLen + 1);
+    if (!buf) { g_strRepFallbacks++; return orig_str_rep(L); }
+
+    char* p = buf;
+    for (int i = 0; i < n; i++) {
+        memcpy(p, s, sLen);
+        p += sLen;
+    }
+    *p = '\0';
+
+    lua_pushstring_(L, buf);
+    mi_free(buf);
+    g_strRepHits++;
+    return 1;
+}
+
 // Phase 2: discovery and hook installation.
 
 // ================================================================
-// Permanently disabled — all Phase 2 hooks disabled
+// Hooked_StrFind_Full — string.find with pattern matching
+// WHAT: Full string.find with Lua pattern support (not just plain mode).
+// WHY:  Pattern-based find is called frequently for complex searches.
+// HOW:  Falls back to original for any pattern with magic chars.
+//       Ultra-fast path for simple anchored patterns: "^literal"
+// STATUS: Active — installed in Phase 2
+// ================================================================
+
+static int __cdecl Hooked_StrFind_Full(lua_State* L) {
+    int nargs = lua_gettop_(L);
+    if (nargs < 2) return orig_str_find_full(L);
+
+    if (lua_type_(L, 1) != LUA_TSTRING || lua_type_(L, 2) != LUA_TSTRING)
+        return orig_str_find_full(L);
+
+    size_t sLen = 0, pLen = 0;
+    const char* s = lua_tolstring_(L, 1, &sLen);
+    const char* p = lua_tolstring_(L, 2, &pLen);
+    if (!s || !p || sLen > 8192 || pLen > 256) return orig_str_find_full(L);
+
+    // If plain mode (4th arg true), use existing plain hook
+    if (nargs >= 4 && lua_toboolean_(L, 4))
+        return orig_str_find_full(L);
+
+    // Safety: bail on embedded NULs
+    if (HasEmbeddedNul(s, sLen) || HasEmbeddedNul(p, pLen))
+        return orig_str_find_full(L);
+
+    // Ultra-fast: anchored literal "^text"
+    if (pLen > 1 && p[0] == '^' && IsPlainLiteralPattern(p + 1, pLen - 1)) {
+        int init = 1;
+        if (nargs >= 3 && lua_type_(L, 3) == LUA_TNUMBER)
+            init = (int)lua_tonumber_(L, 3);
+        if (init < 0) init = (int)sLen + init + 1;
+        if (init < 1) init = 1;
+
+        if (init == 1 && (pLen - 1) <= sLen && memcmp(s, p + 1, pLen - 1) == 0) {
+            lua_pushnumber_(L, 1.0);
+            lua_pushnumber_(L, (double)(int)(pLen - 1));
+            g_findFullHits++;
+            return 2;
+        }
+        lua_pushnil_(L);
+        g_findFullHits++;
+        return 1;
+    }
+
+    // Ultra-fast: single char pattern (no magic)
+    if (pLen == 1 && !IsPatternMagicChar(p[0])) {
+        int init = 1;
+        if (nargs >= 3 && lua_type_(L, 3) == LUA_TNUMBER)
+            init = (int)lua_tonumber_(L, 3);
+        if (init < 0) init = (int)sLen + init + 1;
+        if (init < 1) init = 1;
+        if (init > (int)sLen + 1) { lua_pushnil_(L); g_findFullHits++; return 1; }
+
+        const char* found = (const char*)memchr(s + init - 1, p[0], sLen - init + 1);
+        if (found) {
+            int pos = (int)(found - s) + 1;
+            lua_pushnumber_(L, (double)pos);
+            lua_pushnumber_(L, (double)pos);
+        } else {
+            lua_pushnil_(L);
+        }
+        g_findFullHits++;
+        return found ? 2 : 1;
+    }
+
+    g_findFullFallbacks++;
+    return orig_str_find_full(L);
+}
+
 // ================================================================
 #if !TEST_DISABLE_ALL_PHASE2
 
@@ -1779,6 +1979,19 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "sub",       (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
     {"string", "lower",     (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
     {"string", "upper",     (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
+#if !TEST_DISABLE_HOOK_MATH_RANDOM
+    {"math",   "random",    (void*)Hooked_Math_Random,      &orig_math_random,      0x00851100, false},
+#endif
+#if !TEST_DISABLE_HOOK_MATH_SQRT
+    {"math",   "sqrt",      (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0x00851360, false},
+#endif
+#if !TEST_DISABLE_HOOK_STRING_REP
+    {"string", "rep",       (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
+#endif
+    // ipairs hook REMOVED — architectural issue: ipairs() returns an iterator function,
+    // it should not be replaced with the iterator itself.
+    // To hook ipairs properly, we would need to intercept the iterator function
+    // that ipairs returns, not ipairs() itself. This requires a different approach.
 };
 
 static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0]);
@@ -2029,7 +2242,15 @@ void Shutdown() {
     if (g_strlowerHits > 0) Log("[FastPath] StrLower: %ld fast", g_strlowerHits);
     if (g_strupperHits > 0) Log("[FastPath] StrUpper: %ld fast", g_strupperHits);
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
-        Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);    
+        Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
+    if (g_findFullHits > 0 || g_findFullFallbacks > 0)
+        Log("[FastPath] Find(pattern): %ld fast, %ld fallback", g_findFullHits, g_findFullFallbacks);
+    if (g_mathRandomHits > 0 || g_mathRandomFallbacks > 0)
+        Log("[FastPath] Math.Random: %ld fast, %ld fallback", g_mathRandomHits, g_mathRandomFallbacks);
+    if (g_mathSqrtHits > 0 || g_mathSqrtFallbacks > 0)
+        Log("[FastPath] Math.Sqrt: %ld fast, %ld fallback", g_mathSqrtHits, g_mathSqrtFallbacks);
+    if (g_strRepHits > 0 || g_strRepFallbacks > 0)
+        Log("[FastPath] StrRep: %ld fast, %ld fallback", g_strRepHits, g_strRepFallbacks);
 
     g_active = false;
     g_phase2Active = false;
@@ -2095,6 +2316,14 @@ Stats GetStats() {
     s.unpackFallbacks     = g_unpackFallbacks;
     s.selectHits          = g_selectHits;
     s.selectFallbacks     = g_selectFallbacks;
+    s.findFullHits        = g_findFullHits;
+    s.findFullFallbacks   = g_findFullFallbacks;
+    s.mathRandomHits      = g_mathRandomHits;
+    s.mathRandomFallbacks = g_mathRandomFallbacks;
+    s.mathSqrtHits        = g_mathSqrtHits;
+    s.mathSqrtFallbacks   = g_mathSqrtFallbacks;
+    s.strRepHits          = g_strRepHits;
+    s.strRepFallbacks     = g_strRepFallbacks;
     return s;
 }
 

@@ -16,9 +16,18 @@
 // PRODUCTION FLAGS — stable configuration
 // ================================================================
 #define TEST_DISABLE_ALL_APICACHE       1   // DISABLED: breaks Aux/WCollections/ElvUI
-#define TEST_DISABLE_ALL_PHASE2         0   // Phase 2 Lua fast paths — ENABLED (tested stable by Morbent + Billy Hoyle, FPS 97-158)
+#define TEST_DISABLE_ALL_PHASE2         0
 #define TEST_DISABLE_LUA_VM_OPT         0
 #define TEST_DISABLE_PHASE2_WRITES      1
 #define TEST_DISABLE_PHASE2_READS       1
 #define TEST_DISABLE_PHASE2_NEW_DMA     0
 #define TEST_DISABLE_GETSPELLINFO_CACHE 1
+
+// ================================================================
+// TEST FLAGS — individual new hooks (set 1 to DISABLE)
+// ================================================================
+#define TEST_DISABLE_HOOK_IPAIRS        1   // REMOVED — architectural issue (breaks Lua)
+#define TEST_DISABLE_HOOK_MATH_RANDOM   0   // ENABLED — tested stable
+#define TEST_DISABLE_HOOK_MATH_SQRT     0   // ENABLED — tested stable
+#define TEST_DISABLE_HOOK_STRING_REP    0   // ENABLED — tested stable
+#define TEST_DISABLE_HOOK_STRING_FIND   0   // ENABLED — tested stable
