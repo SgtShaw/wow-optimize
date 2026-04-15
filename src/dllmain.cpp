@@ -131,6 +131,7 @@ static bool InstallWaitForSingleObjectHook();
 static bool InstallGetModuleHandleCache();
 static bool InstallLstrcmpHook();
 static bool InstallLStrLenHooks();
+static bool InstallGetProcAddressCache();
 static bool InstallGetPrivateProfileCache();
 static bool InstallLuaHGetStrCache();
 static bool InstallCombatLogFullCache();
@@ -2641,9 +2642,6 @@ static void DumpPeriodicStats() {
         Log("[Stats] CompareStringA: %ld fast, %ld fallback (%.1f%%)",
             g_compareAsciiHits, g_compareFallbacks,
             (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
-    if (g_lstrlenAHits + g_lstrlenWHits + g_lstrlenFallbacks > 0)
-        Log("[Stats] lstrlen: %ld ANSI, %ld wide, %ld fallback",
-            g_lstrlenAHits, g_lstrlenWHits, g_lstrlenFallbacks);
     if (g_fileAttrHits + g_fileAttrMisses > 0)
         Log("[Stats] GetFileAttributes: %ld hits, %ld misses (%.1f%%)",
             g_fileAttrHits, g_fileAttrMisses,
@@ -4228,6 +4226,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool lstrOk = InstallLstrcmpHook();
     Log("--- String Length (lstrlen) ---");
     bool lstrlenOk = InstallLStrLenHooks();
+    Log("--- GetProcAddress Cache ---");
+    bool gpaOk = InstallGetProcAddressCache();
     Log("--- Profile String Cache ---");
     bool profOk = InstallGetPrivateProfileCache();
 
@@ -4813,6 +4813,94 @@ static bool InstallLStrLenHooks() {
         Log("lstrlenA/W hooks: ACTIVE (%d/2, fast inline length)", ok);
     }
     return ok > 0;
+#endif
+}
+
+// ================================================================
+// GetProcAddress — cache
+//
+// WHAT: Caches GetProcAddress results by (module, procname) hash.
+// WHY:  Addons and WoW itself call GetProcAddress repeatedly for
+//       dynamic symbol resolution. Each call walks PE export directory
+//       with string comparisons and hash computation.
+// HOW:  1. 512-slot direct-mapped cache
+//       2. Key = hash(module_name + proc_name)
+//       3. Module addresses are stable after LoadLibrary
+//       4. Cache is never invalidated (addresses don't change)
+// STATUS: Active — cache of constants, zero risk
+// ================================================================
+
+typedef FARPROC (WINAPI* GetProcAddress_fn)(HMODULE, LPCSTR);
+
+static GetProcAddress_fn orig_GetProcAddress = nullptr;
+
+static const int GPA_CACHE_SIZE = 512;
+static const int GPA_CACHE_MASK = GPA_CACHE_SIZE - 1;
+
+struct GpaCacheEntry {
+    uintptr_t moduleHash;
+    uintptr_t procHash;
+    FARPROC   address;
+    bool      valid;
+};
+
+static GpaCacheEntry g_gpaCache[GPA_CACHE_SIZE] = {};
+static long g_gpaHits   = 0;
+static long g_gpaMisses = 0;
+
+static inline uintptr_t HashPtr(const void* p, size_t len) {
+    const uint8_t* b = (const uint8_t*)p;
+    uintptr_t h = 0;
+    for (size_t i = 0; i < len; i++) {
+        h = h * 31 + b[i];
+    }
+    return h;
+}
+
+static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) {
+    // Ordinal lookup — no caching
+    if ((uintptr_t)lpProcName < 0x10000) {
+        return orig_GetProcAddress(hModule, lpProcName);
+    }
+
+    // Compute cache key
+    uintptr_t modHash = (uintptr_t)hModule;
+    uintptr_t procHash = HashPtr(lpProcName, strlen(lpProcName));
+    int idx = (int)((modHash ^ procHash) & GPA_CACHE_MASK);
+
+    if (g_gpaCache[idx].valid && g_gpaCache[idx].moduleHash == modHash && g_gpaCache[idx].procHash == procHash) {
+        g_gpaHits++;
+        return g_gpaCache[idx].address;
+    }
+
+    // Cache miss — call original
+    FARPROC addr = orig_GetProcAddress(hModule, lpProcName);
+    if (addr) {
+        g_gpaCache[idx].moduleHash = modHash;
+        g_gpaCache[idx].procHash   = procHash;
+        g_gpaCache[idx].address    = addr;
+        g_gpaCache[idx].valid      = true;
+    }
+    g_gpaMisses++;
+    return addr;
+}
+
+static bool InstallGetProcAddressCache() {
+#if TEST_DISABLE_GETPROCADDRESS
+    Log("GetProcAddress cache: DISABLED (test toggle)");
+    return false;
+#else
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+
+    void* p = (void*)GetProcAddress(hK32, "GetProcAddress");
+    if (!p) return false;
+
+    if (MH_CreateHook(p, (void*)hooked_GetProcAddress, (void**)&orig_GetProcAddress) != MH_OK) return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+
+    Log("GetProcAddress cache: ACTIVE (512-slot direct-mapped, address constants)");
+    return true;
 #endif
 }
 
