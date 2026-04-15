@@ -1018,6 +1018,13 @@ static void DestroyMpqMapping(HANDLE hFile) {
 typedef BOOL (WINAPI* ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 static ReadFile_fn orig_ReadFile = nullptr;
 
+// Async prefetch forward declarations
+static const int MAX_PREFETCH_SLOTS = 8;
+static const DWORD PREFETCH_SIZE = 256 * 1024;
+static void InitPrefetchSlots();
+static void QueuePrefetch(HANDLE hFile, LARGE_INTEGER startOffset, DWORD bytes);
+static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead);
+
 struct ReadCache {
     HANDLE handle; uint8_t* buffer;
     LARGE_INTEGER fileOffset; DWORD validBytes; bool active;
@@ -1144,6 +1151,9 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
             if (toCopy < bytesRead) {
                 LARGE_INTEGER newPos2; newPos2.QuadPart = currentPos.QuadPart + toCopy;
                 SetFilePointerEx(hFile, newPos2, NULL, FILE_BEGIN);
+                // Queue async prefetch of next chunk
+                LARGE_INTEGER prefetchOff; prefetchOff.QuadPart = currentPos.QuadPart + bytesRead;
+                QueuePrefetch(hFile, prefetchOff, readAhead);
             }
             ReleaseSRWLockExclusive(&g_cacheLock);
             return TRUE;
@@ -1153,6 +1163,16 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     }
 
     ReleaseSRWLockExclusive(&g_cacheLock);
+
+    // === Async prefetch check ===
+    if (IsMpqHandle(hFile)) {
+        if (CheckPrefetch(hFile, currentPos, lpBuffer, nBytesToRead, lpBytesRead)) {
+            LARGE_INTEGER newPos; newPos.QuadPart = currentPos.QuadPart + nBytesToRead;
+            SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
+            return TRUE;
+        }
+    }
+
     return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
     } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -1163,12 +1183,154 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
 
 static bool InstallReadFileHook() {
     g_cacheInitialized = true;
+    InitPrefetchSlots();
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "ReadFile");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_ReadFile, (void**)&orig_ReadFile) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
-    Log("ReadFile hook: ACTIVE (MPQ cache, 64KB/256KB adaptive read-ahead, %d slots)", MAX_CACHED_HANDLES);
+    Log("ReadFile hook: ACTIVE (MPQ cache, 64KB/256KB adaptive read-ahead, %d slots + async prefetch)", MAX_CACHED_HANDLES);
     return true;
+}
+
+// ================================================================
+// 5b. Async MPQ Prefetch Queue — background overlapped reads
+//
+// WHAT: Asynchronous prefetch of MPQ data ahead of current read position.
+// WHY:  WoW reads MPQ files sequentially (textures, models, sounds).
+//       By the time WoW requests the next chunk, it's already in memory.
+//       Eliminates disk wait during sequential MPQ streaming.
+// HOW:  1. On MPQ read, queue async prefetch of next N bytes via OVERLAPPED
+//       2. Prefetch runs in background (non-blocking)
+//       3. Next sync read checks prefetch buffer first
+//       4. Queue depth: 8 slots, 256 KB each
+//       5. Cancelled if file position jumps (seek detection)
+// STATUS: Active — async complement to sync read-ahead cache
+// ================================================================
+
+struct PrefetchSlot {
+    HANDLE        hFile;
+    LARGE_INTEGER startOffset;
+    DWORD         bytesRequested;
+    DWORD         bytesCompleted;
+    OVERLAPPED    overlapped;
+    uint8_t*      buffer;
+    bool          active;
+    bool          completed;
+    HANDLE        hEvent;
+};
+
+static PrefetchSlot g_prefetchSlots[MAX_PREFETCH_SLOTS] = {};
+static SRWLOCK      g_prefetchLock = SRWLOCK_INIT;
+static long         g_prefetchHits     = 0;
+static long         g_prefetchMisses   = 0;
+static long         g_prefetchQueued   = 0;
+static long         g_prefetchCancelled = 0;
+
+static void InitPrefetchSlots() {
+    for (int i = 0; i < MAX_PREFETCH_SLOTS; i++) {
+        g_prefetchSlots[i].hEvent = CreateEventA(NULL, TRUE, FALSE, NULL);
+        g_prefetchSlots[i].buffer = (uint8_t*)mi_malloc(PREFETCH_SIZE);
+        g_prefetchSlots[i].overlapped.hEvent = g_prefetchSlots[i].hEvent;
+    }
+}
+
+static void CancelPrefetch(HANDLE hFile, LARGE_INTEGER beyondOffset) {
+    // Cancel any prefetches for this file that start before beyondOffset
+    for (int i = 0; i < MAX_PREFETCH_SLOTS; i++) {
+        if (g_prefetchSlots[i].active && g_prefetchSlots[i].hFile == hFile) {
+            if (g_prefetchSlots[i].startOffset.QuadPart < beyondOffset.QuadPart) {
+                CancelIoEx(hFile, &g_prefetchSlots[i].overlapped);
+                g_prefetchSlots[i].active = false;
+                g_prefetchSlots[i].completed = false;
+                g_prefetchCancelled++;
+            }
+        }
+    }
+}
+
+static void QueuePrefetch(HANDLE hFile, LARGE_INTEGER startOffset, DWORD bytes) {
+    if (bytes == 0 || bytes > PREFETCH_SIZE) return;
+
+    AcquireSRWLockExclusive(&g_prefetchLock);
+
+    // Cancel any overlapping prefetches
+    LARGE_INTEGER beyond;
+    beyond.QuadPart = startOffset.QuadPart + bytes;
+    CancelPrefetch(hFile, beyond);
+
+    // Find free slot
+    int slot = -1;
+    for (int i = 0; i < MAX_PREFETCH_SLOTS; i++) {
+        if (!g_prefetchSlots[i].active) {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot < 0) {
+        ReleaseSRWLockExclusive(&g_prefetchLock);
+        return;  // Queue full
+    }
+
+    // Setup prefetch
+    PrefetchSlot& s = g_prefetchSlots[slot];
+    s.hFile = hFile;
+    s.startOffset = startOffset;
+    s.bytesRequested = bytes;
+    s.bytesCompleted = 0;
+    s.active = true;
+    s.completed = false;
+    s.overlapped.Offset = startOffset.LowPart;
+    s.overlapped.OffsetHigh = startOffset.HighPart;
+    ResetEvent(s.hEvent);
+
+    // Issue async read
+    if (ReadFile(hFile, s.buffer, bytes, NULL, &s.overlapped)) {
+        // Completed immediately
+        s.completed = true;
+        s.bytesCompleted = bytes;
+    } else {
+        DWORD err = GetLastError();
+        if (err != ERROR_IO_PENDING) {
+            s.active = false;  // Failed
+        }
+    }
+
+    g_prefetchQueued++;
+    ReleaseSRWLockExclusive(&g_prefetchLock);
+}
+
+static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead) {
+    AcquireSRWLockShared(&g_prefetchLock);
+
+    for (int i = 0; i < MAX_PREFETCH_SLOTS; i++) {
+        PrefetchSlot& s = g_prefetchSlots[i];
+        if (!s.active || !s.completed || s.hFile != hFile) continue;
+
+        LONGLONG pStart = s.startOffset.QuadPart;
+        LONGLONG pEnd   = pStart + s.bytesCompleted;
+        LONGLONG rStart = offset.QuadPart;
+        LONGLONG rEnd   = rStart + nBytes;
+
+        if (rStart >= pStart && rEnd <= pEnd) {
+            // Hit! Copy from prefetch buffer
+            DWORD prefetchOff = (DWORD)(rStart - pStart);
+            memcpy(lpBuffer, s.buffer + prefetchOff, nBytes);
+            if (lpBytesRead) *lpBytesRead = nBytes;
+
+            // Deactivate slot
+            s.active = false;
+            s.completed = false;
+
+            g_prefetchHits++;
+            ReleaseSRWLockShared(&g_prefetchLock);
+            return TRUE;
+        }
+    }
+
+    g_prefetchMisses++;
+    ReleaseSRWLockShared(&g_prefetchLock);
+    return FALSE;
 }
 
 // ================================================================
@@ -2470,6 +2632,10 @@ static void DumpPeriodicStats() {
 
     if (g_flushSkipped > 0)
         Log("[Stats] FlushFileBuffers: %ld MPQ skipped", g_flushSkipped);
+    if (g_prefetchQueued > 0 || g_prefetchHits > 0)
+        Log("[Stats] MPQ Prefetch: %ld queued, %ld hits, %ld misses, %ld cancelled (%.1f%% hit rate)",
+            g_prefetchQueued, g_prefetchHits, g_prefetchMisses, g_prefetchCancelled,
+            (g_prefetchHits + g_prefetchMisses > 0) ? (double)g_prefetchHits / (g_prefetchHits + g_prefetchMisses) * 100.0 : 0.0);
     if (g_compareAsciiHits + g_compareFallbacks > 0)
         Log("[Stats] CompareStringA: %ld fast, %ld fallback (%.1f%%)",
             g_compareAsciiHits, g_compareFallbacks,
