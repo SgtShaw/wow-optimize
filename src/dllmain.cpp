@@ -130,6 +130,7 @@ static bool InstallGetFileSizeCache();
 static bool InstallWaitForSingleObjectHook();
 static bool InstallGetModuleHandleCache();
 static bool InstallLstrcmpHook();
+static bool InstallLStrLenHooks();
 static bool InstallGetPrivateProfileCache();
 static bool InstallLuaHGetStrCache();
 static bool InstallCombatLogFullCache();
@@ -2640,6 +2641,9 @@ static void DumpPeriodicStats() {
         Log("[Stats] CompareStringA: %ld fast, %ld fallback (%.1f%%)",
             g_compareAsciiHits, g_compareFallbacks,
             (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
+    if (g_lstrlenAHits + g_lstrlenWHits + g_lstrlenFallbacks > 0)
+        Log("[Stats] lstrlen: %ld ANSI, %ld wide, %ld fallback",
+            g_lstrlenAHits, g_lstrlenWHits, g_lstrlenFallbacks);
     if (g_fileAttrHits + g_fileAttrMisses > 0)
         Log("[Stats] GetFileAttributes: %ld hits, %ld misses (%.1f%%)",
             g_fileAttrHits, g_fileAttrMisses,
@@ -4222,6 +4226,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool modOk = InstallGetModuleHandleCache();
     Log("--- String Compare (lstrcmp) ---");
     bool lstrOk = InstallLstrcmpHook();
+    Log("--- String Length (lstrlen) ---");
+    bool lstrlenOk = InstallLStrLenHooks();
     Log("--- Profile String Cache ---");
     bool profOk = InstallGetPrivateProfileCache();
 
@@ -4731,6 +4737,82 @@ static bool InstallGetPrivateProfileCache() {
     if (MH_EnableHook(p) != MH_OK) return false;
     Log("GetPrivateProfileStringA hook: ACTIVE (cache, %d slots, %dB max value)", PROF_CACHE_SIZE, PROF_MAX_VALUE);
     return true;
+#endif
+}
+
+// ================================================================
+// lstrlenA/W — fast inline string length
+//
+// WHAT: Replaces lstrlenA/W with fast inline length computation.
+// WHY:  WoW and addons call lstrlen thousands of times per frame
+//       for UI text measurement, chat message length, addon string
+//       processing. Each call goes through kernel32.dll import thunk.
+// HOW:  1. lstrlenA: simple while(*p++) count for ANSI strings
+//       2. lstrlenW: same for wide strings
+//       3. Stats: total calls, ANSI vs wide breakdown
+// STATUS: Active — pure function, zero risk
+// ================================================================
+
+typedef int (WINAPI* lstrlenA_fn)(LPCSTR);
+typedef int (WINAPI* lstrlenW_fn)(LPCWSTR);
+
+static lstrlenA_fn orig_lstrlenA = nullptr;
+static lstrlenW_fn orig_lstrlenW = nullptr;
+
+static long g_lstrlenAHits   = 0;
+static long g_lstrlenWHits   = 0;
+static long g_lstrlenFallbacks = 0;
+
+static int WINAPI hooked_lstrlenA(LPCSTR lpString) {
+    if (!lpString) { g_lstrlenFallbacks++; return 0; }
+    __try {
+        const char* p = lpString;
+        while (*p) p++;
+        g_lstrlenAHits++;
+        return (int)(p - lpString);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_lstrlenFallbacks++;
+        return orig_lstrlenA(lpString);
+    }
+}
+
+static int WINAPI hooked_lstrlenW(LPCWSTR lpString) {
+    if (!lpString) { g_lstrlenFallbacks++; return 0; }
+    __try {
+        const wchar_t* p = lpString;
+        while (*p) p++;
+        g_lstrlenWHits++;
+        return (int)(p - lpString);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_lstrlenFallbacks++;
+        return orig_lstrlenW(lpString);
+    }
+}
+
+static bool InstallLStrLenHooks() {
+#if TEST_DISABLE_LSTRLEN
+    Log("lstrlenA/W hooks: DISABLED (test toggle)");
+    return false;
+#else
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+
+    int ok = 0;
+
+    void* pA = (void*)GetProcAddress(hK32, "lstrlenA");
+    if (pA && MH_CreateHook(pA, (void*)hooked_lstrlenA, (void**)&orig_lstrlenA) == MH_OK)
+        if (MH_EnableHook(pA) == MH_OK) ok++;
+
+    void* pW = (void*)GetProcAddress(hK32, "lstrlenW");
+    if (pW && MH_CreateHook(pW, (void*)hooked_lstrlenW, (void**)&orig_lstrlenW) == MH_OK)
+        if (MH_EnableHook(pW) == MH_OK) ok++;
+
+    if (ok > 0) {
+        Log("lstrlenA/W hooks: ACTIVE (%d/2, fast inline length)", ok);
+    }
+    return ok > 0;
 #endif
 }
 

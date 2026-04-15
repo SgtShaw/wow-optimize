@@ -31,3 +31,11 @@
 #define TEST_DISABLE_HOOK_MATH_SQRT     0   // ENABLED — tested stable
 #define TEST_DISABLE_HOOK_STRING_REP    0   // ENABLED — tested stable
 #define TEST_DISABLE_HOOK_STRING_FIND   0   // ENABLED — tested stable
+
+// ================================================================
+// NEW OPTIMIZATIONS — individual toggles (set 1 to DISABLE)
+// ================================================================
+#define TEST_DISABLE_LSTRLEN            0   // lstrlenA/W fast path
+#define TEST_DISABLE_GETPROCADDRESS     0   // GetProcAddress cache
+#define TEST_DISABLE_MODULEFILENAME     0   // GetModuleFileName cache
+#define TEST_DISABLE_ENVVARIABLE        0   // GetEnvironmentVariable cache
