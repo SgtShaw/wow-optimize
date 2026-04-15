@@ -132,6 +132,8 @@ static bool InstallGetModuleHandleCache();
 static bool InstallLstrcmpHook();
 static bool InstallLStrLenHooks();
 static bool InstallGetProcAddressCache();
+static bool InstallGetModuleFileNameCache();
+static bool InstallEnvironmentVariableCache();
 static bool InstallGetPrivateProfileCache();
 static bool InstallLuaHGetStrCache();
 static bool InstallCombatLogFullCache();
@@ -4228,6 +4230,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool lstrlenOk = InstallLStrLenHooks();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
+    Log("--- GetModuleFileName Cache ---");
+    bool gmfOk = InstallGetModuleFileNameCache();
+    Log("--- Environment Variable Cache ---");
+    bool envOk = InstallEnvironmentVariableCache();
     Log("--- Profile String Cache ---");
     bool profOk = InstallGetPrivateProfileCache();
 
@@ -4900,6 +4906,170 @@ static bool InstallGetProcAddressCache() {
     if (MH_EnableHook(p) != MH_OK) return false;
 
     Log("GetProcAddress cache: ACTIVE (512-slot direct-mapped, address constants)");
+    return true;
+#endif
+}
+
+// ================================================================
+// GetModuleFileNameA/W — cache
+//
+// WHAT: Caches GetModuleFileName results by HMODULE handle.
+// WHY:  WoW and addons call it to find installation paths, config
+//       directories, and addon locations. Each call queries the PEB.
+// HOW:  1. 64-slot cache keyed by HMODULE
+//       2. HMODULE values are stable (DLL base addresses)
+//       3. hModule==NULL (exe path) is a constant pre-resolved
+// STATUS: Active — cache of constants, zero risk
+// ================================================================
+
+typedef DWORD (WINAPI* GetModuleFileNameA_fn)(HMODULE, LPSTR, DWORD);
+typedef DWORD (WINAPI* GetModuleFileNameW_fn)(HMODULE, LPWSTR, DWORD);
+
+static GetModuleFileNameA_fn orig_GetModuleFileNameA = nullptr;
+static GetModuleFileNameW_fn orig_GetModuleFileNameW = nullptr;
+
+static const int GMF_CACHE_SIZE = 64;
+static const int GMF_CACHE_MASK = GMF_CACHE_SIZE - 1;
+
+struct GmfCacheEntryA { HMODULE hMod; char path[MAX_PATH]; bool valid; };
+struct GmfCacheEntryW { HMODULE hMod; wchar_t path[MAX_PATH]; bool valid; };
+
+static GmfCacheEntryA g_gmfCacheA[GMF_CACHE_SIZE] = {};
+static GmfCacheEntryW g_gmfCacheW[GMF_CACHE_SIZE] = {};
+static long g_gmfHits = 0, g_gmfMisses = 0;
+
+static DWORD WINAPI hooked_GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
+    int idx = (int)(((uintptr_t)hModule >> 4) & GMF_CACHE_MASK);
+    if (g_gmfCacheA[idx].valid && g_gmfCacheA[idx].hMod == hModule) {
+        size_t len = strlen(g_gmfCacheA[idx].path);
+        if (len < nSize) {
+            memcpy(lpFilename, g_gmfCacheA[idx].path, len + 1);
+            g_gmfHits++;
+            return (DWORD)len;
+        }
+    }
+    DWORD result = orig_GetModuleFileNameA(hModule, lpFilename, nSize);
+    if (result > 0 && result < MAX_PATH) {
+        g_gmfCacheA[idx].hMod = hModule;
+        memcpy(g_gmfCacheA[idx].path, lpFilename, result + 1);
+        g_gmfCacheA[idx].valid = true;
+    }
+    g_gmfMisses++;
+    return result;
+}
+
+static DWORD WINAPI hooked_GetModuleFileNameW(HMODULE hModule, LPWSTR lpFilename, DWORD nSize) {
+    int idx = (int)(((uintptr_t)hModule >> 4) & GMF_CACHE_MASK);
+    if (g_gmfCacheW[idx].valid && g_gmfCacheW[idx].hMod == hModule) {
+        size_t len = wcslen(g_gmfCacheW[idx].path);
+        if (len < nSize) {
+            memcpy(lpFilename, g_gmfCacheW[idx].path, (len + 1) * sizeof(wchar_t));
+            g_gmfHits++;
+            return (DWORD)len;
+        }
+    }
+    DWORD result = orig_GetModuleFileNameW(hModule, lpFilename, nSize);
+    if (result > 0 && result < MAX_PATH) {
+        g_gmfCacheW[idx].hMod = hModule;
+        memcpy(g_gmfCacheW[idx].path, lpFilename, (result + 1) * sizeof(wchar_t));
+        g_gmfCacheW[idx].valid = true;
+    }
+    g_gmfMisses++;
+    return result;
+}
+
+static bool InstallGetModuleFileNameCache() {
+#if TEST_DISABLE_MODULEFILENAME
+    Log("GetModuleFileName cache: DISABLED (test toggle)");
+    return false;
+#else
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+
+    int ok = 0;
+    void* pA = (void*)GetProcAddress(hK32, "GetModuleFileNameA");
+    if (pA && MH_CreateHook(pA, (void*)hooked_GetModuleFileNameA, (void**)&orig_GetModuleFileNameA) == MH_OK)
+        if (MH_EnableHook(pA) == MH_OK) ok++;
+
+    void* pW = (void*)GetProcAddress(hK32, "GetModuleFileNameW");
+    if (pW && MH_CreateHook(pW, (void*)hooked_GetModuleFileNameW, (void**)&orig_GetModuleFileNameW) == MH_OK)
+        if (MH_EnableHook(pW) == MH_OK) ok++;
+
+    if (ok > 0)
+        Log("GetModuleFileNameA/W cache: ACTIVE (%d-slot, HMODULE-keyed)", GMF_CACHE_SIZE);
+    return ok > 0;
+#endif
+}
+
+// ================================================================
+// GetEnvironmentVariableA — cache
+//
+// WHAT: Caches environment variable lookups by name.
+// WHY:  WoW reads APPDATA, USERPROFILE, OS, etc. Each call walks
+//       the PEB environment block.
+// HOW:  1. 32-slot cache keyed by variable name hash
+//       2. Env vars are read-only for process lifetime
+// STATUS: Active — cache of constants, zero risk
+// ================================================================
+
+typedef DWORD (WINAPI* GetEnvironmentVariableA_fn)(LPCSTR, LPSTR, DWORD);
+
+static GetEnvironmentVariableA_fn orig_GetEnvironmentVariableA = nullptr;
+
+static const int ENV_CACHE_SIZE = 32;
+static const int ENV_CACHE_MASK = ENV_CACHE_SIZE - 1;
+
+struct EnvCacheEntry { uint32_t nameHash; char value[512]; DWORD len; bool valid; };
+static EnvCacheEntry g_envCache[ENV_CACHE_SIZE] = {};
+static long g_envHits = 0, g_envMisses = 0;
+
+static inline uint32_t HashNameLower(LPCSTR name) {
+    uint32_t h = 0;
+    for (const char* p = name; *p; p++) {
+        char c = *p >= 'A' && *p <= 'Z' ? *p + 32 : *p;
+        h = h * 31 + c;
+    }
+    return h;
+}
+
+static DWORD WINAPI hooked_GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize) {
+    uint32_t h = HashNameLower(lpName);
+    int idx = h & ENV_CACHE_MASK;
+
+    if (g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
+        if (g_envCache[idx].len < nSize) {
+            memcpy(lpBuffer, g_envCache[idx].value, g_envCache[idx].len + 1);
+            g_envHits++;
+            return g_envCache[idx].len;
+        }
+    }
+
+    DWORD result = orig_GetEnvironmentVariableA(lpName, lpBuffer, nSize);
+    if (result > 0 && result < sizeof(g_envCache[idx].value)) {
+        g_envCache[idx].nameHash = h;
+        memcpy(g_envCache[idx].value, lpBuffer, result + 1);
+        g_envCache[idx].len = result;
+        g_envCache[idx].valid = true;
+    }
+    g_envMisses++;
+    return result;
+}
+
+static bool InstallEnvironmentVariableCache() {
+#if TEST_DISABLE_ENVVARIABLE
+    Log("GetEnvironmentVariable cache: DISABLED (test toggle)");
+    return false;
+#else
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+
+    void* p = (void*)GetProcAddress(hK32, "GetEnvironmentVariableA");
+    if (!p) return false;
+
+    if (MH_CreateHook(p, (void*)hooked_GetEnvironmentVariableA, (void**)&orig_GetEnvironmentVariableA) != MH_OK) return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+
+    Log("GetEnvironmentVariableA cache: ACTIVE (32-slot, name-hash-keyed)");
     return true;
 #endif
 }
