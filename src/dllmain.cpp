@@ -5048,10 +5048,12 @@ static inline uint32_t HashNameLower(LPCSTR name) {
 }
 
 static DWORD WINAPI hooked_GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize) {
+    if (!lpName) return orig_GetEnvironmentVariableA(lpName, lpBuffer, nSize);
+
     uint32_t h = HashNameLower(lpName);
     int idx = h & ENV_CACHE_MASK;
 
-    if (g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
+    if (lpBuffer && g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
         if (g_envCache[idx].len < nSize) {
             memcpy(lpBuffer, g_envCache[idx].value, g_envCache[idx].len + 1);
             g_envHits++;

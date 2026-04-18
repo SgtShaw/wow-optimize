@@ -2,10 +2,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
 #define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  8
+#define WOW_OPTIMIZE_VERSION_PATCH  9
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.8"
+#define WOW_OPTIMIZE_VERSION_STR    "3.5.9"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -35,8 +35,8 @@
 // ================================================================
 // NEW OPTIMIZATIONS — individual toggles (set 1 to DISABLE)
 // ================================================================
-#define TEST_DISABLE_LSTRLEN            0   // lstrlenA/W fast path
+#define TEST_DISABLE_LSTRLEN            1   // DISABLED: alt-tab/raid-invite NULL-deref crashes (systemic with MBWC+ENVVAR)
 #define TEST_DISABLE_GETPROCADDRESS     1   // DISABLED: hash collision returns wrong FARPROC → login crash
 #define TEST_DISABLE_MODULEFILENAME     1   // DISABLED: conflicts with OBS hook chain → crash + exit error
-#define TEST_DISABLE_ENVVARIABLE        0   // GetEnvironmentVariable cache
-#define TEST_DISABLE_MBWC               0   // MultiByteToWideChar/WideCharToMultiByte ASCII fast path
+#define TEST_DISABLE_ENVVARIABLE        1   // DISABLED: alt-tab crash suspect (NULL-deref on NULL lpName/lpBuffer)
+#define TEST_DISABLE_MBWC               1   // DISABLED: alt-tab/raid-invite NULL-deref crashes (systemic with LSTRLEN+ENVVAR)
