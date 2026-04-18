@@ -22,8 +22,9 @@ Huge thanks to the community members who extensively tested pre-release builds:
 - **Morbent** — tested 9 test builds, verified addon compatibility (Outfitter, GearScore, Aux, WCollections, ElvUI), reported cache-related addon breakage
 - **Billy Hoyle** — benchmarked all configurations with detailed FPS/RAM/CPU/GPU metrics, identified best-performing builds
 - **NoGoodLife** — additional and previous stability testing across multiple sessions
+- **UNOB** — tested individual-feature DLL variants (envvariable, getprocaddress, lstrlen, modulefilename, all_new) to isolate which new hooks were stable
 
-Their feedback directly shaped the stable v3.5.5 release configuration.
+Their feedback directly shaped the stable v3.5.8 release configuration.
 
 ---
 
@@ -53,7 +54,6 @@ Their feedback directly shaped the stable v3.5.5 release configuration.
 
 ### Lua internal caches (v3.5.5+)
 - `luaH_getstr` — table string-key lookup cache (tested stable)
-- `lua_getfield` — `_G` field access cache (tested stable)
 
 ### Lua fast paths
 - Phase 1:
@@ -126,6 +126,9 @@ Their feedback directly shaped the stable v3.5.5 release configuration.
 - combat log optimizer — **fixes 16-year combatlog bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
 - `GetItemInfo` cache
 - `CompareStringA` fast ASCII path
+- `MultiByteToWideChar` / `WideCharToMultiByte` — SSE2 ASCII fast path (bypasses NLS for pure-ASCII strings on ASCII-compatible codepages)
+- `lstrlenA` / `lstrlenW` fast path
+- `GetEnvironmentVariableA` / `GetEnvironmentVariableW` cache
 - `OutputDebugStringA` no-op when no debugger
 - fast `IsBadReadPtr` / `IsBadWritePtr`
 - periodic stats dump
@@ -154,6 +157,9 @@ These features are disabled in public-safe builds because they previously caused
 - CombatLog full event cache (disabled — stale TString* crashes)
 - `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
 - `luaV_concat` hook (removed due to 0% hit-rate overhead)
+- `lua_getfield` _G cache (removed in v3.5.8 — 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
+- `GetProcAddress` cache (removed — hash collisions returned wrong FARPROC, login crash)
+- `GetModuleFileName` cache (removed — conflicts with OBS hook chain, crash + exit error)
 
 ### Removed Features
 
@@ -166,16 +172,32 @@ These experimental features were tested and found to provide no measurable benef
 
 ---
 
-## New in v3.5.5
+## New in v3.5.8
 
-Based on extensive community testing (Morbent, Billy Hoyle, NoGoodLife), the following optimizations are now **enabled by default**:
+### Added
+- **MultiByteToWideChar / WideCharToMultiByte SSE2 ASCII fast path** — bypasses full NLS conversion for pure-ASCII strings on ASCII-compatible codepages (CP_ACP, CP_UTF8, 1250-1258, 874). Real-world hit rate 80-99% in-game.
+- **GetEnvironmentVariable cache** — caches env var lookups that WoW/Win32 query repeatedly.
+- **lstrlenA / lstrlenW fast path** — SSE2 scan for common short strings.
+
+### Removed
+- **lua_getfield _G cache** — 0% hit rate in production stats across multiple tester logs. Root cause: broken uint32/uint64 key comparison and no write-side invalidation. Removed net-negative hook overhead.
+- **GetProcAddress cache** — hash collisions returned wrong FARPROC, caused login crash.
+- **GetModuleFileName cache** — conflicted with OBS hook chain, caused exit error.
+
+### Stability fixes (v3.5.6 - v3.5.7)
+- Recount combat log compatibility
+- UI reload stability (multi-client character switch)
+- CheckPrefetch lock, async GC dead code cleanup, defensive hook toggles
+
+## Previous: New in v3.5.5
+
+Based on extensive community testing (Morbent, Billy Hoyle, NoGoodLife), the following optimizations were enabled by default in v3.5.5:
 
 | Feature | Status in v3.5.4 | Status in v3.5.5 | Impact |
 |---------|------------------|-------------------|--------|
-| **Phase 2 Lua fast paths** | Disabled | ✅ Enabled | FPS 97-158 (best result) |
-| **GetFileSizeEx cache** | Disabled | ✅ Enabled | FPS 94-151 |
-| **luaH_getstr cache** | Disabled | ✅ Enabled | FPS 87-144 |
-| **lua_getfield cache** | Disabled | ✅ Enabled | FPS 85-146 |
+| **Phase 2 Lua fast paths** | Disabled | Enabled | FPS 97-158 (best result) |
+| **GetFileSizeEx cache** | Disabled | Enabled | FPS 94-151 |
+| **luaH_getstr cache** | Disabled | Enabled | FPS 87-144 |
 
 The following remain **disabled** due to confirmed crashes across multiple testers:
 
