@@ -1305,7 +1305,7 @@ static void QueuePrefetch(HANDLE hFile, LARGE_INTEGER startOffset, DWORD bytes) 
 }
 
 static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead) {
-    AcquireSRWLockShared(&g_prefetchLock);
+    AcquireSRWLockExclusive(&g_prefetchLock);
 
     for (int i = 0; i < MAX_PREFETCH_SLOTS; i++) {
         PrefetchSlot& s = g_prefetchSlots[i];
@@ -1327,13 +1327,13 @@ static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, D
             s.completed = false;
 
             g_prefetchHits++;
-            ReleaseSRWLockShared(&g_prefetchLock);
+            ReleaseSRWLockExclusive(&g_prefetchLock);
             return TRUE;
         }
     }
 
     g_prefetchMisses++;
-    ReleaseSRWLockShared(&g_prefetchLock);
+    ReleaseSRWLockExclusive(&g_prefetchLock);
     return FALSE;
 }
 
@@ -5237,7 +5237,9 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
 #endif
     }
 
+#if !CRASH_TEST_DISABLE_VA_ARENA
 va_fallback:
+#endif
     InterlockedIncrement(&g_vaArenaFallbacks);
     return orig_VirtualAlloc(lpAddress, dwSize, flType, flProtect);
 }
@@ -5302,7 +5304,9 @@ static BOOL WINAPI Hooked_VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwF
 #endif
     }
 
+#if !CRASH_TEST_DISABLE_VA_ARENA
 vf_fallback:
+#endif
     return orig_VirtualFree(lpAddress, dwSize, dwFreeType);
 }
 
