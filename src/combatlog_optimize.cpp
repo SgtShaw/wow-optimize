@@ -140,7 +140,7 @@ bool Init() {
     int ret = TryPatchRetention();
     if (ret == 1) Log("[CombatLog]  [ OK ] Retention patched (1800s)");
 
-    Log("[CombatLog] Guaranteed clear: 5s normal, 10s combat");
+    Log("[CombatLog] Periodic clear: disabled (addon compatibility)");
 
     g_initialized = true;
     return true;
@@ -167,9 +167,10 @@ void OnFrame(DWORD mainThreadId) {
         if (ReadRetention() != TARGET_RETENTION_SEC) WriteRetention(TARGET_RETENTION_SEC);
     }
 
-    if (g_clearEntries) {
-        TryClearProcessedEntries(nowMs);
-    }
+    // Periodic CombatLogClearEntries disabled: conflicts with addons like
+    // Recount that read the combat log buffer. Retention patch (1800s) is
+    // sufficient — game handles cleanup via normal retention mechanism.
+    (void)nowMs;
 }
 
 void SetCombat(bool active) {
