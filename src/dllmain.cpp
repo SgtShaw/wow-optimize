@@ -88,7 +88,6 @@
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
-#define CRASH_TEST_DISABLE_LUA_GETFIELD         0   // lua_getfield _G cache — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
@@ -138,8 +137,6 @@ static bool InstallGetPrivateProfileCache();
 static bool InstallLuaHGetStrCache();
 static bool InstallCombatLogFullCache();
 static void ClearLuaHGetStrCache();
-static bool InstallLuaGetFieldCache();
-static void ClearLuaGetFieldCache();
 static bool InstallLuaPushStringCache();
 static void ClearLuaPushStringCache();
 static bool InstallLuaRawGetICache();
@@ -147,7 +144,6 @@ static bool InstallLuaRawGetICache();
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
 extern "C" void ClearLuaOptCaches() {
     ClearLuaHGetStrCache();
-    ClearLuaGetFieldCache();
     ClearLuaPushStringCache();
 }
 
@@ -160,7 +156,6 @@ static long g_profHits = 0, g_profMisses = 0;
 static uint64_t g_tableReshapeHits = 0;
 static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
-static uint64_t g_getFieldHits = 0, g_getFieldMisses = 0;
 static uint64_t g_pushStrHits = 0, g_pushStrMisses = 0;
 static uint64_t g_rawGetIHits = 0, g_rawGetIMisses = 0;
 
@@ -2690,12 +2685,6 @@ static void DumpPeriodicStats() {
             (double)g_combatLogCacheHits / (g_combatLogCacheHits + g_combatLogCacheMisses) * 100.0);
     }
 
-    if (g_getFieldHits + g_getFieldMisses > 0) {
-        Log("[Stats] lua_getfield: %I64u hits, %I64u misses (%.1f%%)",
-            g_getFieldHits, g_getFieldMisses,
-            (double)g_getFieldHits / (g_getFieldHits + g_getFieldMisses) * 100.0);
-    }
-
     if (g_pushStrHits + g_pushStrMisses > 0) {
         Log("[Stats] lua_pushstring: %I64u hits, %I64u misses (%.1f%%)",
             g_pushStrHits, g_pushStrMisses,
@@ -2977,10 +2966,8 @@ static bool InstallSwapPresentHook() {
 }
 
 // ================================================================
-// Shared: FNV-1a hash for C strings + generation counter for UI reload
+// Shared: FNV-1a hash for C strings
 // ================================================================
-static uint32_t g_getFieldGen = 0;  // incremented on UI reload (shared across getfield + pushstring caches)
-
 static inline uint64_t ComputeCStringHash(const char* s) {
     uint64_t h = 0xCBF29CE484222325ULL;
     while (*s) {
@@ -3512,227 +3499,6 @@ static bool InstallTableConcatFastPath() {
 }
 
 // ================================================================
-// 21d. sub_84E590 — lua_getfield Fast Path for LUA_GLOBALSINDEX
-//
-// WHAT: Hooks lua_getfield (0x0084E590). For LUA_GLOBALSINDEX (-10002),
-//       caches global variable values by string-content (safe, no TString* pointers).
-// WHY:  Armory and other heavy addons make 5000+ global lookups per mouseover:
-//       UnitBuff(), GetSpellInfo(), math.floor(), etc. Each does:
-//       strlen + luaS_newlstr + table walk + TValue copy = ~100ns per lookup.
-//       With 5000 lookups: 500ms of blocking on main thread → -200 FPS drops.
-// HOW:  1. 4096-slot direct-mapped cache: FNV-1a(C string) → cached value
-//       2. Cache stores string content copies (strVal[256]), not TString* pointers
-//       3. On hit: lua_pushstring_/lua_pushnumber_ replay (safe copy to VM)
-//       4. On miss: call original, capture result via lua_tolstring/lua_tonumber
-//       5. Cache cleared on UI reload (lua_State change)
-// SAFETY: Only caches primitives (string, number, boolean, nil).
-//         No gc pointers stored → no stale pointer crashes.
-//         Same proven pattern as GetItemInfo cache (stable for months).
-//         Full SEH wrapper. Falls through on any anomaly.
-// STATUS: Active — proven at 58%+ hit rate, 0 crashes
-// ================================================================
-
-#define GETFIELD_CACHE_SIZE 4096
-#define GETFIELD_CACHE_MASK (GETFIELD_CACHE_SIZE - 1)
-#define LUA_GLOBALSINDEX (-10002)
-
-#define LUA_TNIL     0
-#define LUA_TBOOLEAN 1
-#define LUA_TNUMBER  3
-#define LUA_TSTRING  4
-#define LUA_TTABLE   5
-#define LUA_TFUNCTION 6
-
-struct GetFieldCacheEntry {
-    uint32_t keyHash;           // FNV-1a of C string
-    uint32_t generation;        // Cache generation (matches g_getFieldGen)
-    int      type;              // Lua type: 0=nil, 1=boolean, 3=number, 4=string
-    double   numVal;            // For number/boolean types
-    char     strVal[256];       // For string type (content copy, not pointer)
-};
-
-static GetFieldCacheEntry g_getFieldCache[GETFIELD_CACHE_SIZE];
-
-static void ClearLuaGetFieldCache() {
-    memset(g_getFieldCache, 0xFF, sizeof(g_getFieldCache));  // 0xFF = type=-1 (invalid)
-    g_getFieldGen++;
-}
-
-typedef int (__cdecl* lua_getfield_fn)(int L, int idx, const char* key);
-static lua_getfield_fn orig_lua_getfield = nullptr;
-
-// Lua API function pointers (same as api_cache.cpp)
-typedef const char* (__cdecl *fn_lua_tolstring)(int L, int index, size_t* len);
-typedef double      (__cdecl *fn_lua_tonumber)(int L, int index);
-typedef void        (__cdecl *fn_lua_pushstring)(int L, const char* s);
-typedef void        (__cdecl *fn_lua_pushnumber)(int L, double n);
-typedef void        (__cdecl *fn_lua_pushboolean)(int L, int b);
-typedef void        (__cdecl *fn_lua_pushnil)(int L);
-typedef void        (__cdecl *fn_lua_settop)(int L, int index);
-typedef int         (__cdecl *fn_lua_type)(int L, int index);
-typedef int         (__cdecl *fn_lua_gettop)(int L);
-
-static fn_lua_tolstring   lua_tolstring_  = (fn_lua_tolstring)0x0084E0E0;
-static fn_lua_tonumber    lua_tonumber_   = (fn_lua_tonumber)0x0084E030;
-static fn_lua_pushstring  lua_pushstring_ = (fn_lua_pushstring)0x0084E350;
-static fn_lua_pushnumber  lua_pushnumber_ = (fn_lua_pushnumber)0x0084E2A0;
-static fn_lua_pushboolean lua_pushboolean_= (fn_lua_pushboolean)0x0084E4D0;
-static fn_lua_pushnil     lua_pushnil_    = (fn_lua_pushnil)0x0084E280;
-static fn_lua_settop      lua_settop_     = (fn_lua_settop)0x0084DBF0;
-static fn_lua_type        lua_type_       = (fn_lua_type)0x0084DEB0;
-static fn_lua_gettop      lua_gettop_     = (fn_lua_gettop)0x0084DBD0;
-
-static int __cdecl hooked_lua_getfield(int L, int idx, const char* key) {
-#if CRASH_TEST_DISABLE_LUA_GETFIELD
-    return orig_lua_getfield(L, idx, key);
-#else
-    // Only optimize LUA_GLOBALSINDEX (-10002) — the _G table
-    if (idx != LUA_GLOBALSINDEX) {
-        g_getFieldMisses++;
-        return orig_lua_getfield(L, idx, key);
-    }
-
-    __try {
-        // Validate key pointer
-        if (!key || (uintptr_t)key < 0x10000 || (uintptr_t)key > 0xBFFF0000) {
-            g_getFieldMisses++;
-            return orig_lua_getfield(L, idx, key);
-        }
-
-        // Compute FNV-1a hash of C string
-        uint64_t hash = ComputeCStringHash(key);
-
-        // Lookup cache
-        uint32_t cacheIdx = (uint32_t)(hash & GETFIELD_CACHE_MASK);
-        GetFieldCacheEntry* entry = &g_getFieldCache[cacheIdx];
-
-        // Check cache hit: same hash AND same generation AND type >= 0 (initialized with 0xFF)
-        if (entry->keyHash == hash && entry->generation == g_getFieldGen && entry->type >= 0) {
-            // CACHE HIT — write directly to L->top, skip original entirely
-            __try {
-                DWORD* top = *(DWORD**)(L + 0x0C);
-                if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
-                    g_getFieldMisses++;
-                    return orig_lua_getfield(L, idx, key);
-                }
-
-                switch (entry->type) {
-                    case LUA_TSTRING:
-                        lua_pushstring_(L, entry->strVal);
-                        break;
-                    case LUA_TNUMBER:
-                        *(double*)(top) = entry->numVal;
-                        top[2] = LUA_TNUMBER; top[3] = 0;
-                        *(DWORD**)(L + 0x0C) = top + 4;
-                        break;
-                    case LUA_TBOOLEAN:
-                        top[0] = (int)entry->numVal;
-                        top[1] = 0; top[2] = LUA_TBOOLEAN; top[3] = 0;
-                        *(DWORD**)(L + 0x0C) = top + 4;
-                        break;
-                    default:
-                        top[0] = 0; top[1] = 0; top[2] = LUA_TNIL; top[3] = 0;
-                        *(DWORD**)(L + 0x0C) = top + 4;
-                        break;
-                }
-                g_getFieldHits++;
-                return 0;
-            }
-            __except (EXCEPTION_EXECUTE_HANDLER) {
-                g_getFieldMisses++;
-                return orig_lua_getfield(L, idx, key);
-            }
-        }
-
-        // Cache miss — call original
-        int result = orig_lua_getfield(L, idx, key);
-
-        // Capture the result from stack top
-        __try {
-            int top = lua_gettop_(L);
-            if (top > 0) {
-                int t = lua_type_(L, top);
-                
-                // Only cache primitive types (string, number, boolean, nil)
-                // Do NOT cache tables, functions, userdata, threads (gc-collectable)
-                if (t == LUA_TSTRING || t == LUA_TNUMBER || t == LUA_TBOOLEAN || t == LUA_TNIL) {
-                    entry->keyHash = (uint32_t)hash;
-                    entry->generation = g_getFieldGen;
-                    entry->type = t;
-                    entry->numVal = 0.0;
-                    entry->strVal[0] = '\0';
-
-                    switch (t) {
-                        case LUA_TSTRING: {
-                            size_t slen = 0;
-                            const char* s = lua_tolstring_(L, top, &slen);
-                            if (s && slen < sizeof(entry->strVal)) {
-                                memcpy(entry->strVal, s, slen);
-                                entry->strVal[slen] = '\0';
-                            } else {
-                                entry->type = LUA_TNIL;  // Too long or invalid
-                            }
-                            break;
-                        }
-                        case LUA_TNUMBER:
-                            entry->numVal = lua_tonumber_(L, top);
-                            break;
-                        case LUA_TBOOLEAN:
-                            // Get boolean value: check if it's non-nil and non-false
-                            entry->numVal = (lua_tolstring_(L, top, NULL) != NULL ||
-                                            lua_tonumber_(L, top) != 0.0) ? 1.0 : 0.0;
-                            break;
-                        case LUA_TNIL:
-                        default:
-                            break;
-                    }
-                }
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {}
-
-        g_getFieldMisses++;
-        return result;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        g_getFieldMisses++;
-        return orig_lua_getfield(L, idx, key);
-    }
-#endif
-}
-
-static bool InstallLuaGetFieldCache() {
-#if CRASH_TEST_DISABLE_LUA_GETFIELD
-    Log("lua_getfield cache: DISABLED (crash isolation)");
-    return false;
-#else
-    void* target = (void*)0x0084E590;
-
-    // Verify prologue: push ebp; mov ebp, esp
-    unsigned char* p = (unsigned char*)target;
-    if (p[0] != 0x55 || p[1] != 0x8B) {
-        Log("lua_getfield cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
-        return false;
-    }
-
-    if (MH_CreateHook(target, (void*)hooked_lua_getfield, (void**)&orig_lua_getfield) != MH_OK) {
-        Log("lua_getfield cache: MH_CreateHook FAILED");
-        return false;
-    }
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("lua_getfield cache: MH_EnableHook FAILED");
-        return false;
-    }
-
-    memset(g_getFieldCache, 0, sizeof(g_getFieldCache));
-    g_getFieldGen = 0;
-
-    Log("lua_getfield cache: ACTIVE (sub_84E590 @ 0x0084E590 — 4096-slot _G string-content cache, SEH)");
-    return true;
-#endif
-}
-
-// ================================================================
 // 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (enabled)
 //
 // WHAT: Hooks luaH_getstr (0x0085C430). Caches (table, tstring) → Node*
@@ -4256,9 +4022,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // with addon execution flow during world load.
     bool tableConcatOk = false;
 
-    Log("--- Lua GetField ---");
-    bool luaGetFieldOk = InstallLuaGetFieldCache();
-
     Log("--- Lua PushString ---");
     bool luaPushStringOk = InstallLuaPushStringCache();
 
@@ -4375,7 +4138,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua Table Rehash (pow2)",     tableReshapeOk ? " OK " : "SKIP");
     Log("  [%s] Lua Table Lookup (getstr)",   luaHGetStrOk ? " OK " : "SKIP");
     Log("  [%s] Table Concat Fast Path",        tableConcatOk ? " OK " : "SKIP");
-    Log("  [%s] Lua GetField (_G bypass)",    luaGetFieldOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
