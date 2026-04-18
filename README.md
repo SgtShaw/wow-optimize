@@ -24,7 +24,7 @@ Huge thanks to the community members who extensively tested pre-release builds:
 - **NoGoodLife** — additional and previous stability testing across multiple sessions
 - **UNOB** — tested individual-feature DLL variants (envvariable, getprocaddress, lstrlen, modulefilename, all_new) to isolate which new hooks were stable
 
-Their feedback directly shaped the stable v3.5.8 release configuration.
+Their feedback directly shaped the stable v3.5.10 release configuration.
 
 ---
 
@@ -128,7 +128,6 @@ Their feedback directly shaped the stable v3.5.8 release configuration.
 - `CompareStringA` fast ASCII path
 - `MultiByteToWideChar` / `WideCharToMultiByte` — SSE2 ASCII fast path (bypasses NLS for pure-ASCII strings on ASCII-compatible codepages)
 - `lstrlenA` / `lstrlenW` fast path
-- `GetEnvironmentVariableA` / `GetEnvironmentVariableW` cache
 - `OutputDebugStringA` no-op when no debugger
 - fast `IsBadReadPtr` / `IsBadWritePtr`
 - periodic stats dump
@@ -160,6 +159,7 @@ These features are disabled in public-safe builds because they previously caused
 - `lua_getfield` _G cache (removed in v3.5.8 — 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
 - `GetProcAddress` cache (removed — hash collisions returned wrong FARPROC, login crash)
 - `GetModuleFileName` cache (removed — conflicts with OBS hook chain, crash + exit error)
+- `GetEnvironmentVariableA` cache (disabled in v3.5.10 — reproducible alt-tab crash, isolated via 3-way bisection test DLLs)
 
 ### Removed Features
 
@@ -172,41 +172,23 @@ These experimental features were tested and found to provide no measurable benef
 
 ---
 
-## New in v3.5.8
+## New in v3.5.10
 
-### Added
-- **MultiByteToWideChar / WideCharToMultiByte SSE2 ASCII fast path** — bypasses full NLS conversion for pure-ASCII strings on ASCII-compatible codepages (CP_ACP, CP_UTF8, 1250-1258, 874). Real-world hit rate 80-99% in-game.
-- **GetEnvironmentVariable cache** — caches env var lookups that WoW/Win32 query repeatedly.
-- **lstrlenA / lstrlenW fast path** — SSE2 scan for common short strings.
+### Fixed
+- **Alt-tab crash** (ACCESS_VIOLATION reading 0x00000000) isolated to `GetEnvironmentVariableA` cache via 3-way bisection — a tester ran three DLLs each enabling exactly one of the three suspected hooks (MBWC, lstrlen, env cache). Only the env-cache build reproduced the crash. MBWC and lstrlen are now re-enabled (cleared). GetEnvironmentVariableA cache stays disabled until a safe implementation lands.
 
-### Removed
-- **lua_getfield _G cache** — 0% hit rate in production stats across multiple tester logs. Root cause: broken uint32/uint64 key comparison and no write-side invalidation. Removed net-negative hook overhead.
-- **GetProcAddress cache** — hash collisions returned wrong FARPROC, caused login crash.
-- **GetModuleFileName cache** — conflicted with OBS hook chain, caused exit error.
+### Enabled (cleared of crash)
+- `MultiByteToWideChar` / `WideCharToMultiByte` SSE2 ASCII fast path
+- `lstrlenA` / `lstrlenW` fast path
 
-### Stability fixes (v3.5.6 - v3.5.7)
+### Disabled
+- `GetEnvironmentVariableA` cache — confirmed alt-tab crash source
+
+### Stability fixes bundled since v3.5.6
 - Recount combat log compatibility
 - UI reload stability (multi-client character switch)
-- CheckPrefetch lock, async GC dead code cleanup, defensive hook toggles
-
-## Previous: New in v3.5.5
-
-Based on extensive community testing (Morbent, Billy Hoyle, NoGoodLife), the following optimizations were enabled by default in v3.5.5:
-
-| Feature | Status in v3.5.4 | Status in v3.5.5 | Impact |
-|---------|------------------|-------------------|--------|
-| **Phase 2 Lua fast paths** | Disabled | Enabled | FPS 97-158 (best result) |
-| **GetFileSizeEx cache** | Disabled | Enabled | FPS 94-151 |
-| **luaH_getstr cache** | Disabled | Enabled | FPS 87-144 |
-
-The following remain **disabled** due to confirmed crashes across multiple testers:
-
-| Feature | Reason |
-|---------|--------|
-| CombatLog full event cache | Crash on character world login |
-| lua_pushstring cache | Crash on character world login |
-| lua_rawgeti cache | Crash on character world login |
-| ApiCache | Breaks Outfitter + GearScore addons |
+- CheckPrefetch lock ordering, async GC dead code cleanup, defensive hook toggles
+- Removed `lua_getfield` _G cache (0% hit rate, broken key comparison)
 
 ---
 
