@@ -2,10 +2,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
 #define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  7
+#define WOW_OPTIMIZE_VERSION_PATCH  8
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.7"
+#define WOW_OPTIMIZE_VERSION_STR    "3.5.8"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -39,3 +39,4 @@
 #define TEST_DISABLE_GETPROCADDRESS     1   // DISABLED: hash collision returns wrong FARPROC → login crash
 #define TEST_DISABLE_MODULEFILENAME     1   // DISABLED: conflicts with OBS hook chain → crash + exit error
 #define TEST_DISABLE_ENVVARIABLE        0   // GetEnvironmentVariable cache
+#define TEST_DISABLE_MBWC               0   // MultiByteToWideChar/WideCharToMultiByte ASCII fast path
