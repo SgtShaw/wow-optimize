@@ -254,6 +254,18 @@ Then inject after WoW starts.
 
 ---
 
+## Compatibility & Setup
+
+1. Install the `!LuaBoost` addon into `Interface\AddOns\`.
+2. **Disable conflicting addons:** Remove or disable any third-party GC optimizers (`GarbageProtector`, `GarbageCollector`, `SmartGC`, etc.) and combat log fixes (`CombatLogFix`, etc.). The DLL handles these natively; running both causes duplicate hooks, memory corruption, or crashes.
+3. **Adjust damage meter settings:** Disable built-in garbage collection / memory optimization in your meter addons to prevent double-stepping the Lua GC.
+   - **Skada:**
+     ![Skada Settings](images/image1_Skada_settings.png)
+   - **DBM:**
+     ![DBM Settings](images/image2_DBM_settings.png)
+
+---
+
 ## Multi-client Support
 
 wow_optimize automatically detects when multiple WoW instances are running.
@@ -309,14 +321,20 @@ Output:
 
 ## Troubleshooting
 
-### "Antivirus flags the DLL"
-Hooking and injection tools often trigger false positives. Review the source if needed.
 
-### "I use DXVK or Vulkan"
-That is fine. The project does not depend on D3D9 state-cache tricks.
-
-### "Large pages: no permission"
-This is informational, not a crash cause. Most systems do not have that policy enabled.
+| Problem | Solution |
+|---------|----------|
+| Proxy DLL doesn't load (no log file) | Use `wow_loader.exe`, or uncheck **"Disable fullscreen optimizations"** in `Wow.exe` properties:<br>![Wow.exe Properties](images/wow.exe_properties.png) |
+| Antivirus flags the DLL | Hooking/injection tools often trigger false positives. Source is open for review. |
+| `FATAL: MinHook initialization failed` | Another hook DLL is conflicting. Disable other injectors/overlays. |
+| `ERROR: No CRT DLL found` | Non-standard WoW build detected. |
+| Socket shows `fail` | Normal on some Windows versions — some network opts require admin. |
+| Damage meters still broken | Remove `CombatLogFix` or similar addons. Two fixers conflict. |
+| No noticeable difference | Expected on high-end PCs with few addons. |
+| `[UICache] DISABLED` | Non-standard WoW build — method table not found. |
+| High CPU usage with multiple clients | Expected. Each client runs full optimization. Remove `version.dll` from secondary clients if needed. |
+| "I use DXVK or Vulkan" | Fully supported. No D3D9 state-cache dependencies. |
+| "Large pages: no permission" | Informational only. Not a crash cause. Requires "Lock pages in memory" policy. |
 
 ---
 
