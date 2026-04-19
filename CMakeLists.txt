@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.14)
 project(wow_optimize LANGUAGES C CXX)
 
 include(FetchContent)
+set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
 # MinHook — lightweight function hooking library
 FetchContent_Declare(
@@ -25,6 +26,7 @@ FetchContent_MakeAvailable(mimalloc)
 # === Main optimization DLL ===
 add_library(wow_optimize SHARED
     src/dllmain.cpp
+    src/crt_mem_fastpath.cpp
     src/lua_optimize.cpp
     src/lua_optimize.h
     src/combatlog_optimize.cpp
