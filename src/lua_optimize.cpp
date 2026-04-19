@@ -824,6 +824,60 @@ static double ReadLuaGlobal_Number(lua_State* L, const char* name, double fallba
     return val;
 }
 
+static double RefreshLuaMemoryKB(lua_State* L) {
+    if (!L || !Api.lua_gc) return State.luaMemoryKB;
+
+    int kb = Api.lua_gc(L, LUA_GCCOUNT, 0);
+    int b  = Api.lua_gc(L, LUA_GCCOUNTB, 0);
+    State.luaMemoryKB = kb + (b / 1024.0);
+    return State.luaMemoryKB;
+}
+
+static void TryTrimForLoadingScreen(lua_State* L) {
+    if (!L || !Api.lua_gc || !State.gcOptimized) return;
+
+    static constexpr double PRELOAD_TRIM_MB_SINGLE = 192.0;
+    static constexpr double PRELOAD_TRIM_MB_MULTI  = 160.0;
+    static constexpr int PRELOAD_TRIM_STEP_KB_SINGLE = 32768;
+    static constexpr int PRELOAD_TRIM_STEP_KB_MULTI  = 65536;
+
+    double beforeKB = RefreshLuaMemoryKB(L);
+    double beforeMB = beforeKB / 1024.0;
+    double thresholdMB = g_isMultiClient ? PRELOAD_TRIM_MB_MULTI : PRELOAD_TRIM_MB_SINGLE;
+    int trimStepKB = g_isMultiClient ? PRELOAD_TRIM_STEP_KB_MULTI
+                                     : PRELOAD_TRIM_STEP_KB_SINGLE;
+    bool didTrim = false;
+    bool didPurge = false;
+
+    // Trim before zone/teleport asset loads begin. This is earlier than the
+    // regular loading-mode GC path and reduces the chance of M2 allocation OOM.
+    if (beforeMB >= thresholdMB) {
+        __try {
+            Api.lua_gc(L, LUA_GCSTEP, trimStepKB);
+            State.fullCollects++;
+            didTrim = true;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            Log("[LuaOpt] EXCEPTION in loading entry trim");
+        }
+    }
+
+    if (g_luaAllocReplaced && (g_isMultiClient || beforeMB >= thresholdMB - 32.0)) {
+        mi_collect(true);
+        didPurge = true;
+    }
+
+    g_loadingGraceFrames = 0;
+
+    if (didTrim || didPurge) {
+        double afterMB = RefreshLuaMemoryKB(L) / 1024.0;
+        Log("[LuaOpt] Loading entry trim: %.1f MB -> %.1f MB%s%s",
+            beforeMB, afterMB,
+            didTrim ? " (Lua GC step)" : "",
+            didPurge ? " (mimalloc purge)" : "");
+    }
+}
+
 
 // ================================================================
 //  Addon State Reader — reads globals set by !LuaBoost addon
@@ -853,9 +907,7 @@ static void ReadAddonStateFromLua(lua_State* L) {
         Config.isLoading = (ReadLuaGlobal_Bool(L, "LUABOOST_ADDON_LOADING") != 0);
         if (Config.isLoading && !wasLoading) {
             UICache::ClearCache();
-            // Pre-teleport VA defrag: force mimalloc to return idle pages to OS before M2 models load
-            mi_collect(true);
-            Log("[LuaOpt] Pre-teleport VA defrag triggered");
+            TryTrimForLoadingScreen(L);
         }
 
         const char* currentMode = GetGCModeName();
@@ -1275,13 +1327,13 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     }
 
 
-    // Read addon state every 16 frames (~4-5 reads/sec at 60fps)
-    // Combat/idle/loading state changes at most a few times per minute
-    // No need to poll 9 Lua API calls every single frame
+    // Read addon state more aggressively on slow/high-memory frames so
+    // loading-mode protections engage before zone-transition allocations spike.
     bool slowFrame = (frameMs > 33.0);
     bool verySlowFrame = (frameMs > 50.0);
+    int addonPollMask = (slowFrame || Config.isLoading || State.luaMemoryKB > 256 * 1024) ? 3 : 15;
 
-    if (!slowFrame && (++g_addonReadCounter & 15) == 0) {
+    if ((++g_addonReadCounter & addonPollMask) == 0) {
         ReadAddonStateFromLua(Api.L);
     }
 

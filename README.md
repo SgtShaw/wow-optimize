@@ -3,7 +3,7 @@
 Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
 
-wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, 16-year combatlog bug fix, and other low-level bottlenecks.
+wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, the 16-year combat log bug fix, and other low-level bottlenecks.
 
 The current public build is focused on real frametime stability, long-session smoothness, addon-heavy gameplay, and lower Lua/runtime overhead while keeping historically unsafe features disabled.
 
@@ -15,16 +15,16 @@ The current public build is focused on real frametime stability, long-session sm
 
 See what other players say: [Reviews and Testimonials](https://github.com/suprepupre/wow-optimize/discussions/10)
 
-### Stability Testing Team 
+### Stability Testing Team
 
 Huge thanks to the community members who extensively tested pre-release builds:
 
-- **Morbent** — tested 9 test builds, verified addon compatibility (Outfitter, GearScore, Aux, WCollections, ElvUI), reported cache-related addon breakage
-- **Billy Hoyle** — benchmarked all configurations with detailed FPS/RAM/CPU/GPU metrics, identified best-performing builds
-- **NoGoodLife** — additional and previous stability testing across multiple sessions
-- **UNOB** — tested individual-feature DLL variants (envvariable, getprocaddress, lstrlen, modulefilename, all_new) to isolate which new hooks were stable
+- **Morbent** - tested 9 test builds, verified addon compatibility (Outfitter, GearScore, Aux, WCollections, ElvUI), reported cache-related addon breakage
+- **Billy Hoyle** - benchmarked all configurations with detailed FPS/RAM/CPU/GPU metrics, identified best-performing builds
+- **NoGoodLife** - additional and previous stability testing across multiple sessions
+- **UNOB** - tested individual-feature DLL variants (envvariable, getprocaddress, lstrlen, modulefilename, all_new) to isolate which new hooks were stable
 
-Their feedback directly shaped the stable v3.5.10 release configuration.
+Their feedback directly shaped the current public-safe release configuration.
 
 ---
 
@@ -49,16 +49,16 @@ Their feedback directly shaped the stable v3.5.10 release configuration.
 - Lua reload detection and clean reinitialization
 
 ### WoW API result cache
-- `GetItemInfo` — 8192-slot cache, Direct Memory Access
-- `GetSpellInfo` — disabled (icon corruption, crashes on relog)
+- `GetItemInfo` - 8192-slot cache, Direct Memory Access
+- `GetSpellInfo` - disabled (icon corruption, crashes on relog)
 
 ### Lua internal caches (v3.5.5+)
-- `luaH_getstr` — table string-key lookup cache (tested stable)
+- `luaH_getstr` - table string-key lookup cache (tested stable)
 
 ### Lua fast paths
 - Phase 1:
   - `string.format`
-- Phase 2 (safe, Lua API based) — **ENABLED in v3.5.5**:
+- Phase 2 (safe, Lua API based) - **ENABLED in v3.5.5**:
   - `string.find` (plain mode)
   - `string.match` (safe partial fast path)
   - `type`
@@ -78,11 +78,6 @@ Their feedback directly shaped the stable v3.5.10 release configuration.
   - `string.upper`
   - `table.concat` (single-pass, SEH-guarded)
   - `unpack` (dense array fast path)
-  - `select` (fast index & "#" count)
-  - `rawequal` (direct TValue comparison)
-  - `string.sub`
-  - `string.lower`
-  - `string.upper`
 
 ### Lua VM internals
 - `luaV_concat` and `luaS_newlstr` hooks disabled for public stability
@@ -123,10 +118,10 @@ Their feedback directly shaped the stable v3.5.10 release configuration.
 - fast keepalive settings
 
 ### Other runtime optimizations
-- combat log optimizer — **fixes 16-year combatlog bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
+- combat log optimizer - **fixes the 16-year combat log bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
 - `GetItemInfo` cache
 - `CompareStringA` fast ASCII path
-- `MultiByteToWideChar` / `WideCharToMultiByte` — SSE2 ASCII fast path (bypasses NLS for pure-ASCII strings on ASCII-compatible codepages)
+- `MultiByteToWideChar` / `WideCharToMultiByte` - SSE2 ASCII fast path (bypasses NLS for pure-ASCII strings on ASCII-compatible codepages)
 - `lstrlenA` / `lstrlenW` fast path
 - `OutputDebugStringA` no-op when no debugger
 - fast `IsBadReadPtr` / `IsBadWritePtr`
@@ -134,7 +129,7 @@ Their feedback directly shaped the stable v3.5.10 release configuration.
 
 ### VA Arena (Virtual Address Arena)
 - 512MB high-address reserved arena with `MEM_TOP_DOWN`
-- Wow.exe caller filtering — only services allocations from WoW executable code
+- Wow.exe caller filtering - only services allocations from WoW executable code
 - span tracking for correct multi-page allocation/deallocation
 - proper `MEM_DECOMMIT` / `MEM_RELEASE` behavior
 - reduces 32-bit address space fragmentation from large WoW allocations
@@ -148,47 +143,39 @@ These features are disabled in public-safe builds because they previously caused
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
 - GetSpellInfo cache (disabled)
-- ApiCache (`GetItemInfo` result cache — disabled due to Outfitter/GearScore breakage)
+- ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
-- `lua_pushstring` intern cache (disabled — stale TString* crashes)
-- `lua_rawgeti` int-key cache (disabled — TValue replay corruption)
-- CombatLog full event cache (disabled — stale TString* crashes)
+- `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
+- `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
+- CombatLog full event cache (disabled - stale `TString*` crashes)
 - `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
 - `luaV_concat` hook (removed due to 0% hit-rate overhead)
-- `lua_getfield` _G cache (removed in v3.5.8 — 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
-- `GetProcAddress` cache (removed — hash collisions returned wrong FARPROC, login crash)
-- `GetModuleFileName` cache (removed — conflicts with OBS hook chain, crash + exit error)
-- `GetEnvironmentVariableA` cache (disabled in v3.5.10 — reproducible alt-tab crash, isolated via 3-way bisection test DLLs)
+- `lua_getfield` _G cache (removed in v3.5.8 - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
+- `GetProcAddress` cache (removed - hash collisions returned wrong FARPROC, login crash)
+- `GetModuleFileName` cache (removed - conflicts with OBS hook chain, crash + exit error)
+- `GetEnvironmentVariableA` cache (disabled in v3.5.10 - reproducible alt-tab crash, isolated via 3-way bisection test DLLs)
 
 ### Removed Features
 
 These experimental features were tested and found to provide no measurable benefit, so they have been removed from the codebase:
 
-- WaitSpin (WaitForSingleObject short-wait spin) — huge fallback count, essentially 0 value
-- DispatchPool (dispatcher pool for 20-byte allocations) — hooks active but no real hit in sessions
-- bgpreloadsleep cache — 0 calls in real sessions
-- Subtask Event Pool — 0 reuse / 0 new / 0 returned in real stats
+- WaitSpin (WaitForSingleObject short-wait spin) - huge fallback count, essentially 0 value
+- DispatchPool (dispatcher pool for 20-byte allocations) - hooks active but no real hit in sessions
+- bgpreloadsleep cache - 0 calls in real sessions
+- Subtask Event Pool - 0 reuse / 0 new / 0 returned in real stats
 
 ---
 
-## New in v3.5.10
+## New in v3.5.11
 
 ### Fixed
-- **Alt-tab crash** (ACCESS_VIOLATION reading 0x00000000) isolated to `GetEnvironmentVariableA` cache via 3-way bisection — a tester ran three DLLs each enabling exactly one of the three suspected hooks (MBWC, lstrlen, env cache). Only the env-cache build reproduced the crash. MBWC and lstrlen are now re-enabled (cleared). GetEnvironmentVariableA cache stays disabled until a safe implementation lands.
+- **Occasional multi-client relog crash** when returning to character select and entering the world on another character. Lua VM reload handling now waits for the new `lua_State` to settle before reinitializing allocator and GC state, avoiding transient-VM churn during relog.
+- **Teleport / loading-screen OOM** around `M2Shared.cpp:267` ("Not enough memory resources are available to process this command"). The DLL now does an earlier loading-entry trim: high-memory loading transitions trigger an immediate incremental Lua GC step plus mimalloc purge before zone and teleport asset loads begin.
 
-### Enabled (cleared of crash)
-- `MultiByteToWideChar` / `WideCharToMultiByte` SSE2 ASCII fast path
-- `lstrlenA` / `lstrlenW` fast path
-
-### Disabled
-- `GetEnvironmentVariableA` cache — confirmed alt-tab crash source
-
-### Stability fixes bundled since v3.5.6
-- Recount combat log compatibility
-- UI reload stability (multi-client character switch)
-- CheckPrefetch lock ordering, async GC dead code cleanup, defensive hook toggles
-- Removed `lua_getfield` _G cache (0% hit rate, broken key comparison)
+### Stability
+- Addon loading-state polling is now more aggressive on slow or high-memory frames so loading-mode protections engage earlier during teleports, ghost release, and raid exits.
+- Reload reinit also resets stale combat, idle, and loading flags on confirmed Lua VM switches, reducing state carry-over across relog and character changes.
 
 ---
 
@@ -321,17 +308,16 @@ Output:
 
 ## Troubleshooting
 
-
 | Problem | Solution |
 |---------|----------|
 | Proxy DLL doesn't load (no log file) | Use `wow_loader.exe`, or uncheck **"Disable fullscreen optimizations"** in `Wow.exe` properties:<br>![Wow.exe Properties](images/wow.exe_properties.png) |
 | Antivirus flags the DLL | Hooking/injection tools often trigger false positives. Source is open for review. |
 | `FATAL: MinHook initialization failed` | Another hook DLL is conflicting. Disable other injectors/overlays. |
 | `ERROR: No CRT DLL found` | Non-standard WoW build detected. |
-| Socket shows `fail` | Normal on some Windows versions — some network opts require admin. |
+| Socket shows `fail` | Normal on some Windows versions - some network options require admin. |
 | Damage meters still broken | Remove `CombatLogFix` or similar addons. Two fixers conflict. |
 | No noticeable difference | Expected on high-end PCs with few addons. |
-| `[UICache] DISABLED` | Non-standard WoW build — method table not found. |
+| `[UICache] DISABLED` | Non-standard WoW build - method table not found. |
 | High CPU usage with multiple clients | Expected. Each client runs full optimization. Remove `version.dll` from secondary clients if needed. |
 | "I use DXVK or Vulkan" | Fully supported. No D3D9 state-cache dependencies. |
 | "Large pages: no permission" | Informational only. Not a crash cause. Requires "Lock pages in memory" policy. |
@@ -342,22 +328,22 @@ Output:
 
 ```text
 wow-optimize/
-├── src/
-│   ├── dllmain.cpp
-│   ├── lua_optimize.cpp / .h
-│   ├── lua_fastpath.cpp / .h
-│   ├── lua_internals.cpp / .h
-│   ├── combatlog_optimize.cpp / .h
-│   ├── api_cache.cpp / .h
-│   ├── ui_cache.cpp / .h
-│   ├── version.h
-│   ├── version.rc
-│   ├── version_proxy.cpp
-│   ├── version_exports.def
-│   └── wow_loader.cpp
-├── CMakeLists.txt
-├── README.md
-└── LICENSE
+|-- src/
+|   |-- dllmain.cpp
+|   |-- lua_optimize.cpp / .h
+|   |-- lua_fastpath.cpp / .h
+|   |-- lua_internals.cpp / .h
+|   |-- combatlog_optimize.cpp / .h
+|   |-- api_cache.cpp / .h
+|   |-- ui_cache.cpp / .h
+|   |-- version.h
+|   |-- version.rc
+|   |-- version_proxy.cpp
+|   |-- version_exports.def
+|   `-- wow_loader.cpp
+|-- CMakeLists.txt
+|-- README.md
+`-- LICENSE
 ```
 
 ---
