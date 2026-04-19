@@ -176,6 +176,7 @@ These experimental features were tested and found to provide no measurable benef
 ### Stability
 - Addon loading-state polling is now more aggressive on slow or high-memory frames so loading-mode protections engage earlier during teleports, ghost release, and raid exits.
 - Reload reinit also resets stale combat, idle, and loading flags on confirmed Lua VM switches, reducing state carry-over across relog and character changes.
+- CRT memory/string fast paths remain disabled in the public build. The enabled production build caused an immediate client exit after pressing Enter to enter the world, so the hooks stay off until they are isolated and bisected properly.
 
 ---
 
