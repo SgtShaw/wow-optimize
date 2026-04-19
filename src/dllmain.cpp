@@ -54,6 +54,7 @@
 
 #include "version.h"
 
+
 // ================================================================
 // CRASH ISOLATION TOGGLES
 // Each toggle disables a specific optimization for binary search
@@ -91,6 +92,9 @@
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
+
+// Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
+extern bool InstallCrtMemFastPaths();
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -4007,6 +4011,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool lstrlenOk = InstallLStrLenHooks();
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = InstallMBWCHooks();
+    Log("--- CRT Memory Fast Paths ---");
+    bool crtOk = InstallCrtMemFastPaths();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4115,6 +4121,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] IsBadPtr (fast VirtualQuery)", bpOk        ? " OK " : "FAIL");    
     Log("  [%s] CompareStringA (ASCII fast)",  cmpOk       ? " OK " : "FAIL");
     Log("  [%s] MBT/WCT (SSE2 ASCII fast)",    mbwcOk      ? " OK " : "SKIP");
+    Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
