@@ -5173,6 +5173,23 @@ static bool InstallThreadAffinity() {
 // VA Arena v2 — High-address reserved arena with caller filtering
 // ================================================================
 
+static bool IsCallerInWowExe() {
+    void* caller = _ReturnAddress();
+    if (!caller) return false;
+    static uintptr_t wowBase = 0;
+    static uintptr_t wowSize = 0;
+    if (wowBase == 0) {
+        HMODULE hWow = GetModuleHandleA(NULL);
+        if (!hWow) return false;
+        MODULEINFO modInfo;
+        if (!GetModuleInformation(GetCurrentProcess(), hWow, &modInfo, sizeof(modInfo))) return false;
+        wowBase = (uintptr_t)hWow;
+        wowSize = (uintptr_t)modInfo.SizeOfImage;
+    }
+    uintptr_t addr = (uintptr_t)caller;
+    return (addr >= wowBase && addr < wowBase + wowSize);
+}
+
 static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flType, DWORD flProtect) {
     // Intercept ALL committed, non-fixed, non-reserve allocations
     // No caller filtering — serve everyone (Wow.exe, addons, mimalloc, D3D9, etc.)
@@ -5187,7 +5204,8 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
         !(flType & MEM_LARGE_PAGES) &&
         (flProtect == PAGE_READONLY || flProtect == PAGE_READWRITE ||
          flProtect == PAGE_EXECUTE_READ || flProtect == PAGE_EXECUTE_READWRITE ||
-         flProtect == PAGE_NOACCESS))
+         flProtect == PAGE_NOACCESS) &&
+        IsCallerInWowExe())  // RESTORED: prevent addon/D3D9 from fragmenting arena
     {
 #if !CRASH_TEST_DISABLE_VA_ARENA
         __try {
