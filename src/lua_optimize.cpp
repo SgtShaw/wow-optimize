@@ -176,9 +176,17 @@ static int g_lastSyncNormal = -1;
 static int g_lastSyncCombat = -1;
 static int g_lastSyncIdle = -1;
 static int g_lastSyncLoading = -1;
+static lua_State* g_pendingLuaState = nullptr;
+static DWORD g_pendingLuaStateTick = 0;
+static int g_pendingLuaStateFrames = 0;
 
 static double g_smoothedGcMs = 0.5;
 static LARGE_INTEGER g_gcPerfFreq = {};
+
+static constexpr DWORD LUA_RELOAD_SETTLE_MS_SINGLE = 50;
+static constexpr DWORD LUA_RELOAD_SETTLE_MS_MULTI  = 150;
+static constexpr int   LUA_RELOAD_SETTLE_FRAMES_SINGLE = 2;
+static constexpr int   LUA_RELOAD_SETTLE_FRAMES_MULTI  = 6;
 
 
 static bool IsExecutableMemory(uintptr_t addr) {
@@ -1114,6 +1122,9 @@ static void DoMainThreadInit() {
 
     State.initialized = true;
     State.lastModeName = GetGCModeName();
+    g_pendingLuaState = nullptr;
+    g_pendingLuaStateTick = 0;
+    g_pendingLuaStateFrames = 0;
 
     Log("[LuaOpt] ====================================");
     Log("[LuaOpt]  Init Complete");
@@ -1182,6 +1193,37 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     if (!currentL) return;
 
     if (currentL != Api.L) {
+        DWORD nowTick = GetTickCount();
+        DWORD settleMs = g_isMultiClient ? LUA_RELOAD_SETTLE_MS_MULTI
+                                         : LUA_RELOAD_SETTLE_MS_SINGLE;
+        int settleFrames = g_isMultiClient ? LUA_RELOAD_SETTLE_FRAMES_MULTI
+                                           : LUA_RELOAD_SETTLE_FRAMES_SINGLE;
+
+        if (currentL != g_pendingLuaState) {
+            g_pendingLuaState = currentL;
+            g_pendingLuaStateTick = nowTick;
+            g_pendingLuaStateFrames = 1;
+            Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
+            return;
+        }
+
+        g_pendingLuaStateFrames++;
+        if (g_pendingLuaStateFrames < settleFrames ||
+            (DWORD)(nowTick - g_pendingLuaStateTick) < settleMs) {
+            return;
+        }
+
+        g_pendingLuaState = nullptr;
+        g_pendingLuaStateTick = 0;
+        g_pendingLuaStateFrames = 0;
+        Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
+    } else if (g_pendingLuaState) {
+        g_pendingLuaState = nullptr;
+        g_pendingLuaStateTick = 0;
+        g_pendingLuaStateFrames = 0;
+    }
+
+    if (currentL != Api.L) {
         Log("[LuaOpt] lua_State changed (UI reload) — reinitializing");
 
         if (g_luaAllocReplaced) {
@@ -1198,6 +1240,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         State.fullCollects = 0;
         State.statsUpdateCounter = 0;
         State.lastModeName = "unknown";
+        Config.inCombat = false;
+        Config.isIdle = false;
+        Config.isLoading = false;
+        g_loadingGraceFrames = 0;
 
         UICache::ClearCache();
         ApiCache::ClearCache();
@@ -1300,6 +1346,9 @@ void Shutdown() {
     InterlockedExchange(&g_luaInitState, 0);
     g_addonReadCounter = 0;
     g_gcRequestCounter = 0;
+    g_pendingLuaState = nullptr;
+    g_pendingLuaStateTick = 0;
+    g_pendingLuaStateFrames = 0;
 }
 
 void SetCombatMode(bool inCombat) {
