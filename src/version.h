@@ -40,3 +40,4 @@
 #define TEST_DISABLE_MODULEFILENAME     1   // DISABLED: conflicts with OBS hook chain → crash + exit error
 #define TEST_DISABLE_ENVVARIABLE        1   // DISABLED: confirmed alt-tab crash source via isolated-DLL bisection (v3.5.10)
 #define TEST_DISABLE_MBWC               0   // ENABLED: cleared of alt-tab crash via isolated-DLL bisection (v3.5.10)
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0   // DISABLED: bisection-ready (strlen/memcmp/memcpy/memset SSE2)
