@@ -744,6 +744,10 @@ static void StepGC(lua_State* L, double frameMs) {
                 Api.lua_gc(L, LUA_GCSTEP, 65536);  // 64 MB step
                 State.fullCollects++;
 
+                // CRITICAL: Force mimalloc to return freed pages to OS immediately
+                mi_option_set(mi_option_purge_delay, 0);
+                mi_collect(true);
+
                 int kb = Api.lua_gc(L, LUA_GCCOUNT, 0);
                 int b  = Api.lua_gc(L, LUA_GCCOUNTB, 0);
                 double afterMB = (kb + (b / 1024.0)) / 1024.0;
@@ -841,6 +845,9 @@ static void ReadAddonStateFromLua(lua_State* L) {
         Config.isLoading = (ReadLuaGlobal_Bool(L, "LUABOOST_ADDON_LOADING") != 0);
         if (Config.isLoading && !wasLoading) {
             UICache::ClearCache();
+            // Pre-teleport VA defrag: force mimalloc to return idle pages to OS before M2 models load
+            mi_collect(true);
+            Log("[LuaOpt] Pre-teleport VA defrag triggered");
         }
 
         const char* currentMode = GetGCModeName();
