@@ -139,8 +139,17 @@ static WndProc_fn orig_WndProc = nullptr;
 static volatile bool g_cursorInitDone = false;
 
 static LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    // Suppress engine cursor shape changes and centering attempts
-    if (uMsg == WM_SETCURSOR) return TRUE;
+    if (uMsg == WM_SETCURSOR) return TRUE; // Suppress system cursor drawing
+
+    if (uMsg == WM_ACTIVATE) {
+        if (LOWORD(wParam) != WA_INACTIVE) {
+            ShowCursor(FALSE); // Hide Windows cursor when WoW is active
+            ClipCursor(NULL);  // Release window clipping
+        } else {
+            ShowCursor(TRUE);  // Show Windows cursor when alt-tabbed out
+        }
+    }
+
     return CallWindowProcA(orig_WndProc, hWnd, uMsg, wParam, lParam);
 }
 
@@ -153,11 +162,10 @@ static void InitHardwareCursor() {
 
     if (hWnd) {
         orig_WndProc = (WndProc_fn)SetWindowLongPtrA(hWnd, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
-        ShowCursor(TRUE);
+        ShowCursor(FALSE);
         ClipCursor(NULL);
-
         g_cursorInitDone = true;
-        Log("Hardware cursor: ACTIVE (WM_SETCURSOR suppressed, clipping disabled)");
+        Log("Hardware cursor: ACTIVE (focus-aware visibility, clipping disabled)");
     }
 }
 
