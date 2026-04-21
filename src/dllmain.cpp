@@ -128,6 +128,54 @@ static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in page
 static bool InstallVAArena();
 static void ShutdownVAArena();
 
+extern "C" void Log(const char* fmt, ...);
+// ================================================================
+// Hardware Cursor & Raw Input — bypass engine cursor centering
+// ================================================================
+#if !TEST_DISABLE_HARDWARE_CURSOR
+
+typedef LRESULT (CALLBACK* WndProc_fn)(HWND, UINT, WPARAM, LPARAM);
+static WndProc_fn orig_WndProc = nullptr;
+static volatile bool g_cursorInitDone = false;
+
+static LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
+    // Suppress engine cursor shape changes and centering attempts
+    if (uMsg == WM_SETCURSOR) return TRUE;
+    return CallWindowProcA(orig_WndProc, hWnd, uMsg, wParam, lParam);
+}
+
+static void InitHardwareCursor() {
+    if (g_cursorInitDone) return;
+
+    HWND hWnd = FindWindowA("GxWindowClassD3d", NULL);
+    if (!hWnd) hWnd = FindWindowA("GxWindowClassD3d9Ex", NULL);
+    if (!hWnd) hWnd = FindWindowA("GxWindowClassOpenGl", NULL);
+
+    if (hWnd) {
+        orig_WndProc = (WndProc_fn)SetWindowLongPtrA(hWnd, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
+        ShowCursor(TRUE);
+        ClipCursor(NULL);
+
+        g_cursorInitDone = true;
+        Log("Hardware cursor: ACTIVE (WM_SETCURSOR suppressed, clipping disabled)");
+    }
+}
+
+static bool InstallHardwareCursorHooks() {
+    Log("Hardware cursor: ACTIVE (WndProc subclassing only)");
+    return true;
+}
+
+#else
+
+static void InitHardwareCursor() {}
+static bool InstallHardwareCursorHooks() {
+    Log("Hardware cursor: DISABLED (crash isolation)");
+    return false;
+}
+
+#endif
+
 // ================================================================
 // Deferred Unit Field Updates — Lock-free queue + worker thread
 // ================================================================
@@ -557,6 +605,9 @@ static void RunPeriodicMaintenanceOnMainThread() {
 
     // Sync deferred field updates before UI/render phase
     SyncFieldUpdates();
+
+    // Initialize hardware cursor on main thread (requires UI thread context)
+    InitHardwareCursor();    
 
     DWORD nowTick = GetTickCount();
 
@@ -4135,6 +4186,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
 
+    Log("--- Hardware Cursor ---");
+    bool cursorOk = InstallHardwareCursorHooks();
+
     Log("--- Table Concat Fast Path ---");
     // DISABLED: table.concat fast path causes 0xC0000005 crashes
     // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
@@ -5599,6 +5653,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                             }
                         }
             #endif
+            // Restore original WndProc
+            if (orig_WndProc && g_cursorInitDone) {
+                HWND hWnd = FindWindowA("GxWindowClassD3d", NULL);
+                if (!hWnd) hWnd = FindWindowA("GxWindowClassD3d9Ex", NULL);
+                if (!hWnd) hWnd = FindWindowA("GxWindowClassOpenGl", NULL);
+                if (hWnd) SetWindowLongPtrA(hWnd, GWLP_WNDPROC, (LONG_PTR)orig_WndProc);
+            }
+            
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
