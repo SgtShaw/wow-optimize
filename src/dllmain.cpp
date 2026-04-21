@@ -128,6 +128,101 @@ static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in page
 static bool InstallVAArena();
 static void ShutdownVAArena();
 
+// ================================================================
+// Deferred Unit Field Updates — Lock-free queue + worker thread
+// ================================================================
+static constexpr int FIELD_QUEUE_SIZE = 8192;
+static constexpr int FIELD_QUEUE_MASK = FIELD_QUEUE_SIZE - 1;
+
+struct FieldTask {
+    void* unit;
+    int   fieldId;
+    int   value;
+};
+
+static FieldTask g_fieldQueue[FIELD_QUEUE_SIZE] = {};
+static volatile LONG g_fieldHead = 0;
+static volatile LONG g_fieldTail = 0;
+static volatile LONG g_fieldPending = 0;
+static HANDLE g_fieldWorkerThread = NULL;
+static volatile bool g_fieldWorkerShutdown = false;
+
+typedef void (__thiscall *OnFieldUpdate_fn)(void*, int, int);
+static OnFieldUpdate_fn orig_OnFieldUpdate = nullptr;
+
+static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldId, int value) {
+#if TEST_DISABLE_DEFERRED_FIELD_UPDATES
+    return orig_OnFieldUpdate(This, fieldId, value);
+#else
+    __try {
+        // Critical fields (HP, Mana, GUID, Flags, Level) must process immediately
+        if (fieldId < 0x40) {
+            return orig_OnFieldUpdate(This, fieldId, value);
+        }
+
+        LONG tail = g_fieldTail;
+        LONG nextTail = (tail + 1) & FIELD_QUEUE_MASK;
+        if (nextTail == g_fieldHead) {
+            return orig_OnFieldUpdate(This, fieldId, value); // Queue full
+        }
+
+        g_fieldQueue[tail].unit = This;
+        g_fieldQueue[tail].fieldId = fieldId;
+        g_fieldQueue[tail].value = value;
+        InterlockedExchange(&g_fieldTail, nextTail);
+        InterlockedIncrement(&g_fieldPending);
+        return;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return orig_OnFieldUpdate(This, fieldId, value);
+    }
+#endif
+}
+
+static DWORD WINAPI FieldUpdateWorkerProc(LPVOID) {
+    while (!g_fieldWorkerShutdown) {
+        LONG head = g_fieldHead;
+        if (head == g_fieldTail) {
+            SwitchToThread();
+            continue;
+        }
+
+        FieldTask& task = g_fieldQueue[head];
+        __try {
+            orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+        InterlockedExchange(&g_fieldHead, (head + 1) & FIELD_QUEUE_MASK);
+        InterlockedDecrement(&g_fieldPending);
+    }
+    return 0;
+}
+
+static void SyncFieldUpdates() {
+    // Barrier: wait for background worker to drain queue before UI/render phase
+    while (g_fieldPending > 0) {
+        SwitchToThread();
+    }
+}
+
+extern "C" void Log(const char* fmt, ...);
+
+static bool InstallFieldUpdateHook() {
+#if TEST_DISABLE_DEFERRED_FIELD_UPDATES
+    Log("Deferred field updates: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x006A3C40;
+    if (MH_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
+    if (MH_EnableHook(target) != MH_OK) return false;
+
+    g_fieldWorkerShutdown = false;
+    g_fieldWorkerThread = CreateThread(NULL, 0, FieldUpdateWorkerProc, NULL, 0, NULL);
+    Log("Deferred field updates: ACTIVE (lock-free queue, 8192 slots, worker thread)");
+    return true;
+#endif
+}
+
+
 // New system optimizations
 static bool InstallGetFileSizeCache();
 static bool InstallWaitForSingleObjectHook();
@@ -459,6 +554,9 @@ static void PreciseSleep(double milliseconds) {
 static void RunPeriodicMaintenanceOnMainThread() {
     if (g_mainThreadId == 0 || GetCurrentThreadId() != g_mainThreadId)
         return;
+
+    // Sync deferred field updates before UI/render phase
+    SyncFieldUpdates();
 
     DWORD nowTick = GetTickCount();
 
@@ -4034,6 +4132,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lua Table Lookup ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
+    Log("--- Deferred Field Updates ---");
+    bool fieldOk = InstallFieldUpdateHook();
+
     Log("--- Table Concat Fast Path ---");
     // DISABLED: table.concat fast path causes 0xC0000005 crashes
     // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
@@ -5445,6 +5546,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
             LuaOpt::Shutdown();
+            g_fieldWorkerShutdown = true;
+            if (g_fieldWorkerThread) {
+                WaitForSingleObject(g_fieldWorkerThread, 1000);
+                CloseHandle(g_fieldWorkerThread);
+                g_fieldWorkerThread = NULL;
+            }   
             if (g_flushSkipped > 0)
                 Log("FlushFileBuffers: %ld MPQ flushes skipped", g_flushSkipped);
             if (g_debugStringSkipped > 0)
@@ -5483,7 +5590,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             if (g_instanceMutex) {
                 CloseHandle(g_instanceMutex);
                 g_instanceMutex = NULL;
-            }
+            }            
             #if !CRASH_TEST_DISABLE_MPQ_MMAP
                         for (int i = 0; i < MAX_MPQ_MAPPINGS; i++) {
                             if (g_mpqMappings[i].active) {
