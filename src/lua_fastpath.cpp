@@ -1745,6 +1745,7 @@ static int __cdecl Hooked_Select(lua_State* L) {
         if (n < 1) goto fallback;
         if (n > nargs) n = nargs;
 
+        //  return the count, and the VM copies values from stack indices (n+1)..nargs.
         int ret = nargs - n;
         g_selectHits++;
         return ret;

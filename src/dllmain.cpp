@@ -2454,7 +2454,7 @@ static void OptimizeWorkingSet() {
     if (g_isMultiClient) {
         // Multi-client: reduce footprint to ease 32-bit address space pressure
         minWS = 64 * 1024 * 1024;    // 64 MB
-        maxWS = 512ULL * 1024 * 1024; // 512 MB
+        maxWS = 1024ULL * 1024 * 1024; // Raised from 512MB → 1024MB to prevent ERROR #134 during char switches
     } else {
         minWS = 256 * 1024 * 1024;    // 256 MB
         maxWS = 2048ULL * 1024 * 1024; // 2048 MB
