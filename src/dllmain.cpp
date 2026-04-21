@@ -134,24 +134,7 @@ extern "C" void Log(const char* fmt, ...);
 // ================================================================
 #if !TEST_DISABLE_HARDWARE_CURSOR
 
-typedef LRESULT (CALLBACK* WndProc_fn)(HWND, UINT, WPARAM, LPARAM);
-static WndProc_fn orig_WndProc = nullptr;
 static volatile bool g_cursorInitDone = false;
-
-static LRESULT CALLBACK HookedWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    if (uMsg == WM_SETCURSOR) return TRUE; // Suppress system cursor drawing
-
-    if (uMsg == WM_ACTIVATE) {
-        if (LOWORD(wParam) != WA_INACTIVE) {
-            ShowCursor(FALSE); // Hide Windows cursor when WoW is active
-            ClipCursor(NULL);  // Release window clipping
-        } else {
-            ShowCursor(TRUE);  // Show Windows cursor when alt-tabbed out
-        }
-    }
-
-    return CallWindowProcA(orig_WndProc, hWnd, uMsg, wParam, lParam);
-}
 
 static void InitHardwareCursor() {
     if (g_cursorInitDone) return;
@@ -161,16 +144,19 @@ static void InitHardwareCursor() {
     if (!hWnd) hWnd = FindWindowA("GxWindowClassOpenGl", NULL);
 
     if (hWnd) {
-        orig_WndProc = (WndProc_fn)SetWindowLongPtrA(hWnd, GWLP_WNDPROC, (LONG_PTR)HookedWndProc);
-        ShowCursor(FALSE);
+        // Reset cursor visibility reference count to >= 0
+        while (ShowCursor(TRUE) < 0);
+        
+        // Remove window clipping to prevent cursor trapping/lag
         ClipCursor(NULL);
+
         g_cursorInitDone = true;
-        Log("Hardware cursor: ACTIVE (focus-aware visibility, clipping disabled)");
+        Log("Hardware cursor: ACTIVE (clipping disabled, visibility reset)");
     }
 }
 
 static bool InstallHardwareCursorHooks() {
-    Log("Hardware cursor: ACTIVE (WndProc subclassing only)");
+    Log("Hardware cursor: ACTIVE (no hooks, visibility/clipping fix only)");
     return true;
 }
 
@@ -5642,14 +5628,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                             }
                         }
             #endif
-            // Restore original WndProc
-            if (orig_WndProc && g_cursorInitDone) {
-                HWND hWnd = FindWindowA("GxWindowClassD3d", NULL);
-                if (!hWnd) hWnd = FindWindowA("GxWindowClassD3d9Ex", NULL);
-                if (!hWnd) hWnd = FindWindowA("GxWindowClassOpenGl", NULL);
-                if (hWnd) SetWindowLongPtrA(hWnd, GWLP_WNDPROC, (LONG_PTR)orig_WndProc);
-            }
-            
+                        
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
