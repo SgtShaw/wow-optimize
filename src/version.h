@@ -42,3 +42,4 @@
 #define TEST_DISABLE_MBWC               0   // ENABLED: cleared of alt-tab crash via isolated-DLL bisection (v3.5.10)
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1   // DISABLED: entering-world crash isolation (strlen/strcmp/memcmp/memcpy/memset SSE2)
 #define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0   // DISABLED: requires bisection testing
+#define TEST_DISABLE_HARDWARE_CURSOR 0   // DISABLED: requires bisection testing
