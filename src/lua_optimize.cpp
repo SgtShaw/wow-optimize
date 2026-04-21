@@ -141,7 +141,7 @@ static struct {
     int  gcPause        = 110;
     int  gcStepMul      = 300;
     int  normalStepKB   = 128;   // was 64 — heavy sessions need faster collection
-    int  combatStepKB   = 32;    // was 16 — balance between stutter and collection
+    int  combatStepKB   = 64;    // Raised from 32 → 64 to prevent memory ballooning during combat logs
     int  idleStepKB     = 256;   // was 128 — aggressive cleanup while AFK
     int  loadingStepKB  = 512;   // was 256 — rapid cleanup during zone transitions
     bool manualGCMode   = true;
@@ -647,6 +647,12 @@ static int g_loadingGraceFrames = 0;
 static void StepGC(lua_State* L, double frameMs) {
     if (!State.gcOptimized || !Api.lua_gc) return;
 
+
+    // Skip GC during combat if frame is already slow to prevent compounding stutter
+    if (Config.inCombat && frameMs > 14.0) {
+        return;
+    }
+
     // Skip GC for first 30 frames after entering loading mode
     // Zone transitions are fragile — Lua VM is in transitional state
     if (Config.isLoading) {
@@ -837,7 +843,7 @@ static void TryTrimForLoadingScreen(lua_State* L) {
     if (!L || !Api.lua_gc || !State.gcOptimized) return;
 
     static constexpr double PRELOAD_TRIM_MB_SINGLE = 192.0;
-    static constexpr double PRELOAD_TRIM_MB_MULTI  = 160.0;
+    static constexpr double PRELOAD_TRIM_MB_MULTI  = 256.0; // Raised from 160MB → 256MB for safer early trim
     static constexpr int PRELOAD_TRIM_STEP_KB_SINGLE = 32768;
     static constexpr int PRELOAD_TRIM_STEP_KB_MULTI  = 65536;
 
