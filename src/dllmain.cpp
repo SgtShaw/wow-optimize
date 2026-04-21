@@ -177,9 +177,9 @@ static bool InstallHardwareCursorHooks() {
 #endif
 
 // ================================================================
-// Deferred Unit Field Updates — Lock-free queue + worker thread
+// Deferred Unit Field Updates — Synchronous Batch Processor
 // ================================================================
-static constexpr int FIELD_QUEUE_SIZE = 8192;
+static constexpr int FIELD_QUEUE_SIZE = 4096;
 static constexpr int FIELD_QUEUE_MASK = FIELD_QUEUE_SIZE - 1;
 
 struct FieldTask {
@@ -191,9 +191,6 @@ struct FieldTask {
 static FieldTask g_fieldQueue[FIELD_QUEUE_SIZE] = {};
 static volatile LONG g_fieldHead = 0;
 static volatile LONG g_fieldTail = 0;
-static volatile LONG g_fieldPending = 0;
-static HANDLE g_fieldWorkerThread = NULL;
-static volatile bool g_fieldWorkerShutdown = false;
 
 typedef void (__thiscall *OnFieldUpdate_fn)(void*, int, int);
 static OnFieldUpdate_fn orig_OnFieldUpdate = nullptr;
@@ -203,7 +200,7 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
     return orig_OnFieldUpdate(This, fieldId, value);
 #else
     __try {
-        // Critical fields (HP, Mana, GUID, Flags, Level) must process immediately
+        // Critical fields (HP, Mana, GUID, Flags, Level) process immediately
         if (fieldId < 0x40) {
             return orig_OnFieldUpdate(This, fieldId, value);
         }
@@ -218,7 +215,6 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
         g_fieldQueue[tail].fieldId = fieldId;
         g_fieldQueue[tail].value = value;
         InterlockedExchange(&g_fieldTail, nextTail);
-        InterlockedIncrement(&g_fieldPending);
         return;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return orig_OnFieldUpdate(This, fieldId, value);
@@ -226,33 +222,27 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
 #endif
 }
 
-static DWORD WINAPI FieldUpdateWorkerProc(LPVOID) {
-    while (!g_fieldWorkerShutdown) {
-        LONG head = g_fieldHead;
-        if (head == g_fieldTail) {
-            SwitchToThread();
-            continue;
-        }
+static void FlushFieldUpdates() {
+#if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
+    LONG head = g_fieldHead;
+    LONG tail = g_fieldTail;
+    if (head == tail) return;
 
+    while (head != tail) {
         FieldTask& task = g_fieldQueue[head];
         __try {
-            orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
+            // Validate pointer lifetime before calling original
+            uintptr_t p = (uintptr_t)task.unit;
+            if (p > 0x10000 && p < 0xBFFF0000) {
+                orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
+            }
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-        InterlockedExchange(&g_fieldHead, (head + 1) & FIELD_QUEUE_MASK);
-        InterlockedDecrement(&g_fieldPending);
+        head = (head + 1) & FIELD_QUEUE_MASK;
     }
-    return 0;
+    InterlockedExchange(&g_fieldHead, head);
+#endif
 }
-
-static void SyncFieldUpdates() {
-    // Barrier: wait for background worker to drain queue before UI/render phase
-    while (g_fieldPending > 0) {
-        SwitchToThread();
-    }
-}
-
-extern "C" void Log(const char* fmt, ...);
 
 static bool InstallFieldUpdateHook() {
 #if TEST_DISABLE_DEFERRED_FIELD_UPDATES
@@ -263,13 +253,10 @@ static bool InstallFieldUpdateHook() {
     if (MH_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
     if (MH_EnableHook(target) != MH_OK) return false;
 
-    g_fieldWorkerShutdown = false;
-    g_fieldWorkerThread = CreateThread(NULL, 0, FieldUpdateWorkerProc, NULL, 0, NULL);
-    Log("Deferred field updates: ACTIVE (lock-free queue, 8192 slots, worker thread)");
+    Log("Deferred field updates: ACTIVE (sync batch flush, 4096 slots)");
     return true;
 #endif
 }
-
 
 // New system optimizations
 static bool InstallGetFileSizeCache();
@@ -604,7 +591,7 @@ static void RunPeriodicMaintenanceOnMainThread() {
         return;
 
     // Sync deferred field updates before UI/render phase
-    SyncFieldUpdates();
+    FlushFieldUpdates();
 
     // Initialize hardware cursor on main thread (requires UI thread context)
     InitHardwareCursor();    
@@ -5600,12 +5587,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
             LuaOpt::Shutdown();
-            g_fieldWorkerShutdown = true;
-            if (g_fieldWorkerThread) {
-                WaitForSingleObject(g_fieldWorkerThread, 1000);
-                CloseHandle(g_fieldWorkerThread);
-                g_fieldWorkerThread = NULL;
-            }   
             if (g_flushSkipped > 0)
                 Log("FlushFileBuffers: %ld MPQ flushes skipped", g_flushSkipped);
             if (g_debugStringSkipped > 0)
