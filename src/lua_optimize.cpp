@@ -1281,14 +1281,13 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateFrames = 0;
     }
 
+    // v3.5.11 debounce logic removed: causes ACCESS_VIOLATION with overlay hooks
+    // that expect immediate lua_State availability during UI transitions.
     if (currentL != Api.L) {
         Log("[LuaOpt] lua_State changed (UI reload) — reinitializing");
 
         if (g_luaAllocReplaced) {
             LogLuaAllocStats();
-            // Do NOT call RestoreLuaAllocator() here.
-            // Old global_State was freed by lua_close().
-            // Writing to freed memory corrupts heap → Error #132.
         }
         ResetAllocStats();
 
@@ -1306,9 +1305,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         UICache::ClearCache();
         ApiCache::ClearCache();
         ClearLuaOptCaches();
-        // Multi-client only: aggressive reclaim to prevent VA fragmentation
-        // across character switches (ERROR #134 on 2nd char switch).
-        // Single-client has enough VA space; skipping avoids reload stutter.
         if (g_isMultiClient) {
             mi_collect(true);
         }
@@ -1318,10 +1314,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         LuaInternals::InvalidateCache();
         LuaFastPath::InvalidateWoWCache();
         SetupLuaInterface(Api.L);
-        // Skip Phase2 re-init: hooks are installed on static wow.exe addresses
-        // and survive lua_State reset. Re-running CalibrateStackLayout on a
-        // freshly-created lua_State (mid-addon-load) can interfere with UI
-        // initialization, causing icons/menus to fail to display.
         g_addonReadCounter = 0;
         g_gcRequestCounter = 0;
         g_lastSyncNormal = -1;
