@@ -584,12 +584,6 @@ static void RunPeriodicMaintenanceOnMainThread() {
     if (g_mainThreadId == 0 || GetCurrentThreadId() != g_mainThreadId)
         return;
 
-    // Sync deferred field updates before UI/render phase
-    FlushFieldUpdates();
-
-    // Initialize hardware cursor on main thread (requires UI thread context)
-    InitHardwareCursor();    
-
     DWORD nowTick = GetTickCount();
 
     if (g_nextStatsDumpTick == 0) {
