@@ -43,4 +43,4 @@
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1   // DISABLED: entering-world crash isolation (strlen/strcmp/memcmp/memcpy/memset SSE2)
 #define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1   // DISABLED: requires bisection testing
 #define TEST_DISABLE_HARDWARE_CURSOR 0   // DISABLED: requires bisection testing
-#define CRASH_TEST_DISABLE_SWAP_RC1   1   // DISABLED: conflicts with Discord/NVIDIA overlay capture
+#define TEST_DISABLE_ASYNC_MPQ_IO 0   // DISABLED: requires bisection testing

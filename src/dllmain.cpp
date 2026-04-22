@@ -85,7 +85,7 @@
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
+#define CRASH_TEST_DISABLE_SWAP_RC1             1   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
@@ -1132,6 +1132,7 @@ static void DestroyMpqMapping(HANDLE hFile) {
 
 #endif // !CRASH_TEST_DISABLE_MPQ_MMAP
 
+
 // 5. ReadFile cache MPQ adaptive read-ahead.
 //
 // WHAT: Caches reads from MPQ handles with adaptive read-ahead.
@@ -1145,8 +1146,109 @@ static void DestroyMpqMapping(HANDLE hFile) {
 //       5. Checks IsMpqHandle() to only cache MPQ reads
 //       6. If MPQ mmap is enabled, mmap fast path is tried first
 // STATUS: Active — primary MPQ read optimization for public release
+
 typedef BOOL (WINAPI* ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 static ReadFile_fn orig_ReadFile = nullptr;
+
+// ================================================================
+// Async MPQ I/O — Predictive Read-Ahead for .m2/.blp
+// ================================================================
+#if !TEST_DISABLE_ASYNC_MPQ_IO
+
+static constexpr int ASYNC_IO_QUEUE_SIZE = 512;
+static constexpr int ASYNC_IO_QUEUE_MASK = ASYNC_IO_QUEUE_SIZE - 1;
+
+struct AsyncIoTask {
+    HANDLE hFile;
+    LARGE_INTEGER offset;
+    DWORD bytes;
+    uint8_t* buffer;
+    volatile LONG status; // 0=pending, 1=ready, 2=failed
+};
+
+static AsyncIoTask g_asyncIoQueue[ASYNC_IO_QUEUE_SIZE] = {};
+static volatile LONG g_asyncIoHead = 0;
+static volatile LONG g_asyncIoTail = 0;
+static HANDLE g_asyncIoWorker = NULL;
+static volatile bool g_asyncIoShutdown = false;
+
+static DWORD WINAPI AsyncIoWorkerProc(LPVOID) {
+    while (!g_asyncIoShutdown) {
+        LONG head = g_asyncIoHead;
+        if (head == g_asyncIoTail) {
+            SwitchToThread();
+            continue;
+        }
+        AsyncIoTask& task = g_asyncIoQueue[head];
+        __try {
+            DWORD bytesRead = 0;
+            SetFilePointerEx(task.hFile, task.offset, NULL, FILE_BEGIN);
+            BOOL ok = orig_ReadFile(task.hFile, task.buffer, task.bytes, &bytesRead, NULL);
+            InterlockedExchange(&task.status, ok ? 1 : 2);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            InterlockedExchange(&task.status, 2);
+        }
+        InterlockedExchange(&g_asyncIoHead, (head + 1) & ASYNC_IO_QUEUE_MASK);
+    }
+    return 0;
+}
+
+static bool QueueAsyncRead(HANDLE hFile, LARGE_INTEGER offset, DWORD bytes, uint8_t* buffer) {
+    LONG tail = g_asyncIoTail;
+    LONG nextTail = (tail + 1) & ASYNC_IO_QUEUE_MASK;
+    if (nextTail == g_asyncIoHead) return false; // Queue full
+
+    g_asyncIoQueue[tail].hFile = hFile;
+    g_asyncIoQueue[tail].offset = offset;
+    g_asyncIoQueue[tail].bytes = bytes;
+    g_asyncIoQueue[tail].buffer = buffer;
+    g_asyncIoQueue[tail].status = 0;
+    InterlockedExchange(&g_asyncIoTail, nextTail);
+    return true;
+}
+
+static bool CheckAsyncCompletion(HANDLE hFile, LARGE_INTEGER offset, DWORD bytes, uint8_t* dst) {
+    LONG head = g_asyncIoHead;
+    while (head != g_asyncIoTail) {
+        AsyncIoTask& task = g_asyncIoQueue[head];
+        if (task.hFile == hFile && task.offset.QuadPart == offset.QuadPart && task.bytes == bytes) {
+            if (task.status == 1) {
+                memcpy(dst, task.buffer, bytes);
+                mi_free(task.buffer);
+                InterlockedExchange(&g_asyncIoHead, (head + 1) & ASYNC_IO_QUEUE_MASK);
+                return true;
+            }
+            if (task.status == 2) {
+                mi_free(task.buffer);
+                InterlockedExchange(&g_asyncIoHead, (head + 1) & ASYNC_IO_QUEUE_MASK);
+            }
+            return false;
+        }
+        head = (head + 1) & ASYNC_IO_QUEUE_MASK;
+    }
+    return false;
+}
+
+static bool InstallAsyncIoWorker() {
+    g_asyncIoShutdown = false;
+    g_asyncIoWorker = CreateThread(NULL, 0, AsyncIoWorkerProc, NULL, 0, NULL);
+    if (g_asyncIoWorker) {
+        Log("Async MPQ I/O: ACTIVE (background worker, %d slots)", ASYNC_IO_QUEUE_SIZE);
+        return true;
+    }
+    Log("Async MPQ I/O: FAILED to create worker thread");
+    return false;
+}
+
+#else
+
+static bool QueueAsyncRead(HANDLE, LARGE_INTEGER, DWORD, uint8_t*) { return false; }
+static bool CheckAsyncCompletion(HANDLE, LARGE_INTEGER, DWORD, uint8_t*) { return false; }
+static bool InstallAsyncIoWorker() { return false; }
+
+#endif
+
+
 
 // Async prefetch forward declarations
 static const int MAX_PREFETCH_SLOTS = 8;
@@ -1293,6 +1395,30 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     }
 
     ReleaseSRWLockExclusive(&g_cacheLock);
+
+        // === Async MPQ I/O Fast Path ===
+    #if !TEST_DISABLE_ASYNC_MPQ_IO
+        if (IsMpqHandle(hFile) && nBytesToRead <= 65536) {
+            __try {
+               
+                if (CheckAsyncCompletion(hFile, currentPos, nBytesToRead, (uint8_t*)lpBuffer)) {
+                    if (lpBytesRead) *lpBytesRead = nBytesToRead;
+                    LARGE_INTEGER newPos; newPos.QuadPart = currentPos.QuadPart + nBytesToRead;
+                    SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
+                    return TRUE;
+                }
+
+               
+                uint8_t* asyncBuf = (uint8_t*)mi_malloc(nBytesToRead);
+                if (asyncBuf) {
+                    LARGE_INTEGER nextOff; nextOff.QuadPart = currentPos.QuadPart + nBytesToRead;
+                    if (!QueueAsyncRead(hFile, nextOff, nBytesToRead, asyncBuf)) {
+                        mi_free(asyncBuf); 
+                    }
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        }
+    #endif    
 
     // === Async prefetch check ===
     if (IsMpqHandle(hFile)) {
@@ -4102,6 +4228,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool readOk  = InstallReadFileHook();
     bool closeOk = InstallCloseHandleHook();
     bool flushOk = InstallFlushFileBuffersHook();
+    Log("--- Async MPQ I/O ---");
+    bool asyncIoOk = InstallAsyncIoWorker();    
     Log("--- MPQ Scan ---");
     ScanExistingMpqHandles();
     Log("--- File Attributes ---");
@@ -5622,7 +5750,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                             }
                         }
             #endif
-                        
+            g_asyncIoShutdown = true;
+            if (g_asyncIoWorker) {
+                WaitForSingleObject(g_asyncIoWorker, 2000);
+                CloseHandle(g_asyncIoWorker);
+                g_asyncIoWorker = NULL;
+            }            
+
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
@@ -5634,4 +5768,3 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     }
     return TRUE;
 }
-
