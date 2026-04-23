@@ -76,6 +76,14 @@ struct Stats {
     int  phase2Hooks;
     bool active;
     bool phase2Active;
+    long unitHealthHits;
+    long unitHealthFallbacks;
+    long unitHealthMaxHits;
+    long unitHealthMaxFallbacks;
+    long unitPowerHits;
+    long unitPowerFallbacks;
+    long unitPowerMaxHits;
+    long unitPowerMaxFallbacks;    
 };
 
 Stats GetStats();

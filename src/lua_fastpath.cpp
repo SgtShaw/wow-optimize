@@ -2153,6 +2153,17 @@ struct FuncHookEntry {
     bool               hooked;
 };
 
+static int __cdecl Hooked_UnitHealth(lua_State* L);
+static int __cdecl Hooked_UnitHealthMax(lua_State* L);
+static int __cdecl Hooked_UnitPower(lua_State* L);
+static int __cdecl Hooked_UnitPowerMax(lua_State* L);
+
+static lua_CFunction_t orig_UnitHealth      = nullptr;
+static lua_CFunction_t orig_UnitHealthMax   = nullptr;
+static lua_CFunction_t orig_UnitPower       = nullptr;
+static lua_CFunction_t orig_UnitPowerMax    = nullptr;
+
+
 static FuncHookEntry g_funcHooks[] = {
     {"string", "find",      (void*)Hooked_StrFind,          &orig_str_find,         0, false},
     {"string", "match",     (void*)Hooked_StrMatch,         &orig_str_match,        0, false},
@@ -2178,6 +2189,12 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "sub",       (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
     {"string", "lower",     (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
     {"string", "upper",     (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
+#if !TEST_DISABLE_UNIT_API_FASTPATH
+    {nullptr, "UnitHealth",    (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
+    {nullptr, "UnitHealthMax", (void*)Hooked_UnitHealthMax, &orig_UnitHealthMax, 0x0060EC60, false},
+    {nullptr, "UnitPower",     (void*)Hooked_UnitPower,     &orig_UnitPower,     0x0060ED40, false},
+    {nullptr, "UnitPowerMax",  (void*)Hooked_UnitPowerMax,  &orig_UnitPowerMax,  0x0060EF40, false},
+#endif    
 #if !TEST_DISABLE_HOOK_MATH_RANDOM
     {"math",   "random",    (void*)Hooked_Math_Random,      &orig_math_random,      0x00851100, false},
 #endif
@@ -2200,6 +2217,241 @@ static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0
 static constexpr int NUM_FUNC_HOOKS = 0;
 
 #endif // TEST_DISABLE_ALL_PHASE2
+
+// ================================================================
+// Unit API Fast Paths — Direct CGUnit_C field reads
+// WHAT: Bypasses GUID resolution, flag checks, and Lua API overhead
+//       for UnitHealth/MaxHealth/Power/MaxPower.
+// WHY:  Called 10k-50k times/sec by nameplates, raid frames, and
+//       combat addons. Direct m_values read saves ~150-300ns/call.
+// HOW:  1. Read unit string directly from Lua stack
+//       2. Call internal unit resolver (sub_4D4DB0)
+//       3. Validate CGUnit_C* pointer + m_values range
+//       4. Read m_values[UNIT_FIELD_*] directly
+//       5. Push to stack via TValue* write
+//       6. Full SEH wrapper + fallback to original
+// STATUS: Test build — gated by TEST_DISABLE_UNIT_API_FASTPATH
+// ================================================================
+
+// ================================================================
+// Unit API Fast Paths Implementation
+// ================================================================
+
+#if !TEST_DISABLE_UNIT_API_FASTPATH
+
+typedef void (__cdecl* fn_ParseUnitToken)(const char* str, int* out_token, int flags);
+typedef void*(__cdecl* fn_ResolveUnit)(int token_low, int token_high, int flags);
+
+static fn_ParseUnitToken  orig_ParseUnitToken  = (fn_ParseUnitToken)0x0060ABF0;
+static fn_ResolveUnit     orig_ResolveUnit     = (fn_ResolveUnit)0x004D4DB0;
+
+static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
+
+static constexpr int UNIT_FIELD_HEALTH      = 18; // 0x48
+static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // 0x68
+static constexpr int UNIT_FIELD_POWER1      = 19; // 0x4C
+static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // 0x6C
+
+static long g_unitHealthHits = 0;
+static long g_unitHealthFallbacks = 0;
+static long g_unitHealthMaxHits = 0;
+static long g_unitHealthMaxFallbacks = 0;
+static long g_unitPowerHits = 0;
+static long g_unitPowerFallbacks = 0;
+static long g_unitPowerMaxHits = 0;
+static long g_unitPowerMaxFallbacks = 0;
+
+static int __cdecl Hooked_UnitHealth(lua_State* L) {
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base->tt != 4) goto fallback;
+
+        size_t unitLen = 0;
+        const char* unitStr = lua_tolstring_(L, 1, &unitLen);
+        if (!unitStr || unitLen == 0 || unitLen > 64) goto fallback;
+
+        int token[2] = {0, 0};
+        orig_ParseUnitToken(unitStr, token, 0);
+
+        void* unitObj = orig_ResolveUnit(token[0], token[1], 8);
+        if (!unitObj) goto fallback;
+
+        uintptr_t ptr = (uintptr_t)unitObj;
+        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
+
+        void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
+        if (!m_values) goto fallback;
+        if (!IsReadableMemory((uintptr_t)m_values + UNIT_FIELD_HEALTH * 4)) goto fallback;
+
+        int health = *(int*)((char*)m_values + UNIT_FIELD_HEALTH * 4);
+
+        RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
+        top->value.n = (double)health;
+        top->tt      = 3;
+        top->taint   = *(uint32_t*)0x00D4139C;
+        SetStackTopFast(L, top + 1);
+
+        g_unitHealthHits++;
+        return 1;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    g_unitHealthFallbacks++;
+    return orig_UnitHealth(L);
+}
+
+static int __cdecl Hooked_UnitHealthMax(lua_State* L) {
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base->tt != 4) goto fallback;
+
+        size_t unitLen = 0;
+        const char* unitStr = lua_tolstring_(L, 1, &unitLen);
+        if (!unitStr || unitLen == 0 || unitLen > 64) goto fallback;
+
+        int token[2] = {0, 0};
+        orig_ParseUnitToken(unitStr, token, 0);
+
+        void* unitObj = orig_ResolveUnit(token[0], token[1], 8);
+        if (!unitObj) goto fallback;
+
+        uintptr_t ptr = (uintptr_t)unitObj;
+        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
+
+        void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
+        if (!m_values) goto fallback;
+        if (!IsReadableMemory((uintptr_t)m_values + UNIT_FIELD_MAXHEALTH * 4)) goto fallback;
+
+        int maxHealth = *(int*)((char*)m_values + UNIT_FIELD_MAXHEALTH * 4);
+
+        RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
+        top->value.n = (double)maxHealth;
+        top->tt      = 3;
+        top->taint   = *(uint32_t*)0x00D4139C;
+        SetStackTopFast(L, top + 1);
+
+        g_unitHealthMaxHits++;
+        return 1;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    g_unitHealthMaxFallbacks++;
+    return orig_UnitHealthMax(L);
+}
+
+static int __cdecl Hooked_UnitPower(lua_State* L) {
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base->tt != 4) goto fallback;
+
+        size_t unitLen = 0;
+        const char* unitStr = lua_tolstring_(L, 1, &unitLen);
+        if (!unitStr || unitLen == 0 || unitLen > 64) goto fallback;
+
+        int powerType = 0;
+        int nargs = lua_gettop_(L);
+        if (nargs >= 2 && lua_type_(L, 2) == 3) {
+            powerType = (int)lua_tonumber_(L, 2);
+            if (powerType < 0 || powerType > 7) goto fallback;
+        }
+
+        int token[2] = {0, 0};
+        orig_ParseUnitToken(unitStr, token, 0);
+
+        void* unitObj = orig_ResolveUnit(token[0], token[1], 8);
+        if (!unitObj) goto fallback;
+
+        uintptr_t ptr = (uintptr_t)unitObj;
+        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
+
+        void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
+        if (!m_values) goto fallback;
+
+        int powerIndex = UNIT_FIELD_POWER1 + powerType;
+        if (!IsReadableMemory((uintptr_t)m_values + powerIndex * 4)) goto fallback;
+
+        int power = *(int*)((char*)m_values + powerIndex * 4);
+
+        RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
+        top->value.n = (double)power;
+        top->tt      = 3;
+        top->taint   = *(uint32_t*)0x00D4139C;
+        SetStackTopFast(L, top + 1);
+
+        g_unitPowerHits++;
+        return 1;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    g_unitPowerFallbacks++;
+    return orig_UnitPower(L);
+}
+
+static int __cdecl Hooked_UnitPowerMax(lua_State* L) {
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base->tt != 4) goto fallback;
+
+        size_t unitLen = 0;
+        const char* unitStr = lua_tolstring_(L, 1, &unitLen);
+        if (!unitStr || unitLen == 0 || unitLen > 64) goto fallback;
+
+        int powerType = 0;
+        int nargs = lua_gettop_(L);
+        if (nargs >= 2 && lua_type_(L, 2) == 3) {
+            powerType = (int)lua_tonumber_(L, 2);
+            if (powerType < 0 || powerType > 7) goto fallback;
+        }
+
+        int token[2] = {0, 0};
+        orig_ParseUnitToken(unitStr, token, 0);
+
+        void* unitObj = orig_ResolveUnit(token[0], token[1], 8);
+        if (!unitObj) goto fallback;
+
+        uintptr_t ptr = (uintptr_t)unitObj;
+        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
+
+        void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
+        if (!m_values) goto fallback;
+
+        int powerIndex = UNIT_FIELD_MAXPOWER1 + powerType;
+        if (!IsReadableMemory((uintptr_t)m_values + powerIndex * 4)) goto fallback;
+
+        int maxPower = *(int*)((char*)m_values + powerIndex * 4);
+
+        RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
+        top->value.n = (double)maxPower;
+        top->tt      = 3;
+        top->taint   = *(uint32_t*)0x00D4139C;
+        SetStackTopFast(L, top + 1);
+
+        g_unitPowerMaxHits++;
+        return 1;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    g_unitPowerMaxFallbacks++;
+    return orig_UnitPowerMax(L);
+}
+
+#endif // !TEST_DISABLE_UNIT_API_FASTPATH
 
 namespace LuaFastPath {
 
@@ -2530,6 +2782,14 @@ Stats GetStats() {
     s.mathSqrtFallbacks   = g_mathSqrtFallbacks;
     s.strRepHits          = g_strRepHits;
     s.strRepFallbacks     = g_strRepFallbacks;
+    s.unitHealthHits = g_unitHealthHits;
+    s.unitHealthFallbacks = g_unitHealthFallbacks;
+    s.unitHealthMaxHits = g_unitHealthMaxHits;
+    s.unitHealthMaxFallbacks = g_unitHealthMaxFallbacks;
+    s.unitPowerHits = g_unitPowerHits;
+    s.unitPowerFallbacks = g_unitPowerFallbacks;
+    s.unitPowerMaxHits = g_unitPowerMaxHits;
+    s.unitPowerMaxFallbacks = g_unitPowerMaxFallbacks;    
     return s;
 }
 
