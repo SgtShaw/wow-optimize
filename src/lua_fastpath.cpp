@@ -757,6 +757,63 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
         return 1;
     }
 
+// ================================================================
+    // Ultra-fast path for ^([^%s]+) — match first word/token
+    // Common in chat parsing: "extract first word from string"
+    // Pattern: ^ ( [ ^ % s ] + )
+    // Length: 10
+    // ================================================================
+    if (pLen == 10 &&
+        p[0] == '^' && p[1] == '(' && p[2] == '[' &&
+        p[3] == '^' && p[4] == '%' && p[5] == 's' &&
+        p[6] == ']' && p[7] == '+' && p[8] == ')') {
+        
+        // Find first whitespace character (ASCII <= 32 covers space, tab, newline, etc.)
+        size_t end = 0;
+        while (end < sLen && (unsigned char)s[end] > 32) {
+            end++;
+        }
+
+        if (end > 0) {
+            // Match found: return the token
+            if (PushSubstring(L, s, end)) {
+                g_matchHits++;
+                return 1;
+            }
+        }
+        
+        // String starts with whitespace or is empty -> match fails (returns nil)
+        lua_pushnil_(L);
+        g_matchHits++;
+        return 1;
+    }
+
+    // ================================================================
+    // Ultra-fast path for ^(.-)%s*$ — trim trailing whitespace
+    // Common in UI text cleanup.
+    // Pattern: ^ ( . - ) % s * $
+    // Length: 9
+    // ================================================================
+    if (pLen == 9 &&
+        p[0] == '^' && p[1] == '(' && p[2] == '.' &&
+        p[3] == '-' && p[4] == ')' && p[5] == '%' &&
+        p[6] == 's' && p[7] == '*' && p[8] == '$') {
+        
+        // Find last non-whitespace character
+        int last = (int)sLen - 1;
+        while (last >= 0 && (unsigned char)s[last] <= 32) {
+            last--;
+        }
+
+        // Return substring from 0 to last+1
+        // If last < 0, string is all whitespace, return ""
+        size_t len = (last < 0) ? 0 : (size_t)(last + 1);
+        if (PushSubstring(L, s, len)) {
+            g_matchHits++;
+            return 1;
+        }
+    }    
+
     // Case 1: anchored literal "^literal"
     if (pLen > 1 && p[0] == '^' && IsPlainLiteralPattern(p + 1, pLen - 1)) {
         if (init != 1) {
