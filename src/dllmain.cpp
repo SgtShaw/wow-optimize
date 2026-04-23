@@ -3877,7 +3877,7 @@ static bool InstallLuaHGetStrCache() {
 
     memset(g_getstrCache, 0, sizeof(g_getstrCache));
 
-    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — 4096-slot direct-mapped, SEH)");
+    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — 16384-slot direct-mapped, SEH)");
     return true;
 #endif
 }
