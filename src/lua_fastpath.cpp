@@ -1724,7 +1724,7 @@ fallback:
 
 static int __cdecl Hooked_Select(lua_State* L) {
     int nargs = lua_gettop_(L);
-    if (nargs < 2) goto fallback;
+    if (nargs < 1) goto fallback;
 
     if (lua_type_(L, 1) == LUA_TSTRING) {
         size_t len = 0;
@@ -1734,6 +1734,8 @@ static int __cdecl Hooked_Select(lua_State* L) {
             g_selectHits++;
             return 1;
         }
+        // Non-'#' string index is an error in Lua — fall through to original
+        goto fallback;
     }
 
     if (lua_type_(L, 1) == LUA_TNUMBER) {
@@ -1741,11 +1743,17 @@ static int __cdecl Hooked_Select(lua_State* L) {
         int n = (int)nd;
         if (nd != n) goto fallback;
 
-        if (n < 0) n += nargs;
-        if (n < 1) goto fallback;
-        if (n > nargs) n = nargs;
+        // Negative index: select(-1, a, b, c) returns last argument
+        // Lua spec: negative n counts from the end of the argument list
+        if (n < 0) {
+            n = nargs + n; // e.g. nargs=4, n=-1 -> n=3 (select from index 3)
+            if (n < 1) goto fallback; // e.g. select(-999, ...) out of range
+        }
 
-        //  return the count, and the VM copies values from stack indices (n+1)..nargs.
+        if (n < 1 || n >= nargs) goto fallback;
+
+        // Return values at indices n+1 through nargs.
+        // The VM copies these from the stack automatically.
         int ret = nargs - n;
         g_selectHits++;
         return ret;
