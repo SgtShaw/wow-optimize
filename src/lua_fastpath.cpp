@@ -1619,10 +1619,10 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
             uint8_t typeByte = *(uint8_t*)(gcPtr + 9);
             if ((typeByte & 0x1F) != 4) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
-            size_t slen = *(uint32_t*)(gcPtr + 0x10);
+            size_t slen = *(uint32_t*)(gcPtr + 0x08);      // len is at offset +8
             if (slen == 0 || slen > 32768) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
-            const char* sdata = (const char*)(gcPtr + 0x14);
+            const char* sdata = (const char*)(gcPtr + 0x10); // str[0] is at offset +16
 
             __try {
                 memcpy(p, sdata, slen);
