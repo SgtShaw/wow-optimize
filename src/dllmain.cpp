@@ -2962,7 +2962,6 @@ static void DumpPeriodicStats() {
             (double)g_rawGetIHits / (g_rawGetIHits + g_rawGetIMisses) * 100.0);
     }
 
-
     if (vaOk && g_vaArenaActive) {
         long total = g_vaArenaHits + g_vaArenaFallbacks;
         double arenaPct = total > 0 ? (double)g_vaArenaHits / total * 100.0 : 0.0;
@@ -3007,6 +3006,18 @@ static void DumpPeriodicStats() {
             fps.strRepHits, fps.strRepFallbacks,
             fps.findFullHits, fps.findFullFallbacks);
     }
+    
+    // Unit API Fast Path Stats
+    LuaFastPath::Stats fpStats = LuaFastPath::GetStats();   
+    if (fpStats.unitHealthHits > 0 || fpStats.unitHealthFallbacks > 0)
+        Log("[Stats] UnitHealth: %ld fast, %ld fallback", fpStats.unitHealthHits, fpStats.unitHealthFallbacks);
+    if (fpStats.unitHealthMaxHits > 0 || fpStats.unitHealthMaxFallbacks > 0)
+        Log("[Stats] UnitHealthMax: %ld fast, %ld fallback", fpStats.unitHealthMaxHits, fpStats.unitHealthMaxFallbacks);
+    if (fpStats.unitPowerHits > 0 || fpStats.unitPowerFallbacks > 0)
+        Log("[Stats] UnitPower: %ld fast, %ld fallback", fpStats.unitPowerHits, fpStats.unitPowerFallbacks);
+    if (fpStats.unitPowerMaxHits > 0 || fpStats.unitPowerMaxFallbacks > 0)
+        Log("[Stats] UnitPowerMax: %ld fast, %ld fallback", fpStats.unitPowerMaxHits, fpStats.unitPowerMaxFallbacks);
+  
     LuaInternals::Stats lis = LuaInternals::GetStats();
     if (lis.active) {
         long catTotal = lis.concatFastHits + lis.concatFallbacks;

@@ -2,10 +2,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
 #define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  11
+#define WOW_OPTIMIZE_VERSION_PATCH  12
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.11"
+#define WOW_OPTIMIZE_VERSION_STR    "3.5.12"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -122,3 +122,8 @@
 // GetSystemMetrics cache — disabled: 0% real-session hit rate,
 // removed for cleanup
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
+
+// Unit API fast paths (UnitHealth/Max/Power/MaxPower)
+// Direct CGUnit_C::m_values reads via internal token pipeline.
+// Gated for bisection. Set to 1 to disable.
+#define TEST_DISABLE_UNIT_API_FASTPATH 0
