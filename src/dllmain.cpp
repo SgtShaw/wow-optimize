@@ -3783,7 +3783,7 @@ static bool InstallTableConcatFastPath() {
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
 static luaH_getstr_fn orig_luaH_getstr = nullptr;
 
-#define GETSTR_CACHE_SIZE 4096
+#define GETSTR_CACHE_SIZE 16384
 #define GETSTR_CACHE_MASK (GETSTR_CACHE_SIZE - 1)
 
 struct GetStrCacheEntry {
@@ -4537,7 +4537,7 @@ static bool InstallWaitForSingleObjectHook() {
 // STATUS: Active — eliminates PEB walk on every call
 // ================================================================
 
-static constexpr int MOD_CACHE_SIZE = 128;
+static constexpr int MOD_CACHE_SIZE = 512;
 static constexpr int MOD_CACHE_MASK = MOD_CACHE_SIZE - 1;
 
 struct ModCacheEntry {
