@@ -126,3 +126,16 @@
 // Unit API fast paths — disabled: causes ElvUI breakage and character select AV
 // Requires full taint propagation handling and UI-state guards before re-enabling.
 #define TEST_DISABLE_UNIT_API_FASTPATH 1
+
+// Crash dump generator (minidump on exception)
+#define TEST_DISABLE_CRASH_DUMPER       0
+
+// Safe table.sort fast path (std::sort for dense homogeneous arrays)
+#define TEST_DISABLE_TABLE_SORT_FASTPATH 1
+
+// Lua require/loadfile cache (skip disk I/O + parsing on repeat loads)
+#define TEST_DISABLE_LUA_FILE_CACHE     1
+
+// C-Level Combat Log Parser (bypasses Lua string parsing)
+// Requires exact struct layout from IDA before enabling
+#define TEST_DISABLE_COMBATLOG_PARSER   1
