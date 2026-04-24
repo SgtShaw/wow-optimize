@@ -46,6 +46,7 @@
 #include "api_cache.h"
 #include "lua_fastpath.h"
 #include "lua_internals.h"
+#include "crash_dumper.h"
 
 #include "MinHook.h"
 #include <mimalloc.h>
@@ -4198,6 +4199,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (MH_Initialize() != MH_OK) { Log("FATAL: MinHook initialization failed"); LogClose(); return 1; }
     Log("MinHook initialized");
 
+    CrashDumper::Init();
 
     ConfigureMimalloc();
     TryEnableLargePages();
@@ -5768,6 +5770,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 g_asyncIoWorker = NULL;
             }            
 
+            CrashDumper::Shutdown();
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {

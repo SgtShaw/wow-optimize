@@ -2782,14 +2782,6 @@ Stats GetStats() {
     s.mathSqrtFallbacks   = g_mathSqrtFallbacks;
     s.strRepHits          = g_strRepHits;
     s.strRepFallbacks     = g_strRepFallbacks;
-    s.unitHealthHits = g_unitHealthHits;
-    s.unitHealthFallbacks = g_unitHealthFallbacks;
-    s.unitHealthMaxHits = g_unitHealthMaxHits;
-    s.unitHealthMaxFallbacks = g_unitHealthMaxFallbacks;
-    s.unitPowerHits = g_unitPowerHits;
-    s.unitPowerFallbacks = g_unitPowerFallbacks;
-    s.unitPowerMaxHits = g_unitPowerMaxHits;
-    s.unitPowerMaxFallbacks = g_unitPowerMaxFallbacks;    
     return s;
 }
 
