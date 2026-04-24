@@ -123,7 +123,6 @@
 // removed for cleanup
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
-// Unit API fast paths (UnitHealth/Max/Power/MaxPower)
-// Direct CGUnit_C::m_values reads via internal token pipeline.
-// Gated for bisection. Set to 1 to disable.
-#define TEST_DISABLE_UNIT_API_FASTPATH 0
+// Unit API fast paths — disabled: causes ElvUI breakage and character select AV
+// Requires full taint propagation handling and UI-state guards before re-enabling.
+#define TEST_DISABLE_UNIT_API_FASTPATH 1
