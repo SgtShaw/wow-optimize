@@ -754,13 +754,9 @@ static void StepGC(lua_State* L, double frameMs) {
         // This prevents M2 model allocation failures when memory is already high.
         if (Config.isLoading) {
             // 64 MB step every 2 seconds during loading — clear memory fast.
-            if ((nowTick - g_lastEmergencyTick) > 2000) {
-                Api.lua_gc(L, LUA_GCSTEP, 65536);  // 64 MB step
+            if (!Config.isLoading && memMB > g_lastEmergencyMem + 5.0 && (nowTick - g_lastEmergencyTick) > 10000) {
+                Api.lua_gc(L, LUA_GCSTEP, 16384);  // 16 MB step
                 State.fullCollects++;
-
-                // CRITICAL: Force mimalloc to return freed pages to OS immediately
-                mi_option_set(mi_option_purge_delay, 0);
-                mi_collect(true);
 
                 int kb = Api.lua_gc(L, LUA_GCCOUNT, 0);
                 int b  = Api.lua_gc(L, LUA_GCCOUNTB, 0);
@@ -769,7 +765,7 @@ static void StepGC(lua_State* L, double frameMs) {
                 g_lastEmergencyMem = afterMB;
                 g_lastEmergencyTick = nowTick;
 
-                Log("[LuaOpt] EMERGENCY GC (loading, incremental): %.1f MB -> %.1f MB", memMB, afterMB);
+                Log("[LuaOpt] EMERGENCY GC (incremental): %.1f MB -> %.1f MB", memMB, afterMB);
             }
         }
         // Normal/combat/idle mode: moderate emergency GC.
@@ -842,10 +838,10 @@ static double RefreshLuaMemoryKB(lua_State* L) {
 static void TryTrimForLoadingScreen(lua_State* L) {
     if (!L || !Api.lua_gc || !State.gcOptimized) return;
 
-    static constexpr double PRELOAD_TRIM_MB_SINGLE = 192.0;
-    static constexpr double PRELOAD_TRIM_MB_MULTI  = 256.0; // Raised from 160MB → 256MB for safer early trim
-    static constexpr int PRELOAD_TRIM_STEP_KB_SINGLE = 32768;
-    static constexpr int PRELOAD_TRIM_STEP_KB_MULTI  = 65536;
+    static constexpr double PRELOAD_TRIM_MB_SINGLE = 256.0;
+    static constexpr double PRELOAD_TRIM_MB_MULTI  = 320.0;
+    static constexpr int PRELOAD_TRIM_STEP_KB_SINGLE = 16384;  // 16 MB
+    static constexpr int PRELOAD_TRIM_STEP_KB_MULTI  = 32768;  // 32 MB
 
     double beforeKB = RefreshLuaMemoryKB(L);
     double beforeMB = beforeKB / 1024.0;
@@ -855,8 +851,6 @@ static void TryTrimForLoadingScreen(lua_State* L) {
     bool didTrim = false;
     bool didPurge = false;
 
-    // Trim before zone/teleport asset loads begin. This is earlier than the
-    // regular loading-mode GC path and reduces the chance of M2 allocation OOM.
     if (beforeMB >= thresholdMB) {
         __try {
             Api.lua_gc(L, LUA_GCSTEP, trimStepKB);
