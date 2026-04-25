@@ -57,6 +57,7 @@
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
 #include "combatlog_mt.h"
+#include "texture_async.h"
 
 #include "version.h"
 
@@ -656,6 +657,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         CombatLogOpt::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_COMBATLOG_MT
         CombatLogMT::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_TEXTURE_ASYNC
+        TextureAsync::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4519,6 +4523,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Async Texture/Model Loading ---");
+#if TEST_DISABLE_TEXTURE_ASYNC
+    Log("[TextureAsync] DISABLED (feature flag)");
+    bool textureAsyncOk = false;
+#else
+    bool textureAsyncOk = TextureAsync::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -5938,6 +5951,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             CombatLogOpt::Shutdown();
 #if !TEST_DISABLE_COMBATLOG_MT
             CombatLogMT::Shutdown();
+#endif
+#if !TEST_DISABLE_TEXTURE_ASYNC
+            TextureAsync::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
