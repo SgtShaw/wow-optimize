@@ -56,6 +56,7 @@
 #include <mimalloc.h>
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
+#include "combatlog_mt.h"
 
 #include "version.h"
 
@@ -653,6 +654,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
+#if !TEST_DISABLE_COMBATLOG_MT
+        CombatLogMT::OnFrame(g_mainThreadId);
+#endif
 
         PreciseSleep((double)ms);
         return;
@@ -4506,6 +4510,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool combatLogOk = CombatLogOpt::Init();
 
     Log("");
+    Log("--- Multithreaded Combat Log Parser ---");
+#if TEST_DISABLE_COMBATLOG_MT
+    Log("[CombatLogMT] DISABLED (feature flag)");
+    bool combatLogMTOk = false;
+#else
+    bool combatLogMTOk = CombatLogMT::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -5923,6 +5936,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ApiCache::Shutdown();
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
+#if !TEST_DISABLE_COMBATLOG_MT
+            CombatLogMT::Shutdown();
+#endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
                 Log("FlushFileBuffers: %ld MPQ flushes skipped", g_flushSkipped);
