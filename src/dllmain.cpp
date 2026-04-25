@@ -61,6 +61,7 @@
 #include "spell_prefetch.h"
 #include "addon_dispatcher.h"
 #include "model_async.h"
+#include "mpq_prefetch.h"
 
 #include "version.h"
 
@@ -672,6 +673,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_MODEL_ASYNC
         ModelAsync::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_MPQ_PREFETCH
+        MPQPrefetch::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4571,6 +4575,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Predictive MPQ Prefetching ---");
+#if TEST_DISABLE_MPQ_PREFETCH
+    Log("[MPQPrefetch] DISABLED (feature flag)");
+    bool mpqPrefetchOk = false;
+#else
+    bool mpqPrefetchOk = MPQPrefetch::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -6002,6 +6015,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_MODEL_ASYNC
             ModelAsync::Shutdown();
+#endif
+#if !TEST_DISABLE_MPQ_PREFETCH
+            MPQPrefetch::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
