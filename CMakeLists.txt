@@ -35,6 +35,8 @@ add_library(wow_optimize SHARED
     src/combatlog_mt.h
     src/texture_async.cpp
     src/texture_async.h
+    src/spell_prefetch.cpp
+    src/spell_prefetch.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h

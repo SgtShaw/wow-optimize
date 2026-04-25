@@ -58,6 +58,7 @@
 #include "combatlog_optimize.h"
 #include "combatlog_mt.h"
 #include "texture_async.h"
+#include "spell_prefetch.h"
 
 #include "version.h"
 
@@ -660,6 +661,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_TEXTURE_ASYNC
         TextureAsync::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_SPELL_PREFETCH
+        SpellPrefetch::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4532,6 +4536,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Async Spell Data Prefetching ---");
+#if TEST_DISABLE_SPELL_PREFETCH
+    Log("[SpellPrefetch] DISABLED (feature flag)");
+    bool spellPrefetchOk = false;
+#else
+    bool spellPrefetchOk = SpellPrefetch::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -5954,6 +5967,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_TEXTURE_ASYNC
             TextureAsync::Shutdown();
+#endif
+#if !TEST_DISABLE_SPELL_PREFETCH
+            SpellPrefetch::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
