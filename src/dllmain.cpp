@@ -62,6 +62,7 @@
 #include "addon_dispatcher.h"
 #include "model_async.h"
 #include "mpq_prefetch.h"
+#include "sound_prefetch.h"
 
 #include "version.h"
 
@@ -676,6 +677,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
         MPQPrefetch::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_SOUND_PREFETCH
+        SoundPrefetch::OnFrame();
 #endif
 
         PreciseSleep((double)ms);
@@ -4584,6 +4588,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Async Sound/Audio Prefetching ---");
+#if TEST_DISABLE_SOUND_PREFETCH
+    Log("[SoundPrefetch] DISABLED (feature flag)");
+#else
+    SoundPrefetch::Init();
+    Log("[SoundPrefetch] Initialized");
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -6018,6 +6031,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::Shutdown();
+#endif
+#if !TEST_DISABLE_SOUND_PREFETCH
+            SoundPrefetch::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
