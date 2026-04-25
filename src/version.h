@@ -164,6 +164,6 @@
 
 // Multithreaded Combat Log Parser — offload combat log parsing to worker thread
 // Reduces main thread CPU by 40-60% in raids via lock-free queue + async processing
-// Hook sub_750400 (combat log entry creation), queue events, process in worker thread
-// Expected impact: +20-30 FPS in 25-man raids, -40-60% main thread CPU
-#define TEST_DISABLE_COMBATLOG_MT       0  // ENABLED - colossal-scale optimization
+// Hook sub_74F910 (event dispatcher), observe events, process in worker thread
+// FIXED: now hooks event dispatcher instead of entry creation (addon-compatible)
+#define TEST_DISABLE_COMBATLOG_MT       0  // ENABLED - ready for testing

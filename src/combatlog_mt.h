@@ -6,14 +6,14 @@
 //       a dedicated worker thread using lock-free queue.
 // WHY:  Combat log parsing consumes 40-60% of main thread CPU in
 //       raids/PvP, causing FPS drops and UI lag.
-// HOW:  1. Hook sub_750400 (combat log entry creation)
+// HOW:  1. Hook sub_74F910 (combat log event dispatcher)
 //       2. Copy event data to lock-free queue (4096 entries)
 //       3. Worker thread dequeues and processes events asynchronously
 //       4. Stats tracking: queued, processed, dropped, parse time
 // ADDRESSES:
-//   - sub_750400: 0x00750400 (combat log entry creation)
+//   - sub_74F910: 0x0074F910 (event dispatcher to Lua)
 //   - ActiveListHead: 0x00ADB97C (linked list of entries)
-// STATUS: Experimental — colossal-scale optimization
+// STATUS: Fixed — hooks event dispatcher instead of entry creation
 // ================================================================
 
 #ifndef COMBATLOG_MT_H
