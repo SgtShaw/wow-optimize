@@ -22,12 +22,12 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-// Stats
-static long g_strlenHits = 0, g_strlenFallbacks = 0;
-static long g_strcmpHits = 0, g_strcmpFallbacks = 0;
-static long g_memcmpHits = 0, g_memcmpFallbacks = 0;
-static long g_memcpyHits = 0, g_memcpyFallbacks = 0;
-static long g_memsetHits = 0, g_memsetFallbacks = 0;
+// Stats (defined in dllmain.cpp)
+extern long g_crtStrlenHits, g_crtStrlenFallbacks;
+extern long g_crtStrcmpHits, g_crtStrcmpFallbacks;
+extern long g_crtMemcmpHits, g_crtMemcmpFallbacks;
+extern long g_crtMemcpyHits, g_crtMemcpyFallbacks;
+extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 
 // Originals
 typedef size_t (__cdecl* strlen_fn)(const char*);
@@ -57,14 +57,14 @@ static size_t __cdecl hooked_strlen(const char* s) {
                 unsigned long idx;
                 _BitScanForward(&idx, (unsigned long)mask);
                 len += idx;
-                g_strlenHits++;
+                g_crtStrlenHits++;
                 return len;
             }
             len += 16;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
-    g_strlenFallbacks++;
+    g_crtStrlenFallbacks++;
     return orig_strlen(s);
 }
 
@@ -85,21 +85,21 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
                 _BitScanForward(&idx, (unsigned long)(~diff & 0xFFFF));
                 unsigned char c1 = (unsigned char)s1[i + idx];
                 unsigned char c2 = (unsigned char)s2[i + idx];
-                g_strcmpHits++;
+                g_crtStrcmpHits++;
                 return c1 - c2;
             }
             // Check for null terminator in either string
             int nullA = _mm_movemask_epi8(_mm_cmpeq_epi8(a, zero));
             int nullB = _mm_movemask_epi8(_mm_cmpeq_epi8(b, zero));
             if (nullA || nullB) {
-                g_strcmpHits++;
+                g_crtStrcmpHits++;
                 return 0;
             }
             i += 16;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
-    g_strcmpFallbacks++;
+    g_crtStrcmpFallbacks++;
     return orig_strcmp(s1, s2);
 }
 
@@ -121,7 +121,7 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
                 _BitScanForward(&idx, (unsigned long)(~eq & 0xFFFF));
                 unsigned char c1 = ((const unsigned char*)s1)[i + idx];
                 unsigned char c2 = ((const unsigned char*)s2)[i + idx];
-                g_memcmpHits++;
+                g_crtMemcmpHits++;
                 return c1 - c2;
             }
         }
@@ -129,13 +129,13 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
         for (; i < n; i++) {
             unsigned char c1 = ((const unsigned char*)s1)[i];
             unsigned char c2 = ((const unsigned char*)s2)[i];
-            if (c1 != c2) { g_memcmpHits++; return c1 - c2; }
+            if (c1 != c2) { g_crtMemcmpHits++; return c1 - c2; }
         }
-        g_memcmpHits++;
+        g_crtMemcmpHits++;
         return 0;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
-    g_memcmpFallbacks++;
+    g_crtMemcmpFallbacks++;
     return orig_memcmp(s1, s2, n);
 }
 
@@ -158,11 +158,11 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
         const unsigned char* s8 = (const unsigned char*)s;
         for (; i < n; i++) d8[i] = s8[i];
 
-        g_memcpyHits++;
+        g_crtMemcpyHits++;
         return dst;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
-    g_memcpyFallbacks++;
+    g_crtMemcpyFallbacks++;
     return orig_memcpy(dst, src, n);
 }
 
@@ -181,11 +181,11 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
         unsigned char* d8 = (unsigned char*)d;
         for (; i < n; i++) d8[i] = (unsigned char)c;
 
-        g_memsetHits++;
+        g_crtMemsetHits++;
         return dst;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
-    g_memsetFallbacks++;
+    g_crtMemsetFallbacks++;
     return orig_memset(dst, c, n);
 }
 
