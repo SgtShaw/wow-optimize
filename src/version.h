@@ -2,10 +2,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
 #define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  12
+#define WOW_OPTIMIZE_VERSION_PATCH  13
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.12"
+#define WOW_OPTIMIZE_VERSION_STR    "3.5.13"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -79,9 +79,9 @@
 // via 3-way bisection in v3.5.10 (MBWC/LSTRLEN/ENV isolation)
 #define TEST_DISABLE_LSTRLEN            0
 
-// GetProcAddress cache — disabled: hash collision returns wrong
-// FARPROC on 512-slot direct-mapped table → login crash
-#define TEST_DISABLE_GETPROCADDRESS     1
+// GetProcAddress cache — enabled: v3.5.13 fixes hash collision
+// via 4-way set-associative design (was direct-mapped in v3.5.11)
+#define TEST_DISABLE_GETPROCADDRESS     0
 
 // GetModuleFileNameA/W cache — disabled: conflicts with OBS hook
 // chain → crash + exit error reported in production
@@ -113,7 +113,7 @@
 
 // table.sort fast path — disabled: persistent 0x00000004 AV on
 // HD clients due to corrupted table pointers
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
 // string.gsub fast path — disabled: luaS_newlstr crashes on HD
 // clients due to % replacement semantics and buffer edge cases
@@ -134,5 +134,7 @@
 #define TEST_DISABLE_LUA_FILE_CACHE     1
 
 // C-Level Combat Log Parser (bypasses Lua string parsing)
-// Requires exact struct layout from IDA before enabling
 #define TEST_DISABLE_COMBATLOG_PARSER   1
+
+// Force high-precision timing & block timingtesterror fallback
+#define TEST_DISABLE_TIMING_FIX         0

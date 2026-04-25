@@ -40,6 +40,7 @@ add_library(wow_optimize SHARED
     src/lua_fastpath.h
     src/lua_internals.cpp
     src/lua_internals.h
+    src/crash_dumper.cpp
 )
 
 target_link_libraries(wow_optimize PRIVATE

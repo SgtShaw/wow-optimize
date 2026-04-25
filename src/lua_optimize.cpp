@@ -46,6 +46,7 @@
 #include <cstdint>
 #include <psapi.h>
 #include <mimalloc.h>
+#include "MinHook.h"
 
 #include "version.h"
 
@@ -1133,6 +1134,42 @@ static void ProcessGCRequests(lua_State* L) {
 }
 
 
+// ================================================================
+// Timing Method Fix — Force QPC & block timingtesterror fallback
+// ================================================================
+#if !TEST_DISABLE_TIMING_FIX
+typedef int (__thiscall* CVar_SetFn)(void* This, const char* value, char a3, char a4, char a5, char a6);
+static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0; // Ваш адрес из IDA
+
+int __fastcall Hooked_CVar_Set(void* This, void* unused, const char* value, char a3, char a4, char a5, char a6) {
+    if (This && value) {
+        const char* name = *(const char**)This; // Имя CVAR хранится по смещению +0
+        if (name) {
+            if (_stricmp(name, "timingMethod") == 0) {
+                value = "2"; // Принудительно QPC
+            } else if (_stricmp(name, "timingTestError") == 0) {
+                value = "0"; // Блокируем fallback
+            }
+        }
+    }
+    return orig_CVar_Set(This, value, a3, a4, a5, a6);
+}
+
+void ForceTimingOverride() {
+    if (MH_CreateHook((void*)orig_CVar_Set, (void*)Hooked_CVar_Set, (void**)&orig_CVar_Set) != MH_OK) {
+        Log("[TimingFix] MH_CreateHook failed");
+        return;
+    }
+    if (MH_EnableHook((void*)orig_CVar_Set) != MH_OK) {
+        Log("[TimingFix] MH_EnableHook failed");
+        return;
+    }
+    Log("[TimingFix] CVar_Set hook installed (0x%08X) — intercepting timingMethod/timingTestError", (unsigned)orig_CVar_Set);
+}
+#else
+void ForceTimingOverride() {}
+#endif
+
 static void DoMainThreadInit() {
     Log("[LuaOpt] Main thread init");
 
@@ -1153,6 +1190,7 @@ static void DoMainThreadInit() {
     bool strOk = PreSizeStringTable(Api.L);
 
     SetupLuaInterface(Api.L);
+    ForceTimingOverride();
 
     // Phase 2: discover and hook Lua library functions at runtime
     __try {
