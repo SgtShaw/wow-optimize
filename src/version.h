@@ -87,9 +87,9 @@
 // chain → crash + exit error reported in production
 #define TEST_DISABLE_MODULEFILENAME     1
 
-// GetEnvironmentVariableA cache — disabled: confirmed alt-tab
-// NULL-deref crash, isolated via 3-way bisection in v3.5.10
-#define TEST_DISABLE_ENVVARIABLE        1
+// GetEnvironmentVariableA cache — enabled: v3.5.13 fixes NULL-deref
+// crash via lpBuffer validation (isolated via bisection in v3.5.10)
+#define TEST_DISABLE_ENVVARIABLE        0
 
 // MultiByteToWideChar / WideCharToMultiByte SSE2 ASCII fast path —
 // enabled: cleared of alt-tab crash via 3-way bisection in v3.5.10

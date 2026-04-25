@@ -300,6 +300,7 @@ static long g_mbwcFastHits = 0, g_mbwcFallbacks = 0;
 static long g_wcmbFastHits = 0, g_wcmbFallbacks = 0;
 static long g_profHits = 0, g_profMisses = 0;
 static long g_gpaHits = 0, g_gpaMisses = 0, g_gpaEvictions = 0;
+static long g_envHits = 0, g_envMisses = 0;
 static uint64_t g_tableReshapeHits = 0;
 static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
@@ -2954,6 +2955,10 @@ static void DumpPeriodicStats() {
         Log("[Stats] GetProcAddress: %ld hits, %ld misses, %ld evictions (%.1f%% hit rate)",
             g_gpaHits, g_gpaMisses, g_gpaEvictions,
             (double)g_gpaHits / (g_gpaHits + g_gpaMisses) * 100.0);
+    if (g_envHits + g_envMisses > 0)
+        Log("[Stats] GetEnvironmentVariable: %ld hits, %ld misses (%.1f%%)",
+            g_envHits, g_envMisses,
+            (double)g_envHits / (g_envHits + g_envMisses) * 100.0);
 
     if (g_tableReshapeHits > 0)
         Log("[Stats] Lua Table Rehash: %ld rounded to pow2", g_tableReshapeHits);
@@ -5378,7 +5383,6 @@ static const int ENV_CACHE_MASK = ENV_CACHE_SIZE - 1;
 
 struct EnvCacheEntry { uint32_t nameHash; char value[512]; DWORD len; bool valid; };
 static EnvCacheEntry g_envCache[ENV_CACHE_SIZE] = {};
-static long g_envHits = 0, g_envMisses = 0;
 
 static inline uint32_t HashNameLower(LPCSTR name) {
     uint32_t h = 0;
@@ -5390,12 +5394,13 @@ static inline uint32_t HashNameLower(LPCSTR name) {
 }
 
 static DWORD WINAPI hooked_GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer, DWORD nSize) {
-    if (!lpName) return orig_GetEnvironmentVariableA(lpName, lpBuffer, nSize);
+    // NULL checks: lpName or lpBuffer can be NULL (size query)
+    if (!lpName || !lpBuffer) return orig_GetEnvironmentVariableA(lpName, lpBuffer, nSize);
 
     uint32_t h = HashNameLower(lpName);
     int idx = h & ENV_CACHE_MASK;
 
-    if (lpBuffer && g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
+    if (g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
         if (g_envCache[idx].len < nSize) {
             memcpy(lpBuffer, g_envCache[idx].value, g_envCache[idx].len + 1);
             g_envHits++;
