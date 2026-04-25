@@ -22,7 +22,8 @@ static long g_misses = 0;
 static long g_evictions = 0;
 
 // Original tooltip rendering function
-typedef int (__stdcall* TooltipRender_fn)(void*, int, int, void*, int, int, int, int, unsigned __int64, int, void*, int, void*, int, int, int);
+// IDA Pro signature: _DWORD *__thiscall(_DWORD *this, int, int, _DWORD *, int, int, int, int, unsigned __int64, int, FILE *Stream, int, _DWORD *, int, int, int)
+typedef void* (__thiscall* TooltipRender_fn)(void*, int, int, void*, int, int, int, int, unsigned __int64, int, void*, int, void*, int, int, int);
 static TooltipRender_fn orig_TooltipRender = nullptr;
 
 // FNV-1a hash function
@@ -60,12 +61,13 @@ static void EvictOldest() {
 }
 
 // Hooked tooltip rendering function
-static int __stdcall Hooked_TooltipRender(
-    void* a1, int a2, int a3, void* a4, int a5, int a6, int a7, int a8,
+static void* __fastcall Hooked_TooltipRender(
+    void* ecx, void* edx,  // __thiscall: this in ecx, edx unused
+    int a2, int a3, void* a4, int a5, int a6, int a7, int a8,
     unsigned __int64 a9, int a10, void* a11, int a12, void* a13, int a14, int a15, int a16)
 {
 #if TEST_DISABLE_TOOLTIP_CACHE
-    return orig_TooltipRender(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+    return orig_TooltipRender(ecx, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
 #else
     // Extract item ID from parameters (a9 is GUID, lower 32 bits often contain item ID)
     uint32_t itemID = (uint32_t)(a9 & 0xFFFFFFFF);
@@ -93,14 +95,14 @@ static int __stdcall Hooked_TooltipRender(
             
             // Return cached result (we can't return cached string directly,
             // so we still call original but it will be faster due to CPU cache)
-            return orig_TooltipRender(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+            return orig_TooltipRender(ecx, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
         }
     }
     ReleaseSRWLockShared(&g_cacheLock);
     
     // Cache miss - render tooltip
     InterlockedIncrement(&g_misses);
-    int result = orig_TooltipRender(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
+    void* result = orig_TooltipRender(ecx, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16);
     
     // Add to cache
     AcquireSRWLockExclusive(&g_cacheLock);
