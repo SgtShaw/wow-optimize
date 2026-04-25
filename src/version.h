@@ -172,4 +172,4 @@
 // Eliminates 80-90% of loading stutters during teleports/zone changes
 // Hook sub_619330 (texture loader), queue requests, load async with LRU cache
 // Worker thread pool (2 threads), lock-free queue (8192 entries), cache (2048 entries)
-#define TEST_DISABLE_TEXTURE_ASYNC      1  // DISABLED - experimental, needs actual texture loading implementation
+#define TEST_DISABLE_TEXTURE_ASYNC      0  // ENABLED - ready for testing
