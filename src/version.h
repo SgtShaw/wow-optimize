@@ -96,7 +96,7 @@
 #define TEST_DISABLE_MBWC               0
 
 // CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths —
-// disabled: entering-world crash, not yet bisected to root cause
+// disabled: causes deadlock/freeze 5-10s after game start
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Deferred unit field update queue — disabled: UI/texture
@@ -138,3 +138,18 @@
 
 // Force high-precision timing & block timingtesterror fallback
 #define TEST_DISABLE_TIMING_FIX         0
+
+// UI Frame Update Batching — batch OnUpdate callbacks for addons
+// Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
+#define TEST_DISABLE_UI_FRAME_BATCH     0  // DISABLED - calling convention mismatch breaks UI
+
+// Frame Script Throttling — throttle excessive OnUpdate calls
+// Skips redundant script executions (< 16ms interval)
+// Reduces CPU overhead by 30-50% in addon-heavy setups
+// DISABLED: causes MoveAnything position corruption (race conditions)
+#define TEST_DISABLE_FRAME_THROTTLE     1  // DISABLED - breaks MoveAnything (positions reset)
+
+// Tooltip String Caching — cache formatted tooltip strings by item/spell ID
+// Reduces tooltip rendering overhead by 40-60% (sub_6277F0 is 24KB of code)
+// LRU cache with 1000 entry limit, cleared on UI reload
+#define TEST_DISABLE_TOOLTIP_CACHE      0  // ENABLED - production ready

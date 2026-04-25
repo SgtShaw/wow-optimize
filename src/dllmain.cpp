@@ -47,6 +47,9 @@
 #include "lua_fastpath.h"
 #include "lua_internals.h"
 #include "crash_dumper.h"
+#include "frame_throttle.h"
+#include "tooltip_cache.h"
+// #include "ui_frame_batch.h" // REMOVED - optimization disabled
 
 #include "MinHook.h"
 #include <mimalloc.h>
@@ -302,6 +305,11 @@ static long g_profHits = 0, g_profMisses = 0;
 static long g_gpaHits = 0, g_gpaMisses = 0, g_gpaEvictions = 0;
 static long g_envHits = 0, g_envMisses = 0;
 static long g_gmfHits = 0, g_gmfMisses = 0;
+long g_crtStrlenHits = 0, g_crtStrlenFallbacks = 0;
+long g_crtStrcmpHits = 0, g_crtStrcmpFallbacks = 0;
+long g_crtMemcmpHits = 0, g_crtMemcmpFallbacks = 0;
+long g_crtMemcpyHits = 0, g_crtMemcpyFallbacks = 0;
+long g_crtMemsetHits = 0, g_crtMemsetFallbacks = 0;
 static uint64_t g_tableReshapeHits = 0;
 static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
@@ -3009,10 +3017,63 @@ static void DumpPeriodicStats() {
         Log("[Stats] GetEnvironmentVariable: %ld hits, %ld misses (%.1f%%)",
             g_envHits, g_envMisses,
             (double)g_envHits / (g_envHits + g_envMisses) * 100.0);
+    if (g_crtStrlenHits + g_crtStrlenFallbacks > 0)
+        Log("[Stats] CRT strlen: %ld fast, %ld fallback (%.1f%%)",
+            g_crtStrlenHits, g_crtStrlenFallbacks,
+            (double)g_crtStrlenHits / (g_crtStrlenHits + g_crtStrlenFallbacks) * 100.0);
+    if (g_crtStrcmpHits + g_crtStrcmpFallbacks > 0)
+        Log("[Stats] CRT strcmp: %ld fast, %ld fallback (%.1f%%)",
+            g_crtStrcmpHits, g_crtStrcmpFallbacks,
+            (double)g_crtStrcmpHits / (g_crtStrcmpHits + g_crtStrcmpFallbacks) * 100.0);
+    if (g_crtMemcmpHits + g_crtMemcmpFallbacks > 0)
+        Log("[Stats] CRT memcmp: %ld fast, %ld fallback (%.1f%%)",
+            g_crtMemcmpHits, g_crtMemcmpFallbacks,
+            (double)g_crtMemcmpHits / (g_crtMemcmpHits + g_crtMemcmpFallbacks) * 100.0);
+    if (g_crtMemcpyHits + g_crtMemcpyFallbacks > 0)
+        Log("[Stats] CRT memcpy: %ld fast, %ld fallback (%.1f%%)",
+            g_crtMemcpyHits, g_crtMemcpyFallbacks,
+            (double)g_crtMemcpyHits / (g_crtMemcpyHits + g_crtMemcpyFallbacks) * 100.0);
+    if (g_crtMemsetHits + g_crtMemsetFallbacks > 0)
+        Log("[Stats] CRT memset: %ld fast, %ld fallback (%.1f%%)",
+            g_crtMemsetHits, g_crtMemsetFallbacks,
+            (double)g_crtMemsetHits / (g_crtMemsetHits + g_crtMemsetFallbacks) * 100.0);
+
+    // Frame Throttle stats
+    {
+        long skipped = 0, executed = 0, bypassed = 0;
+        GetFrameThrottleStats(&skipped, &executed, &bypassed);
+        if (skipped + executed + bypassed > 0) {
+            long total = skipped + executed;
+            double skipPct = total > 0 ? (double)skipped / total * 100.0 : 0.0;
+            Log("[Stats] Frame Throttle: %ld executed, %ld skipped, %ld bypassed (%.1f%% reduction)",
+                executed, skipped, bypassed, skipPct);
+        }
+    }
+
+    // Tooltip Cache stats
+    {
+        TooltipCache::Stats stats;
+        TooltipCache::GetStats(&stats);
+        if (stats.hits + stats.misses > 0) {
+            double hitRate = (double)stats.hits / (stats.hits + stats.misses) * 100.0;
+            Log("[Stats] Tooltip Cache: %ld hits, %ld misses, %ld evictions, %ld entries (%.1f%% hit rate)",
+                stats.hits, stats.misses, stats.evictions, stats.cacheSize, hitRate);
+        }
+    }
+
+    // UI Frame Batch stats - REMOVED (optimization disabled)
+    // {
+    //     long batched = 0, iterations = 0, peak = 0;
+    //     GetUIFrameBatchStats(&batched, &iterations, &peak);
+    //     if (batched > 0) {
+    //         double avgIterations = batched > 0 ? (double)iterations / batched : 0.0;
+    //         Log("[Stats] UI Frame Batch: %ld batches, %ld total iterations, %.1f avg/batch, %ld peak",
+    //             batched, iterations, avgIterations, peak);
+    //     }
+    // }
 
     if (g_tableReshapeHits > 0)
         Log("[Stats] Lua Table Rehash: %ld rounded to pow2", g_tableReshapeHits);
-
     if (g_getstrHits + g_getstrFallbacks > 0) {
         Log("[Stats] luaH_getstr: %I64u hits, %I64u fallbacks (%.1f%%)",
             g_getstrHits, g_getstrFallbacks,
@@ -4382,6 +4443,18 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Hardware Cursor ---");
     bool cursorOk = InstallHardwareCursorHooks();
 
+    Log("--- Frame Script Throttling ---");
+    bool frameThrottleOk = InstallFrameThrottling();
+
+    Log("--- Tooltip String Caching ---");
+    bool tooltipCacheOk = TooltipCache::Init();
+
+    // UI Frame Batching - REMOVED due to calling convention issues
+    // Caused MoveAnything addon to break even when disabled
+    // See UI_FRAME_BATCHING_ISSUE.md for details
+    // Log("--- UI Frame Update Batching ---");
+    // bool uiFrameBatchOk = InstallUIFrameBatching();
+
     Log("--- Table Concat Fast Path ---");
     // DISABLED: table.concat fast path causes 0xC0000005 crashes
     // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
@@ -4513,6 +4586,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
+    Log("  [%s] Tooltip string cache (LRU)",  tooltipCacheOk ? " OK " : "SKIP");
 
     return 0;
 }
@@ -5889,6 +5963,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             }            
 
             CrashDumper::Shutdown();
+            ShutdownFrameThrottling();
+            TooltipCache::Shutdown();
+            // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {

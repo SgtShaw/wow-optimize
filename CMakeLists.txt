@@ -41,6 +41,12 @@ add_library(wow_optimize SHARED
     src/lua_internals.cpp
     src/lua_internals.h
     src/crash_dumper.cpp
+    src/frame_throttle.cpp
+    src/frame_throttle.h
+    src/ui_frame_batch.cpp
+    src/ui_frame_batch.h
+    src/tooltip_cache.cpp
+    src/tooltip_cache.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
