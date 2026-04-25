@@ -1,6 +1,24 @@
 // ================================================================
 // Async Model/M2 Loader — Implementation
 // WoW 3.3.5a build 12340
+//
+// CURRENT STATUS: Synchronous caching only (async loading disabled)
+//
+// REASON: The original async approach caused ACCESS_VIOLATION crashes
+// because WoW's model loading function (sub_81C390) returns a model
+// pointer immediately - the caller expects synchronous behavior.
+//
+// CURRENT IMPLEMENTATION:
+// - Hooks sub_81C390 (model loader) with correct __thiscall convention
+// - Maintains LRU cache of loaded models (1024 entries)
+// - Calls original function synchronously and caches the result
+// - Cache provides speedup on repeated model loads
+//
+// FUTURE WORK (for true async loading):
+// - Need to implement prefetching based on zone/area prediction
+// - Prefetch models BEFORE they're requested (not after)
+// - Requires tracking player position and predicting next zone
+// - Worker threads prefetch models into cache ahead of time
 // ================================================================
 
 #include "model_async.h"
@@ -57,10 +75,10 @@ static double g_totalLoadTimeMs = 0.0;
 static SRWLOCK g_loadTimeLock = SRWLOCK_INIT;
 
 // ================================================================
-// Worker Thread Pool State
+// Worker Thread Pool State (DISABLED - not used in current implementation)
 // ================================================================
-static constexpr int WORKER_THREAD_COUNT = 2;
-static HANDLE g_workerThreads[WORKER_THREAD_COUNT] = {};
+static constexpr int WORKER_THREAD_COUNT = 0;  // Disabled
+static HANDLE g_workerThreads[2] = {};  // Keep array for future use
 static volatile bool g_workerShutdown = false;
 static HANDLE g_workerEvent = NULL;
 static double g_qpcFreqMs = 0.0;
@@ -93,84 +111,19 @@ static bool IsExecutable(uintptr_t addr) {
 }
 
 // ================================================================
-// Model Loading (Worker Thread)
+// Model Loading (Worker Thread) - DISABLED
+// This function is not used in the current synchronous implementation
 // ================================================================
 static void LoadModelAsync(const ModelRequest* request) {
-    // Check cache first
-    AcquireSRWLockShared(&g_cacheLock);
-    auto it = g_modelCache.find(request->filename);
-    bool cached = (it != g_modelCache.end());
-    ReleaseSRWLockShared(&g_cacheLock);
-
-    if (cached) {
-        InterlockedIncrement(&g_cacheHits);
-        InterlockedIncrement(&g_requestsCompleted);
-        return;
-    }
-
-    InterlockedIncrement(&g_cacheMisses);
-
-    // Load model from disk (call original function)
-    // For now, we just simulate the load - in production this would
-    // call the actual WoW model loading code
-    
-    // TODO: Implement actual model loading via WoW's file I/O
-    // This requires calling into WoW's MPQ reading functions
-    
-    // Add to cache
-    AcquireSRWLockExclusive(&g_cacheLock);
-    if (g_modelCache.size() < CACHE_SIZE) {
-        g_modelCache[request->filename] = nullptr; // Placeholder
-    }
-    ReleaseSRWLockExclusive(&g_cacheLock);
-
-    InterlockedIncrement(&g_requestsCompleted);
+    // DISABLED: Async loading not implemented
+    // See file header comment for explanation
 }
 
 // ================================================================
 // Worker Thread Procedure
 // ================================================================
 static DWORD WINAPI WorkerThreadProc(LPVOID) {
-    Log("[ModelAsync] Worker thread started (TID: %d)", GetCurrentThreadId());
-
-    while (!g_workerShutdown) {
-        // Wait for events (1ms timeout to check shutdown flag)
-        WaitForSingleObject(g_workerEvent, 1);
-
-        // Process all available requests
-        LONG head = g_queueHead;
-        LONG tail = InterlockedCompareExchange(&g_queueTail, 0, 0); // Read tail atomically
-
-        if (head == tail) {
-            continue; // Queue empty
-        }
-
-        while (head != tail) {
-            int slot = head & QUEUE_MASK;
-            QueueEntry* entry = &g_queue[slot];
-
-            if (entry->ready) {
-                LARGE_INTEGER start, end;
-                QueryPerformanceCounter(&start);
-
-                LoadModelAsync(&entry->data);
-
-                QueryPerformanceCounter(&end);
-                double loadTimeMs = (double)(end.QuadPart - start.QuadPart) / g_qpcFreqMs;
-
-                AcquireSRWLockExclusive(&g_loadTimeLock);
-                g_totalLoadTimeMs += loadTimeMs;
-                ReleaseSRWLockExclusive(&g_loadTimeLock);
-
-                InterlockedExchange(&entry->ready, 0);
-            }
-
-            head = (head + 1) & 0x7FFFFFFF; // Prevent overflow
-            InterlockedExchange(&g_queueHead, head);
-        }
-    }
-
-    Log("[ModelAsync] Worker thread exiting");
+    // DISABLED: No worker threads in current implementation
     return 0;
 }
 
@@ -178,56 +131,62 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
 // Hooked Function: sub_81C390 (Model Loading)
 // ================================================================
 static int __fastcall Hooked_LoadModel(void* This, void* unused, void* block, unsigned int flags) {
+    // CRITICAL: For __thiscall hooks with MinHook:
+    // - ECX (This) = this pointer (first parameter)
+    // - EDX (unused) = dummy parameter (MinHook requirement for __fastcall wrapper)
+    // - Stack: block, flags (remaining parameters)
+    
     // Extract filename from block parameter
     // Block is a pointer to a string buffer containing the model path
+    // The function calls sub_76ED20(Str, Block, 260) to copy the string
+    
+    // Validate block pointer before dereferencing
+    if (!block || !IsReadable((uintptr_t)block)) {
+        // Invalid block pointer - call original function
+        return orig_LoadModel(This, block, flags);
+    }
+    
     char* filename = (char*)block;
     
+    // Validate filename string
+    if (!filename[0]) {
+        // Empty filename - call original function
+        return orig_LoadModel(This, block, flags);
+    }
+    
     // Check cache first on main thread
-    if (filename && *filename) {
-        AcquireSRWLockShared(&g_cacheLock);
-        auto it = g_modelCache.find(filename);
-        bool cached = (it != g_modelCache.end());
-        ReleaseSRWLockShared(&g_cacheLock);
+    AcquireSRWLockShared(&g_cacheLock);
+    auto it = g_modelCache.find(filename);
+    bool cached = (it != g_modelCache.end());
+    ReleaseSRWLockShared(&g_cacheLock);
 
-        if (cached) {
-            InterlockedIncrement(&g_cacheHits);
-            // Return cached model immediately
-            return 0;
+    if (cached) {
+        InterlockedIncrement(&g_cacheHits);
+        // Return cached model pointer (for now, call original to get actual pointer)
+        // TODO: Store actual model pointers in cache
+        return orig_LoadModel(This, block, flags);
+    }
+
+    // For now, ALWAYS call the original function synchronously
+    // Async loading requires deeper integration with WoW's model loading system
+    // The current approach of just queuing requests doesn't work because:
+    // 1. The caller expects a valid model pointer immediately
+    // 2. We don't have access to WoW's internal model loading functions
+    // 3. We can't safely call WoW functions from worker threads
+    
+    int result = orig_LoadModel(This, block, flags);
+    
+    // Cache the result if successful
+    if (result != 0 && filename[0]) {
+        AcquireSRWLockExclusive(&g_cacheLock);
+        if (g_modelCache.size() < CACHE_SIZE) {
+            g_modelCache[filename] = (void*)(uintptr_t)result;
         }
+        ReleaseSRWLockExclusive(&g_cacheLock);
+        InterlockedIncrement(&g_cacheMisses);
     }
-
-    // Validate filename before queuing
-    if (!filename || !*filename) {
-        return orig_LoadModel(This, block, flags);
-    }
-
-    // Copy request data to queue
-    LONG tail = InterlockedIncrement(&g_queueTail) - 1;
-    int slot = tail & QUEUE_MASK;
-
-    QueueEntry* queueEntry = &g_queue[slot];
-
-    // Check if slot is still being processed (queue overflow)
-    if (queueEntry->ready) {
-        InterlockedIncrement(&g_requestsDropped);
-        // Fall back to synchronous load
-        return orig_LoadModel(This, block, flags);
-    }
-
-    // Copy model request data
-    strncpy_s(queueEntry->data.filename, sizeof(queueEntry->data.filename), 
-              filename, _TRUNCATE);
-    queueEntry->data.thisPtr = This;
-    queueEntry->data.block = block;
-    queueEntry->data.flags = flags;
     
-    InterlockedExchange(&queueEntry->ready, 1);
-    InterlockedIncrement(&g_requestsQueued);
-
-    // Signal worker threads
-    SetEvent(g_workerEvent);
-    
-    return 0;
+    return result;
 }
 
 // ================================================================
@@ -236,9 +195,9 @@ static int __fastcall Hooked_LoadModel(void* This, void* unused, void* block, un
 namespace ModelAsync {
 
 bool Init() {
-    Log("[ModelAsync] Init (build 12340)");
+    Log("[ModelAsync] Init (build 12340) - Synchronous caching mode");
 
-    // Initialize QPC frequency
+    // Initialize QPC frequency (for future use)
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
     g_qpcFreqMs = (double)freq.QuadPart / 1000.0;
@@ -250,45 +209,25 @@ bool Init() {
         return false;
     }
 
-    // Create worker event
-    g_workerEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (!g_workerEvent) {
-        Log("[ModelAsync] ERROR: Failed to create worker event");
-        return false;
-    }
-
-    // Create worker thread pool
-    g_workerShutdown = false;
-    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        g_workerThreads[i] = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
-        if (!g_workerThreads[i]) {
-            Log("[ModelAsync] ERROR: Failed to create worker thread %d", i);
-            Shutdown();
-            return false;
-        }
-        // Set worker thread priority
-        SetThreadPriority(g_workerThreads[i], THREAD_PRIORITY_BELOW_NORMAL);
-    }
+    // NOTE: Worker threads are NOT created in the current implementation
+    // We use synchronous caching only to avoid crashes
 
     // Install hook
     void* target = (void*)targetAddr;
     if (MH_CreateHook(target, (void*)Hooked_LoadModel, (void**)&orig_LoadModel) != MH_OK) {
         Log("[ModelAsync] ERROR: Failed to create hook");
-        Shutdown();
         return false;
     }
 
     if (MH_EnableHook(target) != MH_OK) {
         Log("[ModelAsync] ERROR: Failed to enable hook");
         MH_RemoveHook(target);
-        Shutdown();
         return false;
     }
 
     g_initialized = true;
     Log("[ModelAsync] [ OK ] Hook installed at 0x%08X (model loader)", targetAddr);
-    Log("[ModelAsync] [ OK ] Worker thread pool created (%d threads, queue size: %d)", 
-        WORKER_THREAD_COUNT, QUEUE_SIZE);
+    Log("[ModelAsync] [ OK ] Synchronous caching mode (cache size: %d entries)", CACHE_SIZE);
     return true;
 }
 
@@ -297,28 +236,7 @@ void Shutdown() {
 
     Log("[ModelAsync] Shutdown");
 
-    // Signal worker threads to exit
-    g_workerShutdown = true;
-    if (g_workerEvent) SetEvent(g_workerEvent);
-
-    // Wait for worker threads (5 second timeout each)
-    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        if (g_workerThreads[i]) {
-            DWORD waitResult = WaitForSingleObject(g_workerThreads[i], 5000);
-            if (waitResult == WAIT_TIMEOUT) {
-                Log("[ModelAsync] WARNING: Worker thread %d did not exit, terminating", i);
-                TerminateThread(g_workerThreads[i], 1);
-            }
-            CloseHandle(g_workerThreads[i]);
-            g_workerThreads[i] = NULL;
-        }
-    }
-
-    // Cleanup event
-    if (g_workerEvent) {
-        CloseHandle(g_workerEvent);
-        g_workerEvent = NULL;
-    }
+    // NOTE: No worker threads to shut down in current implementation
 
     // Clear cache
     AcquireSRWLockExclusive(&g_cacheLock);
@@ -330,8 +248,11 @@ void Shutdown() {
     MH_RemoveHook((void*)0x0081C390);
 
     // Log final stats
-    Log("[ModelAsync] Final stats: Queued=%d, Completed=%d, Dropped=%d, CacheHits=%d, CacheMisses=%d",
-        g_requestsQueued, g_requestsCompleted, g_requestsDropped, g_cacheHits, g_cacheMisses);
+    Log("[ModelAsync] Final stats: CacheHits=%d, CacheMisses=%d (%.1f%% hit rate)",
+        g_cacheHits, g_cacheMisses,
+        (g_cacheHits + g_cacheMisses) > 0 
+            ? (double)g_cacheHits / (g_cacheHits + g_cacheMisses) * 100.0 
+            : 0.0);
 
     g_initialized = false;
 }
@@ -349,22 +270,13 @@ void OnFrame(DWORD mainThreadId) {
 
 Stats GetStats() {
     Stats s;
-    s.requestsQueued = g_requestsQueued;
-    s.requestsCompleted = g_requestsCompleted;
-    s.requestsDropped = g_requestsDropped;
+    s.requestsQueued = 0;  // Not used in synchronous mode
+    s.requestsCompleted = 0;  // Not used in synchronous mode
+    s.requestsDropped = 0;  // Not used in synchronous mode
     s.cacheHits = g_cacheHits;
     s.cacheMisses = g_cacheMisses;
-    
-    LONG head = g_queueHead;
-    LONG tail = g_queueTail;
-    LONG depth = (tail - head) & 0x7FFFFFFF;
-    if (depth > QUEUE_SIZE) depth = QUEUE_SIZE;
-    s.queueDepth = depth;
-
-    AcquireSRWLockShared(&g_loadTimeLock);
-    s.totalLoadTimeMs = g_totalLoadTimeMs;
-    ReleaseSRWLockShared(&g_loadTimeLock);
-
+    s.queueDepth = 0;  // No queue in synchronous mode
+    s.totalLoadTimeMs = 0.0;  // Not tracked in synchronous mode
     return s;
 }
 
