@@ -41,6 +41,8 @@ add_library(wow_optimize SHARED
     src/addon_dispatcher.h
     src/model_async.cpp
     src/model_async.h
+    src/mpq_prefetch.cpp
+    src/mpq_prefetch.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h
