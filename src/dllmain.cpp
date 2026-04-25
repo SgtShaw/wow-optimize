@@ -301,6 +301,7 @@ static long g_wcmbFastHits = 0, g_wcmbFallbacks = 0;
 static long g_profHits = 0, g_profMisses = 0;
 static long g_gpaHits = 0, g_gpaMisses = 0, g_gpaEvictions = 0;
 static long g_envHits = 0, g_envMisses = 0;
+static long g_gmfHits = 0, g_gmfMisses = 0;
 static uint64_t g_tableReshapeHits = 0;
 static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
@@ -3000,6 +3001,10 @@ static void DumpPeriodicStats() {
         Log("[Stats] GetProcAddress: %ld hits, %ld misses, %ld evictions (%.1f%% hit rate)",
             g_gpaHits, g_gpaMisses, g_gpaEvictions,
             (double)g_gpaHits / (g_gpaHits + g_gpaMisses) * 100.0);
+    if (g_gmfHits + g_gmfMisses > 0)
+        Log("[Stats] GetModuleFileName: %ld hits, %ld misses (%.1f%%)",
+            g_gmfHits, g_gmfMisses,
+            (double)g_gmfHits / (g_gmfHits + g_gmfMisses) * 100.0);
     if (g_envHits + g_envMisses > 0)
         Log("[Stats] GetEnvironmentVariable: %ld hits, %ld misses (%.1f%%)",
             g_envHits, g_envMisses,
@@ -5343,7 +5348,6 @@ struct GmfCacheEntryW { HMODULE hMod; wchar_t path[MAX_PATH]; bool valid; };
 
 static GmfCacheEntryA g_gmfCacheA[GMF_CACHE_SIZE] = {};
 static GmfCacheEntryW g_gmfCacheW[GMF_CACHE_SIZE] = {};
-static long g_gmfHits = 0, g_gmfMisses = 0;
 
 static DWORD WINAPI hooked_GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
     int idx = (int)(((uintptr_t)hModule >> 4) & GMF_CACHE_MASK);
