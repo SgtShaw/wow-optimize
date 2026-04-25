@@ -2257,15 +2257,17 @@ static bool InstallThreadIdCacheHook() {
 }
 
 // ================================================================
-// 7f3. QueryPerformanceCounter — Coalesced
+// 7f3. QueryPerformanceCounter — Coalesced with RDTSC fast path
 //
 // WHAT: Caches QPC results within a 50μs coalescing window.
-// WHY:  QPC is a relatively expensive syscall. WoW calls it multiple
-//       times per frame. Within a 50μs window, the value is effectively
-//       the same for game logic purposes.
-// HOW:  1. Per-thread TLS: stores last QPC value and timestamp
-//       2. If elapsed < 50μs since last call, returns cached value
-//       3. Otherwise: calls original QPC, updates cache
+// WHY:  QPC is a relatively expensive syscall (~100 cycles). WoW calls
+//       it multiple times per frame. Within a 50μs window, the value is
+//       effectively the same for game logic purposes.
+// HOW:  1. Per-thread TLS: stores last QPC value and RDTSC timestamp
+//       2. Uses __rdtsc() (~10 cycles) to check cache validity
+//       3. If RDTSC elapsed < threshold, returns cached QPC value
+//       4. Otherwise: calls original QPC, updates cache
+// RDTSC: CPU timestamp counter, monotonic, ~10 cycles vs ~100 for QPC
 // STATUS: Active — reduces QPC syscall frequency by ~30-50%
 // ================================================================
 
@@ -2273,47 +2275,73 @@ typedef BOOL (WINAPI* QueryPerformanceCounter_fn)(LARGE_INTEGER*);
 static QueryPerformanceCounter_fn orig_QPC = nullptr;
 
 static __declspec(thread) LONGLONG t_lastQPC = 0;
-static __declspec(thread) LONGLONG t_lastQPCTime = 0;
+static __declspec(thread) uint64_t t_lastRDTSC = 0;
 static long g_qpcCacheHits = 0;
 static long g_qpcCacheMisses = 0;
 
-// Coalescing window in QPC ticks (calculated at init)
-static LONGLONG g_qpcCoalesceWindow = 0;
+// Coalescing window in RDTSC cycles (calibrated at init)
+static uint64_t g_rdtscThreshold = 0;
 
 static BOOL WINAPI hooked_QPC(LARGE_INTEGER* lpPerformanceCount) {
     if (!lpPerformanceCount)
         return orig_QPC(lpPerformanceCount);
 
-    LARGE_INTEGER now;
-    orig_QPC(&now);
+    // Fast path: check cache validity with RDTSC (~10 cycles)
+    uint64_t nowRDTSC = __rdtsc();
+    uint64_t elapsedRDTSC = nowRDTSC - t_lastRDTSC;
 
-    LONGLONG elapsed = now.QuadPart - t_lastQPCTime;
-
-    if (elapsed >= 0 && elapsed < g_qpcCoalesceWindow && t_lastQPCTime != 0) {
+    if (elapsedRDTSC < g_rdtscThreshold && t_lastRDTSC != 0) {
+        // Cache hit: return cached QPC value without syscall
         lpPerformanceCount->QuadPart = t_lastQPC;
         InterlockedIncrement(&g_qpcCacheHits);
         return TRUE;
     }
 
+    // Cache miss: call original QPC and update cache
+    LARGE_INTEGER now;
+    orig_QPC(&now);
+
     t_lastQPC = now.QuadPart;
-    t_lastQPCTime = now.QuadPart;
+    t_lastRDTSC = nowRDTSC;
     lpPerformanceCount->QuadPart = now.QuadPart;
     InterlockedIncrement(&g_qpcCacheMisses);
     return TRUE;
 }
 
 static bool InstallQPCHook() {
-    // Calculate coalescing window: 50 microseconds in QPC ticks
-    LARGE_INTEGER freq;
+    // Calibrate RDTSC threshold for 50 microseconds
+    LARGE_INTEGER freq, start, end;
     QueryPerformanceFrequency(&freq);
-    g_qpcCoalesceWindow = freq.QuadPart / 20000;  // 50us
-    if (g_qpcCoalesceWindow < 1) g_qpcCoalesceWindow = 1;
+    
+    // Measure RDTSC frequency over 10ms
+    uint64_t rdtscStart = __rdtsc();
+    QueryPerformanceCounter(&start);
+    Sleep(10);
+    uint64_t rdtscEnd = __rdtsc();
+    QueryPerformanceCounter(&end);
+    
+    uint64_t rdtscElapsed = rdtscEnd - rdtscStart;
+    LONGLONG qpcElapsed = end.QuadPart - start.QuadPart;
+    
+    // Calculate RDTSC cycles per QPC tick
+    double rdtscPerQpc = (double)rdtscElapsed / (double)qpcElapsed;
+    
+    // 50us coalescing window in QPC ticks
+    LONGLONG qpcWindow = freq.QuadPart / 20000;  // 50us
+    if (qpcWindow < 1) qpcWindow = 1;
+    
+    // Convert to RDTSC cycles
+    g_rdtscThreshold = (uint64_t)(rdtscPerQpc * qpcWindow);
+    
+    // Safety bounds: 1,000 - 10,000,000 cycles (0.25us - 2.5ms on 4GHz CPU)
+    if (g_rdtscThreshold < 1000) g_rdtscThreshold = 1000;
+    if (g_rdtscThreshold > 10000000) g_rdtscThreshold = 10000000;
 
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "QueryPerformanceCounter");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_QPC, (void**)&orig_QPC) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
-    Log("QPC hook: ACTIVE (50us coalescing, %lld ticks window)", g_qpcCoalesceWindow);
+    Log("QPC hook: ACTIVE (50us coalescing, %llu RDTSC cycles, RDTSC fast path)", g_rdtscThreshold);
     return true;
 }
 
