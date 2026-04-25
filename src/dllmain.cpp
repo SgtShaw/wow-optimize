@@ -564,32 +564,33 @@ typedef void (WINAPI* Sleep_fn)(DWORD);
 static Sleep_fn orig_Sleep = nullptr;
 
 static double g_sleepFreq = 0.0;
+static double g_rdtscFreqMhz = 0.0;  // RDTSC frequency in MHz for easy calculation
 
 static void PreciseSleep(double milliseconds) {
-    LARGE_INTEGER li;
-    QueryPerformanceCounter(&li);
-    double start = (double)li.QuadPart / g_sleepFreq;
+    // Use RDTSC for polling instead of QPC syscalls
+    uint64_t startRDTSC = __rdtsc();
+    double targetCycles = milliseconds * g_rdtscFreqMhz * 1000.0;  // ms → cycles
 
     while (true) {
-        QueryPerformanceCounter(&li);
-        double elapsed = (double)li.QuadPart / g_sleepFreq - start;
+        uint64_t nowRDTSC = __rdtsc();
+        double elapsedCycles = (double)(nowRDTSC - startRDTSC);
 
-        if (elapsed >= milliseconds)
+        if (elapsedCycles >= targetCycles)
             return;
 
-        double remaining = milliseconds - elapsed;
+        double remainingMs = (targetCycles - elapsedCycles) / (g_rdtscFreqMhz * 1000.0);
 
         if (g_isMultiClient) {
             // Multi-client: no busy-wait, always yield CPU
-            if (remaining > 1.5)
+            if (remainingMs > 1.5)
                 orig_Sleep(1);
             else
                 orig_Sleep(0);
         } else {
             // Single client: precise busy-wait for sub-ms accuracy
-            if (remaining > 2.0)
+            if (remainingMs > 2.0)
                 orig_Sleep(1);
-            else if (remaining > 0.3)
+            else if (remainingMs > 0.3)
                 SwitchToThread();
             else
                 _mm_pause();
@@ -655,11 +656,27 @@ static bool InstallSleepHook() {
     QueryPerformanceFrequency(&li);
     g_sleepFreq = (double)li.QuadPart / 1000.0;
 
+    // Calibrate RDTSC frequency for PreciseSleep
+    uint64_t rdtscStart = __rdtsc();
+    LARGE_INTEGER qpcStart;
+    QueryPerformanceCounter(&qpcStart);
+    Sleep(10);  // 10ms calibration window
+    uint64_t rdtscEnd = __rdtsc();
+    LARGE_INTEGER qpcEnd;
+    QueryPerformanceCounter(&qpcEnd);
+
+    uint64_t rdtscElapsed = rdtscEnd - rdtscStart;
+    LONGLONG qpcElapsed = qpcEnd.QuadPart - qpcStart.QuadPart;
+    double qpcMs = (double)qpcElapsed / g_sleepFreq;
+
+    // RDTSC frequency in MHz (cycles per microsecond)
+    g_rdtscFreqMhz = (double)rdtscElapsed / (qpcMs * 1000.0);
+
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "Sleep");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_Sleep, (void**)&orig_Sleep) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
-    Log("Sleep hook: ACTIVE (PreciseSleep + Lua GC + combat log)");
+    Log("Sleep hook: ACTIVE (PreciseSleep RDTSC %.1f MHz + Lua GC + combat log)", g_rdtscFreqMhz);
     return true;
 }
 
