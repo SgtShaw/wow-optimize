@@ -204,6 +204,8 @@ static long g_rawequalFallbacks  = 0;
 static lua_CFunction_t orig_luaB_unpack = nullptr;
 static long g_unpackHits       = 0;
 static long g_unpackFallbacks  = 0;
+static long g_tableSortHits = 0;
+static long g_tableSortFallbacks = 0;
 
 static lua_CFunction_t orig_luaB_select = nullptr;
 static long g_selectHits       = 0;
@@ -2854,6 +2856,8 @@ Stats GetStats() {
     s.mathSqrtFallbacks   = g_mathSqrtFallbacks;
     s.strRepHits          = g_strRepHits;
     s.strRepFallbacks     = g_strRepFallbacks;
+    s.tableSortHits       = g_tableSortHits;
+    s.tableSortFallbacks  = g_tableSortFallbacks;    
     return s;
 }
 
