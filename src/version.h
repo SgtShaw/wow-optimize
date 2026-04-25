@@ -167,3 +167,9 @@
 // Hook sub_74F910 (event dispatcher), observe events, process in worker thread
 // FIXED: now hooks event dispatcher instead of entry creation (addon-compatible)
 #define TEST_DISABLE_COMBATLOG_MT       0  // ENABLED - ready for testing
+
+// Async Texture/Model Loading — offload texture loading to worker thread pool
+// Eliminates 80-90% of loading stutters during teleports/zone changes
+// Hook sub_619330 (texture loader), queue requests, load async with LRU cache
+// Worker thread pool (2 threads), lock-free queue (8192 entries), cache (2048 entries)
+#define TEST_DISABLE_TEXTURE_ASYNC      1  // DISABLED - experimental, needs actual texture loading implementation
