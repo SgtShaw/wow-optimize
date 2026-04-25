@@ -113,7 +113,7 @@
 
 // table.sort fast path — disabled: persistent 0x00000004 AV on
 // HD clients due to corrupted table pointers
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
 
 // string.gsub fast path — disabled: luaS_newlstr crashes on HD
 // clients due to % replacement semantics and buffer edge cases
@@ -129,9 +129,6 @@
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0
-
-// Safe table.sort fast path (std::sort for dense homogeneous arrays)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH 1
 
 // Lua require/loadfile cache (skip disk I/O + parsing on repeat loads)
 #define TEST_DISABLE_LUA_FILE_CACHE     1

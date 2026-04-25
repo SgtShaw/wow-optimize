@@ -84,6 +84,8 @@ struct Stats {
     long unitPowerFallbacks;
     long unitPowerMaxHits;
     long unitPowerMaxFallbacks;    
+    long tableSortHits;
+    long tableSortFallbacks;        
 };
 
 Stats GetStats();

@@ -3028,6 +3028,9 @@ static void DumpPeriodicStats() {
                 (double)lis.concatFastHits / catTotal * 100.0);
     }
 
+    if (fpStats.tableSortHits > 0 || fpStats.tableSortFallbacks > 0)
+        Log("[Stats] TableSort: %ld fast, %ld fallback", fpStats.tableSortHits, fpStats.tableSortFallbacks);
+
     Log("[Stats] ====================================");
 
 
