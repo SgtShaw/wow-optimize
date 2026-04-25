@@ -60,6 +60,7 @@
 #include "texture_async.h"
 #include "spell_prefetch.h"
 #include "addon_dispatcher.h"
+#include "model_async.h"
 
 #include "version.h"
 
@@ -668,6 +669,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
         AddonDispatcher::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_MODEL_ASYNC
+        ModelAsync::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4558,6 +4562,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Async Model/M2 Loading ---");
+#if TEST_DISABLE_MODEL_ASYNC
+    Log("[ModelAsync] DISABLED (feature flag)");
+    bool modelAsyncOk = false;
+#else
+    bool modelAsyncOk = ModelAsync::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -5986,6 +5999,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
             AddonDispatcher::Shutdown();
+#endif
+#if !TEST_DISABLE_MODEL_ASYNC
+            ModelAsync::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)

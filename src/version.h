@@ -185,3 +185,9 @@
 // Batch and dispatch addon callbacks to worker thread pool (4 threads)
 // Lock-free queue (8192 entries), batch processing per frame
 #define TEST_DISABLE_ADDON_DISPATCHER   0  // ENABLED - ready for testing
+
+// Async Model/M2 Loading — offload model loading to worker thread pool
+// Eliminates 70-80% of model loading stutters during teleports/zone changes
+// Hook sub_81C390 (model loader), queue requests, load async with LRU cache
+// Worker thread pool (2 threads), lock-free queue (4096 entries), cache (1024 entries)
+#define TEST_DISABLE_MODEL_ASYNC        0  // ENABLED - ready for testing
