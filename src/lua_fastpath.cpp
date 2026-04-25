@@ -37,6 +37,8 @@
 #include "MinHook.h"
 #include <mimalloc.h>
 #include "version.h"
+#include <algorithm>
+#include <vector>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -196,6 +198,7 @@ static long g_tblInsertFallbacks   = 0;
 static long g_tblRemoveHits        = 0;
 static long g_tblRemoveFallbacks   = 0;
 static lua_CFunction_t orig_tbl_concat = nullptr;
+static lua_CFunction_t orig_table_sort = nullptr;
 static long g_tblConcatHits = 0;
 static long g_tblConcatFallbacks = 0;
 static lua_CFunction_t orig_luaB_rawequal = nullptr;
@@ -2166,6 +2169,61 @@ static lua_CFunction_t orig_UnitPower       = nullptr;
 static lua_CFunction_t orig_UnitPowerMax    = nullptr;
 
 
+#if !TEST_DISABLE_TABLE_SORT_FASTPATH
+static int __cdecl Hooked_TableSort(lua_State* L) {
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base || base->tt != LUA_TTABLE) goto fallback;
+
+        void* tablePtr = base->value.gc;
+        if (!tablePtr) goto fallback;
+
+        int sizearray = *(int*)((char*)tablePtr + 32);
+        if (sizearray < 2 || sizearray > 100000) goto fallback;
+
+        int* array = *(int**)((char*)tablePtr + 16);
+        if (!array) goto fallback;
+
+        bool isNumber = true;
+        bool isString = true;
+
+        for (int i = 0; i < sizearray; i++) {
+            int tt = array[i * 4 + 2];
+            if (tt != LUA_TNUMBER) isNumber = false;
+            if (tt != LUA_TSTRING) isString = false;
+            if (!isNumber && !isString) goto fallback;
+        }
+
+        if (isNumber) {
+            std::sort(array, array + sizearray, [](int a, int b) {
+                double da, db;
+                memcpy(&da, (void*)(uintptr_t)a, sizeof(double));
+                memcpy(&db, (void*)(uintptr_t)b, sizeof(double));
+                return da < db;
+            });
+        } else {
+            std::sort(array, array + sizearray, [](int a, int b) {
+                const char* sa = (const char*)((char*)a + 16);
+                const char* sb = (const char*)((char*)b + 16);
+                int la = *(int*)((char*)a + 8);
+                int lb = *(int*)((char*)b + 8);
+                int cmp = memcmp(sa, sb, (la < lb) ? la : lb);
+                if (cmp != 0) return cmp < 0;
+                return la < lb;
+            });
+        }
+
+        g_tableSortHits++;
+        return 0;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    g_tableSortFallbacks++;
+    return orig_table_sort(L);
+}
+#endif // !TEST_DISABLE_TABLE_SORT_FASTPATH
+
 static FuncHookEntry g_funcHooks[] = {
     {"string", "find",      (void*)Hooked_StrFind,          &orig_str_find,         0, false},
     {"string", "match",     (void*)Hooked_StrMatch,         &orig_str_match,        0, false},
@@ -2657,75 +2715,6 @@ void Shutdown() {
         }
     }
 #endif
-
-#if !TEST_DISABLE_TABLE_SORT_FASTPATH
-
-#include <algorithm>
-#include <vector>
-
-static lua_CFunction_t orig_table_sort = nullptr;
-static long g_tableSortHits = 0;
-static long g_tableSortFallbacks = 0;
-
-static int __cdecl Hooked_TableSort(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base || base->tt != LUA_TTABLE) goto fallback;
-
-        void* tablePtr = base->value.gc;
-        if (!tablePtr) goto fallback;
-
-        // Get array size
-        int sizearray = *(int*)((char*)tablePtr + 32);
-        if (sizearray < 2 || sizearray > 100000) goto fallback; // Safety cap
-
-        int* array = *(int**)((char*)tablePtr + 16);
-        if (!array) goto fallback;
-
-        // Check homogeneity: all numbers OR all strings
-        bool isNumber = true;
-        bool isString = true;
-
-        for (int i = 0; i < sizearray; i++) {
-            int tt = array[i * 4 + 2]; // tt offset
-            if (tt != LUA_TNUMBER) isNumber = false;
-            if (tt != LUA_TSTRING) isString = false;
-            if (!isNumber && !isString) goto fallback;
-        }
-
-        // Sort based on type
-        if (isNumber) {
-            std::sort(array, array + sizearray, [](int a, int b) {
-                // Compare doubles at offset 0
-                double da, db;
-                memcpy(&da, (void*)(uintptr_t)a, sizeof(double));
-                memcpy(&db, (void*)(uintptr_t)b, sizeof(double));
-                return da < db;
-            });
-        } else {
-            // String sort: compare TString* pointers by content
-            std::sort(array, array + sizearray, [](int a, int b) {
-                const char* sa = (const char*)((char*)a + 16);
-                const char* sb = (const char*)((char*)b + 16);
-                int la = *(int*)((char*)a + 8);
-                int lb = *(int*)((char*)b + 8);
-                int cmp = memcmp(sa, sb, (la < lb) ? la : lb);
-                if (cmp != 0) return cmp < 0;
-                return la < lb;
-            });
-        }
-
-        g_tableSortHits++;
-        return 0;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
-
-fallback:
-    g_tableSortFallbacks++;
-    return orig_table_sort(L);
-}
-
-#endif // !TEST_DISABLE_TABLE_SORT_FASTPATH
 
     long fmtTotal = g_formatFastHits + g_formatFallbacks;
     if (fmtTotal > 0) {
