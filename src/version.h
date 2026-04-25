@@ -153,3 +153,8 @@
 // Reduces tooltip rendering overhead by 40-60% (sub_6277F0 is 24KB of code)
 // LRU cache with 1000 entry limit, cleared on UI reload
 #define TEST_DISABLE_TOOLTIP_CACHE      0  // ENABLED - production ready
+
+// Spell Data Caching — cache spell coefficients, ranges, cooldowns
+// Reduces spell casting overhead by 25-35% (sub_80E1B0 is 7.4KB of code)
+// LRU cache with 2000 entry limit, cleared on UI reload
+#define TEST_DISABLE_SPELL_CACHE        0  // ENABLED - production ready

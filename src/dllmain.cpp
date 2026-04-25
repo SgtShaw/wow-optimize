@@ -49,6 +49,7 @@
 #include "crash_dumper.h"
 #include "frame_throttle.h"
 #include "tooltip_cache.h"
+#include "spell_cache.h"
 // #include "ui_frame_batch.h" // REMOVED - optimization disabled
 
 #include "MinHook.h"
@@ -3061,6 +3062,17 @@ static void DumpPeriodicStats() {
         }
     }
 
+    // Spell Cache stats
+    {
+        SpellCache::Stats stats;
+        SpellCache::GetStats(&stats);
+        if (stats.hits + stats.misses > 0) {
+            double hitRate = (double)stats.hits / (stats.hits + stats.misses) * 100.0;
+            Log("[Stats] Spell Cache: %ld hits, %ld misses, %ld evictions, %ld entries (%.1f%% hit rate)",
+                stats.hits, stats.misses, stats.evictions, stats.cacheSize, hitRate);
+        }
+    }
+
     // UI Frame Batch stats - REMOVED (optimization disabled)
     // {
     //     long batched = 0, iterations = 0, peak = 0;
@@ -4449,6 +4461,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Tooltip String Caching ---");
     bool tooltipCacheOk = TooltipCache::Init();
 
+    Log("--- Spell Data Caching ---");
+    bool spellCacheOk = SpellCache::Init();
+
     // UI Frame Batching - REMOVED due to calling convention issues
     // Caused MoveAnything addon to break even when disabled
     // See UI_FRAME_BATCHING_ISSUE.md for details
@@ -4587,6 +4602,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
     Log("  [%s] Tooltip string cache (LRU)",  tooltipCacheOk ? " OK " : "SKIP");
+    Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
 
     return 0;
 }
@@ -5965,6 +5981,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
             TooltipCache::Shutdown();
+            SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();

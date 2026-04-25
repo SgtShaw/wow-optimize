@@ -47,6 +47,8 @@ add_library(wow_optimize SHARED
     src/ui_frame_batch.h
     src/tooltip_cache.cpp
     src/tooltip_cache.h
+    src/spell_cache.cpp
+    src/spell_cache.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
