@@ -190,5 +190,6 @@
 // Eliminates 70-80% of model loading stutters during teleports/zone changes
 // Hook sub_81C390 (model loader), queue requests, load async with LRU cache
 // Worker thread pool (2 threads), lock-free queue (4096 entries), cache (1024 entries)
-// DISABLED: causes ACCESS_VIOLATION crash - needs investigation of calling convention
-#define TEST_DISABLE_MODEL_ASYNC        1  // DISABLED - crashes on model load
+// UPDATED: Now uses synchronous caching mode (no worker threads) to avoid crashes
+// Provides cache speedup on repeated model loads without async complexity
+#define TEST_DISABLE_MODEL_ASYNC        0  // ENABLED - synchronous caching mode
