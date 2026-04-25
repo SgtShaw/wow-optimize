@@ -63,6 +63,7 @@
 #include "model_async.h"
 #include "mpq_prefetch.h"
 #include "sound_prefetch.h"
+#include "quest_async.h"
 
 #include "version.h"
 
@@ -680,6 +681,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_SOUND_PREFETCH
         SoundPrefetch::OnFrame();
+#endif
+#if !TEST_DISABLE_QUEST_ASYNC
+        QuestAsync::OnFrame();
 #endif
 
         PreciseSleep((double)ms);
@@ -4597,6 +4601,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Async Quest/Achievement Data Loading ---");
+#if TEST_DISABLE_QUEST_ASYNC
+    Log("[QuestAsync] DISABLED (feature flag)");
+#else
+    QuestAsync::Init();
+    Log("[QuestAsync] Initialized");
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -6034,6 +6047,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_SOUND_PREFETCH
             SoundPrefetch::Shutdown();
+#endif
+#if !TEST_DISABLE_QUEST_ASYNC
+            QuestAsync::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)

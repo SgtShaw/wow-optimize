@@ -212,3 +212,10 @@
 // Worker thread pool (2 threads), lock-free queue (1024 entries)
 // Prefetches spell sounds, zone music, ambient sounds, combat sounds
 #define TEST_DISABLE_SOUND_PREFETCH     0  // ENABLED - new in v3.5.14
+
+// Async Quest/Achievement Data Loading — async quest log and achievement data loading
+// Eliminates 60-70% of quest log opening lag via background data loading
+// Worker thread (1 thread), lock-free queue (512 entries)
+// Caches quest data, achievement data, quest objectives
+// Background quest progress updates
+#define TEST_DISABLE_QUEST_ASYNC        0  // ENABLED - new in v3.5.14

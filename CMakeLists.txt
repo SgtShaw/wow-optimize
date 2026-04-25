@@ -45,6 +45,8 @@ add_library(wow_optimize SHARED
     src/mpq_prefetch.h
     src/sound_prefetch.cpp
     src/sound_prefetch.h
+    src/quest_async.cpp
+    src/quest_async.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h
