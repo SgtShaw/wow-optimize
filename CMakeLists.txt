@@ -39,6 +39,8 @@ add_library(wow_optimize SHARED
     src/spell_prefetch.h
     src/addon_dispatcher.cpp
     src/addon_dispatcher.h
+    src/model_async.cpp
+    src/model_async.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h
