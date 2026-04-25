@@ -152,11 +152,12 @@
 // Tooltip String Caching — cache formatted tooltip strings by item/spell ID
 // Reduces tooltip rendering overhead by 40-60% (sub_6277F0 is 24KB of code)
 // LRU cache with 1000 entry limit, cleared on UI reload
-// DISABLED: wrong address for this WoW build - causes crash at 0x0061C629
-#define TEST_DISABLE_TOOLTIP_CACHE      1  // DISABLED - address mismatch
+// FIXED: corrected calling convention from __stdcall to __thiscall
+#define TEST_DISABLE_TOOLTIP_CACHE      0  // ENABLED - ready for testing
 
 // Spell Data Caching — cache spell coefficients, ranges, cooldowns
 // Reduces spell casting overhead by 25-35% (sub_80E1B0 is 7.4KB of code)
 // LRU cache with 2000 entry limit, cleared on UI reload
-// DISABLED: wrong address for this WoW build - causes crash at 0x0061C629
-#define TEST_DISABLE_SPELL_CACHE        1  // DISABLED - address mismatch
+// DISABLED: target function uses __usercall calling convention (custom)
+// Hooking requires naked function with inline assembly - too complex
+#define TEST_DISABLE_SPELL_CACHE        1  // DISABLED - __usercall not supported
