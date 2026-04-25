@@ -62,8 +62,8 @@ static double g_qpcFreqMs = 0.0;
 // ================================================================
 // Hook State
 // ================================================================
-typedef void* (__cdecl *CreateEntry_fn)(void*, void*, int, int);
-static CreateEntry_fn orig_CreateEntry = nullptr;
+typedef int (__cdecl *DispatchEvents_fn)();
+static DispatchEvents_fn orig_DispatchEvents = nullptr;
 static bool g_initialized = false;
 
 // ================================================================
@@ -170,37 +170,51 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
 }
 
 // ================================================================
-// Hooked Function: sub_750400 (Combat Log Entry Creation)
+// Hooked Function: sub_74F910 (Combat Log Event Dispatcher)
 // ================================================================
-static void* __cdecl Hooked_CreateEntry(void* a1, void* a2, int a3, int a4) {
-    // Call original function first
-    void* result = orig_CreateEntry(a1, a2, a3, a4);
+static int __cdecl Hooked_DispatchEvents() {
+    // Call original function first - let WoW dispatch events normally
+    int result = orig_DispatchEvents();
 
     __try {
-        // Validate result pointer
-        if (!result || !IsReadable((uintptr_t)result)) {
+        // Read from the combat log linked list (0x00ADB97C = ActiveListHead)
+        uintptr_t listHead = 0x00ADB97C;
+        if (!IsReadable(listHead)) {
             return result;
         }
 
-        // Copy entry data to queue
-        LONG tail = InterlockedIncrement(&g_queueTail) - 1;
-        int slot = tail & QUEUE_MASK;
+        uintptr_t current = *(uintptr_t*)listHead;
+        
+        // Traverse the list and queue events for background processing
+        while (current && IsReadable(current)) {
+            // Check if this is a valid entry (not a sentinel)
+            if ((current & 1) != 0) break;
+            
+            CombatLogEntry* entry = (CombatLogEntry*)current;
+            
+            // Copy entry data to queue
+            LONG tail = InterlockedIncrement(&g_queueTail) - 1;
+            int slot = tail & QUEUE_MASK;
 
-        QueueEntry* queueEntry = &g_queue[slot];
+            QueueEntry* queueEntry = &g_queue[slot];
 
-        // Check if slot is still being processed (queue overflow)
-        if (queueEntry->ready) {
-            InterlockedIncrement(&g_eventsDropped);
-            return result;
+            // Check if slot is still being processed (queue overflow)
+            if (queueEntry->ready) {
+                InterlockedIncrement(&g_eventsDropped);
+                break;
+            }
+
+            // Copy combat log entry data (only the fields we need)
+            memcpy(&queueEntry->data, entry, sizeof(CombatLogEntry));
+            InterlockedExchange(&queueEntry->ready, 1);
+            InterlockedIncrement(&g_eventsQueued);
+
+            // Signal worker thread
+            SetEvent(g_workerEvent);
+
+            // Move to next entry
+            current = *(uintptr_t*)(current + 4); // next pointer at offset +0x04
         }
-
-        // Copy combat log entry data
-        memcpy(&queueEntry->data, result, sizeof(CombatLogEntry));
-        InterlockedExchange(&queueEntry->ready, 1);
-        InterlockedIncrement(&g_eventsQueued);
-
-        // Signal worker thread
-        SetEvent(g_workerEvent);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         InterlockedIncrement(&g_eventsInvalid);
@@ -222,8 +236,8 @@ bool Init() {
     QueryPerformanceFrequency(&freq);
     g_qpcFreqMs = (double)freq.QuadPart / 1000.0;
 
-    // Validate target address
-    uintptr_t targetAddr = 0x00750400;
+    // Validate target address (sub_74F910 - event dispatcher)
+    uintptr_t targetAddr = 0x0074F910;
     if (!IsExecutable(targetAddr)) {
         Log("[CombatLogMT] ERROR: Target address 0x%08X is not executable", targetAddr);
         return false;
@@ -251,7 +265,7 @@ bool Init() {
 
     // Install hook
     void* target = (void*)targetAddr;
-    if (MH_CreateHook(target, (void*)Hooked_CreateEntry, (void**)&orig_CreateEntry) != MH_OK) {
+    if (MH_CreateHook(target, (void*)Hooked_DispatchEvents, (void**)&orig_DispatchEvents) != MH_OK) {
         Log("[CombatLogMT] ERROR: Failed to create hook");
         Shutdown();
         return false;
@@ -265,7 +279,7 @@ bool Init() {
     }
 
     g_initialized = true;
-    Log("[CombatLogMT] [ OK ] Hook installed at 0x%08X", targetAddr);
+    Log("[CombatLogMT] [ OK ] Hook installed at 0x%08X (event dispatcher)", targetAddr);
     Log("[CombatLogMT] [ OK ] Worker thread created (queue size: %d)", QUEUE_SIZE);
     return true;
 }
@@ -297,8 +311,8 @@ void Shutdown() {
     }
 
     // Remove hook
-    MH_DisableHook((void*)0x00750400);
-    MH_RemoveHook((void*)0x00750400);
+    MH_DisableHook((void*)0x0074F910);
+    MH_RemoveHook((void*)0x0074F910);
 
     // Log final stats
     Log("[CombatLogMT] Final stats: Queued=%d, Processed=%d, Dropped=%d, Invalid=%d",
