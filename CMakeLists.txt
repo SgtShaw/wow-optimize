@@ -37,6 +37,8 @@ add_library(wow_optimize SHARED
     src/texture_async.h
     src/spell_prefetch.cpp
     src/spell_prefetch.h
+    src/addon_dispatcher.cpp
+    src/addon_dispatcher.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h

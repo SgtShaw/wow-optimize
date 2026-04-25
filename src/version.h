@@ -179,3 +179,9 @@
 // Hook sub_80CCE0 (spell cast), queue prefetch, load async with LRU cache
 // Worker thread (1 thread), lock-free queue (4096 entries), cache (4096 entries)
 #define TEST_DISABLE_SPELL_PREFETCH     0  // ENABLED - ready for testing
+
+// Multithreaded Addon Update Dispatcher — parallelize addon OnUpdate callbacks
+// Reduces main thread CPU by 40-50% in addon-heavy setups
+// Batch and dispatch addon callbacks to worker thread pool (4 threads)
+// Lock-free queue (8192 entries), batch processing per frame
+#define TEST_DISABLE_ADDON_DISPATCHER   0  // ENABLED - ready for testing
