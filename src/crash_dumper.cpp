@@ -9,11 +9,37 @@
 extern "C" void Log(const char* fmt, ...);
 
 static LONG WINAPI ExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo) {
-    if (ExceptionInfo->ExceptionRecord->ExceptionCode == EXCEPTION_BREAKPOINT ||
-        ExceptionInfo->ExceptionRecord->ExceptionCode == DBG_PRINTEXCEPTION_C) {
+    // Recursion protection: prevent infinite crash dump loop
+    // If we're already handling an exception on this thread, return immediately
+    // This ensures we only create ONE dump per thread, preventing infinite loops
+    // when the same exception keeps firing at the same address
+    static thread_local bool s_InHandler = false;
+    if (s_InHandler) {
+        // Already handling an exception on this thread - prevent infinite recursion
         return EXCEPTION_CONTINUE_SEARCH;
     }
-
+    
+    DWORD code = ExceptionInfo->ExceptionRecord->ExceptionCode;
+    
+    // Filter out non-fatal exceptions that are handled by WoW or wow_optimize
+    if (code == EXCEPTION_BREAKPOINT ||          // Debugger breakpoint
+        code == DBG_PRINTEXCEPTION_C ||          // OutputDebugString
+        code == 0x4001000A ||                    // Unknown (possibly WoW-specific)
+        code == 0x406D1388 ||                    // SetThreadName (MS Visual C++)
+        code == EXCEPTION_GUARD_PAGE ||          // Guard page violation (SEH)
+        code == EXCEPTION_SINGLE_STEP ||         // Single step (debugger)
+        code == EXCEPTION_DATATYPE_MISALIGNMENT) { // Alignment fault (handled)
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
+    
+    // Set flag before processing to prevent re-entry
+    // We intentionally do NOT reset s_InHandler to false
+    // This ensures we only create ONE dump per thread, preventing infinite loops
+    s_InHandler = true;
+    
+    // Create dump for all remaining exceptions (not in known-safe list)
+    // The ExceptionFlags check was removed because it prevented dumps for real crashes
+    // that start as first-chance exceptions (ExceptionFlags == 0)
     CreateDirectoryA("Crashes", NULL);
 
     time_t now = time(nullptr);
