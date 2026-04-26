@@ -4,6 +4,7 @@
 // ================================================================
 
 #include "combatlog_mt.h"
+#include "version.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
@@ -60,6 +61,25 @@ static HANDLE g_workerEvent = NULL;
 static double g_qpcFreqMs = 0.0;
 
 // ================================================================
+// Cursor Tracking for Incremental Processing (FIX for raid stutters)
+// ================================================================
+static uintptr_t g_lastProcessedEntry = 0;      // Cursor to avoid full list rescans
+static uint32_t g_maxEntriesPerFrame = 50;     // Hard limit per dispatch (1ms budget)
+static uint32_t g_maxScanTimeUs = 1000;        // 1ms time budget per dispatch
+static LARGE_INTEGER g_qpcFreq = {0};          // QPC frequency for time measurements
+static volatile LONG g_totalDispatches = 0;    // Total dispatch calls
+static volatile LONG g_entriesScannedThisFrame = 0;  // Entries processed this frame
+static volatile LONG g_entriesDroppedDueToBudget = 0; // Entries skipped due to budget limits
+
+// ================================================================
+// Raid Detection State (v3.5.14 raid stutter fix)
+// ================================================================
+static volatile LONG g_raidDisableCount = 0;        // Times COMBATLOG_MT disabled in raids
+static volatile LONG g_openWorldEnableCount = 0;   // Times COMBATLOG_MT enabled in open world
+static volatile LONG g_instanceType = 0;           // Current instance type (0=none, 1=party, 2=raid, 3=pvp, 4=arena)
+static uintptr_t g_instanceTypeAddr = 0x00B6AA38;  // instance type global 
+
+// ================================================================
 // Hook State
 // ================================================================
 typedef int (__cdecl *DispatchEvents_fn)();
@@ -84,6 +104,51 @@ static bool IsExecutable(uintptr_t addr) {
     if (mbi.State != MEM_COMMIT) return false;
     return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
                             PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
+// ================================================================
+// Raid Detection Helper (v3.5.14 raid stutter fix)
+// ================================================================
+// Returns true if currently in a raid environment
+// Instance types: 0=none, 1=party, 2=raid, 3=pvp, 4=arena
+static bool IsInRaid() {
+    __try {
+        // If instance type address not yet determined, return false (safe fallback)
+        if (g_instanceTypeAddr == 0) {
+            return false;
+        }
+
+        // Validate address before dereferencing
+        if (!IsReadable(g_instanceTypeAddr)) {
+            return false;
+        }
+
+        // Read instance type from WoW memory
+        int instanceType = *(int*)g_instanceTypeAddr;
+        
+        // Cache instance type for statistics
+        LONG oldType = InterlockedExchange(&g_instanceType, instanceType);
+        
+        // Log instance type changes
+        if (oldType != instanceType) {
+            const char* typeName = "unknown";
+            switch (instanceType) {
+                case 0: typeName = "none"; break;
+                case 1: typeName = "party"; break;
+                case 2: typeName = "raid"; break;
+                case 3: typeName = "pvp"; break;
+                case 4: typeName = "arena"; break;
+            }
+            Log("[CombatLogMT] Instance type changed: %d (%s)", instanceType, typeName);
+        }
+        
+        // Return true if instance type == 2 (raid)
+        return (instanceType == 2);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Exception during memory read - return false (safe fallback)
+        return false;
+    }
 }
 
 // ================================================================
@@ -171,10 +236,36 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
 
 // ================================================================
 // Hooked Function: sub_74F910 (Combat Log Event Dispatcher)
+// FIXED: Cursor-based incremental processing to prevent raid stutters
+// v3.5.14: Added raid detection to disable COMBATLOG_MT in raids
 // ================================================================
 static int __cdecl Hooked_DispatchEvents() {
+    // Emergency disable check - allows instant rollback if needed
+    #if TEST_DISABLE_COMBATLOG_MT
+    return orig_DispatchEvents();  // Emergency disable - fall back to WoW's original processing
+    #endif
+    
+    // Raid detection check - disable COMBATLOG_MT in raids to prevent stutters
+    if (IsInRaid()) {
+        // Increment raid disable counter
+        LONG prevCount = InterlockedIncrement(&g_raidDisableCount);
+        
+        // Log raid detection (only once per raid entry to avoid spam)
+        if (prevCount == 1) {
+            Log("[CombatLogMT] Raid environment detected - disabling COMBATLOG_MT (falling back to original processing)");
+        }
+        
+        // Fall back to WoW's original combat log processing
+        return orig_DispatchEvents();
+    }
+    
+    // Increment open-world enable counter (we're NOT in a raid)
+    InterlockedIncrement(&g_openWorldEnableCount);
+    
     // Call original function first - let WoW dispatch events normally
     int result = orig_DispatchEvents();
+
+    InterlockedIncrement(&g_totalDispatches);
 
     __try {
         // Read from the combat log linked list (0x00ADB97C = ActiveListHead)
@@ -183,10 +274,28 @@ static int __cdecl Hooked_DispatchEvents() {
             return result;
         }
 
-        uintptr_t current = *(uintptr_t*)listHead;
+        // Start from cursor (last processed entry) or list head if cursor invalid
+        uintptr_t current = g_lastProcessedEntry;
+        if (!current || !IsReadable(current)) {
+            current = *(uintptr_t*)listHead;
+            g_lastProcessedEntry = 0;  // Reset cursor
+        }
         
-        // Traverse the list and queue events for background processing
-        while (current && IsReadable(current)) {
+        uint32_t entriesProcessed = 0;
+        LARGE_INTEGER startTime;
+        QueryPerformanceCounter(&startTime);
+        
+        // Process entries with frame budget limits (CRITICAL FIX for raid stutters)
+        while (current && IsReadable(current) && entriesProcessed < g_maxEntriesPerFrame) {
+            // Check time budget (max 1ms per dispatch)
+            LARGE_INTEGER currentTime;
+            QueryPerformanceCounter(&currentTime);
+            uint32_t elapsedUs = (uint32_t)((currentTime.QuadPart - startTime.QuadPart) * 1000000 / g_qpcFreq.QuadPart);
+            if (elapsedUs > g_maxScanTimeUs) {
+                InterlockedIncrement(&g_entriesDroppedDueToBudget);
+                break;  // Time budget exceeded - continue next frame
+            }
+            
             // Check if this is a valid entry (not a sentinel)
             if ((current & 1) != 0) break;
             
@@ -201,7 +310,7 @@ static int __cdecl Hooked_DispatchEvents() {
             // Check if slot is still being processed (queue overflow)
             if (queueEntry->ready) {
                 InterlockedIncrement(&g_eventsDropped);
-                break;
+                break;  // Queue full - skip remaining entries this frame
             }
 
             // Copy combat log entry data (only the fields we need)
@@ -213,11 +322,18 @@ static int __cdecl Hooked_DispatchEvents() {
             SetEvent(g_workerEvent);
 
             // Move to next entry
+            entriesProcessed++;
             current = *(uintptr_t*)(current + 4); // next pointer at offset +0x04
         }
+        
+        // Update cursor and stats
+        g_lastProcessedEntry = current;
+        InterlockedExchange(&g_entriesScannedThisFrame, entriesProcessed);
+        
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         InterlockedIncrement(&g_eventsInvalid);
+        g_lastProcessedEntry = 0;  // Reset cursor on exception
     }
 
     return result;
@@ -231,10 +347,24 @@ namespace CombatLogMT {
 bool Init() {
     Log("[CombatLogMT] Init (build 12340)");
 
-    // Initialize QPC frequency
+    // Initialize QPC frequency for time measurements
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
     g_qpcFreqMs = (double)freq.QuadPart / 1000.0;
+    g_qpcFreq = freq;  // Store for microsecond calculations
+
+    // Initialize cursor tracking
+    g_lastProcessedEntry = 0;
+    g_totalDispatches = 0;
+    g_entriesScannedThisFrame = 0;
+    g_entriesDroppedDueToBudget = 0;
+
+    // Initialize raid detection state (v3.5.14 raid stutter fix)
+    g_raidDisableCount = 0;
+    g_openWorldEnableCount = 0;
+    g_instanceType = 0;
+    g_instanceTypeAddr = 0x00B6AA38;  // instance type global
+    Log("[CombatLogMT] Raid detection initialized (instanceTypeAddr=0x%08X)", g_instanceTypeAddr);
 
     // Validate target address (sub_74F910 - event dispatcher)
     uintptr_t targetAddr = 0x0074F910;
@@ -314,9 +444,15 @@ void Shutdown() {
     MH_DisableHook((void*)0x0074F910);
     MH_RemoveHook((void*)0x0074F910);
 
-    // Log final stats
+    // Log final stats (including new performance metrics)
     Log("[CombatLogMT] Final stats: Queued=%d, Processed=%d, Dropped=%d, Invalid=%d",
         g_eventsQueued, g_eventsProcessed, g_eventsDropped, g_eventsInvalid);
+    Log("[CombatLogMT] Performance: Dispatches=%d, AvgEntries/Frame=%d, BudgetDropped=%d",
+        g_totalDispatches, 
+        g_totalDispatches > 0 ? g_eventsQueued / g_totalDispatches : 0,
+        g_entriesDroppedDueToBudget);
+    Log("[CombatLogMT] Raid Detection: RaidDisables=%d, OpenWorldEnables=%d",
+        g_raidDisableCount, g_openWorldEnableCount);
 
     g_initialized = false;
 }
@@ -350,6 +486,18 @@ Stats GetStats() {
     AcquireSRWLockShared(&g_parseTimeLock);
     s.totalParseTimeMs = g_totalParseTimeMs;
     ReleaseSRWLockShared(&g_parseTimeLock);
+
+    // NEW: Performance monitoring stats
+    s.totalDispatches = g_totalDispatches;
+    s.entriesScannedThisFrame = g_entriesScannedThisFrame;
+    s.entriesDroppedDueToBudget = g_entriesDroppedDueToBudget;
+    s.maxEntriesPerFrame = g_maxEntriesPerFrame;
+    s.maxScanTimeUs = g_maxScanTimeUs;
+
+    // NEW: Raid detection statistics (v3.5.14 raid stutter fix)
+    s.raidDisableCount = g_raidDisableCount;
+    s.openWorldEnableCount = g_openWorldEnableCount;
+    s.instanceType = g_instanceType;
 
     return s;
 }
