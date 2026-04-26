@@ -64,6 +64,7 @@
 #include "mpq_prefetch.h"
 #include "sound_prefetch.h"
 #include "quest_async.h"
+#include "nameplate_batch.h"
 
 #include "version.h"
 
@@ -684,6 +685,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_QUEST_ASYNC
         QuestAsync::OnFrame();
+#endif
+#if !TEST_DISABLE_NAMEPLATE_MT
+        NameplateMT::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4610,6 +4614,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Multithreaded Nameplate Renderer ---");
+#if TEST_DISABLE_NAMEPLATE_MT
+    Log("[NameplateMT] DISABLED (feature flag)");
+    bool nameplateMTOk = false;
+#else
+    bool nameplateMTOk = NameplateMT::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -6050,6 +6063,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_QUEST_ASYNC
             QuestAsync::Shutdown();
+#endif
+#if !TEST_DISABLE_NAMEPLATE_MT
+            NameplateMT::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
