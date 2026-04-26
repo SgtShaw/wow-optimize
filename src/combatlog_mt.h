@@ -32,6 +32,18 @@ struct Stats {
     volatile LONG eventsInvalid;     // Invalid events skipped
     volatile LONG queueDepth;        // Current queue depth
     double totalParseTimeMs;         // Total parse time in milliseconds
+    
+    // NEW: Performance monitoring for raid stutter fix
+    volatile LONG totalDispatches;           // Total dispatch calls
+    volatile LONG entriesScannedThisFrame;  // Entries processed in last frame
+    volatile LONG entriesDroppedDueToBudget; // Entries skipped due to time/count budget
+    uint32_t maxEntriesPerFrame;            // Current frame budget (entries)
+    uint32_t maxScanTimeUs;                 // Current time budget (microseconds)
+    
+    // NEW: Raid detection statistics (v3.5.14 raid stutter fix)
+    volatile LONG raidDisableCount;         // Times COMBATLOG_MT disabled in raids
+    volatile LONG openWorldEnableCount;     // Times COMBATLOG_MT enabled in open world
+    volatile LONG instanceType;             // Current instance type (0=none, 1=party, 2=raid, 3=pvp, 4=arena)
 };
 
 // Initialize the multithreaded combat log parser
