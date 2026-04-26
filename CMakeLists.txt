@@ -47,6 +47,8 @@ add_library(wow_optimize SHARED
     src/sound_prefetch.h
     src/quest_async.cpp
     src/quest_async.h
+    src/nameplate_batch.cpp
+    src/nameplate_batch.h
     src/ui_cache.cpp
     src/ui_cache.h
     src/version.h

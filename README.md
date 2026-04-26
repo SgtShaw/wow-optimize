@@ -19,10 +19,13 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 Huge thanks to the community members who extensively tested pre-release builds:
 
-- **Morbent** - tested 9 test builds, verified addon compatibility (Outfitter, GearScore, Aux, WCollections, ElvUI), reported cache-related addon breakage
-- **Billy Hoyle** - benchmarked all configurations with detailed FPS/RAM/CPU/GPU metrics, identified best-performing builds
-- **NoGoodLife** - additional and previous stability testing across multiple sessions
-- **UNOB** - tested individual-feature DLL variants (envvariable, getprocaddress, lstrlen, modulefilename, all_new) to isolate which new hooks were stable
+- **Morbent**
+- **UNOB**
+- **tuan**
+- **Billy Hoyle**
+- **DarkRockDemon**
+- **Raymond**
+- **NoGoodLife**
 
 Their feedback directly shaped the current public-safe release configuration.
 
@@ -118,11 +121,15 @@ Their feedback directly shaped the current public-safe release configuration.
 - fast keepalive settings
 
 ### Async loading and prefetching (v3.5.13+)
-- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries), eliminates 80-90% of texture loading stutters during teleports and zone changes
-- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag by 30-40%, worker thread with lock-free queue (4096 entries) and cache (4096 entries)
-- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU by 40-50% in addon-heavy setups, batch processing with lock-free queue (8192 entries)
-- **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading, correct `__thiscall` calling convention
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, eliminates 50-60% of zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries)
+
+**Note:** All async features are **disabled by default** in v3.5.13 due to stability concerns. Enable manually in `src/version.h` if you want to test them.
+
+- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries), eliminates 80-90% of texture loading stutters during teleports and zone changes *(disabled by default)*
+- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag by 30-40%, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(disabled by default)*
+- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU by 40-50% in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(disabled by default)*
+- **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading, correct `__thiscall` calling convention *(enabled - stable)*
+- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, eliminates 50-60% of zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(disabled by default)*
+- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids, lock-free queue with async processing *(disabled by default)*
 
 ### Other runtime optimizations
 - combat log optimizer - **fixes the 16-year combat log bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
