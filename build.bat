@@ -56,4 +56,3 @@ echo OPTION B (manual):
 echo   Copy wow_optimize.dll + use inject.bat or any DLL injector.
 echo.
 cd ..
-pause
