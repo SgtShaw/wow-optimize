@@ -2,10 +2,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
 #define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  13
+#define WOW_OPTIMIZE_VERSION_PATCH  14
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.13"
+#define WOW_OPTIMIZE_VERSION_STR    "3.5.14"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -166,29 +166,31 @@
 // Reduces main thread CPU by 40-60% in raids via lock-free queue + async processing
 // Hook sub_74F910 (event dispatcher), observe events, process in worker thread
 // FIXED: now hooks event dispatcher instead of entry creation (addon-compatible)
-// DISABLED BY DEFAULT in v3.5.13 - enable manually if needed
-#define TEST_DISABLE_COMBATLOG_MT       1  // DISABLED - enable manually for testing
+// v3.5.14: Raid detection automatically disables COMBATLOG_MT in raids (0x00B6AA38)
+// Emergency disable flag: set to 1 to disable COMBATLOG_MT entirely
+// Raid detection logic automatically disables in raids when flag is 0
+#define TEST_DISABLE_COMBATLOG_MT       0  // ENABLED - raid detection active (v3.5.14)
 
 // Async Texture/Model Loading — offload texture loading to worker thread pool
 // Eliminates 80-90% of loading stutters during teleports/zone changes
 // Hook sub_619330 (texture loader), queue requests, load async with LRU cache
 // Worker thread pool (2 threads), lock-free queue (8192 entries), cache (2048 entries)
-// DISABLED BY DEFAULT in v3.5.13 - enable manually if needed
-#define TEST_DISABLE_TEXTURE_ASYNC      1  // DISABLED - enable manually for testing
+// ENABLED in v3.5.14 for full testing
+#define TEST_DISABLE_TEXTURE_ASYNC      0  // ENABLED - full testing (v3.5.14)
 
 // Async Spell Data Prefetching — prefetch spell data before cast completes
 // Reduces spell cast lag by 30-40% via predictive data loading
 // Hook sub_80CCE0 (spell cast), queue prefetch, load async with LRU cache
 // Worker thread (1 thread), lock-free queue (4096 entries), cache (4096 entries)
-// DISABLED BY DEFAULT in v3.5.13 - enable manually if needed
-#define TEST_DISABLE_SPELL_PREFETCH     1  // DISABLED - enable manually for testing
+// ENABLED in v3.5.14 for full testing
+#define TEST_DISABLE_SPELL_PREFETCH     0  // ENABLED - full testing (v3.5.14)
 
 // Multithreaded Addon Update Dispatcher — parallelize addon OnUpdate callbacks
 // Reduces main thread CPU by 40-50% in addon-heavy setups
 // Batch and dispatch addon callbacks to worker thread pool (4 threads)
 // Lock-free queue (8192 entries), batch processing per frame
-// DISABLED BY DEFAULT in v3.5.13 - enable manually if needed
-#define TEST_DISABLE_ADDON_DISPATCHER   1  // DISABLED - enable manually for testing
+// ENABLED in v3.5.14 for full testing
+#define TEST_DISABLE_ADDON_DISPATCHER   0  // ENABLED - full testing (v3.5.14)
 
 // Async Model/M2 Loading — offload model loading to worker thread pool
 // Eliminates 70-80% of model loading stutters during teleports/zone changes
@@ -196,26 +198,44 @@
 // Worker thread pool (2 threads), lock-free queue (4096 entries), cache (1024 entries)
 // UPDATED: Now uses synchronous caching mode (no worker threads) to avoid crashes
 // Provides cache speedup on repeated model loads without async complexity
-#define TEST_DISABLE_MODEL_ASYNC        1  // ENABLED - synchronous caching mode (no threads)
+// ENABLED in v3.5.14 for full testing
+#define TEST_DISABLE_MODEL_ASYNC        0  // ENABLED - full testing (v3.5.14)
 
 // Predictive MPQ Prefetching — predict next zone and prefetch MPQ files
 // Eliminates 50-60% of zone loading stutters via predictive file caching
 // Tracks zone transitions, predicts next zone, prefetches common files
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
-// DISABLED BY DEFAULT in v3.5.13 - enable manually if needed
-#define TEST_DISABLE_MPQ_PREFETCH       1  // DISABLED - enable manually for testing
+// ENABLED in v3.5.14 for full testing
+#define TEST_DISABLE_MPQ_PREFETCH       0  // ENABLED - full testing (v3.5.14)
 
 // Async Sound/Audio Prefetching — predict and prefetch sound files
 // Eliminates 40-50% of audio loading stutters via predictive sound caching
 // Tracks spell casts, zone transitions, combat state
 // Worker thread pool (2 threads), lock-free queue (1024 entries)
 // Prefetches spell sounds, zone music, ambient sounds, combat sounds
-#define TEST_DISABLE_SOUND_PREFETCH     0  // ENABLED - new in v3.5.14
+#define TEST_DISABLE_SOUND_PREFETCH     0  // ENABLED - full testing (v3.5.14)
 
 // Async Quest/Achievement Data Loading — async quest log and achievement data loading
 // Eliminates 60-70% of quest log opening lag via background data loading
 // Worker thread (1 thread), lock-free queue (512 entries)
 // Caches quest data, achievement data, quest objectives
 // Background quest progress updates
-#define TEST_DISABLE_QUEST_ASYNC        0  // ENABLED - new in v3.5.14
+#define TEST_DISABLE_QUEST_ASYNC        0  // ENABLED - full testing (v3.5.14)
+
+// Multithreaded Nameplate Renderer — offload nameplate rendering to worker threads
+// Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
+// Hook nameplate update functions (health, text, color, visibility)
+// Worker thread pool (2 threads), lock-free queues (4096 entries each)
+// Priority system: Target > Focus > Nearby > Distant
+// Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
+#define TEST_DISABLE_NAMEPLATE_MT       0  // ENABLED - full testing (v3.5.14)
+
+
+// Multithreaded Nameplate Renderer — offload nameplate rendering to worker threads
+// Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
+// Hook nameplate update functions (health, text, color, visibility)
+// Worker thread pool (2 threads), lock-free queues (4096 entries each)
+// Priority system: Target > Focus > Nearby > Distant
+// Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
+#define TEST_DISABLE_NAMEPLATE_MT       0  // ENABLED - full testing (v3.5.14)
