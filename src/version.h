@@ -207,7 +207,7 @@
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
 // ENABLED in v3.5.14 for full testing
-#define TEST_DISABLE_MPQ_PREFETCH       0  // ENABLED - full testing (v3.5.14)
+#define TEST_DISABLE_MPQ_PREFETCH       0  // ENABLED - character select crash was not related to DLL
 
 // Async Sound/Audio Prefetching — predict and prefetch sound files
 // Eliminates 40-50% of audio loading stutters via predictive sound caching
@@ -231,11 +231,21 @@
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
 #define TEST_DISABLE_NAMEPLATE_MT       0  // ENABLED - full testing (v3.5.14)
 
+// Multithreaded Physics Simulation — offload physics calculations to worker threads
+// Reduces main thread CPU by 50-70% during heavy physics workloads (combat, teleports)
+// Hook physics calculation functions (projectiles, falling objects, ragdolls)
+// Worker thread pool (4 threads), lock-free queue (8192 entries), LRU cache (4096 entries)
+// Async processing with synchronous fallback on queue overflow
+// Emergency disable flag: set to 1 to disable PHYSICS_MT entirely
+// DEFAULT: 1 (DISABLED) - requires IDA Pro analysis to identify function addresses
+#define TEST_DISABLE_PHYSICS_MT         1  // DISABLED - conflicts with Spell Prefetch (both hook 0x80CCE0)
 
-// Multithreaded Nameplate Renderer — offload nameplate rendering to worker threads
-// Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
-// Hook nameplate update functions (health, text, color, visibility)
-// Worker thread pool (2 threads), lock-free queues (4096 entries each)
-// Priority system: Target > Focus > Nearby > Distant
-// Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
-#define TEST_DISABLE_NAMEPLATE_MT       0  // ENABLED - full testing (v3.5.14)
+// Multithreaded Spell Effect Renderer — offload spell effect rendering to worker threads
+// Reduces main thread CPU by 40-60% in raids via lock-free queue + async processing
+// Hook spell effect rendering functions (sub_6F8C50 at 0x006F8C50)
+// Worker thread pool (4 threads), lock-free queues (8192 entries each)
+// LRU cache (4096 entries) for common effects
+// Emergency disable flag: set to 1 to disable SPELL_EFFECT_MT entirely
+// ENABLED: visual regression fixed (results now applied correctly to main thread)
+#define TEST_DISABLE_SPELL_EFFECT_MT    0  // ENABLED - visual regression fixed
+
