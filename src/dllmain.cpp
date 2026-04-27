@@ -65,6 +65,8 @@
 #include "sound_prefetch.h"
 #include "quest_async.h"
 #include "nameplate_batch.h"
+#include "physics_mt.h"
+#include "spell_effect_mt.h"
 
 #include "version.h"
 
@@ -688,6 +690,10 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
         NameplateMT::OnFrame(g_mainThreadId);
+#endif
+        PhysicsMT::OnFrame(g_mainThreadId);
+#if !TEST_DISABLE_SPELL_EFFECT_MT
+        SpellEffectMT::OnFrame(g_mainThreadId);
 #endif
 
         PreciseSleep((double)ms);
@@ -4623,6 +4629,19 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Multithreaded Physics Simulation ---");
+    bool physicsMTOk = PhysicsMT::Init();
+
+    Log("");
+    Log("--- Multithreaded Spell Effect Renderer ---");
+#if TEST_DISABLE_SPELL_EFFECT_MT
+    Log("[SpellEffectMT] DISABLED (feature flag)");
+    bool spellEffectMTOk = false;
+#else
+    bool spellEffectMTOk = SpellEffectMT::Init();
+#endif
+
+    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -6066,6 +6085,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::Shutdown();
+#endif
+            PhysicsMT::Shutdown();
+#if !TEST_DISABLE_SPELL_EFFECT_MT
+            SpellEffectMT::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)

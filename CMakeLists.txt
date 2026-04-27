@@ -67,6 +67,10 @@ add_library(wow_optimize SHARED
     src/tooltip_cache.h
     src/spell_cache.cpp
     src/spell_cache.h
+    src/physics_mt.cpp
+    src/physics_mt.h
+    src/spell_effect_mt.cpp
+    src/spell_effect_mt.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
@@ -121,6 +125,231 @@ set_target_properties(wow_loader PROPERTIES
 )
 
 target_compile_definitions(wow_loader PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# === Test Executables ===
+
+# Queue Round-Trip Property Test
+add_executable(test_queue_roundtrip
+    test_queue_roundtrip.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_queue_roundtrip PRIVATE
+    minhook
+    mimalloc-static
+)
+
+target_include_directories(test_queue_roundtrip PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_queue_roundtrip PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_queue_roundtrip PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Worker Thread Shutdown Test
+add_executable(test_shutdown
+    test_shutdown.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_shutdown PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_shutdown PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_shutdown PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_shutdown PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Resource Cleanup Property Test
+add_executable(test_resource_cleanup
+    test_resource_cleanup.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_resource_cleanup PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_resource_cleanup PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_resource_cleanup PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_resource_cleanup PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Cache Correctness Property Test
+add_executable(test_cache_correctness
+    test_cache_correctness.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_cache_correctness PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_cache_correctness PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_cache_correctness PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_cache_correctness PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Physics Determinism Property Test
+add_executable(test_physics_determinism
+    test_physics_determinism.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_physics_determinism PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_physics_determinism PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_physics_determinism PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_physics_determinism PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Physics Idempotence Property Test
+add_executable(test_physics_idempotence
+    test_physics_idempotence.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_physics_idempotence PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_physics_idempotence PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_physics_idempotence PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_physics_idempotence PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Physics Edge Cases Unit Test
+add_executable(test_physics_edge_cases
+    test_physics_edge_cases.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_physics_edge_cases PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_physics_edge_cases PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_physics_edge_cases PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_physics_edge_cases PRIVATE
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
+# Hook Reversibility Property Test
+add_executable(test_hook_reversibility
+    test_hook_reversibility.cpp
+    src/physics_mt.cpp
+    src/physics_mt.h
+)
+
+target_link_libraries(test_hook_reversibility PRIVATE
+    minhook
+    mimalloc-static
+    psapi
+)
+
+target_include_directories(test_hook_reversibility PRIVATE
+    ${minhook_SOURCE_DIR}/include
+    ${mimalloc_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+set_target_properties(test_hook_reversibility PROPERTIES
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+)
+
+target_compile_definitions(test_hook_reversibility PRIVATE
     WIN32_LEAN_AND_MEAN
     _CRT_SECURE_NO_WARNINGS
 )

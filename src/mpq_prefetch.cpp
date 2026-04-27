@@ -366,10 +366,11 @@ bool Init() {
         return false;
     }
 
-    // Create worker thread pool
+    // Create worker thread pool in SUSPENDED state to avoid race condition
+    // Worker threads must not access MPQ files until WoW's MPQ system is fully initialized
     g_workerShutdown = false;
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        g_workerThreads[i] = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
+        g_workerThreads[i] = CreateThread(NULL, 0, WorkerThreadProc, NULL, CREATE_SUSPENDED, NULL);
         if (!g_workerThreads[i]) {
             Log("[MPQPrefetch] ERROR: Failed to create worker thread %d", i);
             Shutdown();
@@ -377,6 +378,20 @@ bool Init() {
         }
         // Set worker thread priority
         SetThreadPriority(g_workerThreads[i], THREAD_PRIORITY_BELOW_NORMAL);
+    }
+
+    // Wait for WoW's MPQ system to initialize (first-launch safety)
+    // On first launch, WoW's MPQ system takes 2-3 seconds to initialize
+    // Worker threads accessing MPQ files before initialization causes crash at 0x425050
+    Log("[MPQPrefetch] Waiting 2.5s for WoW MPQ system initialization...");
+    Sleep(2500);
+
+    // Resume worker threads - MPQ system is now ready
+    Log("[MPQPrefetch] Resuming worker threads");
+    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
+        if (g_workerThreads[i]) {
+            ResumeThread(g_workerThreads[i]);
+        }
     }
 
     g_initialized = true;
