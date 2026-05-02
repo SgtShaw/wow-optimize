@@ -1139,16 +1139,16 @@ static void ProcessGCRequests(lua_State* L) {
 // ================================================================
 #if !TEST_DISABLE_TIMING_FIX
 typedef int (__thiscall* CVar_SetFn)(void* This, const char* value, char a3, char a4, char a5, char a6);
-static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0; // Ваш адрес из IDA
+static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0; // Address from IDA
 
 int __fastcall Hooked_CVar_Set(void* This, void* unused, const char* value, char a3, char a4, char a5, char a6) {
     if (This && value) {
-        const char* name = *(const char**)This; // Имя CVAR хранится по смещению +0
+        const char* name = *(const char**)This; // CVAR name is stored at offset +0
         if (name) {
             if (_stricmp(name, "timingMethod") == 0) {
-                value = "2"; // Принудительно QPC
+                value = "2"; // Force QPC
             } else if (_stricmp(name, "timingTestError") == 0) {
-                value = "0"; // Блокируем fallback
+                value = "0"; // Block fallback
             }
         }
     }
@@ -1170,6 +1170,87 @@ void ForceTimingOverride() {
 void ForceTimingOverride() {}
 #endif
 
+// Publish minimal detection surface for !LuaBoost addon compatibility.
+// This ensures the addon detects our DLL even if heavy init fails or is delayed.
+static void PublishDetectionSurface(lua_State* L) {
+    if (!L) return;
+
+    __try {
+        WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
+
+        if (Api.FrameScript_Execute) {
+            Api.FrameScript_Execute(
+                "function LuaBoostC_IsLoaded() return true end",
+                "LuaOpt", 0);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Silent fail to avoid log spam during early startup
+    }
+}
+
+// FrameScript_Execute hook — synchronous lua_State swap detector.
+// Installs a trampoline to detect lua_State changes immediately,
+// ensuring !LuaBoost addon sees the DLL before PLAYER_LOGIN fires.
+static fn_FrameScript_Execute orig_FrameScript_Execute = nullptr;
+static lua_State* g_fsHookLastSeenL = nullptr;
+static bool g_fsHookActive = false;
+
+static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
+    // Safety checks: ensure we have valid input and original function
+    if (!code || !source || !orig_FrameScript_Execute) {
+        return;
+    }
+
+    static thread_local bool s_inHook = false;
+
+    if (!s_inHook) {
+        s_inHook = true;
+        __try {
+            lua_State* curL = ReadLuaState();
+            // Only proceed if we have a valid Lua state that we haven't seen before
+            if (curL && curL != g_fsHookLastSeenL) {
+                // Extra safety: verify the pointer is in readable memory
+                if (IsReadableMemory((uintptr_t)curL)) {
+                    g_fsHookLastSeenL = curL;
+                    PublishDetectionSurface(curL);
+                }
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            Log("[LuaOpt] EXCEPTION in FrameScript_Execute hook");
+        }
+        s_inHook = false;
+    }
+
+    orig_FrameScript_Execute(code, source, unknown);
+}
+
+static void InstallFrameScriptExecuteHook() {
+    if (g_fsHookActive) return;
+    if (!Api.FrameScript_Execute) {
+        Log("[LuaOpt] FrameScript_Execute hook: skipped (target not resolved)");
+        return;
+    }
+
+    if (MH_CreateHook((void*)Api.FrameScript_Execute,
+                      (void*)Hooked_FrameScript_Execute,
+                      (void**)&orig_FrameScript_Execute) != MH_OK) {
+        Log("[LuaOpt] FrameScript_Execute hook: MH_CreateHook failed");
+        return;
+    }
+
+    if (MH_EnableHook((void*)Api.FrameScript_Execute) != MH_OK) {
+        Log("[LuaOpt] FrameScript_Execute hook: MH_EnableHook failed");
+        return;
+    }
+
+    // Route Api.FrameScript_Execute through the trampoline so our own
+    // PublishDetectionSurface calls invoke the original directly.
+    Api.FrameScript_Execute = orig_FrameScript_Execute;
+
+    g_fsHookActive = true;
+    Log("[LuaOpt] FrameScript_Execute hook: ACTIVE (synchronous lua_State swap detection)");
+}
+
 static void DoMainThreadInit() {
     Log("[LuaOpt] Main thread init");
 
@@ -1184,6 +1265,10 @@ static void DoMainThreadInit() {
     }
 
     Log("[LuaOpt] lua_State* = 0x%08X", (unsigned)(uintptr_t)Api.L);
+
+    // Publish minimal detection surface before heavy init runs.
+    // Makes the !LuaBoost addon's hasDLL() succeed even if a later step faults.
+    PublishDetectionSurface(Api.L);
 
     bool allocOk = ReplaceLuaAllocator(Api.L);
     bool gcOk = OptimizeGC(Api.L);
@@ -1228,6 +1313,10 @@ static void DoMainThreadInit() {
     Log("[LuaOpt]      idle    = %d", Config.idleStepKB);
     Log("[LuaOpt]      loading = %d", Config.loadingStepKB);
     Log("[LuaOpt] ====================================");
+
+    // Install FrameScript_Execute hook for synchronous lua_State swap detection.
+    // This ensures !LuaBoost addon sees the DLL even during fast logins or /reload.
+    InstallFrameScriptExecuteHook();
 }
 
 namespace LuaOpt {

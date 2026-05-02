@@ -31,7 +31,30 @@ static LONG WINAPI ExceptionHandler(EXCEPTION_POINTERS* ExceptionInfo) {
         code == EXCEPTION_DATATYPE_MISALIGNMENT) { // Alignment fault (handled)
         return EXCEPTION_CONTINUE_SEARCH;
     }
-    
+
+    // Anti-debug / anti-tamper probe inside ClientExtensions.dll (Project Epoch).
+    // It raises a deterministic EXCEPTION_ILLEGAL_INSTRUCTION every launch and
+    // resolves it via its own __except frame. Our VEH fires first and would
+    // otherwise write a misleading minidump every run.
+    if (code == EXCEPTION_ILLEGAL_INSTRUCTION) {
+        HMODULE hMod = NULL;
+        if (GetModuleHandleExA(
+                GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                (LPCSTR)ExceptionInfo->ExceptionRecord->ExceptionAddress,
+                &hMod) && hMod != NULL) {
+            char path[MAX_PATH];
+            DWORD n = GetModuleFileNameA(hMod, path, sizeof(path));
+            if (n > 0 && n < sizeof(path)) {
+                const char* base = strrchr(path, '\\');
+                base = base ? base + 1 : path;
+                if (_stricmp(base, "ClientExtensions.dll") == 0) {
+                    return EXCEPTION_CONTINUE_SEARCH;
+                }
+            }
+        }
+    }
+
     // Set flag before processing to prevent re-entry
     // We intentionally do NOT reset s_InHandler to false
     // This ensures we only create ONE dump per thread, preventing infinite loops
