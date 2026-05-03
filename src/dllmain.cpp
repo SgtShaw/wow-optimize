@@ -65,7 +65,7 @@
 #include "sound_prefetch.h"
 #include "quest_async.h"
 #include "nameplate_batch.h"
-#include "physics_mt.h"
+// #include "physics_mt.h" // Module removed
 #include "spell_effect_mt.h"
 
 #include "version.h"
@@ -691,7 +691,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_NAMEPLATE_MT
         NameplateMT::OnFrame(g_mainThreadId);
 #endif
-        PhysicsMT::OnFrame(g_mainThreadId);
+        // PhysicsMT::OnFrame(g_mainThreadId); // Module removed
 #if !TEST_DISABLE_SPELL_EFFECT_MT
         SpellEffectMT::OnFrame(g_mainThreadId);
 #endif
@@ -4629,8 +4629,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
-    Log("--- Multithreaded Physics Simulation ---");
-    bool physicsMTOk = PhysicsMT::Init();
+    // Log("--- Multithreaded Physics Simulation ---");
+    // bool physicsMTOk = PhysicsMT::Init(); // Module removed
 
     Log("");
     Log("--- Multithreaded Spell Effect Renderer ---");
@@ -6086,7 +6086,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::Shutdown();
 #endif
-            PhysicsMT::Shutdown();
+            // PhysicsMT::Shutdown(); // Module removed
 #if !TEST_DISABLE_SPELL_EFFECT_MT
             SpellEffectMT::Shutdown();
 #endif
