@@ -265,6 +265,9 @@ bool Init() {
     }
 
     // Install hook
+    /* DISABLED: Async texture loading breaks SetPortraitToTexture for addons like BigDebuffs.
+       The current implementation does not correctly interface with WoW's MPQ loader,
+       resulting in nil textures. Re-enable only after full MPQ integration.
     void* target = (void*)targetAddr;
     if (MH_CreateHook(target, (void*)Hooked_LoadTexture, (void**)&orig_LoadTexture) != MH_OK) {
         Log("[TextureAsync] ERROR: Failed to create hook");
@@ -278,9 +281,10 @@ bool Init() {
         Shutdown();
         return false;
     }
+    */
 
     g_initialized = true;
-    Log("[TextureAsync] [ OK ] Hook installed at 0x%08X (texture loader)", targetAddr);
+    Log("[TextureAsync] [ OK ] Module initialized (async loading DISABLED for stability)");
     Log("[TextureAsync] [ OK ] Worker thread pool created (%d threads, queue size: %d)", 
         WORKER_THREAD_COUNT, QUEUE_SIZE);
     return true;
