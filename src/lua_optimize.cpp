@@ -1390,18 +1390,11 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaStateFrames = 1;
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
 
-            // Immediately reset state flags and clear async queues to prevent
-            // worker threads from operating on stale pointers during transition
+            // Reset state flags immediately to prevent stale state during transition
             Config.inCombat = false;
             Config.isIdle = false;
             Config.isLoading = false;
             g_loadingGraceFrames = 0;
-            CombatLogMT::ClearQueues();
-            TextureAsync::ClearQueues();
-            AddonDispatcher::ClearQueues();
-            ModelAsync::ClearQueues();
-            MPQPrefetch::ClearQueues();
-            NameplateMT::ClearQueues();
             return;
         }
 
@@ -1454,6 +1447,16 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         LuaInternals::InvalidateCache();
         LuaFastPath::InvalidateWoWCache();
         SetupLuaInterface(Api.L);
+
+        // Clear async queues AFTER reinitialization to prevent stale pointers
+        // from worker threads accessing old lua_State-dependent data
+        CombatLogMT::ClearQueues();
+        TextureAsync::ClearQueues();
+        AddonDispatcher::ClearQueues();
+        ModelAsync::ClearQueues();
+        MPQPrefetch::ClearQueues();
+        NameplateMT::ClearQueues();
+
         g_addonReadCounter = 0;
         g_gcRequestCounter = 0;
         g_lastSyncNormal = -1;
