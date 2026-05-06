@@ -282,6 +282,27 @@ void Shutdown() {
     g_initialized = false;
 }
 
+void ClearQueues() {
+    if (!g_initialized) return;
+
+    // Reset queue indices to clear all pending callbacks
+    InterlockedExchange(&g_queueHead, 0);
+    InterlockedExchange(&g_queueTail, 0);
+
+    // Reset ready flags on all entries
+    for (int i = 0; i < QUEUE_SIZE; i++) {
+        g_queue[i].ready = 0;
+    }
+
+    // Reset stats counters
+    InterlockedExchange(&g_callbacksQueued, 0);
+    InterlockedExchange(&g_callbacksProcessed, 0);
+    InterlockedExchange(&g_callbacksDropped, 0);
+    InterlockedExchange(&g_batchesProcessed, 0);
+
+    Log("[AddonDispatcher] Queues cleared (UI reload / character switch)");
+}
+
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;

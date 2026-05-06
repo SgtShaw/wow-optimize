@@ -454,6 +454,28 @@ void Shutdown() {
     g_initialized = false;
 }
 
+void ClearQueues() {
+    if (!g_initialized) return;
+
+    // Reset queue indices to clear all pending tasks and results
+    InterlockedExchange(&g_inputHead, 0);
+    InterlockedExchange(&g_inputTail, 0);
+    InterlockedExchange(&g_outputHead, 0);
+    InterlockedExchange(&g_outputTail, 0);
+
+    // Zero out queue contents
+    memset(g_inputQueue, 0, sizeof(g_inputQueue));
+    memset(g_outputQueue, 0, sizeof(g_outputQueue));
+
+    // Reset stats counters
+    InterlockedExchange(&g_tasksQueued, 0);
+    InterlockedExchange(&g_tasksProcessed, 0);
+    InterlockedExchange(&g_tasksDropped, 0);
+    InterlockedExchange(&g_resultsProcessed, 0);
+
+    Log("[NameplateMT] Queues cleared (UI reload / character switch)");
+}
+
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;

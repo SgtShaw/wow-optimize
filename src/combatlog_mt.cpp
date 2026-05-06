@@ -457,6 +457,27 @@ void Shutdown() {
     g_initialized = false;
 }
 
+void ClearQueues() {
+    if (!g_initialized) return;
+
+    // Reset queue indices to clear all pending events
+    InterlockedExchange(&g_queueHead, 0);
+    InterlockedExchange(&g_queueTail, 0);
+
+    // Reset ready flags on all entries
+    for (int i = 0; i < QUEUE_SIZE; i++) {
+        g_queue[i].ready = 0;
+    }
+
+    // Reset stats counters
+    InterlockedExchange(&g_eventsQueued, 0);
+    InterlockedExchange(&g_eventsProcessed, 0);
+    InterlockedExchange(&g_eventsDropped, 0);
+    InterlockedExchange(&g_eventsInvalid, 0);
+
+    Log("[CombatLogMT] Queues cleared (UI reload / character switch)");
+}
+
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;

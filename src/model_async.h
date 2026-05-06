@@ -21,6 +21,7 @@ struct Stats {
 
 bool Init();
 void Shutdown();
+void ClearQueues();
 void OnFrame(DWORD mainThreadId);
 Stats GetStats();
 

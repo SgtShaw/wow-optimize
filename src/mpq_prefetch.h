@@ -4,7 +4,6 @@
 // ================================================================
 
 #pragma once
-
 #include <windows.h>
 
 namespace MPQPrefetch {
@@ -12,16 +11,16 @@ namespace MPQPrefetch {
 struct Stats {
     long filesQueued;
     long filesCompleted;
-    long filesDropped;
     long cacheHits;
     long cacheMisses;
-    long queueDepth;
     long zoneTransitions;
+    long queueDepth;
     double totalPrefetchTimeMs;
 };
 
 bool Init();
 void Shutdown();
+void ClearQueues();
 void OnFrame(DWORD mainThreadId);
 Stats GetStats();
 

@@ -36,6 +36,12 @@
 
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
+#include "combatlog_mt.h"
+#include "texture_async.h"
+#include "addon_dispatcher.h"
+#include "model_async.h"
+#include "mpq_prefetch.h"
+#include "nameplate_batch.h"
 #include "ui_cache.h"
 #include "api_cache.h"
 #include "lua_fastpath.h"
@@ -1383,6 +1389,19 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaStateTick = nowTick;
             g_pendingLuaStateFrames = 1;
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
+
+            // Immediately reset state flags and clear async queues to prevent
+            // worker threads from operating on stale pointers during transition
+            Config.inCombat = false;
+            Config.isIdle = false;
+            Config.isLoading = false;
+            g_loadingGraceFrames = 0;
+            CombatLogMT::ClearQueues();
+            TextureAsync::ClearQueues();
+            AddonDispatcher::ClearQueues();
+            ModelAsync::ClearQueues();
+            MPQPrefetch::ClearQueues();
+            NameplateMT::ClearQueues();
             return;
         }
 

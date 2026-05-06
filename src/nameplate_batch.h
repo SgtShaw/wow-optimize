@@ -143,6 +143,9 @@ bool Init();
 // Shutdown and cleanup
 void Shutdown();
 
+// Clear all queues (called on UI reload / character switch)
+void ClearQueues();
+
 // Called from main thread on each frame (for result processing and stats)
 void OnFrame(DWORD mainThreadId);
 
