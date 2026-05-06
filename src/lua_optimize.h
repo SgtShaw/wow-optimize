@@ -25,6 +25,9 @@ void SetCombatMode(bool inCombat);
 // Returns true if client is in loading screen
 bool IsLoadingMode();
 
+// Returns true if a UI reload / character switch is in progress
+bool IsReloading();
+
 struct Stats {
     bool   initialized;
     bool   gcOptimized;

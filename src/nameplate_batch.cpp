@@ -4,6 +4,7 @@
 // ================================================================
 
 #include "nameplate_batch.h"
+#include "lua_optimize.h"
 #include "version.h"
 #include "MinHook.h"
 #include <cstdio>
@@ -322,6 +323,12 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
     Log("[NameplateMT] Worker thread %d started (TID: %d)", workerIndex, GetCurrentThreadId());
 
     while (!g_workerShutdown) {
+        // Pause during UI reload to prevent accessing stale lua_State
+        if (LuaOpt::IsReloading()) {
+            Sleep(1);
+            continue;
+        }
+
         // Wait for work or timeout (100ms to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 100);
         

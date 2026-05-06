@@ -186,6 +186,7 @@ static int g_lastSyncLoading = -1;
 static lua_State* g_pendingLuaState = nullptr;
 static DWORD g_pendingLuaStateTick = 0;
 static int g_pendingLuaStateFrames = 0;
+static volatile bool g_isReloading = false;
 
 static double g_smoothedGcMs = 0.5;
 static LARGE_INTEGER g_gcPerfFreq = {};
@@ -1388,7 +1389,16 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaState = currentL;
             g_pendingLuaStateTick = nowTick;
             g_pendingLuaStateFrames = 1;
+            g_isReloading = true; // Signal worker threads to pause
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
+
+            // CRITICAL: Clear all async queues to discard stale data from previous lua_State.
+            // This prevents "white screen" issues where workers try to render invalid resources.
+            CombatLogMT::ClearQueues();
+            TextureAsync::ClearQueues();
+            AddonDispatcher::ClearQueues();
+            MPQPrefetch::ClearQueues();
+            NameplateMT::ClearQueues();
 
             // Reset state flags immediately to prevent stale state during transition
             Config.inCombat = false;
@@ -1408,6 +1418,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateTick = 0;
         g_pendingLuaStateFrames = 0;
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
+
+        // CRITICAL: Wait for worker threads to observe g_isReloading and pause.
+        // This prevents them from accessing the old lua_State while we tear it down.
+        Sleep(5); 
     } else if (g_pendingLuaState) {
         g_pendingLuaState = nullptr;
         g_pendingLuaStateTick = 0;
@@ -1448,14 +1462,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         LuaFastPath::InvalidateWoWCache();
         SetupLuaInterface(Api.L);
 
-        // Clear async queues AFTER reinitialization to prevent stale pointers
-        // from worker threads accessing old lua_State-dependent data
-        CombatLogMT::ClearQueues();
-        TextureAsync::ClearQueues();
-        AddonDispatcher::ClearQueues();
-        ModelAsync::ClearQueues();
-        MPQPrefetch::ClearQueues();
-        NameplateMT::ClearQueues();
+        g_isReloading = false; // Reload complete, worker threads can resume
 
         g_addonReadCounter = 0;
         g_gcRequestCounter = 0;
@@ -1563,6 +1570,10 @@ Stats GetStats() {
 
 bool LuaOpt::IsLoadingMode() {
     return Config.isLoading;
+}
+
+bool LuaOpt::IsReloading() {
+    return g_isReloading;
 }
 
 } // namespace LuaOpt

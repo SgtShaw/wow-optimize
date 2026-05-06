@@ -4,6 +4,7 @@
 // ================================================================
 
 #include "texture_async.h"
+#include "lua_optimize.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
@@ -133,6 +134,12 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     Log("[TextureAsync] Worker thread started (TID: %d)", GetCurrentThreadId());
 
     while (!g_workerShutdown) {
+        // Pause during UI reload to prevent accessing stale lua_State
+        if (LuaOpt::IsReloading()) {
+            Sleep(1);
+            continue;
+        }
+
         // Wait for events (1ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 1);
 

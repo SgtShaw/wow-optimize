@@ -4,6 +4,7 @@
 // ================================================================
 
 #include "mpq_prefetch.h"
+#include "lua_optimize.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
@@ -15,7 +16,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 static constexpr DWORD ZONE_ID_ADDR = 0x00C6E6F8;
-// Адрес внутренней функции SFileOpenFileEx в Wow.exe (build 12340)
+// Internal SFileOpenFileEx function address in Wow.exe (build 12340)
 static void* SFILE_OPEN_FILE_EX_ADDR = (void*)0x004609B0;
 
 static int g_currentZone = 0;
@@ -64,6 +65,12 @@ static bool IsHeavyFile(const char* filename) {
 
 static DWORD WINAPI WorkerThreadProc(LPVOID) {
     while (!g_workerShutdown) {
+        // Pause during UI reload to prevent accessing stale lua_State
+        if (LuaOpt::IsReloading()) {
+            Sleep(1);
+            continue;
+        }
+
         WaitForSingleObject(g_workerEvent, 100);
         
         LONG head = g_queueHead;
@@ -116,26 +123,26 @@ static void QueuePrefetch(const char* filename) {
     }
 }
 
-// Сигнатура: int __cdecl sub_4609B0(int a1, int ArgList, int a3, int a4, _DWORD *a5)
+// Signature: int __cdecl sub_4609B0(int a1, int ArgList, int a3, int a4, _DWORD *a5)
 typedef int (__cdecl *SFileOpenFileEx_fn)(int, int, int, int, DWORD*);
 static SFileOpenFileEx_fn orig_SFileOpenFileEx = nullptr;
 
 static int __cdecl Hooked_SFileOpenFileEx(int a1, int filenamePtr, int a3, int a4, DWORD* a5) {
     int result = orig_SFileOpenFileEx(a1, filenamePtr, a3, a4, a5);
-    
-    // Пытаемся извлечь имя файла. В этой функции filenamePtr часто указывает на структуру,
-    // где первые 4 байта могут быть указателем на строку, или это сам указатель.
-    // Для безопасности проверяем память.
+
+    // Attempt to extract filename. In this function, filenamePtr often points to a structure
+    // where the first 4 bytes may be a pointer to a string, or it is the pointer itself.
+    // Check memory for safety.
     if (result && filenamePtr != 0) {
         __try {
-            // Проверяем, является ли сам аргумент строкой
+            // Check if the argument itself is a string
             if (IsReadable(filenamePtr)) {
                 const char* str = (const char*)filenamePtr;
-                // Простая эвристика: если первый символ printable ASCII
+                // Simple heuristic: if the first character is printable ASCII
                 if (str[0] >= 32 && str[0] <= 126) {
                     QueuePrefetch(str);
                 } else {
-                    // Возможно, это указатель на указатель (структура CStoreItem или类似)
+                    // Possibly a pointer to a pointer (CStoreItem structure or similar)
                     int potentialPtr = *(int*)filenamePtr;
                     if (potentialPtr != 0 && IsReadable(potentialPtr)) {
                         const char* innerStr = (const char*)potentialPtr;
@@ -146,10 +153,10 @@ static int __cdecl Hooked_SFileOpenFileEx(int a1, int filenamePtr, int a3, int a
                 }
             }
         } __except(EXCEPTION_EXECUTE_HANDLER) {
-            // Игнорируем ошибки доступа
+            // Ignore access errors
         }
     }
-    
+
     return result;
 }
 

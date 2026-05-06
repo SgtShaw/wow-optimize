@@ -4,6 +4,7 @@
 // ================================================================
 
 #include "combatlog_mt.h"
+#include "lua_optimize.h"
 #include "version.h"
 #include "MinHook.h"
 #include <cstdio>
@@ -194,6 +195,12 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     Log("[CombatLogMT] Worker thread started (TID: %d)", GetCurrentThreadId());
 
     while (!g_workerShutdown) {
+        // Pause during UI reload to prevent accessing stale lua_State
+        if (LuaOpt::IsReloading()) {
+            Sleep(1);
+            continue;
+        }
+
         // Wait for events (1ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 1);
 

@@ -29,6 +29,8 @@
 //   13. Combat log — retention patching + periodic clears
 // ================================================================
 
+#define TEST_DISABLE_SPELL_EFFECT_MT 1
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
