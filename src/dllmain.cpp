@@ -2344,7 +2344,7 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
     bool isMPQ = false;
     if (lpFileName && (dwAccess & GENERIC_READ)) {
         const char* ext = strrchr(lpFileName, '.');
-        if (ext && (_stricmp(ext, ".mpq") == 0 || _stricmp(ext, ".MPQ") == 0)) {
+        if (ext && _stricmp(ext, ".mpq") == 0) {
             dwFlags |= FILE_FLAG_SEQUENTIAL_SCAN; isMPQ = true;
         }
     }
@@ -2473,16 +2473,25 @@ static void ScanExistingMpqHandles() {
 
         SetLastError(0);
         DWORD fileType = GetFileType(handle);
-        if (fileType != FILE_TYPE_DISK) continue;
+        // Accept both files and folders (WoW reads MPQ folders as archives)
+        if (fileType != FILE_TYPE_DISK && fileType != FILE_TYPE_UNKNOWN) continue;
         if (GetLastError() == ERROR_INVALID_HANDLE) continue;
 
         DWORD len = pGetFinalPathNameByHandleA(handle, pathBuf, MAX_PATH,
                                                 FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
         if (len == 0 || len >= MAX_PATH) continue;
 
+        // Check for .mpq/.MPQ in path (handles both files and MPQ-folders)
         const char* ext = strrchr(pathBuf, '.');
-        if (!ext) continue;
-        if (_stricmp(ext, ".mpq") != 0 && _stricmp(ext, ".MPQ") != 0) continue;
+        bool isMpq = ext && _stricmp(ext, ".mpq") == 0;
+        if (!isMpq) {
+            // Check for .MPQ folder name (e.g. patch-Sunlight.MPQ/)
+            const char* lastSep = strrchr(pathBuf, '\\');
+            const char* name = lastSep ? lastSep + 1 : pathBuf;
+            const char* dot = strrchr(name, '.');
+            isMpq = dot && _stricmp(dot, ".mpq") == 0;
+        }
+        if (!isMpq) continue;
 
         if (IsMpqHandle(handle)) {
             alreadyTracked++;
