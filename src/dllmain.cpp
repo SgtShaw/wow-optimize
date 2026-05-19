@@ -640,6 +640,14 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         }
         g_lastSleepTime = now;
 
+        // Detect lua_State destruction (logout/exit) — clear caches
+        static uintptr_t g_lastLState = 0;
+        uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
+        if (g_lastLState && currentL == 0) {
+            ClearAssetPathCache();
+        }
+        g_lastLState = currentL;
+
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_COMBATLOG_MT
