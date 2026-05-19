@@ -2343,7 +2343,16 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
 {
     bool isMPQ = false;
     if (lpFileName && (dwAccess & GENERIC_READ)) {
-        const char* ext = strrchr(lpFileName, '.');
+        // Strip trailing backslash (folder paths like patch-Sunlight.MPQ\)
+        size_t len = strlen(lpFileName);
+        const char* checkPath = lpFileName;
+        char fixedPath[MAX_PATH];
+        if (len > 0 && lpFileName[len-1] == '\\') {
+            memcpy(fixedPath, lpFileName, len);
+            fixedPath[len-1] = 0;
+            checkPath = fixedPath;
+        }
+        const char* ext = strrchr(checkPath, '.');
         if (ext && _stricmp(ext, ".mpq") == 0) {
             dwFlags |= FILE_FLAG_SEQUENTIAL_SCAN; isMPQ = true;
         }
