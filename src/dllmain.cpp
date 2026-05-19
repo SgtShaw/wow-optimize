@@ -2770,6 +2770,7 @@ static void TryRemoveFPSCap() {
 static void DumpPeriodicStats() {
     extern long g_assetPathHits;
     extern long g_assetPathMisses;
+    extern long g_tvalueMemcpyHits;
     // Process memory diagnostics (helps diagnose HD/custom client OOM)
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
@@ -2957,6 +2958,8 @@ static void DumpPeriodicStats() {
         Log("[Stats] Asset path cache: %ld hits, %ld misses (%.1f%%)",
             g_assetPathHits, g_assetPathMisses,
            (double)g_assetPathHits / (g_assetPathHits + g_assetPathMisses) * 100.0);
+    if (g_tvalueMemcpyHits > 0)
+        Log("[Stats] TValue memcpy: %ld 16-byte fast copies", g_tvalueMemcpyHits);
 
     if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
         Log("[Stats] CombatLog: %I64u hits, %I64u misses (%.1f%%)",
@@ -4131,6 +4134,47 @@ static bool InstallAssetPathCache() {
     return true;
 }
 
+// ================================================================
+// 23. memcpy 16-byte TValue fast path
+//
+// luaV_execute copies TValue structures (16 bytes) millions of times
+// per frame.  Generic memcpy has alignment checks + size dispatch
+// overhead.  For exactly 16 bytes, two movq are faster and always
+// page-safe.  Separate from CRT fast paths — minimal, targeted.
+// ================================================================
+typedef void* (__cdecl* Memcpy_fn)(void*, const void*, size_t);
+static Memcpy_fn orig_Memcpy = nullptr;
+long g_tvalueMemcpyHits = 0;
+
+static void* __cdecl hooked_Memcpy_TValue(void* dst, const void* src, size_t n) {
+    if (n == 16) {
+        uint64_t* d = (uint64_t*)dst;
+        const uint64_t* s = (const uint64_t*)src;
+        d[0] = s[0];
+        d[1] = s[1];
+        InterlockedIncrement(&g_tvalueMemcpyHits);
+        return dst;
+    }
+    return orig_Memcpy(dst, src, n);
+}
+
+static bool InstallTValueMemcpyHook() {
+    HMODULE hCRT = GetModuleHandleA("msvcrt.dll");
+    if (!hCRT) hCRT = GetModuleHandleA("ucrtbase.dll");
+    if (!hCRT) return false;
+
+    void* p = (void*)GetProcAddress(hCRT, "memcpy");
+    if (!p) return false;
+
+    if (MH_CreateHook(p, (void*)hooked_Memcpy_TValue, (void**)&orig_Memcpy) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK)
+        return false;
+
+    Log("TValue memcpy: ACTIVE (16-byte fast path)");
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     Sleep(5000);
@@ -4247,6 +4291,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
     bool crtOk = InstallCrtMemFastPaths();
+    bool tvalueMcpyOk = InstallTValueMemcpyHook();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4481,7 +4526,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] IsBadPtr (fast VirtualQuery)", bpOk        ? " OK " : "FAIL");    
     Log("  [%s] CompareStringA (ASCII fast)",  cmpOk       ? " OK " : "FAIL");
     Log("  [%s] MBT/WCT (SSE2 ASCII fast)",    mbwcOk      ? " OK " : "SKIP");
-    Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");    
+    Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");
+    Log("  [%s] TValue memcpy (16-byte)",        tvalueMcpyOk ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
