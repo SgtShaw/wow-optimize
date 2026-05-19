@@ -2768,6 +2768,8 @@ static void TryRemoveFPSCap() {
 //
 
 static void DumpPeriodicStats() {
+    extern long g_assetPathHits;
+    extern long g_assetPathMisses;
     // Process memory diagnostics (helps diagnose HD/custom client OOM)
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
@@ -2951,6 +2953,10 @@ static void DumpPeriodicStats() {
             g_getstrHits, g_getstrFallbacks,
            (double)g_getstrHits / (g_getstrHits + g_getstrFallbacks) * 100.0);
     }
+    if (g_assetPathHits + g_assetPathMisses > 0)
+        Log("[Stats] Asset path cache: %ld hits, %ld misses (%.1f%%)",
+            g_assetPathHits, g_assetPathMisses,
+           (double)g_assetPathHits / (g_assetPathHits + g_assetPathMisses) * 100.0);
 
     if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
         Log("[Stats] CombatLog: %I64u hits, %I64u misses (%.1f%%)",
@@ -4063,6 +4069,68 @@ static bool InstallLuaHResizeHook() {
 #endif
 }
 
+// ================================================================
+// 22. sub_819D40 — Asset Path Resolver Cache (643 callers)
+//
+// Every texture, model, sound, and UI load resolves its path through
+// this function.  It does strlen+sprintf+MPQ lookup per call.
+// Caching the resolved pointer skips redundant string building.
+// ================================================================
+typedef int (__cdecl* AssetPathResolver_fn)(const char* path, int typeIdx, int gender);
+static AssetPathResolver_fn orig_AssetPathResolver = nullptr;
+
+struct AssetPathCacheEntry {
+    uint32_t hash;
+    int      result;
+    bool     valid;
+};
+
+static constexpr int ASSET_PATH_CACHE_SIZE = 1024;
+static AssetPathCacheEntry g_assetPathCache[ASSET_PATH_CACHE_SIZE] = {};
+long g_assetPathHits = 0;
+long g_assetPathMisses = 0;
+
+static int __cdecl hooked_AssetPathResolver(const char* path, int typeIdx, int gender) {
+    // Hash: FNV-1a over path string, mix with type and gender
+    uint32_t h = 0x811C9DC5;
+    if (path) {
+        for (const char* p = path; *p; p++) {
+            char c = *p;
+            if (c >= 'A' && c <= 'Z') c += 32;  // case-insensitive
+            if (c == '/') c = '\\';
+            h ^= (uint8_t)c;
+            h *= 0x01000193;
+        }
+    }
+    h ^= (uint32_t)(typeIdx * 0x9E3779B9);
+    h ^= (uint32_t)(gender * 0x85EBCA77);
+    uint32_t slot = h & (ASSET_PATH_CACHE_SIZE - 1);
+
+    AssetPathCacheEntry* e = &g_assetPathCache[slot];
+    if (e->valid && e->hash == h) {
+        InterlockedIncrement(&g_assetPathHits);
+        return e->result;
+    }
+
+    int result = orig_AssetPathResolver(path, typeIdx, gender);
+
+    e->hash   = h;
+    e->result = result;
+    e->valid  = true;
+    InterlockedIncrement(&g_assetPathMisses);
+    return result;
+}
+
+static bool InstallAssetPathCache() {
+    void* target = (void*)0x00819D40;
+    if (MH_CreateHook(target, (void*)hooked_AssetPathResolver, (void**)&orig_AssetPathResolver) != MH_OK)
+        return false;
+    if (MH_EnableHook(target) != MH_OK)
+        return false;
+    Log("Asset path cache: ACTIVE (%d slots, sub_819D40 @ 0x00819D40)", ASSET_PATH_CACHE_SIZE);
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     Sleep(5000);
@@ -4196,6 +4264,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Lua Table Rehash ---");
     bool tableReshapeOk = InstallLuaHResizeHook();
+    bool assetPathOk = InstallAssetPathCache();
 
     Log("--- Lua Table Lookup ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
@@ -4448,6 +4517,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] MsgPump (frame-continue)",    msgPumpOk   ? " OK " : "SKIP");
     Log("  [%s] Swap/Present (glFinish skip)", swapOk      ? " OK " : "SKIP");
     Log("  [%s] Lua Table Rehash (pow2)",     tableReshapeOk ? " OK " : "SKIP");
+    Log("  [%s] Asset path cache",             assetPathOk   ? " OK " : "SKIP");
     Log("  [%s] Lua Table Lookup (getstr)",   luaHGetStrOk ? " OK " : "SKIP");
     Log("  [%s] Table Concat Fast Path",        tableConcatOk ? " OK " : "SKIP");
     Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
