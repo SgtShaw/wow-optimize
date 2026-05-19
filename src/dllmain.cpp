@@ -4334,6 +4334,39 @@ static bool InstallNoDebuggerPresent() {
     return true;
 }
 
+// ================================================================
+// 28. GetVersionExA cache — Windows version never changes
+// ================================================================
+typedef BOOL (WINAPI* GetVersionExA_fn)(LPOSVERSIONINFOA);
+static GetVersionExA_fn orig_GetVersionExA = nullptr;
+static OSVERSIONINFOA g_cachedVersion = {};
+static bool g_verCached = false;
+
+static BOOL WINAPI hooked_GetVersionExA(LPOSVERSIONINFOA lpVI) {
+    if (g_verCached && lpVI) {
+        DWORD sz = lpVI->dwOSVersionInfoSize;
+        if (sz > sizeof(OSVERSIONINFOA)) sz = sizeof(OSVERSIONINFOA);
+        memcpy(lpVI, &g_cachedVersion, sz);
+        return TRUE;
+    }
+    BOOL result = orig_GetVersionExA(lpVI);
+    if (result && lpVI) {
+        DWORD sz = lpVI->dwOSVersionInfoSize;
+        if (sz > sizeof(OSVERSIONINFOA)) sz = sizeof(OSVERSIONINFOA);
+        memcpy(&g_cachedVersion, lpVI, sz);
+        g_verCached = true;
+    }
+    return result;
+}
+
+static bool InstallVerCache() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetVersionExA");
+    if (!p || MH_CreateHook(p, (void*)hooked_GetVersionExA, (void**)&orig_GetVersionExA) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4459,6 +4492,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool regCacheOk = InstallRegCache();
     bool smCacheOk = InstallSysMetricsCache();
     bool noDebugOk = InstallNoDebuggerPresent();
+    bool verCacheOk = InstallVerCache();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4698,7 +4732,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] GetSystemInfo cache",            sysInfoOk    ? " OK " : "SKIP");
     Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");
     Log("  [%s] GetSystemMetrics cache",         smCacheOk    ? " OK " : "SKIP");
-    Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");    
+    Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
