@@ -157,7 +157,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0  // ENABLED - ready for testing
 
 // Lua bytecode cache — DISABLED: ERROR #134 corrupt chunks
-#define TEST_DISABLE_LUA_BYTECODE_CACHE 1
+#define TEST_DISABLE_LUA_BYTECODE_CACHE 0  // ENABLED — cache clear on lua_State swap fixes stale bytecode
 
 // CRT strstr SSE2 replacement — Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
