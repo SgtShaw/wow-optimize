@@ -1960,7 +1960,7 @@ static bool InstallCompareStringHook() {
 typedef DWORD (WINAPI* GetFileAttributesA_fn)(LPCSTR);
 static GetFileAttributesA_fn orig_GetFileAttributesA = nullptr;
 
-static constexpr int FILE_ATTR_CACHE_SIZE = 256;
+static constexpr int FILE_ATTR_CACHE_SIZE = 4096;
 static constexpr int FILE_ATTR_CACHE_MASK = FILE_ATTR_CACHE_SIZE - 1;
 
 struct FileAttrEntry {
@@ -1999,12 +1999,9 @@ static DWORD WINAPI hooked_GetFileAttributesA(LPCSTR lpFileName) {
 
     DWORD result = orig_GetFileAttributesA(lpFileName);
 
-    // Only cache files that exist — non-existent files might be created later
-    if (result != INVALID_FILE_ATTRIBUTES) {
-        e->pathHash   = hash;
-        e->attributes = result;
-        e->valid      = true;
-    }
+    e->pathHash   = hash;
+    e->attributes = result;
+    e->valid      = true;
 
     g_fileAttrMisses++;
     return result;
