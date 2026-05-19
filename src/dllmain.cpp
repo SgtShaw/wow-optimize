@@ -2554,8 +2554,43 @@ static void ScanExistingMpqHandles() {
     Log("MPQ scan: %d handles tracked, %d memory-mapped (%.1f MB), %d already tracked",
         tracked, mapped, g_mpqMapTotalBytes / (1024.0 * 1024.0), alreadyTracked);
 #else
-    Log("MPQ scan: %d handles tracked, %d already tracked (mmap disabled)",
-        tracked, alreadyTracked);
+    int foldersDetected = 0;
+    // Filesystem scan: find .MPQ folders not yet opened by WoW
+    // (e.g. patch-Sunlight.MPQ\ with only sub-folders, no handles yet)
+    {
+        // Use first tracked MPQ to find Data directory
+        char dataDir[MAX_PATH] = "";
+        for (int i = 0; i < MPQ_HASH_SIZE; i++) {
+            if (g_mpqHash[i].occupied) {
+                DWORD plen = pGetFinalPathNameByHandleA(g_mpqHash[i].handle,
+                    dataDir, MAX_PATH, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+                if (plen > 0 && plen < MAX_PATH) {
+                    char* lastSlash = strrchr(dataDir, '\\');
+                    if (lastSlash) { *lastSlash = 0; break; }
+                }
+            }
+        }
+        if (dataDir[0]) {
+            char pattern[MAX_PATH];
+            snprintf(pattern, MAX_PATH, "%s\\*.*", dataDir);
+            WIN32_FIND_DATAA fd;
+            HANDLE hFind = FindFirstFileA(pattern, &fd);
+            if (hFind != INVALID_HANDLE_VALUE) {
+                do {
+                    if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                    if (fd.cFileName[0] == '.') continue;
+                    const char* ext = strrchr(fd.cFileName, '.');
+                    if (!ext || _stricmp(ext, ".mpq") != 0) continue;
+                    Log("MPQ folder detected: %s\\%s", dataDir, fd.cFileName);
+                    foldersDetected++;
+                } while (FindNextFileA(hFind, &fd));
+                FindClose(hFind);
+            }
+        }
+    }
+
+    Log("MPQ scan: %d handles, %d folders, %d already tracked (mmap disabled)",
+        tracked, foldersDetected, alreadyTracked);
 #endif
 }
 
