@@ -4487,6 +4487,48 @@ static bool InstallMemcmpFast() {
     return true;
 }
 
+// ================================================================
+// 25a. LoadLibraryA skip — return handle if DLL already loaded
+// ================================================================
+typedef HMODULE (WINAPI* LoadLibraryA_fn)(LPCSTR);
+static LoadLibraryA_fn orig_LoadLibraryA = nullptr;
+static long g_loadLibFast = 0;
+
+static HMODULE WINAPI hooked_LoadLibraryA(LPCSTR lpLibFileName) {
+    HMODULE h = GetModuleHandleA(lpLibFileName);
+    if (h) { InterlockedIncrement(&g_loadLibFast); return h; }
+    return orig_LoadLibraryA(lpLibFileName);
+}
+
+static bool InstallLoadLibFast() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
+    if (!p || MH_CreateHook(p, (void*)hooked_LoadLibraryA, (void**)&orig_LoadLibraryA) != MH_OK) return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    return true;
+}
+
+// ================================================================
+// 25b. WaitForMultipleObjects count=1 → WaitForSingleObject
+// ================================================================
+typedef DWORD (WINAPI* WaitForMultipleObjects_fn)(DWORD, const HANDLE*, BOOL, DWORD);
+static WaitForMultipleObjects_fn orig_WFMO = nullptr;
+static long g_wfmoFast = 0;
+
+static DWORD WINAPI hooked_WFMO(DWORD nCount, const HANDLE* lpHandles, BOOL bWaitAll, DWORD dwMs) {
+    if (nCount == 1 && !bWaitAll) {
+        InterlockedIncrement(&g_wfmoFast);
+        return WaitForSingleObject(lpHandles[0], dwMs);
+    }
+    return orig_WFMO(nCount, lpHandles, bWaitAll, dwMs);
+}
+
+static bool InstallWFMOFast() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "WaitForMultipleObjects");
+    if (!p || MH_CreateHook(p, (void*)hooked_WFMO, (void**)&orig_WFMO) != MH_OK) return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4614,6 +4656,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool smCacheOk = InstallSysMetricsCache();
     bool noDebugOk = InstallNoDebuggerPresent();
     bool verCacheOk = InstallVerCache();
+    bool loadLibOk = InstallLoadLibFast();
+    bool wfmoOk = InstallWFMOFast();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4855,7 +4899,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] GetSystemMetrics cache",         smCacheOk    ? " OK " : "SKIP");
     Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");
     Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
-    Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");    
+    Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
+    Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
+    Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
