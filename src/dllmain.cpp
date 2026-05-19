@@ -2712,7 +2712,24 @@ static void ConfigureMimalloc() {
 
     void* warmup = mi_malloc(64 * 1024 * 1024);
     if (warmup) { memset(warmup, 0, 64 * 1024 * 1024); mi_free(warmup); }
-    Log("mimalloc configured (large pages, pre-warmed 64MB)");
+
+    // Pre-warm size classes: allocate+free batches to seed mimalloc's
+    // internal page caches.  First allocation of each size class triggers
+    // VirtualAlloc — pre-warming avoids this during gameplay.
+    // Sizes chosen from Lua TValue (16), Node (24-32), Table (56),
+    // TString (~24-128), Proto (~256-512), plus common addon object sizes.
+    static const size_t seedSizes[] = {
+        16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128,
+        160, 192, 224, 256, 320, 384, 448, 512, 640, 768, 896, 1024
+    };
+    static const int SEEDS_PER_SIZE = 512;
+    for (size_t sz : seedSizes) {
+        void* batch[512];
+        for (int i = 0; i < SEEDS_PER_SIZE; i++) batch[i] = mi_malloc(sz);
+        for (int i = 0; i < SEEDS_PER_SIZE; i++) if (batch[i]) mi_free(batch[i]);
+    }
+
+    Log("mimalloc configured (large pages, pre-warmed 64MB + 23 size classes)");
 }
 
 static void AdjustMimallocForMultiClient() {
@@ -3747,7 +3764,7 @@ static luaH_getstr_fn orig_luaH_getstr = nullptr;
 struct GetStrCacheEntry {
     int  table;     // Table* pointer
     int  tstring;   // TString* pointer
-    int  tableNode;  // *(table+20) — hash array base, detects rehashes
+    int  tableNode; // *(table+20) — hash array base, detects rehashes
     void* node;     // Cached Node* result (or nilObject)
 };
 
