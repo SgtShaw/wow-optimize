@@ -1661,7 +1661,7 @@ static EnterCS_fn orig_EnterCS = nullptr;
 static long g_csSpinHits = 0;
 
 static void WINAPI hooked_InitCS(LPCRITICAL_SECTION lpCS) {
-    InitializeCriticalSectionAndSpinCount(lpCS, 4000);
+    InitializeCriticalSectionAndSpinCount(lpCS, 8000);
 }
 
 #if !CRASH_TEST_DISABLE_CS_ENTER
@@ -1671,8 +1671,11 @@ static void WINAPI hooked_EnterCS(LPCRITICAL_SECTION lpCS) {
         return;
     }
 
-    for (int i = 0; i < 32; i++) {
-        _mm_pause();
+    // Spin-wait with 3 retries at increasing intervals
+    // Most CS holds are <1us — catching them saves kernel transition
+    static const int retrySpins[] = {8, 64, 256};
+    for (int r = 0; r < 3; r++) {
+        for (int i = 0; i < retrySpins[r]; i++) _mm_pause();
         if (TryEnterCriticalSection(lpCS)) {
             InterlockedIncrement(&g_csSpinHits);
             return;
