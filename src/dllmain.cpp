@@ -4291,6 +4291,49 @@ static bool InstallRegCache() {
     return true;
 }
 
+// ================================================================
+// 26. GetSystemMetrics cache — screen dimensions, called by UI addons
+// ================================================================
+typedef int (WINAPI* GetSystemMetrics_fn)(int);
+static GetSystemMetrics_fn orig_GetSystemMetrics = nullptr;
+static int g_smCache[128] = {};
+static bool g_smInited = false;
+
+static int WINAPI hooked_GetSystemMetrics(int nIndex) {
+    if (nIndex >= 0 && nIndex < 128 && g_smInited)
+        return g_smCache[nIndex];
+    int result = orig_GetSystemMetrics(nIndex);
+    if (nIndex >= 0 && nIndex < 128) {
+        g_smCache[nIndex] = result;
+        g_smInited = true;
+    }
+    return result;
+}
+
+static bool InstallSysMetricsCache() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("user32.dll"), "GetSystemMetrics");
+    if (!p || MH_CreateHook(p, (void*)hooked_GetSystemMetrics, (void**)&orig_GetSystemMetrics) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    return true;
+}
+
+// ================================================================
+// 27. IsDebuggerPresent no-op — always false, skips syscall
+// ================================================================
+typedef BOOL (WINAPI* IsDebuggerPresent_fn)();
+static IsDebuggerPresent_fn orig_IsDebuggerPresent = nullptr;
+
+static BOOL WINAPI hooked_IsDebuggerPresent() { return FALSE; }
+
+static bool InstallNoDebuggerPresent() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "IsDebuggerPresent");
+    if (!p || MH_CreateHook(p, (void*)hooked_IsDebuggerPresent, (void**)&orig_IsDebuggerPresent) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4414,6 +4457,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tvalueMcpyOk = InstallTValueMemcpyHook();
     bool sysInfoOk = InstallSysInfoCache();
     bool regCacheOk = InstallRegCache();
+    bool smCacheOk = InstallSysMetricsCache();
+    bool noDebugOk = InstallNoDebuggerPresent();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4651,7 +4696,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");
     Log("  [%s] TValue memcpy (16-byte)",        tvalueMcpyOk ? " OK " : "SKIP");
     Log("  [%s] GetSystemInfo cache",            sysInfoOk    ? " OK " : "SKIP");
-    Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");    
+    Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");
+    Log("  [%s] GetSystemMetrics cache",         smCacheOk    ? " OK " : "SKIP");
+    Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
