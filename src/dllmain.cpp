@@ -2784,6 +2784,9 @@ static void DumpPeriodicStats() {
     extern long g_assetPathHits;
     extern long g_assetPathMisses;
     extern long g_tvalueMemcpyHits;
+    extern long g_sysInfoHits;
+    extern long g_regCacheHits;
+    extern long g_regCacheMisses;
     // Process memory diagnostics (helps diagnose HD/custom client OOM)
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
@@ -2973,6 +2976,12 @@ static void DumpPeriodicStats() {
            (double)g_assetPathHits / (g_assetPathHits + g_assetPathMisses) * 100.0);
     if (g_tvalueMemcpyHits > 0)
         Log("[Stats] TValue memcpy: %ld 16-byte fast copies", g_tvalueMemcpyHits);
+    if (g_sysInfoHits > 0)
+        Log("[Stats] GetSystemInfo: %ld cached", g_sysInfoHits);
+    if (g_regCacheHits + g_regCacheMisses > 0)
+        Log("[Stats] RegQueryValueEx: %ld hits, %ld misses (%.1f%%)",
+            g_regCacheHits, g_regCacheMisses,
+           (double)g_regCacheHits / (g_regCacheHits + g_regCacheMisses) * 100.0);
 
     if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
         Log("[Stats] CombatLog: %I64u hits, %I64u misses (%.1f%%)",
@@ -4192,8 +4201,102 @@ static bool InstallTValueMemcpyHook() {
     return true;
 }
 
+// ================================================================
+// 24. GetSystemInfo cache — SYSTEM_INFO never changes, called by addons
+// ================================================================
+typedef void (WINAPI* GetSystemInfo_fn)(LPSYSTEM_INFO);
+static GetSystemInfo_fn orig_GetSystemInfo = nullptr;
+static SYSTEM_INFO g_cachedSysInfo = {};
+static bool g_sysInfoCached = false;
+long g_sysInfoHits = 0;
+
+static void WINAPI hooked_GetSystemInfo(LPSYSTEM_INFO lpSI) {
+    if (g_sysInfoCached && lpSI) {
+        memcpy(lpSI, &g_cachedSysInfo, sizeof(SYSTEM_INFO));
+        InterlockedIncrement(&g_sysInfoHits);
+        return;
+    }
+    orig_GetSystemInfo(lpSI);
+}
+
+static bool InstallSysInfoCache() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetSystemInfo");
+    if (!p || MH_CreateHook(p, (void*)hooked_GetSystemInfo, (void**)&orig_GetSystemInfo) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    Log("GetSystemInfo cache: ACTIVE");
+    return true;
+}
+
+// ================================================================
+// 25. RegQueryValueExA cache — WTF config reads, 256-slot hash
+// ================================================================
+typedef LONG (WINAPI* RegQueryValueExA_fn)(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
+static RegQueryValueExA_fn orig_RegQueryValueExA = nullptr;
+
+struct RegCacheEntry {
+    HKEY    hKey;
+    uint32_t nameHash;
+    DWORD   type;
+    DWORD   size;
+    BYTE    data[256];
+    bool    valid;
+};
+
+static constexpr int REG_CACHE_SIZE = 256;
+static RegCacheEntry g_regCache[REG_CACHE_SIZE] = {};
+long g_regCacheHits = 0, g_regCacheMisses = 0;
+
+static LONG WINAPI hooked_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved,
+    LPDWORD lpType, LPBYTE lpData, LPDWORD lpcbData)
+{
+    if (!lpValueName || !lpType || !lpcbData) goto fallback;
+
+    uint32_t hash = 0x811C9DC5;
+    for (const char* p = lpValueName; *p; p++) { hash ^= (uint8_t)*p; hash *= 0x01000193; }
+    uint32_t slot = (hash ^ (uint32_t)(uintptr_t)hKey) & (REG_CACHE_SIZE - 1);
+    RegCacheEntry* e = &g_regCache[slot];
+
+    if (e->valid && e->hKey == hKey && e->nameHash == hash) {
+        *lpType = e->type;
+        DWORD copySize = e->size < *lpcbData ? e->size : *lpcbData;
+        if (lpData) memcpy(lpData, e->data, copySize);
+        *lpcbData = e->size;
+        InterlockedIncrement(&g_regCacheHits);
+        return ERROR_SUCCESS;
+    }
+
+    LONG result = orig_RegQueryValueExA(hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
+    if (result == ERROR_SUCCESS && *lpcbData <= sizeof(e->data) && lpData) {
+        e->hKey = hKey;
+        e->nameHash = hash;
+        e->type = *lpType;
+        e->size = *lpcbData;
+        memcpy(e->data, lpData, *lpcbData);
+        e->valid = true;
+    }
+    InterlockedIncrement(&g_regCacheMisses);
+    return result;
+
+fallback:
+    return orig_RegQueryValueExA(hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
+}
+
+static bool InstallRegCache() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("advapi32.dll"), "RegQueryValueExA");
+    if (!p || MH_CreateHook(p, (void*)hooked_RegQueryValueExA, (void**)&orig_RegQueryValueExA) != MH_OK)
+        return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    Log("RegQueryValueExA cache: ACTIVE (%d slots)", REG_CACHE_SIZE);
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
+    // One-time caches initialized before hooks
+    GetSystemInfo(&g_cachedSysInfo);
+    g_sysInfoCached = true;
+
     Sleep(5000);
 
     LogOpen();
@@ -4309,6 +4412,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- CRT Memory Fast Paths ---");
     bool crtOk = InstallCrtMemFastPaths();
     bool tvalueMcpyOk = InstallTValueMemcpyHook();
+    bool sysInfoOk = InstallSysInfoCache();
+    bool regCacheOk = InstallRegCache();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4544,7 +4649,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] CompareStringA (ASCII fast)",  cmpOk       ? " OK " : "FAIL");
     Log("  [%s] MBT/WCT (SSE2 ASCII fast)",    mbwcOk      ? " OK " : "SKIP");
     Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");
-    Log("  [%s] TValue memcpy (16-byte)",        tvalueMcpyOk ? " OK " : "SKIP");    
+    Log("  [%s] TValue memcpy (16-byte)",        tvalueMcpyOk ? " OK " : "SKIP");
+    Log("  [%s] GetSystemInfo cache",            sysInfoOk    ? " OK " : "SKIP");
+    Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
