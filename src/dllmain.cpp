@@ -2572,8 +2572,9 @@ static void ScanExistingMpqHandles() {
         }
         if (dataDir[0]) {
             char pattern[MAX_PATH];
-            snprintf(pattern, MAX_PATH, "%s\\*.*", dataDir);
             WIN32_FIND_DATAA fd;
+            // Scan both the Data directory and its enUS/locale subdirectory
+            snprintf(pattern, MAX_PATH, "%s\\*.*", dataDir);
             HANDLE hFind = FindFirstFileA(pattern, &fd);
             if (hFind != INVALID_HANDLE_VALUE) {
                 do {
@@ -2585,6 +2586,24 @@ static void ScanExistingMpqHandles() {
                     foldersDetected++;
                 } while (FindNextFileA(hFind, &fd));
                 FindClose(hFind);
+            }
+            // Also scan parent (the actual Data folder) if we got locale subdirectory
+            char* lastSlash = strrchr(dataDir, '\\');
+            if (lastSlash) {
+                *lastSlash = 0;
+                snprintf(pattern, MAX_PATH, "%s\\*.*", dataDir);
+                hFind = FindFirstFileA(pattern, &fd);
+                if (hFind != INVALID_HANDLE_VALUE) {
+                    do {
+                        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+                        if (fd.cFileName[0] == '.') continue;
+                        const char* ext = strrchr(fd.cFileName, '.');
+                        if (!ext || _stricmp(ext, ".mpq") != 0) continue;
+                        Log("MPQ folder detected: %s\\%s", dataDir, fd.cFileName);
+                        foldersDetected++;
+                    } while (FindNextFileA(hFind, &fd));
+                    FindClose(hFind);
+                }
             }
         }
     }
