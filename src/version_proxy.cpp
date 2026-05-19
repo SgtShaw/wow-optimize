@@ -9,16 +9,16 @@
 // ================================================================
 static HMODULE g_realVersionDll = nullptr;
 
-typedef BOOL  (WINAPI* GetFileVersionInfoA_fn)(LPCSTR, DWORD, DWORD, LPVOID);
-typedef BOOL  (WINAPI* GetFileVersionInfoW_fn)(LPCWSTR, DWORD, DWORD, LPVOID);
+typedef BOOL (WINAPI* GetFileVersionInfoA_fn)(LPCSTR, DWORD, DWORD, LPVOID);
+typedef BOOL (WINAPI* GetFileVersionInfoW_fn)(LPCWSTR, DWORD, DWORD, LPVOID);
 typedef DWORD (WINAPI* GetFileVersionInfoSizeA_fn)(LPCSTR, LPDWORD);
 typedef DWORD (WINAPI* GetFileVersionInfoSizeW_fn)(LPCWSTR, LPDWORD);
-typedef BOOL  (WINAPI* GetFileVersionInfoExA_fn)(DWORD, LPCSTR, DWORD, DWORD, LPVOID);
-typedef BOOL  (WINAPI* GetFileVersionInfoExW_fn)(DWORD, LPCWSTR, DWORD, DWORD, LPVOID);
+typedef BOOL (WINAPI* GetFileVersionInfoExA_fn)(DWORD, LPCSTR, DWORD, DWORD, LPVOID);
+typedef BOOL (WINAPI* GetFileVersionInfoExW_fn)(DWORD, LPCWSTR, DWORD, DWORD, LPVOID);
 typedef DWORD (WINAPI* GetFileVersionInfoSizeExA_fn)(DWORD, LPCSTR, LPDWORD);
 typedef DWORD (WINAPI* GetFileVersionInfoSizeExW_fn)(DWORD, LPCWSTR, LPDWORD);
-typedef BOOL  (WINAPI* VerQueryValueA_fn)(LPCVOID, LPCSTR, LPVOID*, PUINT);
-typedef BOOL  (WINAPI* VerQueryValueW_fn)(LPCVOID, LPCWSTR, LPVOID*, PUINT);
+typedef BOOL (WINAPI* VerQueryValueA_fn)(LPCVOID, LPCSTR, LPVOID*, PUINT);
+typedef BOOL (WINAPI* VerQueryValueW_fn)(LPCVOID, LPCWSTR, LPVOID*, PUINT);
 typedef DWORD (WINAPI* VerFindFileA_fn)(DWORD, LPCSTR, LPCSTR, LPCSTR, LPSTR, PUINT, LPSTR, PUINT);
 typedef DWORD (WINAPI* VerFindFileW_fn)(DWORD, LPCWSTR, LPCWSTR, LPCWSTR, LPWSTR, PUINT, LPWSTR, PUINT);
 typedef DWORD (WINAPI* VerInstallFileA_fn)(DWORD, LPCSTR, LPCSTR, LPCSTR, LPCSTR, LPCSTR, LPSTR, PUINT);

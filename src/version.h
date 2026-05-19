@@ -1,32 +1,20 @@
 #pragma once
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
-#define WOW_OPTIMIZE_VERSION_MINOR  5
-#define WOW_OPTIMIZE_VERSION_PATCH  15
+#define WOW_OPTIMIZE_VERSION_MINOR  6
+#define WOW_OPTIMIZE_VERSION_PATCH  1
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.5.15"
+#define WOW_OPTIMIZE_VERSION_STR    "3.6.1"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
 #define CRASH_TEST_DISABLE_PHASE2   0
 #endif
 
-// Apply to large file-scope mutable globals (queues, ring buffers) that
-// would otherwise be eligible for clang's globalopt promotion to LLVM IR
-// `constant` at /O2. That promotion lands them in read-only .rdata as
-// on-disk zero bytes, which (a) bloats the cross-built DLL and (b) makes
-// the buffers unwritable at runtime. MSVC's cl.exe doesn't do this
-// promotion, so the macro expands to nothing there.
-#if defined(__clang__)
-#define WO_KEEP_BSS __attribute__((used))
-#else
-#define WO_KEEP_BSS
-#endif
-
 // ================================================================
 // FLAG CONVENTION:
-//   0 = ENABLED  (feature is active)
+//   0 = ENABLED (feature is active)
 //   1 = DISABLED (feature is skipped at runtime)
 //
 // Every flag is a TEST_DISABLE_* name.
@@ -108,7 +96,8 @@
 #define TEST_DISABLE_MBWC               0
 
 // CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths —
-// disabled: causes deadlock/freeze 5-10s after game start
+// DISABLED: SSE2 16-byte reads cross page boundaries on mimalloc heap,
+// causing bank/AH crash (0x5A5B7D00) + loading screen stale-pointer AV (0x84E68D)
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Deferred unit field update queue — disabled: UI/texture
@@ -119,24 +108,24 @@
 // enabled: stable, shipped in v3.5.11
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
+// Lua VM gettable cache — primitives only (safe), GC-objects pass through
+#define TEST_DISABLE_LUA_OPCACHE        1
+
 // Async MPQ I/O predictive read-ahead queue —
 // enabled: stable, shipped in v3.5.11
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
 
-// table.sort fast path — disabled: persistent 0x00000004 AV on
-// HD clients due to corrupted table pointers
+// table.sort fast path — DISABLED: Lua table corruption (0x851E01 AV)
 #define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
-// string.gsub fast path — disabled: luaS_newlstr crashes on HD
-// clients due to % replacement semantics and buffer edge cases
+// string.gsub fast path — DISABLED: Lua string corruption (0x851E01 AV)
 #define TEST_DISABLE_STRING_GSUB_FASTPATH   1
 
 // GetSystemMetrics cache — disabled: 0% real-session hit rate,
 // removed for cleanup
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
-// Unit API fast paths — disabled: causes ElvUI breakage and character select AV
-// Requires full taint propagation handling and UI-state guards before re-enabling.
+// Unit API fast paths — DISABLED: returns 0 HP (HD patch offsets differ)
 #define TEST_DISABLE_UNIT_API_FASTPATH 1
 
 // Crash dump generator (minidump on exception)
@@ -167,6 +156,22 @@
 // FIXED: corrected calling convention from __stdcall to __thiscall
 #define TEST_DISABLE_TOOLTIP_CACHE      0  // ENABLED - ready for testing
 
+// Lua bytecode cache — DISABLED: ERROR #134 corrupt chunks
+#define TEST_DISABLE_LUA_BYTECODE_CACHE 1
+
+// CRT strstr SSE2 replacement — Boyer-Moore-Horspool, algorithmic
+#define TEST_DISABLE_STRSTR_SSE2         0
+
+// CRT memchr + strchr SSE2 — 16-byte SIMD byte scan
+// DISABLED: same page-boundary bug as CRT_MEM_FASTPATHS (v3.6.0)
+#define TEST_DISABLE_CRT_CHAR_SSE2       1
+
+// CRT pow() integer fast-path — x^2=x*x, sqrt, etc.
+#define TEST_DISABLE_CRT_POW_SSE2        0
+
+// Addon file RAM-disk — DISABLED: interferes with WoW file I/O
+#define TEST_DISABLE_ADDON_PRELOAD      1
+
 // Spell Data Caching — cache spell coefficients, ranges, cooldowns
 // Reduces spell casting overhead by 25-35% (sub_80E1B0 is 7.4KB of code)
 // LRU cache with 2000 entry limit, cleared on UI reload
@@ -188,7 +193,7 @@
 // Hook sub_619330 (texture loader), queue requests, load async with LRU cache
 // Worker thread pool (2 threads), lock-free queue (8192 entries), cache (2048 entries)
 // ENABLED in v3.5.14 for full testing
-#define TEST_DISABLE_TEXTURE_ASYNC      0  // ENABLED - full testing (v3.5.14)
+#define TEST_DISABLE_TEXTURE_ASYNC      1  // DISABLED: bisection — was "hook commented out" in v3.5.x, now active with 2 workers
 
 // Async Spell Data Prefetching — prefetch spell data before cast completes
 // Reduces spell cast lag by 30-40% via predictive data loading
@@ -211,7 +216,7 @@
 // UPDATED: Now uses synchronous caching mode (no worker threads) to avoid crashes
 // Provides cache speedup on repeated model loads without async complexity
 // ENABLED in v3.5.14 for full testing
-#define TEST_DISABLE_MODEL_ASYNC        0  // ENABLED - full testing (v3.5.14)
+#define TEST_DISABLE_MODEL_ASYNC        1  // DISABLED: bisection — comment says "sync mode, 0 workers" but log shows 2 workers
 
 // Predictive MPQ Prefetching — predict next zone and prefetch MPQ files
 // Eliminates 50-60% of zone loading stutters via predictive file caching
@@ -242,7 +247,6 @@
 // Priority system: Target > Focus > Nearby > Distant
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
 #define TEST_DISABLE_NAMEPLATE_MT       0  // ENABLED - full testing (v3.5.14)
-
 
 // Multithreaded Nameplate Renderer — offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing

@@ -1,10 +1,8 @@
 // ================================================================
 // Multithreaded Addon Update Dispatcher — Implementation
-// WoW 3.3.5a build 12340
 // ================================================================
 
 #include "addon_dispatcher.h"
-#include "lua_optimize.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
@@ -105,12 +103,6 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     Log("[AddonDispatcher] Worker thread started (TID: %d)", GetCurrentThreadId());
 
     while (!g_workerShutdown) {
-        // Pause during UI reload to prevent accessing stale lua_State
-        if (LuaOpt::IsReloading()) {
-            Sleep(1);
-            continue;
-        }
-
         // Wait for events (1ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 1);
 
@@ -216,7 +208,7 @@ static void DispatchBatch() {
 namespace AddonDispatcher {
 
 bool Init() {
-    Log("[AddonDispatcher] Init (build 12340)");
+    Log("[AddonDispatcher] Init ");
 
     // Initialize QPC frequency
     LARGE_INTEGER freq;
@@ -289,27 +281,6 @@ void Shutdown() {
     g_initialized = false;
 }
 
-void ClearQueues() {
-    if (!g_initialized) return;
-
-    // Reset queue indices to clear all pending callbacks
-    InterlockedExchange(&g_queueHead, 0);
-    InterlockedExchange(&g_queueTail, 0);
-
-    // Reset ready flags on all entries
-    for (int i = 0; i < QUEUE_SIZE; i++) {
-        g_queue[i].ready = 0;
-    }
-
-    // Reset stats counters
-    InterlockedExchange(&g_callbacksQueued, 0);
-    InterlockedExchange(&g_callbacksProcessed, 0);
-    InterlockedExchange(&g_callbacksDropped, 0);
-    InterlockedExchange(&g_batchesProcessed, 0);
-
-    Log("[AddonDispatcher] Queues cleared (UI reload / character switch)");
-}
-
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;
@@ -334,7 +305,7 @@ Stats GetStats() {
     AcquireSRWLockShared(&g_statsLock);
     s.totalProcessTimeMs = g_totalProcessTimeMs;
     s.avgBatchSize = (g_batchesProcessed > 0) ? 
-        (g_totalBatchSize / (double)g_batchesProcessed) : 0.0;
+       (g_totalBatchSize / (double)g_batchesProcessed) : 0.0;
     ReleaseSRWLockShared(&g_statsLock);
 
     return s;

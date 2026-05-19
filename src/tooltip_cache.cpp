@@ -22,7 +22,6 @@ static long g_misses = 0;
 static long g_evictions = 0;
 
 // Original tooltip rendering function
-// IDA Pro signature: _DWORD *__thiscall(_DWORD *this, int, int, _DWORD *, int, int, int, int, unsigned __int64, int, FILE *Stream, int, _DWORD *, int, int, int)
 typedef void* (__thiscall* TooltipRender_fn)(void*, int, int, void*, int, int, int, int, unsigned __int64, int, void*, int, void*, int, int, int);
 static TooltipRender_fn orig_TooltipRender = nullptr;
 
@@ -119,7 +118,7 @@ static void* __fastcall Hooked_TooltipRender(
         entry.timestamp = GetTickCount();
         entry.accessCount = 1;
         
-        (*g_cache)[cacheKey] = entry;
+       (*g_cache)[cacheKey] = entry;
     }
     ReleaseSRWLockExclusive(&g_cacheLock);
     

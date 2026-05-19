@@ -1,8 +1,7 @@
 // ================================================================
 // Lua VM Optimizer — GC, allocator, string table, addon interface
-// WoW 3.3.5a build 12340 (IDA Pro verified addresses)
 //
-// WHAT: Comprehensive optimization of WoW's Lua 5.1 virtual machine.
+// Comprehensive optimization of WoW's Lua 5.1 virtual machine.
 //
 // COMPONENTS:
 //   1. Lua Allocator Replacement — mimalloc for Lua VM memory
@@ -36,20 +35,18 @@
 
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
-#include "combatlog_mt.h"
-#include "texture_async.h"
-#include "addon_dispatcher.h"
-#include "model_async.h"
-#include "mpq_prefetch.h"
-#include "nameplate_batch.h"
 #include "ui_cache.h"
 #include "api_cache.h"
 #include "lua_fastpath.h"
+#include "lua_vm_cache.h"
+#include "lua_bytecode_cache.h"
+#include "addon_preload.h"
 #include "lua_internals.h"
 
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <atomic>
 #include <psapi.h>
 #include <mimalloc.h>
 #include "MinHook.h"
@@ -79,25 +76,23 @@ typedef double lua_Number;
 
 // Function pointer types.
 
-typedef int         (__cdecl *fn_lua_gc)(lua_State* L, int what, int data);
-typedef int         (__cdecl *fn_lua_gettop)(lua_State* L);
-typedef void        (__cdecl *fn_lua_settop)(lua_State* L, int index);
-typedef lua_Number  (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
-typedef int         (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
-typedef void        (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
+typedef int        (__cdecl *fn_lua_gc)(lua_State* L, int what, int data);
+typedef int        (__cdecl *fn_lua_gettop)(lua_State* L);
+typedef void       (__cdecl *fn_lua_settop)(lua_State* L, int index);
+typedef lua_Number (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
+typedef int        (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
+typedef void       (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
 typedef const char* (__cdecl *fn_lua_pushstring)(lua_State* L, const char* s);
-typedef void        (__cdecl *fn_lua_pushnil)(lua_State* L);
-typedef void        (__cdecl *fn_lua_setfield)(lua_State* L, int index, const char* k);
-typedef void        (__cdecl *fn_lua_getfield)(lua_State* L, int index, const char* k);
-typedef int         (__cdecl *fn_lua_type)(lua_State* L, int index);
-typedef void        (__cdecl *fn_luaS_resize)(lua_State* L, int newsize);
-typedef void        (__cdecl *fn_FrameScript_Execute)(const char* code,
+typedef void       (__cdecl *fn_lua_pushnil)(lua_State* L);
+typedef void       (__cdecl *fn_lua_setfield)(lua_State* L, int index, const char* k);
+typedef void       (__cdecl *fn_lua_getfield)(lua_State* L, int index, const char* k);
+typedef int        (__cdecl *fn_lua_type)(lua_State* L, int index);
+typedef void       (__cdecl *fn_luaS_resize)(lua_State* L, int newsize);
+typedef void       (__cdecl *fn_FrameScript_Execute)(const char* code,
                                                        const char* source,
                                                        int unknown);
 
-// ================================================================
-//  Known Addresses — build 12340 (IDA Pro)
 // ================================================================
 
 namespace Addr {
@@ -117,7 +112,6 @@ namespace Addr {
     static constexpr uintptr_t lua_toboolean       = 0x0084E0B0;
     static constexpr uintptr_t lua_type            = 0x0084DEB0;
 }
-
 
 static struct {
     lua_State*              L = nullptr;
@@ -186,7 +180,11 @@ static int g_lastSyncLoading = -1;
 static lua_State* g_pendingLuaState = nullptr;
 static DWORD g_pendingLuaStateTick = 0;
 static int g_pendingLuaStateFrames = 0;
-static volatile bool g_isReloading = false;
+static bool g_vmInitializedOnce = false;  // v3.7.3: full init only once, subsequent swaps are lightweight
+
+// Thread-safe state flags for worker threads (atomic, no lock needed)
+static std::atomic<bool> g_isReloading{false};
+static std::atomic<bool> g_isSwapping{false};
 
 static double g_smoothedGcMs = 0.5;
 static LARGE_INTEGER g_gcPerfFreq = {};
@@ -195,7 +193,6 @@ static constexpr DWORD LUA_RELOAD_SETTLE_MS_SINGLE = 50;
 static constexpr DWORD LUA_RELOAD_SETTLE_MS_MULTI  = 150;
 static constexpr int   LUA_RELOAD_SETTLE_FRAMES_SINGLE = 2;
 static constexpr int   LUA_RELOAD_SETTLE_FRAMES_MULTI  = 6;
-
 
 static bool IsExecutableMemory(uintptr_t addr) {
     if (addr == 0) return false;
@@ -212,12 +209,11 @@ static bool IsReadableMemory(uintptr_t addr) {
     if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
     if (mbi.State != MEM_COMMIT) return false;
     return (mbi.Protect & PAGE_NOACCESS) == 0 &&
-           (mbi.Protect & PAGE_GUARD) == 0;
+          (mbi.Protect & PAGE_GUARD) == 0;
 }
 
-
 static bool ResolveAddresses() {
-    Log("[LuaOpt] Resolving addresses for build 12340...");
+    Log("[LuaOpt] Resolving addresses...");
 
     int found = 0;
     int failed = 0;
@@ -269,7 +265,6 @@ static bool ResolveAddresses() {
     return true;
 }
 
-
 static lua_State* ReadLuaState() {
     if (!IsReadableMemory(Addr::lua_State_ptr)) return nullptr;
 
@@ -289,19 +284,6 @@ static lua_State* ReadLuaState() {
 // ================================================================
 //  Lua Allocator Replacement — mimalloc for Lua VM
 //
-// WHAT: Replaces WoW's default Lua allocator (0x008558E0, SMemAlloc-based)
-//       with mimalloc by directly modifying global_State->frealloc.
-// WHY:  WoW's default allocator is a pool-based allocator using
-//       SMemAlloc which has significant overhead for Lua's allocation
-//       patterns (many small, short-lived objects).
-// HOW:  1. Reads global_State pointer from lua_State + 0x14
-//       2. Reads current frealloc function pointer (globalState + 0x0C)
-//       3. Verifies it matches expected address (0x008558E0)
-//       4. Writes &MimallocLuaAlloc to globalState + 0x0C
-//       5. MimallocLuaAlloc: routes to mimalloc if ptr is in mimalloc
-//          heap, otherwise migrates from old allocator
-// SAFETY: Validates old/new allocator with test allocs before switching
-// STATUS: Active — all Lua VM allocations go through mimalloc
 // ================================================================
 
 typedef void* (__cdecl *lua_Alloc_fn)(void* ud, void* ptr, size_t osize, size_t nsize);
@@ -382,7 +364,7 @@ static bool ReplaceLuaAllocator(lua_State* L) {
 
         if (currentAlloc != 0x008558E0) {
             Log("[LuaOpt-Alloc] WARNING: frealloc is not 0x008558E0 (got 0x%08X)",
-                (unsigned)currentAlloc);
+               (unsigned)currentAlloc);
             Log("[LuaOpt-Alloc] Unexpected allocator — skipping replacement for safety");
             return false;
         }
@@ -461,7 +443,7 @@ static void RestoreLuaAllocator() {
             *(uintptr_t*)(g_globalStateAddr + 0x0C) = (uintptr_t)g_origLuaAlloc;
             VirtualProtect((void*)(g_globalStateAddr + 0x0C), 4, oldProtect, &oldProtect);
             Log("[LuaOpt-Alloc] Allocator restored to original (0x%08X)",
-                (unsigned)(uintptr_t)g_origLuaAlloc);
+               (unsigned)(uintptr_t)g_origLuaAlloc);
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -498,15 +480,6 @@ static void ResetAllocStats() {
 
 // String table pre-sizer.
 //
-// WHAT: Expands Lua's string hash table from default 32-64 to 32768.
-// WHY:  Lua 5.1 starts with 32-64 buckets. Heavy addon sessions
-//       accumulate 30k-50k strings, causing long hash chains and
-//       rehash freezes. Pre-sizing avoids incremental rehashing.
-// HOW:  1. Reads current string table size from global_State + 0x08
-//       2. If < 32768: calls luaS_resize(L, 32768)
-//       3. Verifies new size matches target
-//       4. 32768 buckets = 128 KB of pointer array (32768 * 4 bytes)
-// STATUS: Active — prevents string table rehash stutter
 
 static constexpr int STRING_TABLE_TARGET_SIZE = 32768;  // 128 KB of pointers
 
@@ -557,28 +530,9 @@ static bool PreSizeStringTable(lua_State* L) {
     }
 }
 
-
 // ================================================================
 //  GC Optimization — 4-tier adaptive stepping
 //
-// WHAT: Tunes Lua's incremental garbage collector for WoW's usage.
-// WHY:  Default Lua GC (pause=200, stepmul=200) causes stutter because:
-//       1. It runs too infrequently → memory spikes → big collects
-//       2. Step size doesn't match frame budget
-// HOW:  1. Sets pause=110, stepmul=300 (more aggressive, smaller steps)
-//       2. Stops auto-GC (LUA_GCSTOP) — we control when GC runs
-//       3. Steps GC every frame from hooked_Sleep via StepGC()
-//       4. 4-tier step size:
-//          - normal:  64 KB/frame (default gameplay)
-//          - combat:  16 KB/frame (reduce GC stutter during combat)
-//          - idle:    128 KB/frame (catch up on garbage when idle)
-//          - loading: 256 KB/frame (aggressive cleanup during loads)
-//       5. Frame-time pre-adjustment: slow frames → halve GC step
-//       6. Adaptive post-GC: smoothed GC time → adjusts base tiers
-//          (>2ms → decrease, <0.6ms → increase)
-//       7. Emergency GC (incremental): if memory >500MB and growing → 1MB GC step (no full collect)
-//          (30 sec cooldown, 10MB growth threshold)
-// STATUS: Active — main GC optimization, called ~60/sec from Sleep hook
 // ================================================================
 static bool OptimizeGC(lua_State* L) {
     if (!Api.lua_gc) return false;
@@ -654,7 +608,6 @@ static int g_loadingGraceFrames = 0;
 
 static void StepGC(lua_State* L, double frameMs) {
     if (!State.gcOptimized || !Api.lua_gc) return;
-
 
     // Skip GC during combat if frame is already slow to prevent compounding stutter
     if (Config.inCombat && frameMs > 14.0) {
@@ -794,7 +747,6 @@ static void StepGC(lua_State* L, double frameMs) {
     }
 }
 
-
 static void WriteLuaGlobal_Bool(lua_State* L, const char* name, bool value) {
     if (!Api.lua_pushboolean || !Api.lua_setfield) return;
     Api.lua_pushboolean(L, value ? 1 : 0);
@@ -886,20 +838,9 @@ static void TryTrimForLoadingScreen(lua_State* L) {
     }
 }
 
-
 // ================================================================
 //  Addon State Reader — reads globals set by !LuaBoost addon
 //
-// WHAT: Reads Lua globals (LUABOOST_ADDON_COMBAT, _IDLE, _LOADING,
-//       _STEP_*) to synchronize DLL behavior with addon state.
-// WHY:  The addon knows combat/idle/loading state better than the DLL
-//       can detect from outside WoW. Dynamic GC step tuning requires
-//       knowing the current game state.
-// HOW:  1. Called every 16 frames (~4-5/sec at 60fps) from OnMainThreadSleep
-//       2. Reads 3 boolean flags + 4 step size overrides
-//       3. Detects mode changes and logs them
-//       4. Skips reading on slow frames (>33ms) to avoid adding overhead
-// STATUS: Active — bidirectional addon/DLL communication
 // ================================================================
 static void ReadAddonStateFromLua(lua_State* L) {
     if (!Api.lua_getfield || !Api.lua_toboolean || !Api.lua_settop) return;
@@ -950,17 +891,16 @@ static void ReadAddonStateFromLua(lua_State* L) {
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-
 static void UpdateLuaStats(lua_State* L) {
     if (!Api.lua_pushnumber || !Api.lua_setfield) return;
 
     __try {
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_KB",      State.luaMemoryKB);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEPS",    (double)State.gcStepsTotal);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_FULLS",    (double)State.fullCollects);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_PAUSE",    (double)Config.gcPause);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEPMUL",  (double)Config.gcStepMul);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEP_KB",  (double)GetCurrentStepKB());
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEPS",   (double)State.gcStepsTotal);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_FULLS",   (double)State.fullCollects);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_PAUSE",   (double)Config.gcPause);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEPMUL", (double)Config.gcStepMul);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEP_KB", (double)GetCurrentStepKB());
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_COMBAT",      Config.inCombat);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_IDLE",        Config.isIdle);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_LOADING",     Config.isLoading);
@@ -971,25 +911,24 @@ static void UpdateLuaStats(lua_State* L) {
 
         UICache::Stats uiStats = UICache::GetStats();
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_UICACHE_SKIPPED", (double)uiStats.skipped);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_UICACHE_PASSED",  (double)uiStats.passed);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_UICACHE_PASSED", (double)uiStats.passed);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_UICACHE_ACTIVE",  uiStats.active);
 
         ApiCache::Stats apiStats = ApiCache::GetStats();
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_ITEM_HITS",   (double)apiStats.itemHits);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_ITEM_HITS",  (double)apiStats.itemHits);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_ITEM_MISSES", (double)apiStats.itemMisses);
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_SPELL_HITS",  (double)apiStats.spellHits);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_SPELL_HITS", (double)apiStats.spellHits);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_APICACHE_SPELL_MISSES",(double)apiStats.spellMisses);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_APICACHE_ACTIVE", apiStats.active);
 
         LuaFastPath::Stats fpStats = LuaFastPath::GetStats();
-        WriteLuaGlobal_Number(L, "LUABOOST_DLL_FASTPATH_HITS",      (double)fpStats.formatFastHits);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_FASTPATH_HITS",     (double)fpStats.formatFastHits);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_FASTPATH_FALLBACKS", (double)fpStats.formatFallbacks);
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_FASTPATH_ACTIVE",    fpStats.active);
  
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
-
 
 static void SetupLuaInterface(lua_State* L) {
     if (!Api.FrameScript_Execute) {
@@ -1082,7 +1021,6 @@ static void SetupLuaInterface(lua_State* L) {
     }
 }
 
-
 static void ProcessGCRequests(lua_State* L) {
     if (!Api.lua_getfield || !Api.lua_type || !Api.lua_tonumber ||
         !Api.lua_pushnil || !Api.lua_setfield || !Api.lua_settop || !Api.lua_gc) {
@@ -1140,22 +1078,21 @@ static void ProcessGCRequests(lua_State* L) {
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
-
 // ================================================================
 // Timing Method Fix — Force QPC & block timingtesterror fallback
 // ================================================================
 #if !TEST_DISABLE_TIMING_FIX
 typedef int (__thiscall* CVar_SetFn)(void* This, const char* value, char a3, char a4, char a5, char a6);
-static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0; // Address from IDA
+static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0;
 
 int __fastcall Hooked_CVar_Set(void* This, void* unused, const char* value, char a3, char a4, char a5, char a6) {
     if (This && value) {
-        const char* name = *(const char**)This; // CVAR name is stored at offset +0
+        const char* name = *(const char**)This;
         if (name) {
             if (_stricmp(name, "timingMethod") == 0) {
-                value = "2"; // Force QPC
+                value = "2";
             } else if (_stricmp(name, "timingTestError") == 0) {
-                value = "0"; // Block fallback
+                value = "0";
             }
         }
     }
@@ -1177,87 +1114,6 @@ void ForceTimingOverride() {
 void ForceTimingOverride() {}
 #endif
 
-// Publish minimal detection surface for !LuaBoost addon compatibility.
-// This ensures the addon detects our DLL even if heavy init fails or is delayed.
-static void PublishDetectionSurface(lua_State* L) {
-    if (!L) return;
-
-    __try {
-        WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
-
-        if (Api.FrameScript_Execute) {
-            Api.FrameScript_Execute(
-                "function LuaBoostC_IsLoaded() return true end",
-                "LuaOpt", 0);
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        // Silent fail to avoid log spam during early startup
-    }
-}
-
-// FrameScript_Execute hook — synchronous lua_State swap detector.
-// Installs a trampoline to detect lua_State changes immediately,
-// ensuring !LuaBoost addon sees the DLL before PLAYER_LOGIN fires.
-static fn_FrameScript_Execute orig_FrameScript_Execute = nullptr;
-static lua_State* g_fsHookLastSeenL = nullptr;
-static bool g_fsHookActive = false;
-
-static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
-    // Safety checks: ensure we have valid input and original function
-    if (!code || !source || !orig_FrameScript_Execute) {
-        return;
-    }
-
-    static thread_local bool s_inHook = false;
-
-    if (!s_inHook) {
-        s_inHook = true;
-        __try {
-            lua_State* curL = ReadLuaState();
-            // Only proceed if we have a valid Lua state that we haven't seen before
-            if (curL && curL != g_fsHookLastSeenL) {
-                // Extra safety: verify the pointer is in readable memory
-                if (IsReadableMemory((uintptr_t)curL)) {
-                    g_fsHookLastSeenL = curL;
-                    PublishDetectionSurface(curL);
-                }
-            }
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            Log("[LuaOpt] EXCEPTION in FrameScript_Execute hook");
-        }
-        s_inHook = false;
-    }
-
-    orig_FrameScript_Execute(code, source, unknown);
-}
-
-static void InstallFrameScriptExecuteHook() {
-    if (g_fsHookActive) return;
-    if (!Api.FrameScript_Execute) {
-        Log("[LuaOpt] FrameScript_Execute hook: skipped (target not resolved)");
-        return;
-    }
-
-    if (MH_CreateHook((void*)Api.FrameScript_Execute,
-                      (void*)Hooked_FrameScript_Execute,
-                      (void**)&orig_FrameScript_Execute) != MH_OK) {
-        Log("[LuaOpt] FrameScript_Execute hook: MH_CreateHook failed");
-        return;
-    }
-
-    if (MH_EnableHook((void*)Api.FrameScript_Execute) != MH_OK) {
-        Log("[LuaOpt] FrameScript_Execute hook: MH_EnableHook failed");
-        return;
-    }
-
-    // Route Api.FrameScript_Execute through the trampoline so our own
-    // PublishDetectionSurface calls invoke the original directly.
-    Api.FrameScript_Execute = orig_FrameScript_Execute;
-
-    g_fsHookActive = true;
-    Log("[LuaOpt] FrameScript_Execute hook: ACTIVE (synchronous lua_State swap detection)");
-}
-
 static void DoMainThreadInit() {
     Log("[LuaOpt] Main thread init");
 
@@ -1272,10 +1128,6 @@ static void DoMainThreadInit() {
     }
 
     Log("[LuaOpt] lua_State* = 0x%08X", (unsigned)(uintptr_t)Api.L);
-
-    // Publish minimal detection surface before heavy init runs.
-    // Makes the !LuaBoost addon's hasDLL() succeed even if a later step faults.
-    PublishDetectionSurface(Api.L);
 
     bool allocOk = ReplaceLuaAllocator(Api.L);
     bool gcOk = OptimizeGC(Api.L);
@@ -1320,10 +1172,6 @@ static void DoMainThreadInit() {
     Log("[LuaOpt]      idle    = %d", Config.idleStepKB);
     Log("[LuaOpt]      loading = %d", Config.loadingStepKB);
     Log("[LuaOpt] ====================================");
-
-    // Install FrameScript_Execute hook for synchronous lua_State swap detection.
-    // This ensures !LuaBoost addon sees the DLL even during fast logins or /reload.
-    InstallFrameScriptExecuteHook();
 }
 
 namespace LuaOpt {
@@ -1331,7 +1179,6 @@ namespace LuaOpt {
 bool PrepareFromWorkerThread() {
     Log("[LuaOpt] ====================================");
     Log("[LuaOpt]  Lua VM Optimizer — Preparing");
-    Log("[LuaOpt]  Build 12340 (IDA Pro addresses)");
     Log("[LuaOpt] ====================================");
 
     if (!ResolveAddresses()) {
@@ -1389,28 +1236,13 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaState = currentL;
             g_pendingLuaStateTick = nowTick;
             g_pendingLuaStateFrames = 1;
-            g_isReloading = true; // Signal worker threads to pause
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
-
-            // CRITICAL: Clear all async queues to discard stale data from previous lua_State.
-            // This prevents "white screen" issues where workers try to render invalid resources.
-            CombatLogMT::ClearQueues();
-            TextureAsync::ClearQueues();
-            AddonDispatcher::ClearQueues();
-            MPQPrefetch::ClearQueues();
-            NameplateMT::ClearQueues();
-
-            // Reset state flags immediately to prevent stale state during transition
-            Config.inCombat = false;
-            Config.isIdle = false;
-            Config.isLoading = false;
-            g_loadingGraceFrames = 0;
             return;
         }
 
         g_pendingLuaStateFrames++;
         if (g_pendingLuaStateFrames < settleFrames ||
-            (DWORD)(nowTick - g_pendingLuaStateTick) < settleMs) {
+           (DWORD)(nowTick - g_pendingLuaStateTick) < settleMs) {
             return;
         }
 
@@ -1418,10 +1250,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateTick = 0;
         g_pendingLuaStateFrames = 0;
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
-
-        // CRITICAL: Wait for worker threads to observe g_isReloading and pause.
-        // This prevents them from accessing the old lua_State while we tear it down.
-        Sleep(5); 
     } else if (g_pendingLuaState) {
         g_pendingLuaState = nullptr;
         g_pendingLuaStateTick = 0;
@@ -1431,39 +1259,69 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     // v3.5.11 debounce logic removed: causes ACCESS_VIOLATION with overlay hooks
     // that expect immediate lua_State availability during UI transitions.
     if (currentL != Api.L) {
-        Log("[LuaOpt] lua_State changed (UI reload) — reinitializing");
+        Log("[LuaOpt] lua_State changed (UI reload) — updating pointer");
 
-        if (g_luaAllocReplaced) {
-            LogLuaAllocStats();
+        // v3.7.3: full init only once. Re-initializing on every UI reload
+        // causes heap corruption and #132 crashes from stale pointers in hooks.
+        if (!g_vmInitializedOnce) {
+            Log("[LuaOpt] First-time VM initialization");
+            g_vmInitializedOnce = true;
+
+            if (g_luaAllocReplaced) {
+                LogLuaAllocStats();
+            }
+            ResetAllocStats();
+
+            Api.L = currentL;
+            State.gcOptimized = false;
+            State.gcStepsTotal = 0;
+            State.fullCollects = 0;
+            State.statsUpdateCounter = 0;
+            State.lastModeName = "unknown";
+            Config.inCombat = false;
+            Config.isIdle = false;
+            Config.isLoading = false;
+            g_loadingGraceFrames = 0;
+
+            UICache::ClearCache();
+            ApiCache::ClearCache();
+            ClearLuaOptCaches();
+            if (g_isMultiClient) {
+                mi_collect(true);
+            }
+            ReplaceLuaAllocator(Api.L);
+            OptimizeGC(Api.L);
+            PreSizeStringTable(Api.L);
+            LuaInternals::InvalidateCache();
+            LuaFastPath::InvalidateWoWCache();
+            ClearTableCache();
+            LuaBytecodeCache::OnLuaStateSwap();
+            ClearAddonPreload();
+            SetupLuaInterface(Api.L);
+        } else {
+            // Subsequent swap: clear caches + re-setup interface only.
+            // Skip ReplaceLuaAllocator/OptimizeGC/PreSizeStringTable — they
+            // caused heap corruption on re-init in earlier versions.
+            Api.L = currentL;
+            State.gcOptimized = false;
+            State.gcStepsTotal = 0;
+            State.lastModeName = "unknown";
+            Config.inCombat = false;
+            Config.isIdle = false;
+            Config.isLoading = false;
+            g_loadingGraceFrames = 0;
+
+            UICache::ClearCache();
+            ApiCache::ClearCache();
+            ClearLuaOptCaches();
+            LuaInternals::InvalidateCache();
+            LuaFastPath::InvalidateWoWCache();
+            ClearTableCache();
+            LuaBytecodeCache::OnLuaStateSwap();
+            ClearAddonPreload();
+            SetupLuaInterface(Api.L);
+            Log("[LuaOpt] Subsequent swap — caches cleared, interface re-setup");
         }
-        ResetAllocStats();
-
-        Api.L = currentL;
-        State.gcOptimized = false;
-        State.gcStepsTotal = 0;
-        State.fullCollects = 0;
-        State.statsUpdateCounter = 0;
-        State.lastModeName = "unknown";
-        Config.inCombat = false;
-        Config.isIdle = false;
-        Config.isLoading = false;
-        g_loadingGraceFrames = 0;
-
-        UICache::ClearCache();
-        ApiCache::ClearCache();
-        ClearLuaOptCaches();
-        if (g_isMultiClient) {
-            mi_collect(true);
-        }
-        ReplaceLuaAllocator(Api.L);
-        OptimizeGC(Api.L);
-        PreSizeStringTable(Api.L);
-        LuaInternals::InvalidateCache();
-        LuaFastPath::InvalidateWoWCache();
-        SetupLuaInterface(Api.L);
-
-        g_isReloading = false; // Reload complete, worker threads can resume
-
         g_addonReadCounter = 0;
         g_gcRequestCounter = 0;
         g_lastSyncNormal = -1;
@@ -1473,7 +1331,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_smoothedGcMs = 0.5;
         return;
     }
-
 
     // Read addon state more aggressively on slow/high-memory frames so
     // loading-mode protections engage before zone-transition allocations spike.
@@ -1572,8 +1429,13 @@ bool LuaOpt::IsLoadingMode() {
     return Config.isLoading;
 }
 
-bool LuaOpt::IsReloading() {
-    return g_isReloading;
+bool IsReloading() { return g_isReloading.load(std::memory_order_acquire); }
+bool IsSwapping()  { return g_isSwapping.load(std::memory_order_acquire); }
+
+void RestoreAllocator() {
+    if (g_luaAllocReplaced) {
+        RestoreLuaAllocator();
+    }
 }
 
 } // namespace LuaOpt

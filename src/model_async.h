@@ -1,6 +1,5 @@
 // ================================================================
 // Async Model/M2 Loader — Header
-// WoW 3.3.5a build 12340
 // ================================================================
 
 #pragma once
@@ -21,7 +20,6 @@ struct Stats {
 
 bool Init();
 void Shutdown();
-void ClearQueues();
 void OnFrame(DWORD mainThreadId);
 Stats GetStats();
 

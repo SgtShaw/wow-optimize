@@ -1,15 +1,6 @@
 // ================================================================
 // UI Frame Update Batching — Batch OnUpdate callbacks per frame
 //
-// WHAT: Reduces overhead from frame update processing by optimizing the call path
-// WHY:  The frame update loop (sub_4800F0) calls sub_47FF10 repeatedly while
-//       dword_B41834 is set. Each call has setup/teardown overhead. By hooking
-//       the loop, we can optimize the batch processing of all pending updates.
-// HOW:  1. Hook the frame update loop at 0x004800F0
-//       2. Let it process all pending updates in one go
-//       3. Track statistics to measure effectiveness
-//       4. Reduce context switching and improve cache locality
-// STATUS: ACTIVE - Address discovered and hooked
 // ================================================================
 
 #include <windows.h>

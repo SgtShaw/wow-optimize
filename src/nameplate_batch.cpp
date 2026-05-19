@@ -1,6 +1,5 @@
 // ================================================================
 // Multithreaded Nameplate Renderer — Implementation
-// WoW 3.3.5a build 12340
 // ================================================================
 
 #include "nameplate_batch.h"
@@ -47,9 +46,8 @@ static volatile LONG g_maxOutputQueueDepth = 0;
 // ================================================================
 // Lock-Free Queues (4096 entries each, ring buffer)
 // ================================================================
-// WO_KEEP_BSS: see version.h — keeps clang-cl from putting these in .rdata.
-WO_KEEP_BSS static NameplateMT::NameplateTask   g_inputQueue [QUEUE_SIZE] = {};
-WO_KEEP_BSS static NameplateMT::NameplateResult g_outputQueue[QUEUE_SIZE] = {};
+static NameplateMT::NameplateTask g_inputQueue[QUEUE_SIZE] = {};
+static NameplateMT::NameplateResult g_outputQueue[QUEUE_SIZE] = {};
 static volatile LONG g_inputHead = 0;  // Consumer index (worker threads)
 static volatile LONG g_inputTail = 0;  // Producer index (main thread)
 static volatile LONG g_outputHead = 0; // Consumer index (main thread)
@@ -323,11 +321,7 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
     Log("[NameplateMT] Worker thread %d started (TID: %d)", workerIndex, GetCurrentThreadId());
 
     while (!g_workerShutdown) {
-        // Pause during UI reload to prevent accessing stale lua_State
-        if (LuaOpt::IsReloading()) {
-            Sleep(1);
-            continue;
-        }
+        if (LuaOpt::IsReloading()) { Sleep(10); continue; }
 
         // Wait for work or timeout (100ms to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 100);
@@ -384,7 +378,7 @@ bool Init() {
     return false;
     #endif
 
-    Log("[NameplateMT] Init (build 12340)");
+    Log("[NameplateMT] Init ");
 
     // Initialize QPC frequency for time measurements
     QueryPerformanceFrequency(&g_qpcFreq);
@@ -459,28 +453,6 @@ void Shutdown() {
         g_tasksQueued, g_tasksProcessed, g_tasksDropped, g_resultsProcessed);
 
     g_initialized = false;
-}
-
-void ClearQueues() {
-    if (!g_initialized) return;
-
-    // Reset queue indices to clear all pending tasks and results
-    InterlockedExchange(&g_inputHead, 0);
-    InterlockedExchange(&g_inputTail, 0);
-    InterlockedExchange(&g_outputHead, 0);
-    InterlockedExchange(&g_outputTail, 0);
-
-    // Zero out queue contents
-    memset(g_inputQueue, 0, sizeof(g_inputQueue));
-    memset(g_outputQueue, 0, sizeof(g_outputQueue));
-
-    // Reset stats counters
-    InterlockedExchange(&g_tasksQueued, 0);
-    InterlockedExchange(&g_tasksProcessed, 0);
-    InterlockedExchange(&g_tasksDropped, 0);
-    InterlockedExchange(&g_resultsProcessed, 0);
-
-    Log("[NameplateMT] Queues cleared (UI reload / character switch)");
 }
 
 void OnFrame(DWORD mainThreadId) {

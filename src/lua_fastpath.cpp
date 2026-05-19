@@ -1,32 +1,6 @@
 // ================================================================
 // Lua Fast Path — Direct C function hooks for WoW's Lua 5.1 VM
-// Build 12340 (IDA Pro verified addresses)
 //
-// WHAT: Hooks 28+ Lua C library functions with optimized replacements.
-// WHY:  WoW addons call these functions thousands of times per second.
-//       The original Lua implementations have generic overhead that
-//       is unnecessary for the common cases WoW actually uses.
-//
-// ARCHITECTURE:
-//   Phase 1: string.format hook (hardcoded address 0x00853C50)
-//     - Installed during DLL init via LuaFastPath::Init()
-//     - Bypasses Lua's generic format parser for common patterns
-//
-//   Phase 2: Runtime discovery + hook of other Lua functions
-//     - Installed after Lua state is ready via InitPhase2(L)
-//     - Calibrates stack layout by probing string.format closure
-//     - Reads C function pointers from Lua stack slots
-//     - Hooks: string.find, string.match, type, math.floor/ceil/abs/max/min,
-//              string.len, string.byte, tostring, tonumber, next, rawget,
-//              rawset, table.insert, table.remove, table.concat, unpack,
-//              select, rawequal, string.sub, string.lower, string.upper
-//
-// SAFETY:
-//   - All hooks have __try/__except guards
-//   - Type checks before fast path
-//   - Length/bounds checks for strings
-//   - Embedded NUL detection (lua_pushstring uses strlen)
-//   - Falls back to original function on any anomaly
 // ================================================================
 
 #include "lua_fastpath.h"
@@ -43,7 +17,6 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// Lua types and API — known addresses build 12340.
 // These are direct function pointers into WoW's Lua 5.1 VM.
 // ================================================================
 
@@ -51,22 +24,22 @@ typedef double lua_Number;
 typedef int (__cdecl *lua_CFunction_t)(lua_State* L);
 
 typedef const char* (__cdecl *fn_lua_tolstring)(lua_State* L, int index, size_t* len);
-typedef lua_Number  (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
-typedef int         (__cdecl *fn_lua_gettop)(lua_State* L);
-typedef int         (__cdecl *fn_lua_type)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
-typedef void        (__cdecl *fn_lua_pushstring)(lua_State* L, const char* s);
-typedef void        (__cdecl *fn_lua_pushnil)(lua_State* L);
-typedef int         (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_settop)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_getfield)(lua_State* L, int index, const char* k);
-typedef void        (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
-typedef void        (__cdecl *fn_lua_pushcclosure)(lua_State* L, int (*fn)(lua_State*), int n);
-typedef void        (__cdecl *fn_lua_replace)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_insert)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_remove)(lua_State* L, int index);
+typedef lua_Number (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
+typedef int        (__cdecl *fn_lua_gettop)(lua_State* L);
+typedef int        (__cdecl *fn_lua_type)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
+typedef void       (__cdecl *fn_lua_pushstring)(lua_State* L, const char* s);
+typedef void       (__cdecl *fn_lua_pushnil)(lua_State* L);
+typedef int        (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_settop)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_getfield)(lua_State* L, int index, const char* k);
+typedef void       (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
+typedef void       (__cdecl *fn_lua_pushcclosure)(lua_State* L, int (*fn)(lua_State*), int n);
+typedef void       (__cdecl *fn_lua_replace)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_insert)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_remove)(lua_State* L, int index);
 typedef const void* (__cdecl *fn_lua_topointer)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_pushvalue)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_pushvalue)(lua_State* L, int index);
 
 static fn_lua_tolstring   lua_tolstring_   = (fn_lua_tolstring)0x0084E0E0;
 static fn_lua_tonumber    lua_tonumber_    = (fn_lua_tonumber)0x0084E030;
@@ -92,8 +65,8 @@ typedef void* (__cdecl *fn_luaH_getstr)(void* t, void* key);
 typedef void* (__cdecl *fn_luaH_set)(lua_State* L, void* t, const void* key);
 typedef void* (__cdecl *fn_luaH_setnum)(lua_State* L, void* t, int key);
 typedef unsigned int (__cdecl *fn_luaH_getn)(void* t);
-typedef void  (__cdecl *fn_table_barrier)(lua_State* L, void* t);
-typedef int   (__cdecl *fn_lua_next_helper)(lua_State* L, void* t, void* keyslot);
+typedef void (__cdecl *fn_table_barrier)(lua_State* L, void* t);
+typedef int  (__cdecl *fn_lua_next_helper)(lua_State* L, void* t, void* keyslot);
 
 static fn_luaH_get        luaH_get_        = (fn_luaH_get)0x0085C470;
 static fn_luaH_getnum     luaH_getnum_     = (fn_luaH_getnum)0x0085C3A0;
@@ -154,16 +127,6 @@ static inline double ReadRawNumber(const RawTValue* tv) {
 // ================================================================
 // Phase 1: string.format hook (hardcoded address 0x00853C50).
 //
-// WHAT: Optimized replacement for Lua's string.format C function.
-// WHY:  string.format is called frequently by addons for string
-//       construction. Lua's original uses a full format parser with
-//       significant overhead for common simple patterns.
-// HOW:  1. Ultra-fast paths: "%d", "%s", "%.Nf" (single arg)
-//       2. No-specifier check: returns format string as-is
-//       3. Generic parser: handles %d/%u/%x/%X/%o/%f/%e/%g/%c/%s
-//       4. Safety: embedded NUL check, length limits, arg count check
-//       5. Falls back to original on any unsupported pattern
-// STATUS: Active — installed during DLL init
 // ================================================================
 
 static constexpr uintptr_t ADDR_str_format = 0x00853C50;
@@ -214,7 +177,6 @@ static lua_CFunction_t orig_luaB_select = nullptr;
 static long g_selectHits       = 0;
 static long g_selectFallbacks  = 0;
 
-// New Phase 2+ hooks (addresses confirmed via IDA Pro, build 12340)
 static lua_CFunction_t orig_math_random = nullptr;
 static long g_mathRandomHits       = 0;
 static long g_mathRandomFallbacks  = 0;
@@ -441,44 +403,6 @@ fallback:
 // ================================================================
 // Phase 2: runtime-discovered Lua function hooks.
 //
-// WHAT: Dynamically discovers and hooks additional Lua C functions
-//       at runtime (not hardcoded except string.format).
-// WHY:  Lua library functions (string.find, math.floor, etc.) have
-//       addresses that can vary between builds. Discovery makes this
-//       robust by finding them through the Lua VM's own stack.
-// HOW:  1. CalibrateStackLayout: probes string.format closure on the
-//          stack to determine base offset, TValue size, closure.f offset
-//       2. DiscoverFunc: reads C function pointer from stack slot
-//       3. Creates MinHook for each discovered function
-//       4. All hooks use direct TValue manipulation (no Lua API calls)
-//          for maximum speed — reading/writing stack slots directly
-//
-// HOOKED FUNCTIONS (Phase 2):
-//   - string.find:     plain literal search (memchr/memcmp)
-//   - string.match:    anchored literal, class match, plain literal
-//   - type:            array lookup (no API call)
-//   - math.floor:      CRT floor()
-//   - math.ceil:       CRT ceil()
-//   - math.abs:        CRT fabs()
-//   - math.max/min:    inline comparison (2 args)
-//   - string.len:      strlen from TValue
-//   - string.byte:     single byte extraction
-//   - tostring:        inline type-to-string conversion
-//   - tonumber:        identity for already-numeric values
-//   - next:            direct luaH_next_helper call
-//   - rawget:          direct luaH_getstr/getnum/get call
-//   - rawset:          direct luaH_set call
-//   - table.insert:    append to array portion via luaH_setnum
-//   - table.remove:    remove last element via luaH_getnum/setnum
-//   - table.concat:    pre-validated string join
-//   - unpack:          direct array extraction to stack
-//   - select:          "#" special case + index arithmetic
-//   - rawequal:        direct TValue comparison
-//   - string.sub:      substring with Lua index rules
-//   - string.lower:    ASCII lowercase (inline)
-//   - string.upper:    ASCII uppercase (inline)
-//
-// STATUS: Active — installed after Lua state ready (InitPhase2)
 // ================================================================
 
 static bool IsReadableMemory(uintptr_t addr) {
@@ -631,7 +555,7 @@ static bool MatchAsciiClass(unsigned char c, char cls) {
         case 'd': return (c >= '0' && c <= '9');
         case 'a': return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
         case 'w': return ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-                          (c >= '0' && c <= '9') || c == '_');
+                         (c >= '0' && c <= '9') || c == '_');
         case 'l': return (c >= 'a' && c <= 'z');
         case 'u': return (c >= 'A' && c <= 'Z');
         case 's': return (c == ' ' || c == '\t' || c == '\r' || c == '\n' ||
@@ -1318,8 +1242,8 @@ static int __cdecl Hooked_RawSet_Global(lua_State* L) {
             uintptr_t tableGc = (uintptr_t)tablePtr;
 
             if (valueGc &&
-                ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
-                ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
+               ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
+               ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
                 table_barrier_(L, tablePtr);
             }
         }
@@ -1468,8 +1392,8 @@ static int __cdecl Hooked_TableInsert(lua_State* L) {
             uintptr_t tableGc = (uintptr_t)tablePtr;
 
             if (valueGc &&
-                ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
-                ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
+               ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
+               ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
                 table_barrier_(L, tablePtr);
             }
         }
@@ -1856,10 +1780,7 @@ fallback:
 
 // ================================================================
 // Hooked_Math_Random — math.random fast path
-// WHAT: CRT rand() call without Lua VM overhead.
-// WHY:  math.random called frequently for UI randomization.
-// HOW:  0 args: [0,1), 1 arg: [1,n], 2 args: [m,n]
-// STATUS: Active — installed in Phase 2
+// CRT rand() call without Lua VM overhead.
 // ================================================================
 
 static int __cdecl Hooked_Math_Random(lua_State* L) {
@@ -1902,10 +1823,7 @@ static int __cdecl Hooked_Math_Random(lua_State* L) {
 
 // ================================================================
 // Hooked_Math_Sqrt — math.sqrt fast path
-// WHAT: CRT sqrt() call without Lua VM overhead.
-// WHY:  math.sqrt called frequently for distance calculations.
-// HOW:  1 number arg -> sqrt(), else fallback.
-// STATUS: Active — installed in Phase 2
+// CRT sqrt() call without Lua VM overhead.
 // ================================================================
 
 static int __cdecl Hooked_Math_Sqrt(lua_State* L) {
@@ -1921,11 +1839,7 @@ static int __cdecl Hooked_Math_Sqrt(lua_State* L) {
 
 // ================================================================
 // Hooked_StrRep — string.rep fast path
-// WHAT: Repeat string N times without Lua VM overhead.
-// WHY:  string.rep called in UI formatting loops.
-// HOW:  2 args (string, count) -> inline memcpy loop.
-//       Safety: length limits, count limits, embedded NUL check.
-// STATUS: Active — installed in Phase 2
+// Repeat string N times without Lua VM overhead.
 // ================================================================
 
 static int __cdecl Hooked_StrRep(lua_State* L) {
@@ -1968,11 +1882,7 @@ static int __cdecl Hooked_StrRep(lua_State* L) {
 
 // ================================================================
 // Hooked_IPairs_Factory — ipairs() factory fast path
-// WHAT: Optimized ipairs() factory that returns our fast iterator.
-// WHY:  ipairs() is called thousands of times per frame by every addon.
-// HOW:  Phase 1: Just intercept and count (safe passthrough).
-//       Phase 2: Return custom iterator closure with upvalues.
-// STATUS: Active — factory hook only (iterator optimization TBD)
+// Optimized ipairs() factory that returns our fast iterator.
 // ================================================================
 
 static int __cdecl Hooked_IPairs_Factory(lua_State* L) {
@@ -2008,11 +1918,7 @@ static int __cdecl Hooked_IPairs_Factory(lua_State* L) {
 
 // ================================================================
 // Hooked_IPairs_Iterator — ipairs iterator fast path
-// WHAT: Fast numeric table iteration via luaH_getnum (bypasses lua_gettable).
-// WHY:  ipairs iterator called thousands of times per frame.
-// HOW:  Uses upvalues: [1]=table, [2]=current_index.
-//       Direct luaH_getnum instead of lua_gettable.
-// STATUS: Active — used by Hooked_IPairs_Factory closure
+// Fast numeric table iteration via luaH_getnum (bypasses lua_gettable).
 // ================================================================
 
 static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
@@ -2075,11 +1981,7 @@ static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
 
 // ================================================================
 // Hooked_StrFind_Full — string.find with pattern matching
-// WHAT: Full string.find with Lua pattern support (not just plain mode).
-// WHY:  Pattern-based find is called frequently for complex searches.
-// HOW:  Falls back to original for any pattern with magic chars.
-//       Ultra-fast path for simple anchored patterns: "^literal"
-// STATUS: Active — installed in Phase 2
+// Full string.find with Lua pattern support (not just plain mode).
 // ================================================================
 
 static int __cdecl Hooked_StrFind_Full(lua_State* L) {
@@ -2168,7 +2070,6 @@ static lua_CFunction_t orig_UnitHealthMax   = nullptr;
 static lua_CFunction_t orig_UnitPower       = nullptr;
 static lua_CFunction_t orig_UnitPowerMax    = nullptr;
 
-
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
 static int __cdecl Hooked_TableSort(lua_State* L) {
     __try {
@@ -2225,50 +2126,50 @@ fallback:
 #endif // !TEST_DISABLE_TABLE_SORT_FASTPATH
 
 static FuncHookEntry g_funcHooks[] = {
-    {"string", "find",      (void*)Hooked_StrFind,          &orig_str_find,         0, false},
-    {"string", "match",     (void*)Hooked_StrMatch,         &orig_str_match,        0, false},
-    {nullptr,  "type",      (void*)Hooked_Type,             &orig_luaB_type,        0, false},
-    {"math",   "floor",     (void*)Hooked_MathFloor,        &orig_math_floor,       0, false},
-    {"math",   "ceil",      (void*)Hooked_MathCeil,         &orig_math_ceil,        0, false},
-    {"math",   "abs",       (void*)Hooked_MathAbs,          &orig_math_abs,         0, false},
-    {"math",   "max",       (void*)Hooked_MathMax,          &orig_math_max,         0, false},
-    {"math",   "min",       (void*)Hooked_MathMin,          &orig_math_min,         0, false},
-    {"string", "len",       (void*)Hooked_StrLen,           &orig_str_len,          0, false},
-    {"string", "byte",      (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
-    {nullptr,  "tostring",  (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
-    {nullptr,  "tonumber",  (void*)Hooked_ToNumber_Global,  &orig_luaB_tonumber,    0, false},
-    {nullptr,  "next",      (void*)Hooked_Next_Global,      &orig_luaB_next,        0, false},
-    {nullptr,  "rawget",    (void*)Hooked_RawGet_Global,    &orig_luaB_rawget,      0, false},
-    {nullptr,  "rawset",    (void*)Hooked_RawSet_Global,    &orig_luaB_rawset,      0, false},
-    {"table",  "insert",    (void*)Hooked_TableInsert,      &orig_tbl_insert,       0, false},
-    {"table",  "remove",    (void*)Hooked_TableRemove,      &orig_tbl_remove,       0, false},
-    {"table",  "concat",    (void*)Hooked_TableConcat,      &orig_tbl_concat,         0, false},
-    {nullptr,  "unpack",    (void*)Hooked_Unpack,           &orig_luaB_unpack,        0, false},
-    {nullptr,  "select",    (void*)Hooked_Select,           &orig_luaB_select,        0, false},
-    {nullptr,  "rawequal",  (void*)Hooked_RawEqual,         &orig_luaB_rawequal,      0, false},
-    {"string", "sub",       (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
-    {"string", "lower",     (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
-    {"string", "upper",     (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
+    {"string", "find",     (void*)Hooked_StrFind,          &orig_str_find,         0, false},
+    {"string", "match",    (void*)Hooked_StrMatch,         &orig_str_match,        0, false},
+    {nullptr,  "type",     (void*)Hooked_Type,             &orig_luaB_type,        0, false},
+    {"math",   "floor",    (void*)Hooked_MathFloor,        &orig_math_floor,       0, false},
+    {"math",   "ceil",     (void*)Hooked_MathCeil,         &orig_math_ceil,        0, false},
+    {"math",   "abs",      (void*)Hooked_MathAbs,          &orig_math_abs,         0, false},
+    {"math",   "max",      (void*)Hooked_MathMax,          &orig_math_max,         0, false},
+    {"math",   "min",      (void*)Hooked_MathMin,          &orig_math_min,         0, false},
+    {"string", "len",      (void*)Hooked_StrLen,           &orig_str_len,          0, false},
+    {"string", "byte",     (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
+    {nullptr,  "tostring", (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
+    {nullptr,  "tonumber", (void*)Hooked_ToNumber_Global,  &orig_luaB_tonumber,    0, false},
+    {nullptr,  "next",     (void*)Hooked_Next_Global,      &orig_luaB_next,        0, false},
+    {nullptr,  "rawget",   (void*)Hooked_RawGet_Global,    &orig_luaB_rawget,      0, false},
+    {nullptr,  "rawset",   (void*)Hooked_RawSet_Global,    &orig_luaB_rawset,      0, false},
+    {"table",  "insert",   (void*)Hooked_TableInsert,      &orig_tbl_insert,       0, false},
+    {"table",  "remove",   (void*)Hooked_TableRemove,      &orig_tbl_remove,       0, false},
+    {"table",  "concat",   (void*)Hooked_TableConcat,      &orig_tbl_concat,         0, false},
+    {nullptr,  "unpack",   (void*)Hooked_Unpack,           &orig_luaB_unpack,        0, false},
+    {nullptr,  "select",   (void*)Hooked_Select,           &orig_luaB_select,        0, false},
+    {nullptr,  "rawequal", (void*)Hooked_RawEqual,         &orig_luaB_rawequal,      0, false},
+    {"string", "sub",      (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
+    {"string", "lower",    (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
+    {"string", "upper",    (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
     {nullptr, "sort", (void*)Hooked_TableSort, &orig_table_sort, 0x00851E00, false},
 #endif    
 #if !TEST_DISABLE_UNIT_API_FASTPATH
-    {nullptr, "UnitHealth",    (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
+    {nullptr, "UnitHealth",   (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
     {nullptr, "UnitHealthMax", (void*)Hooked_UnitHealthMax, &orig_UnitHealthMax, 0x0060EC60, false},
-    {nullptr, "UnitPower",     (void*)Hooked_UnitPower,     &orig_UnitPower,     0x0060ED40, false},
-    {nullptr, "UnitPowerMax",  (void*)Hooked_UnitPowerMax,  &orig_UnitPowerMax,  0x0060EF40, false},
+    {nullptr, "UnitPower",    (void*)Hooked_UnitPower,     &orig_UnitPower,     0x0060ED40, false},
+    {nullptr, "UnitPowerMax", (void*)Hooked_UnitPowerMax,  &orig_UnitPowerMax,  0x0060EF40, false},
 #endif    
 #if !TEST_DISABLE_HOOK_MATH_RANDOM
-    {"math",   "random",    (void*)Hooked_Math_Random,      &orig_math_random,      0x00851100, false},
+    {"math",   "random",   (void*)Hooked_Math_Random,      &orig_math_random,      0x00851100, false},
 #endif
 #if !TEST_DISABLE_HOOK_MATH_SQRT
-    {"math",   "sqrt",      (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0x00851360, false},
+    {"math",   "sqrt",     (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0x00851360, false},
 #endif
 #if !TEST_DISABLE_HOOK_STRING_REP
-    {"string", "rep",       (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
+    {"string", "rep",      (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
 #endif
 #if !TEST_DISABLE_HOOK_IPAIRS
-    {nullptr,  "ipairs",    (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
+    {nullptr,  "ipairs",   (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
 #endif
 };
 
@@ -2283,17 +2184,6 @@ static constexpr int NUM_FUNC_HOOKS = 0;
 
 // ================================================================
 // Unit API Fast Paths — Direct CGUnit_C field reads
-// WHAT: Bypasses GUID resolution, flag checks, and Lua API overhead
-//       for UnitHealth/MaxHealth/Power/MaxPower.
-// WHY:  Called 10k-50k times/sec by nameplates, raid frames, and
-//       combat addons. Direct m_values read saves ~150-300ns/call.
-// HOW:  1. Read unit string directly from Lua stack
-//       2. Call internal unit resolver (sub_4D4DB0)
-//       3. Validate CGUnit_C* pointer + m_values range
-//       4. Read m_values[UNIT_FIELD_*] directly
-//       5. Push to stack via TValue* write
-//       6. Full SEH wrapper + fallback to original
-// STATUS: Test build — gated by TEST_DISABLE_UNIT_API_FASTPATH
 // ================================================================
 
 // ================================================================
@@ -2310,10 +2200,11 @@ static fn_ResolveUnit     orig_ResolveUnit     = (fn_ResolveUnit)0x004D4DB0;
 
 static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
 
-static constexpr int UNIT_FIELD_HEALTH      = 18; // 0x48
-static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // 0x68
-static constexpr int UNIT_FIELD_POWER1      = 19; // 0x4C
-static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // 0x6C
+// IDA-verified: m_values[0x124] for UnitHealth (index 73, not 18)
+static constexpr int UNIT_FIELD_HEALTH      = 73; // 0x124/4
+static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // TODO: verify via IDA
+static constexpr int UNIT_FIELD_POWER1      = 19; // TODO: verify via IDA
+static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // TODO: verify via IDA
 
 static long g_unitHealthHits = 0;
 static long g_unitHealthFallbacks = 0;
@@ -2521,12 +2412,11 @@ namespace LuaFastPath {
 bool Init() {
     Log("[FastPath] ====================================");
     Log("[FastPath]  Lua Fast Path — Phase 1");
-    Log("[FastPath]  Build 12340");
     Log("[FastPath] ====================================");
 
     __try {
         MH_STATUS s = MH_CreateHook((void*)ADDR_str_format, (void*)Hooked_StrFormat,
-                                     (void**)&orig_str_format);
+                                    (void**)&orig_str_format);
         if (s != MH_OK) {
             Log("[FastPath]   string.format MH_CreateHook failed (%d)", (int)s);
             return false;
@@ -2551,7 +2441,7 @@ bool Init() {
 
 bool InitPhase2(lua_State* L) {
 #if TEST_DISABLE_ALL_PHASE2
-    (void)L;
+   (void)L;
     Log("[FastPath] Phase 2: DISABLED (production — permanently)");
     return false;
 #else
@@ -2720,7 +2610,7 @@ void Shutdown() {
     if (fmtTotal > 0) {
         Log("[FastPath] Format: %ld fast, %ld fallback (%.1f%%)",
             g_formatFastHits, g_formatFallbacks,
-            (double)g_formatFastHits / fmtTotal * 100.0);
+           (double)g_formatFastHits / fmtTotal * 100.0);
     }
     if (g_findPlainHits > 0 || g_findFallbacks > 0)
         Log("[FastPath] Find(plain): %ld fast, %ld fallback", g_findPlainHits, g_findFallbacks);
@@ -2783,7 +2673,7 @@ void Shutdown() {
 // ================================================================
 
 bool InitWoWHooks(lua_State* L) {
-    (void)L;
+   (void)L;
     Log("[FastPath]  Phase 3 [ SKIP ] — WoW C-level API hooks disabled");
     return false;
 }

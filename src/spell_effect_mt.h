@@ -1,24 +1,5 @@
 // ================================================================
 // Multithreaded Spell Effect Renderer — Header
-// WoW 3.3.5a build 12340
-//
-// WHAT: Offloads spell visual effect rendering to worker threads
-//       to eliminate FPS drops in raids with hundreds of effects.
-//
-// WHY:  In 25-man raids, spell effect rendering causes FPS drops
-//       from 60 to 20-30 FPS due to synchronous main thread processing.
-//
-// HOW:  1. Hook spell effect rendering function (IDA Pro analysis)
-//       2. Queue effect requests to lock-free ring buffer (8192 entries)
-//       3. Worker threads (4 threads) render effects in parallel
-//       4. Main thread applies rendered results during OnFrame()
-//       5. LRU cache (4096 entries) accelerates common effects
-//
-// PERFORMANCE TARGETS:
-//   - 40-60% main thread CPU reduction in raids
-//   - FPS improvement from 20-30 to 45-55 in heavy combat
-//   - Queue utilization <50%
-//   - Cache hit rate >70%
 //
 // ================================================================
 

@@ -1,17 +1,7 @@
 #pragma once
 // ================================================================
-// Multithreaded Addon Update Dispatcher for wow_optimize.dll — build 12340
+// Multithreaded Addon Update Dispatcher
 // 
-// WHAT: Batches and parallelizes addon OnUpdate callbacks across
-//       worker threads to reduce main thread CPU overhead.
-// WHY:  Addons like DBM, Skada, WeakAuras run expensive OnUpdate
-//       callbacks every frame, consuming 40-50% of main thread CPU.
-// HOW:  1. Hook addon OnUpdate registration
-//       2. Collect OnUpdate callbacks during frame
-//       3. Dispatch callbacks to worker thread pool
-//       4. Sync results back to main thread
-//       5. Execute Lua callbacks in parallel
-// STATUS: Colossal-scale optimization
 // ================================================================
 
 #ifndef ADDON_DISPATCHER_H
@@ -38,9 +28,6 @@ bool Init();
 
 // Shutdown and cleanup
 void Shutdown();
-
-// Clear all queues (called on UI reload / character switch)
-void ClearQueues();
 
 // Called from main thread on each frame (for batch processing)
 void OnFrame(DWORD mainThreadId);

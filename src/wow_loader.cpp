@@ -62,7 +62,7 @@ static bool InjectDLL(HANDLE hProcess, const char* dllPath) {
 
     // Create remote thread that calls LoadLibraryA(dllPath)
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0,
-                                         (LPTHREAD_START_ROUTINE)pLoadLibrary,
+                                        (LPTHREAD_START_ROUTINE)pLoadLibrary,
                                          remoteMem, 0, NULL);
     if (!hThread) {
         VirtualFreeEx(hProcess, remoteMem, 0, MEM_RELEASE);

@@ -1,13 +1,6 @@
 // ================================================================
 // Lua VM Internals — DISABLED (luaV_concat hook removed)
 //
-// WHAT: Was intended to hook Lua VM internal functions (luaV_concat
-//       for string/table concatenation optimization).
-// WHY:  luaV_concat hook was tested and found to give 0% useful
-//       hit rate — pure overhead with no measurable benefit.
-// STATUS: DISABLED — returns false, no hooks installed
-// NOTE:   luaS_newlstr/StrCache hook was also here but removed
-//         earlier due to stale TString* crashes (0x0085CB43)
 // ================================================================
 
 #include "lua_internals.h"
@@ -24,7 +17,7 @@ extern "C" void Log(const char* fmt, ...);
 namespace LuaInternals {
 
 bool Init() {
-    Log("[LuaVM] Init Lua VM internals (build 12340)");
+    Log("[LuaVM] Init Lua VM internals ");
     Log("[LuaVM]   luaV_concat     DISABLED (0%% gain, pure overhead - removed)");
     Log("[LuaVM] ====================================");
     Log("[LuaVM]  Hooks: 0 active");

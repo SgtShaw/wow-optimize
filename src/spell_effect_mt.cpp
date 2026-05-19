@@ -1,28 +1,10 @@
 // ================================================================
-// Multithreaded Spell Effect Renderer — Implementation
-// WoW 3.3.5a build 12340
-//
-// WHAT: Offloads spell visual effect rendering to worker threads
-//       to eliminate FPS drops in raids with hundreds of effects.
-//
-// WHY:  In 25-man raids, spell effect rendering causes FPS drops
-//       from 60 to 20-30 FPS due to synchronous main thread processing.
-//
-// HOW:  1. Hook spell effect rendering function (IDA Pro analysis)
-//       2. Queue effect requests to lock-free ring buffer (8192 entries)
-//       3. Worker threads (4 threads) render effects in parallel
-//       4. Main thread applies rendered results during OnFrame()
-//       5. LRU cache (4096 entries) accelerates common effects
-//
-// PERFORMANCE TARGETS:
-//   - 40-60% main thread CPU reduction in raids
-//   - FPS improvement from 20-30 to 45-55 in heavy combat
-//   - Queue utilization <50%
-//   - Cache hit rate >70%
+// Multithreaded Spell Effect Renderer
 //
 // ================================================================
 
 #include "spell_effect_mt.h"
+#include "lua_optimize.h"
 #include "version.h"
 #include "MinHook.h"
 #include <cstdio>
@@ -371,17 +353,7 @@ static bool DequeueEffectResult(SpellEffectMT::EffectResult* result) {
 }
 
 // ================================================================
-// IDA Pro Analysis Results (Task 1)
-// ================================================================
-//
-// TARGET FUNCTION: sub_6F8C50 (Effect Update/Attachment)
-// ADDRESS: 0x006F8C50
-// SIZE: 0x2EE bytes (750 bytes)
-// CALLING CONVENTION: __thiscall (this pointer in ECX)
-// SOURCE FILE: Effect_C.cpp (based on debug strings)
-//
-// FUNCTION SIGNATURE:
-//   int __thiscall UpdateEffectAttachment(CEffect* this)
+// sub_6F8C50 — effect update hook
 //
 // PARAMETERS:
 //   - this (ECX): Pointer to CEffect object
@@ -474,7 +446,7 @@ static int __fastcall Hooked_UpdateEffectAttachment(void* This, void* unused) {
         }
         
         // Extract effectID and animationFrame from CEffect object
-        // CEffect structure offsets from IDA Pro analysis:
+        // CEffect structure offsets:
         //   +0x24: uint32_t effectID
         //   +0x28: uint32_t animationFrame
         uint32_t effectID = *(uint32_t*)((char*)This + 0x24);
@@ -508,7 +480,7 @@ static int __fastcall Hooked_UpdateEffectAttachment(void* This, void* unused) {
         memcpy(request.rotation, (char*)This + 0x4C, sizeof(float) * 4);
         
         // TODO: Extract rendering parameters (textureID, scale, color, flags)
-        // These offsets need to be determined from IDA Pro analysis
+        // These offsets need to be determined
         request.textureID = 0;
         request.scale = 1.0f;
         request.color = 0xFFFFFFFF;
@@ -548,7 +520,7 @@ static void ProcessEffectRequest(const SpellEffectMT::EffectRequest* request, Sp
         }
         
         // Task 5.3: Call orig_UpdateEffectAttachment to render the effect
-        // This is the actual WoW rendering function identified via IDA Pro analysis
+        // This is the actual WoW rendering function
         int renderResult = orig_UpdateEffectAttachment(request->effectPtr);
         
         // Task 5.3: Populate result structure with effect identification
@@ -586,6 +558,12 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
     Log("[SpellEffectMT] Worker thread %d started (TID: %d)", workerIndex, GetCurrentThreadId());
 
     while (!g_workerShutdown) {
+        // Pause during UI reload or lua_State swap to prevent accessing stale data
+        if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+            Sleep(1);
+            continue;
+        }
+
         // Wait for work signal (100ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 100);
         
@@ -640,7 +618,7 @@ bool Init() {
     return false;
     #endif
 
-    Log("[SpellEffectMT] Init (build 12340)");
+    Log("[SpellEffectMT] Init ");
 
     // Initialize QPC frequency for time measurements
     QueryPerformanceFrequency(&g_qpcFreq);

@@ -1,24 +1,6 @@
 // ================================================================
 // Combat Log Optimizer — retention patching + periodic clears
-// WoW 3.3.5a build 12340
 //
-// WHAT: Increases combat log retention time and periodically clears
-//       processed entries from the combat log buffer.
-// WHY:  WoW's default combat log retention is 300 seconds (5 min).
-//       In long sessions (raids, battlegrounds), the log grows large
-//       and causes memory pressure. Processed entries (already read
-//       by addons) can be safely cleared sooner.
-// HOW:  1. Patches combat log retention CVar from 300 → 1800 seconds
-//       (gives addons more time to process before auto-expiry)
-//       2. Periodically calls CombatLogClearEntries:
-//          - Every 5 seconds (normal gameplay)
-//          - Every 10 seconds (combat mode — less intrusive)
-//       3. Retention check every 600 frames — re-patches if reset
-//       4. Retry mechanism if CVar pointer not ready at init
-// ADDRESSES:
-//   - CVar_RetentionPtr:   0x00BD09F0 (pointer to CVar object)
-//   - CombatLogClearEntries: 0x00751120 (function to clear entries)
-// STATUS: Active — prevents combat log memory bloat
 // ================================================================
 
 #include "combatlog_optimize.h"
@@ -28,8 +10,6 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-// ================================================================
-// Known addresses — build 12340 (IDA Pro).
 // ================================================================
 namespace Addr {
     static constexpr uintptr_t CVar_RetentionPtr     = 0x00BD09F0;
@@ -128,7 +108,7 @@ static void TryClearProcessedEntries(double nowMs) {
 namespace CombatLogOpt {
 
 bool Init() {
-    Log("[CombatLog] Init (build 12340)");
+    Log("[CombatLog] Init ");
 
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
@@ -170,7 +150,7 @@ void OnFrame(DWORD mainThreadId) {
     // Periodic CombatLogClearEntries disabled: conflicts with addons like
     // Recount that read the combat log buffer. Retention patch (1800s) is
     // sufficient — game handles cleanup via normal retention mechanism.
-    (void)nowMs;
+   (void)nowMs;
 }
 
 void SetCombat(bool active) {

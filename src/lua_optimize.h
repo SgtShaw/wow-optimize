@@ -1,6 +1,5 @@
 #pragma once
-// Lua VM optimizer for WoW 3.3.5a build 12340.
-
+// Lua VM optimizer
 #ifndef LUA_OPTIMIZE_H
 #define LUA_OPTIMIZE_H
 
@@ -25,9 +24,6 @@ void SetCombatMode(bool inCombat);
 // Returns true if client is in loading screen
 bool IsLoadingMode();
 
-// Returns true if a UI reload / character switch is in progress
-bool IsReloading();
-
 struct Stats {
     bool   initialized;
     bool   gcOptimized;
@@ -40,6 +36,13 @@ struct Stats {
 };
 
 Stats GetStats();
+
+// Thread-safe swap/reload state queries for worker threads
+bool IsReloading();
+bool IsSwapping();
+
+// Restore original Lua allocator (safe to call during ExitProcess teardown)
+void RestoreAllocator();
 
 } // namespace LuaOpt
 

@@ -1,22 +1,7 @@
 #pragma once
 // ================================================================
-// Multithreaded Nameplate Renderer for wow_optimize.dll — build 12340
+// Multithreaded Nameplate Renderer
 // 
-// WHAT: Offloads nameplate rendering from main thread to dedicated
-//       worker threads using lock-free queues.
-// WHY:  Nameplate rendering consumes 40-60% of main thread CPU in
-//       25-man raids, causing FPS drops from 60+ to 20-30 FPS.
-// HOW:  1. Hook nameplate update functions (health, text, color, visibility)
-//       2. Copy nameplate data to lock-free input queue (4096 entries)
-//       3. Worker threads (2) process asynchronously
-//       4. Results queued back to main thread for UI application
-//       5. Priority system: Target > Focus > Nearby > Distant
-// ADDRESSES:
-//   - sub_6B2A40: 0x006B2A40 (nameplate health bar update)
-//   - sub_6B1F80: 0x006B1F80 (nameplate text rendering)
-//   - sub_6B3120: 0x006B3120 (nameplate color calculation)
-//   - sub_6B2E60: 0x006B2E60 (nameplate visibility determination)
-// STATUS: Initial implementation - v3.5.14
 // ================================================================
 
 #ifndef NAMEPLATE_BATCH_H
@@ -142,9 +127,6 @@ bool Init();
 
 // Shutdown and cleanup
 void Shutdown();
-
-// Clear all queues (called on UI reload / character switch)
-void ClearQueues();
 
 // Called from main thread on each frame (for result processing and stats)
 void OnFrame(DWORD mainThreadId);

@@ -1,28 +1,9 @@
 // ================================================================
 // WoW API Result Cache — Direct Memory Access Implementation
-// Build 12340
 //
-// WHAT: Caches return values of GetItemInfo() and GetSpellInfo()
+// Caches return values of GetItemInfo() and GetSpellInfo()
 //       Lua API calls to avoid repeated MPQ reads and DBC parsing.
 //
-// WHY:  Armory and other addons call these thousands of times during
-//       mouseover/tooltip rendering. Each call = 2-10ms blocking.
-//
-// HOW:  1. Hooks both functions via MinHook
-//       2. Hashes the argument (ID or name string)
-//       3. 8192-slot direct-mapped cache (FNV-1a hash)
-//       4. Direct TValue* stack reads — NO lua_tolstring/lua_tonumber
-//       5. Caches up to 11 return values (GetItemInfo) or 9 (GetSpellInfo)
-//       6. Only caches successful results with valid return types
-//
-// OPTIMIZATION: Direct Memory Access
-//   - Replaces lua_tolstring/lua_tonumber calls with direct TValue* reads
-//   - Eliminates function call overhead (each lua_* call = ~10-20ns)
-//   - TString length read via direct pointer (+8 offset)
-//   - Number read via direct pointer (union value at +0)
-//   - Hash limited to 200 chars for long item links
-//
-// STATUS: Active — reduces repeated database queries by 80%+
 // ================================================================
 // Production flags are in version.h (shared across all files)
 
@@ -40,7 +21,7 @@ typedef struct lua_State lua_State;
 typedef double lua_Number;
 
 // ================================================================
-// TValue layout — WoW 3.3.5a build 12340 (32-bit)
+// TValue layout
 // Matches RawTValue from lua_fastpath.cpp exactly.
 //
 // Offset 0:  Value union (void* gc / double n) — 8 bytes
@@ -66,7 +47,7 @@ static inline RawTValue* GetStackBase(lua_State* L) {
     return *(RawTValue**)((uintptr_t)L + 0x10);
 }
 
-// TString layout in WoW 3.3.5a:
+// TString layout:
 // Offset 0-7:   CommonHeader (gc header)
 // Offset 8:     len (int) — string length
 // Offset 12:    hash (unsigned int)
@@ -94,20 +75,18 @@ static inline double ReadTNumberDirect(RawTValue* tv) {
 }
 
 // ================================================================
-// WoW API function pointer addresses (build 12340).
-// ================================================================
 
 typedef int (__cdecl *ScriptFunc_fn)(lua_State* L);
 
 typedef const char* (__cdecl *fn_lua_tolstring)(lua_State* L, int index, size_t* len);
-typedef lua_Number  (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
-typedef int         (__cdecl *fn_lua_gettop)(lua_State* L);
-typedef int         (__cdecl *fn_lua_type)(lua_State* L, int index);
-typedef void        (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
-typedef void        (__cdecl *fn_lua_pushstring)(lua_State* L, const char* s);
-typedef void        (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
-typedef void        (__cdecl *fn_lua_pushnil)(lua_State* L);
-typedef int         (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
+typedef lua_Number (__cdecl *fn_lua_tonumber)(lua_State* L, int index);
+typedef int        (__cdecl *fn_lua_gettop)(lua_State* L);
+typedef int        (__cdecl *fn_lua_type)(lua_State* L, int index);
+typedef void       (__cdecl *fn_lua_pushnumber)(lua_State* L, lua_Number n);
+typedef void       (__cdecl *fn_lua_pushstring)(lua_State* L, const char* s);
+typedef void       (__cdecl *fn_lua_pushboolean)(lua_State* L, int b);
+typedef void       (__cdecl *fn_lua_pushnil)(lua_State* L);
+typedef int        (__cdecl *fn_lua_toboolean)(lua_State* L, int index);
 
 // We still need API calls for pushing strings safely (interning).
 static fn_lua_tolstring   lua_tolstring_  = (fn_lua_tolstring)0x0084E0E0;
@@ -424,9 +403,9 @@ namespace ApiCache {
 
 bool Init() {
 #if TEST_DISABLE_GETSPELLINFO_CACHE
-    Log("[ApiCache] Init (build 12340) — Direct Memory Access | TEST: GetSpellInfo DISABLED");
+    Log("[ApiCache] Init  — Direct Memory Access | TEST: GetSpellInfo DISABLED");
 #else
-    Log("[ApiCache] Init (build 12340) — Direct Memory Access");
+    Log("[ApiCache] Init  — Direct Memory Access");
 #endif
 
     int hooked = 0;

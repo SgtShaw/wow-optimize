@@ -1,15 +1,6 @@
 // ================================================================
 // Frame Script Throttling — Reduce OnUpdate overhead
 //
-// WHAT: Throttles excessive OnUpdate callbacks from addons
-// WHY:  Addons like DBM/Skada/ElvUI call OnUpdate every frame (~60 FPS).
-//       Many of these updates are redundant (e.g., updating text that
-//       hasn't changed). Throttling reduces CPU overhead by 30-50%.
-// HOW:  1. Hook FrameScript_Execute (0x00819210)
-//       2. Track last execution time per script
-//       3. Skip execution if called too frequently (< 16ms interval)
-//       4. Allow critical scripts to bypass throttling
-// STATUS: Production-ready — powerful optimization for addon-heavy setups
 // ================================================================
 
 #include <windows.h>
@@ -120,7 +111,7 @@ static int __cdecl Hooked_FrameScript_Execute(int scriptCode, int scriptName, in
         entry.minInterval = (g_qpcFreq.QuadPart * 16) / 1000; // 16ms in QPC ticks
         entry.skipCount = 0;
         entry.execCount = 1;
-        (*g_scriptThrottle)[key] = entry;
+       (*g_scriptThrottle)[key] = entry;
 
         ReleaseSRWLockExclusive(&g_throttleLock);
         g_throttleExecuted++;

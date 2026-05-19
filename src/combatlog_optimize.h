@@ -1,5 +1,5 @@
 #pragma once
-// Combat log optimizer for wow_optimize.dll — build 12340.
+// Combat log optimizer.
 // 1. Retention time increase (300 -> 1800 sec)
 // 2. Periodic CombatLogClearEntries from C level
 

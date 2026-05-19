@@ -3,14 +3,6 @@
 // ================================================================
 // Spell Data Caching — Cache spell coefficients, ranges, cooldowns
 //
-// WHAT: Caches spell data lookups by spell ID
-// WHY:  Spell system (sub_80E1B0) is 7.4KB of code, called every spell cast.
-//       Repeated lookups of spell coefficients, ranges, cooldowns, etc.
-// HOW:  1. Hook spell data lookup function at 0x80E1B0
-//       2. Cache spell data by spell ID
-//       3. LRU eviction when cache exceeds 2000 entries
-//       4. Clear cache on UI reload (spell data can change with addons)
-// STATUS: Production-ready — 25-35% reduction in spell casting overhead
 // ================================================================
 
 #include <windows.h>

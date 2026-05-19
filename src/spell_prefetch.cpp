@@ -1,9 +1,9 @@
 // ================================================================
 // Async Spell Data Prefetcher — Implementation
-// WoW 3.3.5a build 12340
 // ================================================================
 
 #include "spell_prefetch.h"
+#include "lua_optimize.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
@@ -148,6 +148,8 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     Log("[SpellPrefetch] Worker thread started (TID: %d)", GetCurrentThreadId());
 
     while (!g_workerShutdown) {
+        if (LuaOpt::IsReloading()) { Sleep(10); continue; }
+
         // Wait for events (1ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 1);
 
@@ -236,7 +238,7 @@ static int __cdecl Hooked_CastSpell(int a1, int a2, int a3, int spellID, int a5,
 namespace SpellPrefetch {
 
 bool Init() {
-    Log("[SpellPrefetch] Init (build 12340)");
+    Log("[SpellPrefetch] Init ");
 
     // Initialize QPC frequency
     LARGE_INTEGER freq;

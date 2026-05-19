@@ -1,10 +1,8 @@
 // ================================================================
 // Multithreaded Combat Log Parser — Implementation
-// WoW 3.3.5a build 12340
 // ================================================================
 
 #include "combatlog_mt.h"
-#include "lua_optimize.h"
 #include "version.h"
 #include "MinHook.h"
 #include <cstdio>
@@ -14,7 +12,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// Combat Log Entry Structure (from IDA Pro analysis)
+// Combat Log Entry Structure
 // ================================================================
 struct CombatLogEntry {
     void* next;           // +0x00: next entry in linked list
@@ -174,12 +172,12 @@ static void ProcessEvent(const CombatLogEntry* entry) {
         // Format event string (simplified for now - in production this would
         // dispatch to Lua addons or format for COMBAT_LOG_EVENT)
         // For now we just validate the data is readable
-        (void)eventType;
-        (void)timestamp;
-        (void)sourceGUID;
-        (void)targetGUID;
-        (void)spellID;
-        (void)amount;
+       (void)eventType;
+       (void)timestamp;
+       (void)sourceGUID;
+       (void)targetGUID;
+       (void)spellID;
+       (void)amount;
 
         InterlockedIncrement(&g_eventsProcessed);
     }
@@ -195,12 +193,6 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     Log("[CombatLogMT] Worker thread started (TID: %d)", GetCurrentThreadId());
 
     while (!g_workerShutdown) {
-        // Pause during UI reload to prevent accessing stale lua_State
-        if (LuaOpt::IsReloading()) {
-            Sleep(1);
-            continue;
-        }
-
         // Wait for events (1ms timeout to check shutdown flag)
         WaitForSingleObject(g_workerEvent, 1);
 
@@ -352,7 +344,7 @@ static int __cdecl Hooked_DispatchEvents() {
 namespace CombatLogMT {
 
 bool Init() {
-    Log("[CombatLogMT] Init (build 12340)");
+    Log("[CombatLogMT] Init ");
 
     // Initialize QPC frequency for time measurements
     LARGE_INTEGER freq;
@@ -462,27 +454,6 @@ void Shutdown() {
         g_raidDisableCount, g_openWorldEnableCount);
 
     g_initialized = false;
-}
-
-void ClearQueues() {
-    if (!g_initialized) return;
-
-    // Reset queue indices to clear all pending events
-    InterlockedExchange(&g_queueHead, 0);
-    InterlockedExchange(&g_queueTail, 0);
-
-    // Reset ready flags on all entries
-    for (int i = 0; i < QUEUE_SIZE; i++) {
-        g_queue[i].ready = 0;
-    }
-
-    // Reset stats counters
-    InterlockedExchange(&g_eventsQueued, 0);
-    InterlockedExchange(&g_eventsProcessed, 0);
-    InterlockedExchange(&g_eventsDropped, 0);
-    InterlockedExchange(&g_eventsInvalid, 0);
-
-    Log("[CombatLogMT] Queues cleared (UI reload / character switch)");
 }
 
 void OnFrame(DWORD mainThreadId) {

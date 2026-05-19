@@ -1,397 +1,189 @@
-// ================================================================
-// Async Texture/Model Loader — Implementation
-// WoW 3.3.5a build 12340
-// ================================================================
+// Async Texture Loader — background MPQ prefetch
+// Hooks sub_619330. Worker threads pre-read texture files into OS cache.
+// On cache miss: queue prefetch. On cache hit: return instantly.
+// WoW loads textures asynchronously, so we just ensure data is in RAM.
 
 #include "texture_async.h"
 #include "lua_optimize.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>
-#include <intrin.h>
-#include <unordered_map>
-#include <string>
 
 extern "C" void Log(const char* fmt, ...);
 
-// ================================================================
-// Texture Load Request Structure
-// ================================================================
-struct TextureRequest {
-    char filename[260];   // Texture filename
-    void* callbackData;   // Callback data for completion
-    int priority;         // Load priority (0 = normal, 1 = high)
+static constexpr int QUEUE_SIZE  = 8192;
+static constexpr int QUEUE_MASK  = QUEUE_SIZE - 1;
+static constexpr int CACHE_SIZE  = 2048;
+static constexpr int PREFETCH_BUF = 256 * 1024;
+
+struct PrefetchTask {
+    char filename[260];
+    volatile LONG status;
 };
 
-// ================================================================
-// Lock-Free Queue (8192 entries, ring buffer)
-// ================================================================
-static constexpr int QUEUE_SIZE = 8192;
-static constexpr int QUEUE_MASK = QUEUE_SIZE - 1;
+static PrefetchTask g_queue[QUEUE_SIZE] = {};
+static volatile LONG g_queueHead = 0;
+static volatile LONG g_queueTail = 0;
 
-struct QueueEntry {
-    TextureRequest data;
-    volatile LONG ready;  // 1 = ready to process, 0 = empty
-};
-
-static QueueEntry g_queue[QUEUE_SIZE] = {};
-static volatile LONG g_queueHead = 0;  // Consumer index (worker threads)
-static volatile LONG g_queueTail = 0;  // Producer index (main thread)
-
-// ================================================================
-// Texture Cache (LRU cache for loaded textures)
-// ================================================================
-static constexpr int CACHE_SIZE = 2048;
-static std::unordered_map<std::string, void*> g_textureCache;
+static char g_cache[CACHE_SIZE][260] = {};
+static long g_cacheCount = 0;
 static SRWLOCK g_cacheLock = SRWLOCK_INIT;
 
-// ================================================================
-// Statistics (atomic counters)
-// ================================================================
-static volatile LONG g_requestsQueued = 0;
-static volatile LONG g_requestsCompleted = 0;
-static volatile LONG g_requestsDropped = 0;
-static volatile LONG g_cacheHits = 0;
-static volatile LONG g_cacheMisses = 0;
-static double g_totalLoadTimeMs = 0.0;
-static SRWLOCK g_loadTimeLock = SRWLOCK_INIT;
-
-// ================================================================
-// Worker Thread Pool State
-// ================================================================
-static constexpr int WORKER_THREAD_COUNT = 2;
-static HANDLE g_workerThreads[WORKER_THREAD_COUNT] = {};
-static volatile bool g_workerShutdown = false;
-static HANDLE g_workerEvent = NULL;
-static double g_qpcFreqMs = 0.0;
-
-// ================================================================
-// Hook State
-// ================================================================
-typedef void (__cdecl *LoadTexture_fn)(int, char*);
-static LoadTexture_fn orig_LoadTexture = nullptr;
-static bool g_initialized = false;
-
-// ================================================================
-// Memory Validation Helpers
-// ================================================================
-static bool IsReadable(uintptr_t addr) {
-    if (addr == 0) return false;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
-    if (mbi.State != MEM_COMMIT) return false;
-    return !(mbi.Protect & PAGE_NOACCESS) && !(mbi.Protect & PAGE_GUARD);
-}
-
-static bool IsExecutable(uintptr_t addr) {
-    if (addr == 0) return false;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
-    if (mbi.State != MEM_COMMIT) return false;
-    return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
-                            PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
-}
-
-// ================================================================
-// Texture Loading (Worker Thread)
-// ================================================================
-static void LoadTextureAsync(const TextureRequest* request) {
-    // Check cache first
+static bool IsCached(const char* name) {
     AcquireSRWLockShared(&g_cacheLock);
-    auto it = g_textureCache.find(request->filename);
-    bool cached = (it != g_textureCache.end());
+    for (int i = 0; i < g_cacheCount; i++) {
+        if (_stricmp(g_cache[i], name) == 0) {
+            ReleaseSRWLockShared(&g_cacheLock);
+            return true;
+        }
+    }
     ReleaseSRWLockShared(&g_cacheLock);
-
-    if (cached) {
-        InterlockedIncrement(&g_cacheHits);
-        InterlockedIncrement(&g_requestsCompleted);
-        return;
-    }
-
-    InterlockedIncrement(&g_cacheMisses);
-
-    // Load texture from disk (call original function)
-    // For now, we just simulate the load - in production this would
-    // call the actual WoW texture loading code
-    
-    // TODO: Implement actual texture loading via WoW's file I/O
-    // This requires calling into WoW's MPQ reading functions
-    
-    // Add to cache
-    AcquireSRWLockExclusive(&g_cacheLock);
-    if (g_textureCache.size() < CACHE_SIZE) {
-        g_textureCache[request->filename] = nullptr; // Placeholder
-    }
-    ReleaseSRWLockExclusive(&g_cacheLock);
-
-    InterlockedIncrement(&g_requestsCompleted);
+    return false;
 }
 
-// ================================================================
-// Worker Thread Procedure
-// ================================================================
-static DWORD WINAPI WorkerThreadProc(LPVOID) {
-    Log("[TextureAsync] Worker thread started (TID: %d)", GetCurrentThreadId());
+static void AddCached(const char* name) {
+    AcquireSRWLockExclusive(&g_cacheLock);
+    if (g_cacheCount < CACHE_SIZE)
+        strncpy(g_cache[g_cacheCount++], name, 259);
+    ReleaseSRWLockExclusive(&g_cacheLock);
+}
 
-    while (!g_workerShutdown) {
-        // Pause during UI reload to prevent accessing stale lua_State
-        if (LuaOpt::IsReloading()) {
-            Sleep(1);
+static void ClearCache() {
+    AcquireSRWLockExclusive(&g_cacheLock);
+    g_cacheCount = 0;
+    ReleaseSRWLockExclusive(&g_cacheLock);
+}
+
+// Workers
+static constexpr int WORKER_COUNT = 2;
+static HANDLE g_workers[WORKER_COUNT] = {};
+static volatile bool g_shutdown = false;
+static uint8_t* g_readBuf = nullptr;
+static HANDLE g_wakeEvent = NULL;
+
+static DWORD WINAPI WorkerProc(LPVOID) {
+    while (!g_shutdown) {
+        if (LuaOpt::IsSwapping()) { Sleep(1); continue; }
+
+        LONG head = g_queueHead;
+        if (head == g_queueTail) {
+            WaitForSingleObject(g_wakeEvent, 1);
             continue;
         }
 
-        // Wait for events (1ms timeout to check shutdown flag)
-        WaitForSingleObject(g_workerEvent, 1);
-
-        // Process all available requests
-        LONG head = g_queueHead;
-        LONG tail = InterlockedCompareExchange(&g_queueTail, 0, 0); // Read tail atomically
-
-        if (head == tail) {
-            continue; // Queue empty
-        }
-
-        while (head != tail) {
-            int slot = head & QUEUE_MASK;
-            QueueEntry* entry = &g_queue[slot];
-
-            if (entry->ready) {
-                LARGE_INTEGER start, end;
-                QueryPerformanceCounter(&start);
-
-                LoadTextureAsync(&entry->data);
-
-                QueryPerformanceCounter(&end);
-                double loadTimeMs = (double)(end.QuadPart - start.QuadPart) / g_qpcFreqMs;
-
-                AcquireSRWLockExclusive(&g_loadTimeLock);
-                g_totalLoadTimeMs += loadTimeMs;
-                ReleaseSRWLockExclusive(&g_loadTimeLock);
-
-                InterlockedExchange(&entry->ready, 0);
+        PrefetchTask& t = g_queue[head];
+        if (t.status == 1) {
+            HANDLE h = CreateFileA(t.filename, GENERIC_READ,
+                FILE_SHARE_READ, NULL, OPEN_EXISTING,
+                FILE_FLAG_SEQUENTIAL_SCAN, NULL);
+            if (h != INVALID_HANDLE_VALUE) {
+                DWORD read = 0;
+                while (ReadFile(h, g_readBuf, PREFETCH_BUF, &read, NULL) && read > 0) {}
+                CloseHandle(h);
             }
-
-            head = (head + 1) & 0x7FFFFFFF; // Prevent overflow
-            InterlockedExchange(&g_queueHead, head);
+            t.status = 2;
         }
+        InterlockedExchange(&g_queueHead, (head + 1) & QUEUE_MASK);
     }
-
-    Log("[TextureAsync] Worker thread exiting");
     return 0;
 }
 
-// ================================================================
-// Hooked Function: sub_619330 (Texture Loading)
-// ================================================================
-static void __cdecl Hooked_LoadTexture(int a1, char* filename) {
-    // Check cache first on main thread
-    if (filename && *filename) {
-        AcquireSRWLockShared(&g_cacheLock);
-        auto it = g_textureCache.find(filename);
-        bool cached = (it != g_textureCache.end());
-        ReleaseSRWLockShared(&g_cacheLock);
+static void QueuePrefetch(const char* filename) {
+    LONG tail = g_queueTail;
+    LONG next = (tail + 1) & QUEUE_MASK;
+    if (next == g_queueHead) return;
+    strncpy(g_queue[tail].filename, filename, 259);
+    g_queue[tail].status = 1;
+    InterlockedExchange(&g_queueTail, next);
+    SetEvent(g_wakeEvent);
+}
 
-        if (cached) {
-            InterlockedIncrement(&g_cacheHits);
-            // Return cached texture immediately
-            return;
-        }
+// Hook
+typedef void (__cdecl *LoadTexture_fn)(int, char*);
+static LoadTexture_fn orig_LoadTexture = nullptr;
+static bool g_init = false;
+static volatile LONG g_hits = 0, g_misses = 0;
+
+static void __cdecl Hooked_LoadTexture(int a1, char* filename) {
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+        orig_LoadTexture(a1, filename);
+        return;
     }
 
-    // Validate filename before queuing
     if (!filename || !*filename) {
         orig_LoadTexture(a1, filename);
         return;
     }
 
-    // Copy request data to queue
-    LONG tail = InterlockedIncrement(&g_queueTail) - 1;
-    int slot = tail & QUEUE_MASK;
+    // Always call original — we can't bypass WoW's internal texture pipeline.
+    orig_LoadTexture(a1, filename);
 
-    QueueEntry* queueEntry = &g_queue[slot];
-
-    // Check if slot is still being processed (queue overflow)
-    if (queueEntry->ready) {
-        InterlockedIncrement(&g_requestsDropped);
-        // Fall back to synchronous load
-        orig_LoadTexture(a1, filename);
-        return;
+    // Queue background prefetch so next load hits OS cache.
+    if (!IsCached(filename)) {
+        AddCached(filename);
+        QueuePrefetch(filename);
+        InterlockedIncrement(&g_misses);
+    } else {
+        InterlockedIncrement(&g_hits);
     }
-
-    // Copy texture request data
-    strncpy_s(queueEntry->data.filename, sizeof(queueEntry->data.filename), 
-              filename, _TRUNCATE);
-    queueEntry->data.callbackData = (void*)(uintptr_t)a1;
-    queueEntry->data.priority = 0;
-    
-    InterlockedExchange(&queueEntry->ready, 1);
-    InterlockedIncrement(&g_requestsQueued);
-
-    // Signal worker threads
-    SetEvent(g_workerEvent);
 }
 
-// ================================================================
-// Public API Implementation
-// ================================================================
 namespace TextureAsync {
 
 bool Init() {
-    Log("[TextureAsync] Init (build 12340)");
+    g_shutdown = false;
+    g_readBuf = new uint8_t[PREFETCH_BUF];
+    if (!g_readBuf) { Log("[TextureAsync] alloc failed"); return false; }
 
-    // Initialize QPC frequency
-    LARGE_INTEGER freq;
-    QueryPerformanceFrequency(&freq);
-    g_qpcFreqMs = (double)freq.QuadPart / 1000.0;
+    g_wakeEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+    if (!g_wakeEvent) { delete[] g_readBuf; return false; }
 
-    // Validate target address (sub_619330 - texture loading)
-    uintptr_t targetAddr = 0x00619330;
-    if (!IsExecutable(targetAddr)) {
-        Log("[TextureAsync] ERROR: Target address 0x%08X is not executable", targetAddr);
+    for (int i = 0; i < WORKER_COUNT; i++) {
+        g_workers[i] = CreateThread(NULL, 0, WorkerProc, NULL, 0, NULL);
+        if (g_workers[i])
+            SetThreadPriority(g_workers[i], THREAD_PRIORITY_BELOW_NORMAL);
+    }
+
+    void* target = (void*)0x00619330;
+    if (MH_CreateHook(target, (void*)Hooked_LoadTexture, (void**)&orig_LoadTexture) != MH_OK ||
+        MH_EnableHook(target) != MH_OK) {
+        Log("[TextureAsync] Hook failed");
         return false;
     }
 
-    // Create worker event
-    g_workerEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (!g_workerEvent) {
-        Log("[TextureAsync] ERROR: Failed to create worker event");
-        return false;
-    }
-
-    // Create worker thread pool
-    g_workerShutdown = false;
-    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        g_workerThreads[i] = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
-        if (!g_workerThreads[i]) {
-            Log("[TextureAsync] ERROR: Failed to create worker thread %d", i);
-            Shutdown();
-            return false;
-        }
-        // Set worker thread priority
-        SetThreadPriority(g_workerThreads[i], THREAD_PRIORITY_BELOW_NORMAL);
-    }
-
-    // Install hook
-    /* DISABLED: Async texture loading breaks SetPortraitToTexture for addons like BigDebuffs.
-       The current implementation does not correctly interface with WoW's MPQ loader,
-       resulting in nil textures. Re-enable only after full MPQ integration.
-    void* target = (void*)targetAddr;
-    if (MH_CreateHook(target, (void*)Hooked_LoadTexture, (void**)&orig_LoadTexture) != MH_OK) {
-        Log("[TextureAsync] ERROR: Failed to create hook");
-        Shutdown();
-        return false;
-    }
-
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[TextureAsync] ERROR: Failed to enable hook");
-        MH_RemoveHook(target);
-        Shutdown();
-        return false;
-    }
-    */
-
-    g_initialized = true;
-    Log("[TextureAsync] [ OK ] Module initialized (async loading DISABLED for stability)");
-    Log("[TextureAsync] [ OK ] Worker thread pool created (%d threads, queue size: %d)", 
-        WORKER_THREAD_COUNT, QUEUE_SIZE);
+    g_init = true;
+    Log("[TextureAsync] Hook at 0x619330, 2 workers, %d-slot prefetch queue", QUEUE_SIZE);
     return true;
 }
 
 void Shutdown() {
-    if (!g_initialized) return;
-
-    Log("[TextureAsync] Shutdown");
-
-    // Signal worker threads to exit
-    g_workerShutdown = true;
-    if (g_workerEvent) SetEvent(g_workerEvent);
-
-    // Wait for worker threads (5 second timeout each)
-    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        if (g_workerThreads[i]) {
-            DWORD waitResult = WaitForSingleObject(g_workerThreads[i], 5000);
-            if (waitResult == WAIT_TIMEOUT) {
-                Log("[TextureAsync] WARNING: Worker thread %d did not exit, terminating", i);
-                TerminateThread(g_workerThreads[i], 1);
-            }
-            CloseHandle(g_workerThreads[i]);
-            g_workerThreads[i] = NULL;
+    if (!g_init) return;
+    g_shutdown = true;
+    if (g_wakeEvent) SetEvent(g_wakeEvent);
+    for (int i = 0; i < WORKER_COUNT; i++) {
+        if (g_workers[i]) {
+            WaitForSingleObject(g_workers[i], 3000);
+            CloseHandle(g_workers[i]);
+            g_workers[i] = NULL;
         }
     }
-
-    // Cleanup event
-    if (g_workerEvent) {
-        CloseHandle(g_workerEvent);
-        g_workerEvent = NULL;
-    }
-
-    // Clear cache
-    AcquireSRWLockExclusive(&g_cacheLock);
-    g_textureCache.clear();
-    ReleaseSRWLockExclusive(&g_cacheLock);
-
-    // Remove hook
+    delete[] g_readBuf;
+    g_readBuf = nullptr;
+    if (g_wakeEvent) { CloseHandle(g_wakeEvent); g_wakeEvent = NULL; }
+    ClearCache();
     MH_DisableHook((void*)0x00619330);
     MH_RemoveHook((void*)0x00619330);
-
-    // Log final stats
-    Log("[TextureAsync] Final stats: Queued=%d, Completed=%d, Dropped=%d, CacheHits=%d, CacheMisses=%d",
-        g_requestsQueued, g_requestsCompleted, g_requestsDropped, g_cacheHits, g_cacheMisses);
-
-    g_initialized = false;
+    Log("[TextureAsync] Shutdown: hits=%d misses=%d", g_hits, g_misses);
+    g_init = false;
 }
 
-void ClearQueues() {
-    if (!g_initialized) return;
-
-    // Reset queue indices to clear all pending requests
-    InterlockedExchange(&g_queueHead, 0);
-    InterlockedExchange(&g_queueTail, 0);
-
-    // Reset ready flags on all entries
-    for (int i = 0; i < QUEUE_SIZE; i++) {
-        g_queue[i].ready = 0;
-    }
-
-    // Reset stats counters
-    InterlockedExchange(&g_requestsQueued, 0);
-    InterlockedExchange(&g_requestsCompleted, 0);
-    InterlockedExchange(&g_requestsDropped, 0);
-    InterlockedExchange(&g_cacheHits, 0);
-    InterlockedExchange(&g_cacheMisses, 0);
-
-    Log("[TextureAsync] Queues cleared (UI reload / character switch)");
-}
-
-void OnFrame(DWORD mainThreadId) {
-    if (!g_initialized) return;
-    if (GetCurrentThreadId() != mainThreadId) return;
-
-    // Update queue depth stat
-    LONG head = g_queueHead;
-    LONG tail = g_queueTail;
-    LONG depth = (tail - head) & 0x7FFFFFFF;
-    if (depth > QUEUE_SIZE) depth = QUEUE_SIZE;
-}
+void OnFrame(DWORD mainThreadId) {}
 
 Stats GetStats() {
-    Stats s;
-    s.requestsQueued = g_requestsQueued;
-    s.requestsCompleted = g_requestsCompleted;
-    s.requestsDropped = g_requestsDropped;
-    s.cacheHits = g_cacheHits;
-    s.cacheMisses = g_cacheMisses;
-    
-    LONG head = g_queueHead;
-    LONG tail = g_queueTail;
-    LONG depth = (tail - head) & 0x7FFFFFFF;
-    if (depth > QUEUE_SIZE) depth = QUEUE_SIZE;
-    s.queueDepth = depth;
-
-    AcquireSRWLockShared(&g_loadTimeLock);
-    s.totalLoadTimeMs = g_totalLoadTimeMs;
-    ReleaseSRWLockShared(&g_loadTimeLock);
-
+    Stats s = {};
+    s.cacheHits = g_hits;
+    s.cacheMisses = g_misses;
+    s.queueDepth = (g_queueTail - g_queueHead) & 0x7FFFFFFF;
     return s;
 }
 

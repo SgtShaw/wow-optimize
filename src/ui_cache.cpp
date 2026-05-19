@@ -1,12 +1,6 @@
 // ================================================================
 // UI Widget Cache — DISABLED
 //
-// WHAT: Was intended to cache UI widget lookups (frame references,
-//       region objects) to avoid repeated UI hierarchy traversals.
-// WHY:  Disabled due to addon regressions — caused incorrect UI
-//       behavior in some addons that rely on fresh widget references.
-// STATUS: DISABLED — returns false, no hooks installed
-// NOTE:   Do NOT re-enable without thorough addon compatibility testing
 // ================================================================
 
 #include "ui_cache.h"

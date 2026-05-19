@@ -1,5 +1,5 @@
 ﻿// ================================================================
-// wow_optimize.dll — World of Warcraft 3.3.5a (build 12340) Optimizer
+// wow_optimize.dll
 // Author: SUPREMATIST
 //
 // LOAD MECHANISM:
@@ -11,7 +11,6 @@
 //   - MinHook for all API hooking
 //   - mimalloc as global allocator replacement
 //   - Ring-buffer logger (lock-free, background thread)
-//   - All WoW addresses hardcoded for build 12340 (IDA Pro verified)
 //
 // OPTIMIZATION CATEGORIES:
 //   1.  Memory allocator replacement (mimalloc for CRT)
@@ -29,8 +28,6 @@
 //   13. Combat log — retention patching + periodic clears
 // ================================================================
 
-#define TEST_DISABLE_SPELL_EFFECT_MT 1
-
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -44,10 +41,12 @@
 #include <cstring>
 #include <cstdint>
 #include <intrin.h>
+#include <emmintrin.h>
 #include "ui_cache.h"
 #include "api_cache.h"
 #include "lua_fastpath.h"
 #include "lua_internals.h"
+#include "lua_vm_cache.h"
 #include "crash_dumper.h"
 #include "frame_throttle.h"
 #include "tooltip_cache.h"
@@ -67,11 +66,13 @@
 #include "sound_prefetch.h"
 #include "quest_async.h"
 #include "nameplate_batch.h"
-// #include "physics_mt.h" // Module removed
-#include "spell_effect_mt.h"
+#include "addon_preload.h"
+#include "lua_bytecode_cache.h"
+#include "strstr_fast.h"
+#include "crt_char_fast.h"
+#include "crt_pow_sse2.h"
 
 #include "version.h"
-
 
 // ================================================================
 // CRASH ISOLATION TOGGLES
@@ -105,11 +106,12 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             1   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — ENABLED (tested stable by Morbent + Billy Hoyle)
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — DISABLED: causes 0x84E68D loading screen crash (corrupts Lua state during init)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
+#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen — DISABLED: SSE2 page-boundary crash (0x5D917D10)
 
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
@@ -123,7 +125,7 @@ static bool InstallThreadAffinity();
 #define VA_ARENA_BITMAP_SIZE (VA_ARENA_MAX_PAGES / 64)
 
 typedef LPVOID (WINAPI* VirtualAlloc_fn)(LPVOID, SIZE_T, DWORD, DWORD);
-typedef BOOL   (WINAPI* VirtualFree_fn)(LPVOID, SIZE_T, DWORD);
+typedef BOOL  (WINAPI* VirtualFree_fn)(LPVOID, SIZE_T, DWORD);
 
 static VirtualAlloc_fn orig_VirtualAlloc = nullptr;
 static VirtualFree_fn  orig_VirtualFree  = nullptr;
@@ -147,7 +149,6 @@ static bool InstallVAArena();
 static void ShutdownVAArena();
 
 extern "C" void Log(const char* fmt, ...);
-
 
 // ================================================================
 // Timing Method Fix — Console override only (hook removed for safety)
@@ -290,6 +291,7 @@ static bool InstallWaitForSingleObjectHook();
 static bool InstallGetModuleHandleCache();
 static bool InstallLstrcmpHook();
 static bool InstallLStrLenHooks();
+static bool InstallWowStrlenHook();
 static bool InstallMBWCHooks();
 static bool InstallGetProcAddressCache();
 static bool InstallGetModuleFileNameCache();
@@ -342,7 +344,6 @@ static int   g_affinityCount  = 0;
 typedef int (__cdecl *fn_ThreadWorker)(void* outHandle, LPTHREAD_START_ROUTINE start, LPVOID param, int priority, int a5, int a6, HMODULE hMod);
 static fn_ThreadWorker orig_ThreadWorker = nullptr;
 
-
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
@@ -358,13 +359,6 @@ static void   DumpPeriodicStats();
 // ================================================================
 // Logging — ring buffer + background thread
 //
-// WHAT: Lock-free ring buffer (2048 slots x 512 bytes) with a
-//       dedicated background thread that flushes to file.
-// WHY:  Avoids file I/O on the main/game threads. Log() is called
-//       from hooked functions — must be ultra-fast.
-// HOW:  1. Log() writes to ring slot, sets ready flag via Interlocked
-//       2. Background thread waits on event, drains ready slots
-//       3. On shutdown, drains remaining entries
 // ================================================================
 static FILE* g_log = nullptr;
 
@@ -463,19 +457,10 @@ extern "C" void Log(const char* fmt, ...) {
 
 // 1. Memory allocator replacement (mimalloc).
 //
-// WHAT: Replaces CRT malloc/free/realloc/calloc/msize with mimalloc.
-// WHY:  mimalloc is significantly faster than the default Windows heap,
-//       especially for small allocations (fragmentation-resistant).
-// HOW:  1. Finds loaded CRT DLL (msvcrt.dll etc.)
-//       2. Hooks malloc/free/realloc/calloc/_msize via MinHook
-//       3. hooked_free checks mi_is_in_heap_region() to avoid freeing
-//          non-mimalloc pointers (safety for mixed-allocator code)
-//       4. hooked_realloc migrates from old allocator if needed
-// STATUS: Active — primary allocator for all CRT allocations
-typedef void*  (__cdecl* malloc_fn)(size_t);
-typedef void   (__cdecl* free_fn)(void*);
-typedef void*  (__cdecl* realloc_fn)(void*, size_t);
-typedef void*  (__cdecl* calloc_fn)(size_t, size_t);
+typedef void* (__cdecl* malloc_fn)(size_t);
+typedef void  (__cdecl* free_fn)(void*);
+typedef void* (__cdecl* realloc_fn)(void*, size_t);
+typedef void* (__cdecl* calloc_fn)(size_t, size_t);
 typedef size_t (__cdecl* msize_fn)(void*);
 
 static malloc_fn  orig_malloc  = nullptr;
@@ -570,17 +555,6 @@ static bool InstallAllocatorHooks() {
 
 // 2. Sleep hook + frame pacing, GC stepping, combat log cleanup.
 //
-// WHAT: Hooks Sleep() to intercept WoW's frame pacing calls (typically
-//       Sleep(1-3) between frames).
-// WHY:  This is the central hook — called ~60 times/sec on main thread.
-//       Used as a trigger for: Lua GC stepping, combat log cleanup,
-//       addon state polling, MPQ prefetch, mimalloc collect.
-// HOW:  1. PreciseSleep: busy-wait for sub-ms accuracy (single client)
-//          or pure yield (multi-client to reduce CPU)
-//       2. Runs periodic maintenance on main thread
-//       3. Calls LuaOpt::OnMainThreadSleep() for GC stepping
-//       4. Calls CombatLogOpt::OnFrame() for periodic log clears
-// STATUS: Active — core heartbeat mechanism for all optimizations
 static DWORD g_mainThreadId = 0;
 
 typedef void (WINAPI* Sleep_fn)(DWORD);
@@ -693,10 +667,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_NAMEPLATE_MT
         NameplateMT::OnFrame(g_mainThreadId);
 #endif
-        // PhysicsMT::OnFrame(g_mainThreadId); // Module removed
-#if !TEST_DISABLE_SPELL_EFFECT_MT
-        SpellEffectMT::OnFrame(g_mainThreadId);
-#endif
 
         PreciseSleep((double)ms);
         return;
@@ -736,17 +706,6 @@ static bool InstallSleepHook() {
 
 // 3. Network optimization - TCP_NODELAY, immediate ACK, QoS, keepalive.
 //
-// WHAT: Hooks connect() and send() to optimize WoW's TCP socket settings.
-// WHY:  Default Nagle algorithm + delayed ACK add 40-200ms latency.
-//       For a game server connection, this is noticeable lag.
-// HOW:  1. TCP_NODELAY: disables Nagle (sends immediately)
-//       2. SIO_TCP_SET_ACK_FREQUENCY: forces ACK every packet (Win7+)
-//       3. IP_TOS 0x10: low-delay QoS flag
-//       4. Buffer sizing: 32KB send, 64KB receive
-//       5. Keepalive: 10s interval, 1s timeout
-//       6. Deferred mode: tracks WSAEWOULDBLOCK sockets, optimizes on
-//          first send() instead of at connect() time
-// STATUS: Active — reduces network latency for game server connection
 
 #ifndef SIO_TCP_SET_ACK_FREQUENCY
 #define SIO_TCP_SET_ACK_FREQUENCY _WSAIOW(IOC_VENDOR, 23)
@@ -836,7 +795,7 @@ static void OptimizeSocket(SOCKET s, const char* trigger) {
         failed++;
 
     Log("Socket %d [%s]: %d applied, %d failed (NODELAY+ACK+QoS+BUF+KA)",
-        (int)s, trigger, applied, failed);
+       (int)s, trigger, applied, failed);
 }
 
 static int WINAPI hooked_connect(SOCKET s, const struct sockaddr* name, int namelen) {
@@ -866,15 +825,6 @@ static int WINAPI hooked_send(SOCKET s, const char* buf, int len, int flags) {
 // ================================================================
 // 3b. recv / WSARecv — receive-side socket optimization
 //
-// WHAT: Hooks recv() and WSARecv() to track receive-side socket behavior.
-// WHY:  recv is the mirror of send — game client receives server updates,
-//       entity positions, combat events, etc. Optimizing receive path
-//       reduces incoming latency and improves responsiveness.
-// HOW:  1. Track recv call frequency and byte throughput
-//       2. WSARecv hook ensures overlapped I/O uses optimal buffer counts
-//       3. Detect WSAEWOULDBLOCK patterns (non-blocking receive starvation)
-//       4. Ensure SO_RCVBUF is optimal (already set in OptimizeSocket)
-// STATUS: Active — complements send-side optimizations
 // ================================================================
 
 typedef int (WINAPI* recv_fn)(SOCKET, char*, int, int);
@@ -953,17 +903,6 @@ static bool InstallNetworkHooks() {
 // ================================================================
 // 4. MPQ Handle Tracking (O(1) hash lookup)
 //
-// WHAT: Tracks which file handles are MPQ archives using a hash table.
-// WHY:  ReadFile/CreateFile hooks need to know if a handle is MPQ to
-//       apply caching/mmap optimizations. Linear scan of 256 elements
-//       on EVERY ReadFile call was too slow.
-// HOW:  1. Open-addressing hash table (512 slots, power-of-2 size)
-//       2. Key insight: HANDLE values are multiples of 4, so we shift
-//          right by 2 for better hash distribution
-//       3. TrackMpqHandle called from CreateFile hook
-//       4. UntrackMpqHandle called from CloseHandle hook
-//       5. IsMpqHandle checked from ReadFile hook (fast path gate)
-// STATUS: Active — used by ReadFile cache and MPQ mmap features
 // ================================================================
 
 static constexpr int MPQ_HASH_SIZE = 512; // power of 2, load factor < 0.5
@@ -1071,19 +1010,6 @@ static void UntrackMpqHandle(HANDLE h) {
 // ================================================================
 // 4b. Memory-Mapped MPQ Files
 //
-// WHAT: Memory-maps MPQ files (256 KB — 512 MB) for zero-kernel reads.
-// WHY:  mmap eliminates kernel transition overhead on every ReadFile.
-//       Reads become simple memcpy from user-space mapped memory.
-//       For frequently-accessed MPQ data (DBCs, textures), this is
-//       a massive speedup — no syscall, no IRP, no driver stack.
-// HOW:  1. CreateFile hook: detects .mpq extension, calls CreateMpqMapping
-//       2. CreateMpqMapping: CreateFileMapping + MapViewOfFile
-//       3. ReadFile hook: checks mapping, does memcpy if in range
-//       4. CloseHandle hook: unmaps view (intentionally does NOT close
-//          mapping handle to avoid deadlock with hooked_CloseHandle)
-// LIMITS: Min 256 KB, max 512 MB per file, 768 MB total, 32 mappings
-// STATUS: DISABLED in public release (CRASH_TEST_DISABLE_MPQ_MMAP=1)
-//         Tested and found risky — leave disabled for stable builds
 // ================================================================
 // MPQ map lock — always defined (used by scanner even when mmap disabled)
 static SRWLOCK g_mpqMapLock = SRWLOCK_INIT;
@@ -1168,7 +1094,7 @@ static MpqMapping* CreateMpqMapping(HANDLE hFile, const char* pathForLog = nullp
     // Verify the mapping is readable (catch files being modified by launchers/patchers)
     __try {
         volatile uint8_t test = *(volatile uint8_t*)base;
-        (void)test;
+       (void)test;
     }
     __except(EXCEPTION_EXECUTE_HANDLER) {
         UnmapViewOfFile(base);
@@ -1220,20 +1146,8 @@ static void DestroyMpqMapping(HANDLE hFile) {
 
 #endif // !CRASH_TEST_DISABLE_MPQ_MMAP
 
-
 // 5. ReadFile cache MPQ adaptive read-ahead.
 //
-// WHAT: Caches reads from MPQ handles with adaptive read-ahead.
-// WHY:  WoW reads MPQ files in small chunks (often 1-8 KB). Each
-//       ReadFile is a syscall + disk I/O. Read-ahead fetches 64-256 KB
-//       in one syscall, serving subsequent reads from memory.
-// HOW:  1. On first read: fetches 64 KB (normal) or 256 KB (loading)
-//       2. Subsequent reads within cached range: memcpy from buffer
-//       3. Cache miss: refills with new read-ahead
-//       4. 16 handle slots, LRU eviction
-//       5. Checks IsMpqHandle() to only cache MPQ reads
-//       6. If MPQ mmap is enabled, mmap fast path is tried first
-// STATUS: Active — primary MPQ read optimization for public release
 
 typedef BOOL (WINAPI* ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED);
 static ReadFile_fn orig_ReadFile = nullptr;
@@ -1262,6 +1176,11 @@ static volatile bool g_asyncIoShutdown = false;
 
 static DWORD WINAPI AsyncIoWorkerProc(LPVOID) {
     while (!g_asyncIoShutdown) {
+        // Pause during lua_State swap — MPQ handles and buffers may be stale
+        if (LuaOpt::IsSwapping()) {
+            Sleep(1);
+            continue;
+        }
         LONG head = g_asyncIoHead;
         if (head == g_asyncIoTail) {
             SwitchToThread();
@@ -1336,8 +1255,6 @@ static bool InstallAsyncIoWorker() { return false; }
 
 #endif
 
-
-
 // Async prefetch forward declarations
 static const int MAX_PREFETCH_SLOTS = 8;
 static const DWORD PREFETCH_SIZE = 256 * 1024;
@@ -1390,7 +1307,19 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     DWORD nBytesToRead, LPDWORD lpBytesRead, LPOVERLAPPED lpOverlapped)
 {
     // Skip: overlapped I/O, non-MPQ, or not initialized
-    if (lpOverlapped || !g_cacheInitialized || !IsMpqHandle(hFile))
+    if (lpOverlapped)
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+
+    // Addon file RAM-disk: serve pre-loaded addon files from memory
+    if (AddonPreload_TryServe(hFile, lpBuffer, nBytesToRead, lpBytesRead))
+        return TRUE;
+
+    if (!g_cacheInitialized || !IsMpqHandle(hFile))
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+
+    // NULL-buffer guard: WoW may call ReadFile with lpBuffer=NULL to advance
+    // the file pointer during loading/streaming with HD MPQs.
+    if (!lpBuffer || !nBytesToRead)
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
     // === Memory-mapped fast path (ANY read size, zero kernel transitions) ===
@@ -1496,7 +1425,6 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
                     return TRUE;
                 }
 
-               
                 uint8_t* asyncBuf = (uint8_t*)mi_malloc(nBytesToRead);
                 if (asyncBuf) {
                     LARGE_INTEGER nextOff; nextOff.QuadPart = currentPos.QuadPart + nBytesToRead;
@@ -1539,16 +1467,6 @@ static bool InstallReadFileHook() {
 // ================================================================
 // 5b. Async MPQ Prefetch Queue — background overlapped reads
 //
-// WHAT: Asynchronous prefetch of MPQ data ahead of current read position.
-// WHY:  WoW reads MPQ files sequentially (textures, models, sounds).
-//       By the time WoW requests the next chunk, it's already in memory.
-//       Eliminates disk wait during sequential MPQ streaming.
-// HOW:  1. On MPQ read, queue async prefetch of next N bytes via OVERLAPPED
-//       2. Prefetch runs in background (non-blocking)
-//       3. Next sync read checks prefetch buffer first
-//       4. Queue depth: 8 slots, 256 KB each
-//       5. Cancelled if file position jumps (seek detection)
-// STATUS: Active — async complement to sync read-ahead cache
 // ================================================================
 
 struct PrefetchSlot {
@@ -1680,14 +1598,6 @@ static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, D
 // ================================================================
 // 6. GetTickCount — QPC Precision
 //
-// WHAT: Replaces GetTickCount() with QPC-based microsecond precision.
-// WHY:  GetTickCount has ~15.6 ms resolution (default timer tick).
-//       WoW uses it for frame timing, animation, and UI updates.
-//       QPC provides sub-microsecond precision for smoother pacing.
-// HOW:  1. Captures QPC frequency + starting point at init
-//       2. Returns g_tickStart + elapsed_ms_from_QPC
-//       3. Synced with timeGetTime hook (same QPC base)
-// STATUS: Active — improves frame timing precision
 // ================================================================
 typedef DWORD (WINAPI* GetTickCount_fn)(void);
 static GetTickCount_fn orig_GetTickCount = nullptr;
@@ -1743,15 +1653,6 @@ static bool InstallTimeGetTimeHook() {
 
 // 7. CriticalSection spin count tuning + TryEnter spin-first path.
 //
-// WHAT: Increases CS spin count to 4000 and adds TryEnter spin-first path.
-// WHY:  Default CS spin count is 0 — immediately enters kernel wait.
-//       For short-held locks (common in WoW), spinning in user mode is
-//       much faster than a kernel transition.
-// HOW:  1. hooked_InitCS: sets spin count to 4000 on all new CS
-//       2. hooked_EnterCS: tries TryEnter first, then 32x _mm_pause()
-//          spin loop, then falls back to original EnterCriticalSection
-// STATUS: Active — reduces kernel transitions on contention paths
-// NOTE:   TryEnter path can be disabled via CRASH_TEST_DISABLE_CS_ENTER
 
 typedef void (WINAPI* InitCS_fn)(LPCRITICAL_SECTION);
 typedef void (WINAPI* EnterCS_fn)(LPCRITICAL_SECTION);
@@ -1808,14 +1709,6 @@ static bool InstallCriticalSectionHook() {
 // ================================================================
 // 7b. Heap Optimization — Low Fragmentation Heap
 //
-// WHAT: Enables LFH on all growable heaps via HeapSetInformation.
-// WHY:  LFH reduces fragmentation and improves allocation speed for
-//       small allocations (< 16 KB). WoW creates many heaps at runtime.
-// HOW:  1. Enables LFH on process default heap at init
-//       2. Hooks HeapCreate to enable LFH on all future growable heaps
-//       3. Only targets heaps with dwMaximumSize==0 (growable heaps)
-//          Fixed-size heaps don't support LFH
-// STATUS: Active — reduces heap fragmentation globally
 // ================================================================
 
 typedef HANDLE (WINAPI* HeapCreate_fn)(DWORD, SIZE_T, SIZE_T);
@@ -1869,13 +1762,94 @@ static bool InstallHeapOptimization() {
 }
 
 // ================================================================
+// 7a. HeapAlloc/HeapFree → mimalloc — redirect process heap to mimalloc
+//
+// Windows HeapAlloc/HeapFree are used by Win32 APIs and WoW internal
+// code. Redirecting the process heap to mimalloc catches all remaining
+// allocations that bypass CRT malloc (HeapAlloc, LocalAlloc, etc.).
+// Other heaps keep LFH but use the original allocator for safety.
+// ================================================================
+typedef LPVOID (WINAPI* HeapAlloc_fn)(HANDLE, DWORD, SIZE_T);
+typedef BOOL   (WINAPI* HeapFree_fn)(HANDLE, DWORD, LPVOID);
+typedef LPVOID (WINAPI* HeapReAlloc_fn)(HANDLE, DWORD, LPVOID, SIZE_T);
+typedef SIZE_T (WINAPI* HeapSize_fn)(HANDLE, DWORD, LPCVOID);
+
+static HeapAlloc_fn  orig_HeapAlloc  = nullptr;
+static HeapFree_fn   orig_HeapFree   = nullptr;
+static HeapReAlloc_fn orig_HeapReAlloc = nullptr;
+static HeapSize_fn   orig_HeapSize   = nullptr;
+static HANDLE        g_processHeap   = nullptr;
+static long          g_heapAllocHits  = 0;
+
+static LPVOID WINAPI hooked_HeapAlloc(HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes) {
+    if (hHeap == g_processHeap && dwBytes > 0) {
+        InterlockedIncrement(&g_heapAllocHits);
+        void* p = mi_malloc(dwBytes);
+        if (dwFlags & HEAP_ZERO_MEMORY && p) memset(p, 0, dwBytes);
+        return p;
+    }
+    return orig_HeapAlloc(hHeap, dwFlags, dwBytes);
+}
+
+static BOOL WINAPI hooked_HeapFree(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem) {
+    if (hHeap == g_processHeap && lpMem) {
+        if (mi_is_in_heap_region(lpMem)) { mi_free(lpMem); return TRUE; }
+    }
+    return orig_HeapFree(hHeap, dwFlags, lpMem);
+}
+
+static LPVOID WINAPI hooked_HeapReAlloc(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dwBytes) {
+    if (hHeap == g_processHeap && lpMem) {
+        if (mi_is_in_heap_region(lpMem)) {
+            if (dwBytes == 0) { mi_free(lpMem); return NULL; }
+            void* p = mi_realloc(lpMem, dwBytes);
+            if (dwFlags & HEAP_ZERO_MEMORY && p) {
+                size_t usable = mi_usable_size(p);
+                if (dwBytes > usable) memset((char*)p + usable, 0, dwBytes - usable);
+            }
+            return p;
+        }
+    }
+    return orig_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
+}
+
+static SIZE_T WINAPI hooked_HeapSize(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMem) {
+    if (hHeap == g_processHeap && lpMem) {
+        if (mi_is_in_heap_region((void*)lpMem)) return mi_usable_size((void*)lpMem);
+    }
+    return orig_HeapSize(hHeap, dwFlags, lpMem);
+}
+
+static bool InstallHeapRedirectToMimalloc() {
+    g_processHeap = GetProcessHeap();
+    if (!g_processHeap) return false;
+
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+
+    int ok = 0;
+    void* p;
+
+    p = (void*)GetProcAddress(hK32, "HeapAlloc");
+    if (p && MH_CreateHook(p, (void*)hooked_HeapAlloc, (void**)&orig_HeapAlloc) == MH_OK) ok++;
+    p = (void*)GetProcAddress(hK32, "HeapFree");
+    if (p && MH_CreateHook(p, (void*)hooked_HeapFree, (void**)&orig_HeapFree) == MH_OK) ok++;
+    p = (void*)GetProcAddress(hK32, "HeapReAlloc");
+    if (p && MH_CreateHook(p, (void*)hooked_HeapReAlloc, (void**)&orig_HeapReAlloc) == MH_OK) ok++;
+    p = (void*)GetProcAddress(hK32, "HeapSize");
+    if (p && MH_CreateHook(p, (void*)hooked_HeapSize, (void**)&orig_HeapSize) == MH_OK) ok++;
+
+    if (ok > 0) {
+        MH_EnableHook(MH_ALL_HOOKS);
+        Log("Heap redirect: ACTIVE (%d/4 hooks, process heap -> mimalloc)", ok);
+        return true;
+    }
+    return false;
+}
+
+// ================================================================
 // 7c. OutputDebugStringA — No-op when no debugger
 //
-// WHAT: Skips OutputDebugStringA calls when no debugger is attached.
-// WHY:  WoW/addons may emit debug strings. Without a debugger, these
-//       go to DbgPrint which has non-trivial overhead.
-// HOW:  Checks IsDebuggerPresent() — returns immediately if false
-// STATUS: Active — minor overhead reduction
 // ================================================================
 
 typedef void (WINAPI* OutputDebugStringA_fn)(LPCSTR);
@@ -1902,15 +1876,6 @@ static bool InstallOutputDebugStringHook() {
 // ================================================================
 // 7d. CompareStringA — Fast ASCII Path
 //
-// WHAT: User-mode fast path for pure ASCII string comparisons.
-// WHY:  CompareStringA is a locale-aware Win32 API with significant
-//       overhead for simple ASCII comparisons (common in WoW addons).
-// HOW:  1. Checks flags — only fast-paths simple cases (no flags,
-//       NORM_IGNORECASE, or SORT_STRINGSORT)
-//       2. Iterates chars, bails on non-ASCII (>127) → original API
-//       3. Case-insensitive: uppercases a-z inline (no API call)
-//       4. Returns CSTR_LESS_THAN/EQUAL/GREATER_THAN directly
-// STATUS: Active — speeds up string comparisons in addons/Blizzard UI
 // ================================================================
 
 typedef int (WINAPI* CompareStringA_fn)(LCID, DWORD, LPCSTR, int, LPCSTR, int);
@@ -1990,14 +1955,6 @@ static bool InstallCompareStringHook() {
 // ================================================================
 // 7e. GetFileAttributesA — Cache for MPQ paths
 //
-// WHAT: 256-slot direct-mapped cache for GetFileAttributesA results.
-// WHY:  WoW calls GetFileAttributesA frequently for file existence
-//       checks (config, screenshots, addon files). Each call is a
-//       filesystem stat syscall — expensive for network/MPQ paths.
-// HOW:  1. Case-insensitive FNV-1a hash of path (normalizes slashes)
-//       2. Only caches files that EXIST (not INVALID)
-//       3. Non-existent files not cached — might be created later
-// STATUS: Active — reduces filesystem stat overhead
 // ================================================================
 
 typedef DWORD (WINAPI* GetFileAttributesA_fn)(LPCSTR);
@@ -2070,14 +2027,6 @@ static bool InstallGetFileAttributesHook() {
 // ================================================================
 // 7g. SetFilePointer → SetFilePointerEx Redirect
 //
-// WHAT: Redirects legacy 32-bit SetFilePointer to SetFilePointerEx.
-// WHY:  SetFilePointer has awkward error handling (INVALID_SET_FILE_POINTER
-//       + GetLastError) and slightly more overhead. SetFilePointerEx is
-//       the "real" implementation internally — cleaner and faster.
-// HOW:  1. Converts 32-bit params to LARGE_INTEGER
-//       2. Calls SetFilePointerEx
-//       3. Converts result back to legacy 32-bit return convention
-// STATUS: Active — cleaner I/O semantics, minor speed improvement
 // ================================================================
 
 typedef DWORD (WINAPI* SetFilePointer_fn)(HANDLE, LONG, PLONG, DWORD);
@@ -2123,17 +2072,6 @@ static bool InstallSetFilePointerHook() {
 // ================================================================
 // 7h. GlobalAlloc/GlobalFree — mimalloc for GMEM_FIXED
 //
-// WHAT: Routes GMEM_FIXED GlobalAlloc/GlobalFree through mimalloc.
-// WHY:  GlobalAlloc uses the process heap. mimalloc is faster for
-//       fixed-size allocations (no heap management overhead).
-// HOW:  1. hooked_GlobalAlloc: if GMEM_MOVEABLE is NOT set, uses
-//       mi_malloc/mi_calloc instead of GlobalAlloc
-//       2. hooked_GlobalFree: checks mi_is_in_heap_region() to
-//          determine if pointer was allocated by mimalloc
-//       3. GMEM_MOVEABLE allocations use original GlobalAlloc because
-//          GlobalLock/GlobalUnlock require OS-managed handles
-// STATUS: DISABLED in public release (CRASH_TEST_DISABLE_GLOBALALLOC=1)
-//         Tested and found risky — leave disabled for stable builds
 // ================================================================
 
 typedef HGLOBAL (WINAPI* GlobalAlloc_fn)(UINT, SIZE_T);
@@ -2197,16 +2135,6 @@ static bool InstallGlobalAllocHooks() {
 // ================================================================
 // 7f2. IsBadReadPtr / IsBadWritePtr — Fast Path
 //
-// WHAT: Fast-path for NULL/obvious bad pointer checks.
-// WHY:  IsBadReadPtr/WriteProbes use SEH (try/except) to probe memory.
-//       For obvious cases (NULL, <64KB, uncommitted), we can return
-//       immediately without SEH overhead.
-// HOW:  1. NULL → TRUE (always bad)
-//       2. Zero size → FALSE (always valid)
-//       3. <64KB → TRUE (guard page region)
-//       4. VirtualQuery check: not committed, NOACCESS, GUARD → TRUE
-//       5. Otherwise → fall through to FALSE (likely valid)
-// STATUS: Active — avoids SEH probing for common bad pointers
 // ================================================================
 
 typedef BOOL (WINAPI* IsBadReadPtr_fn)(const void*, UINT_PTR);
@@ -2272,13 +2200,6 @@ static bool InstallBadPtrHooks() {
 // ================================================================
 // 7f. GetCurrentThreadId — TLS Cached
 //
-// WHAT: Caches thread ID in TLS (__declspec(thread)) variable.
-// WHY:  GetCurrentThreadId is a syscall. WoW calls it frequently.
-//       Thread ID never changes per-thread, so cache it forever.
-// HOW:  1. First call: calls original GetCurrentThreadId, stores in TLS
-//       2. Subsequent calls: returns cached TLS value (zero syscall)
-//       3. Also hooks GetCurrentThread to return constant pseudo-handle
-// STATUS: Active — eliminates GetCurrentThreadId syscalls
 // ================================================================
 
 typedef DWORD (WINAPI* GetCurrentThreadId_fn)(void);
@@ -2330,16 +2251,6 @@ static bool InstallThreadIdCacheHook() {
 // ================================================================
 // 7f3. QueryPerformanceCounter — Coalesced with RDTSC fast path
 //
-// WHAT: Caches QPC results within a 50μs coalescing window.
-// WHY:  QPC is a relatively expensive syscall (~100 cycles). WoW calls
-//       it multiple times per frame. Within a 50μs window, the value is
-//       effectively the same for game logic purposes.
-// HOW:  1. Per-thread TLS: stores last QPC value and RDTSC timestamp
-//       2. Uses __rdtsc() (~10 cycles) to check cache validity
-//       3. If RDTSC elapsed < threshold, returns cached QPC value
-//       4. Otherwise: calls original QPC, updates cache
-// RDTSC: CPU timestamp counter, monotonic, ~10 cycles vs ~100 for QPC
-// STATUS: Active — reduces QPC syscall frequency by ~30-50%
 // ================================================================
 
 typedef BOOL (WINAPI* QueryPerformanceCounter_fn)(LARGE_INTEGER*);
@@ -2419,16 +2330,6 @@ static bool InstallQPCHook() {
 // ================================================================
 // 8. CreateFile — Sequential Scan + MPQ Tracking
 //
-// WHAT: Hooks CreateFileA/W to add FILE_FLAG_SEQUENTIAL_SCAN for MPQ
-//       files and track MPQ handles for the read-ahead cache.
-// WHY:  1. WoW reads MPQ files sequentially (archive data streams).
-//          Sequential scan flag tells the prefetcher to optimize I/O.
-//       2. MPQ handles must be tracked for ReadFile cache/mmap hooks.
-// HOW:  1. Checks .mpq extension (case-insensitive)
-//       2. Adds FILE_FLAG_SEQUENTIAL_SCAN to dwFlags
-//       3. Calls original CreateFile
-//       4. If MPQ: TrackMpqHandle + TryCreateMpqMapping
-// STATUS: Active — enables all MPQ optimization pipeline
 // ================================================================
 typedef HANDLE (WINAPI* CreateFileA_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
 typedef HANDLE (WINAPI* CreateFileW_fn)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
@@ -2457,6 +2358,10 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
         }
 #endif
     }
+    // Track addon file handles for RAM-disk serving
+    if (result != INVALID_HANDLE_VALUE) {
+        AddonPreload_OnCreateFile(result, lpFileName);
+    }
     return result;
 }
 
@@ -2479,6 +2384,11 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         ReleaseSRWLockExclusive(&g_mpqMapLock);
 #endif
     }
+    if (result != INVALID_HANDLE_VALUE && lpFileName) {
+        char buf[512];
+        WideCharToMultiByte(CP_UTF8, 0, lpFileName, -1, buf, 512, NULL, NULL);
+        AddonPreload_OnCreateFile(result, buf);
+    }
     return result;
 }
 
@@ -2499,15 +2409,6 @@ static bool InstallFileHooks() {
 // ================================================================
 // 9. CloseHandle — Cache Invalidation
 //
-// WHAT: Invalidates read-ahead cache and MPQ mappings on file close.
-// WHY:  When WoW closes an MPQ file, cached data for that handle
-//       becomes stale and must be purged to avoid reading freed data.
-// HOW:  1. Skips pseudo-handles (GetCurrentProcess/Thread)
-//       2. Destroys MPQ mapping (unmaps view, does NOT close mapping
-//          handle to avoid deadlock with hooked_CloseHandle)
-//       3. Untracks handle from MPQ hash table
-//       4. Invalidates read-ahead cache entry for this handle
-// STATUS: Active — prevents stale data reads from closed files
 // ================================================================
 typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
 static CloseHandle_fn orig_CloseHandle = nullptr;
@@ -2545,14 +2446,6 @@ static bool InstallCloseHandleHook() {
 
 // 9c. Retroactive MPQ handle scanner finds MPQ handles opened before DLL loaded.
 //
-// WHAT: Scans all existing process handles for MPQ files after init.
-// WHY:  WoW opens MPQ handles before wow_optimize.dll is loaded (during
-//       early startup). These handles are invisible to CreateFile hook.
-// HOW:  1. Iterates handles 4..0x10000 (step 4 — HANDLE alignment)
-//       2. GetFileType: must be FILE_TYPE_DISK
-//       3. GetFinalPathNameByHandleA: gets file path
-//       4. Checks .mpq extension → TrackMpqHandle + CreateMpqMapping
-// STATUS: Active — catches MPQ handles opened before DLL initialization
 
 typedef DWORD (WINAPI* GetFinalPathNameByHandleA_fn)(HANDLE, LPSTR, DWORD, DWORD);
 static GetFinalPathNameByHandleA_fn pGetFinalPathNameByHandleA = nullptr;
@@ -2629,11 +2522,6 @@ static void ScanExistingMpqHandles() {
 // ================================================================
 // 9b. FlushFileBuffers — Skip for MPQ (read-only)
 //
-// WHAT: Skips FlushFileBuffers calls for MPQ handles.
-// WHY:  MPQ archives are read-only. Flushing write buffers is a
-//       no-op but still incurs syscall overhead.
-// HOW:  Checks IsMpqHandle() → returns TRUE immediately
-// STATUS: Active — eliminates useless flush syscalls on read-only files
 // ================================================================
 
 typedef BOOL (WINAPI* FlushFileBuffers_fn)(HANDLE);
@@ -2659,17 +2547,6 @@ static bool InstallFlushFileBuffersHook() {
 
 // 9d. Multi-client detection via named mutex.
 //
-// WHAT: Detects if multiple WoW clients are running.
-// WHY:  Multi-client mode requires conservative settings to avoid
-//       resource contention and 32-bit address space pressure.
-// HOW:  Creates named mutex "wow_optimize_instance_v2".
-//       If ERROR_ALREADY_EXISTS → another instance is running.
-// EFFECTS: 1. Timer: 1.0ms (vs 0.5ms single)
-//          2. Sleep: pure yield (vs busy-wait single)
-//          3. Working set: 64-512 MB (vs 256 MB-2 GB single)
-//          4. mimalloc: purge_delay=100ms (vs 0ms single)
-//          5. mimalloc collect: every 1024 steps (vs 4096 single)
-// STATUS: Active — essential for stable multi-client operation
 
 static void DetectMultiClient() {
     g_instanceMutex = CreateMutexA(NULL, FALSE, "wow_optimize_instance_v2");
@@ -2684,12 +2561,6 @@ static void DetectMultiClient() {
 
 // 10. System timer resolution.
 //
-// WHAT: Sets system-wide timer resolution via NtSetTimerResolution.
-// WHY:  Default Windows timer is 15.6 ms. WoW's Sleep(1) calls round
-//       up to this, causing imprecise frame pacing.
-// HOW:  Single client: 0.5 ms (5000 * 100ns units)
-//       Multi-client: 1.0 ms (10000 units — less CPU overhead)
-// STATUS: Active — enables PreciseSleep sub-millisecond accuracy
 static void SetHighTimerResolution() {
     typedef LONG (WINAPI* NtSetTimerRes_fn)(ULONG, BOOLEAN, PULONG);
     HMODULE h = GetModuleHandleA("ntdll.dll");
@@ -2722,12 +2593,7 @@ static void SetHighTimerResolution() {
 
 // 11. Large pages — requires SeLockMemoryPrivilege.
 //
-// WHAT: Enables mimalloc large page support if privilege is available.
-// WHY:  Large pages (2 MB) reduce TLB pressure and page table overhead.
-// HOW:  1. Opens process token, looks up SeLockMemoryPrivilege
-//       2. Adjusts token privileges to enable it
-//       3. Sets mi_option_allow_large_os_pages = 1
-// STATUS: Active (if privilege granted — requires admin policy)
+// Enables mimalloc large page support if privilege is available.
 static void TryEnableLargePages() {
     HANDLE hToken;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) return;
@@ -2748,14 +2614,6 @@ static void TryEnableLargePages() {
 
 // 12. Thread optimization — ideal processor, priority.
 //
-// WHAT: Sets main thread ideal processor and priority ABOVE_NORMAL.
-// WHY:  WoW's main thread handles all rendering, Lua, and game logic.
-//       Giving it priority ensures the scheduler favors it over worker
-//       threads (network, audio, MPQ streaming).
-// HOW:  1. Scans all threads in process, finds earliest-creation (main)
-//       2. Sets ideal processor to core 1 (or core 0 on single-core)
-//       3. Sets thread priority to THREAD_PRIORITY_ABOVE_NORMAL
-// STATUS: Active — main thread gets scheduler preference
 static void OptimizeThreads() {
     DWORD pid = GetCurrentProcessId();
     DWORD mainTid = 0;
@@ -2795,11 +2653,6 @@ static void OptimizeThreads() {
 
 // 13. Process priority.
 //
-// WHAT: Sets process to ABOVE_NORMAL_PRIORITY_CLASS + enables priority boost.
-// WHY:  Ensures WoW gets CPU time over background apps.
-//       Priority boost allows temporary elevation for I/O completion.
-// HOW:  SetPriorityClass + SetProcessPriorityBoost
-// STATUS: Active — system-wide process priority elevation
 static void OptimizeProcess() {
     SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
     SetProcessPriorityBoost(GetCurrentProcess(), TRUE);
@@ -2808,13 +2661,6 @@ static void OptimizeProcess() {
 
 // 14. Working set.
 //
-// WHAT: Sets process minimum/maximum working set size.
-// WHY:  Controls how much physical RAM WoW can use.
-//       Too small → excessive page faults. Too large → starves other
-//       processes (especially in multi-client mode).
-// HOW:  Single client: 256 MB - 2 GB (generous for HD textures)
-//       Multi-client: 64 MB - 512 MB (prevents 32-bit OOM)
-// STATUS: Active — memory pressure management
 static void OptimizeWorkingSet() {
     SIZE_T minWS, maxWS;
     if (g_isMultiClient) {
@@ -2827,8 +2673,8 @@ static void OptimizeWorkingSet() {
     }
     if (SetProcessWorkingSetSize(GetCurrentProcess(), minWS, maxWS))
         Log("Working set: min %u MB, max %u MB%s",
-            (unsigned)(minWS / (1024 * 1024)),
-            (unsigned)(maxWS / (1024 * 1024)),
+           (unsigned)(minWS / (1024 * 1024)),
+           (unsigned)(maxWS / (1024 * 1024)),
             g_isMultiClient ? " (multi-client reduced)" : "");
     else
         Log("WARNING: Working set failed (error %lu)", GetLastError());
@@ -2836,20 +2682,10 @@ static void OptimizeWorkingSet() {
 
 // 15. mimalloc configuration.
 //
-// WHAT: Configures mimalloc options and pre-warms the allocator.
-// WHY:  mimalloc needs tuning for WoW's usage pattern.
-// HOW:  1. Enables large pages (if privilege available)
-//       2. Sets purge_delay=0 (single) or 100 (multi — adjusted later)
-//       3. Pre-warms 64 MB to populate mimalloc's thread caches
-// STATUS: Active — allocator warm and ready at init
+// Configures mimalloc options and pre-warms the allocator.
 static void ConfigureMimalloc() {
+    // Allow large OS pages when enabled by system policy
     mi_option_set(mi_option_allow_large_os_pages, 1);
-
-    // purge_delay: how quickly mimalloc returns unused pages to OS
-    // Single client: never purge (keep pages warm, less page faults)
-    // Multi-client: purge after 100ms (reduce address space pressure)
-    // NOTE: g_isMultiClient is not yet set at this point,
-    //       so we set a moderate default and update later in AdjustMimallocForMultiClient()
     mi_option_set(mi_option_purge_delay, 0);
 
     void* warmup = mi_malloc(64 * 1024 * 1024);
@@ -2869,14 +2705,6 @@ static void AdjustMimallocForMultiClient() {
 
 // 16. FPS cap removal — patches CMP EAX, 200 to CMP EAX, 999.
 //
-// WHAT: Scans Wow.exe for the hardcoded 200 FPS cap and raises it to 999.
-// WHY:  WoW 3.3.5a has a built-in 200 FPS limit. With all optimizations
-//       active, WoW can exceed this — the cap becomes a bottleneck.
-// HOW:  1. Pattern scans for "3D C8 00 00 00" (CMP EAX, 200)
-//       2. Verifies next byte is conditional jump (JLE/JG)
-//       3. Patches the immediate value from 200 to 999
-//       4. VirtualProtect for PAGE_EXECUTE_READWRITE
-// STATUS: Active — removes artificial FPS ceiling
 static uintptr_t FindPattern(uintptr_t base, size_t size, const uint8_t* pat, const char* mask) {
     for (size_t i = 0; i < size; i++) {
         bool found = true;
@@ -2938,18 +2766,6 @@ static void TryRemoveFPSCap() {
 
 // Periodic stats dump called from hooked_Sleep.
 //
-// WHAT: Dumps comprehensive optimization statistics to the log file.
-// WHY:  WoW often hangs on exit so DLL_PROCESS_DETACH stats are
-//       unreliable. Periodic dumps ensure we capture runtime data.
-// HOW:  Called every 30 seconds from RunPeriodicMaintenanceOnMainThread
-//       (triggered by hooked_Sleep on main thread).
-// DUMPS: 1. Process memory (working set, page faults, VA fragmentation)
-//        2. MPQ mmap stats (reads, faults, mapped files, MB)
-//        3. QPC cache hit rate
-//        4. All hook hit/fallback counters
-//        5. Lua fast path per-function stats
-//        6. VA Arena usage stats
-//        7. Lua allocator stats (mimalloc mallocs/frees)
 
 static void DumpPeriodicStats() {
     // Process memory diagnostics (helps diagnose HD/custom client OOM)
@@ -2983,7 +2799,7 @@ static void DumpPeriodicStats() {
         Log("[Stats] VA Space: Free=%.0fMB LargestBlock=%.0fMB%s",
             totalFree / (1024.0 * 1024.0),
             largestFree / (1024.0 * 1024.0),
-            (largestFree < 64 * 1024 * 1024) ? " WARNING: fragmented" : "");
+           (largestFree < 64 * 1024 * 1024) ? " WARNING: fragmented" : "");
     }    
     Log("[Stats] ====================================");
 
@@ -2998,7 +2814,7 @@ static void DumpPeriodicStats() {
         long total = g_qpcCacheHits + g_qpcCacheMisses;
         Log("[Stats] QPC: %ld cached, %ld real (%.1f%% cache hit)",
             g_qpcCacheHits, g_qpcCacheMisses,
-            (double)g_qpcCacheHits / total * 100.0);
+           (double)g_qpcCacheHits / total * 100.0);
     }
 #endif
 
@@ -3007,15 +2823,15 @@ static void DumpPeriodicStats() {
     if (g_prefetchQueued > 0 || g_prefetchHits > 0)
         Log("[Stats] MPQ Prefetch: %ld queued, %ld hits, %ld misses, %ld cancelled (%.1f%% hit rate)",
             g_prefetchQueued, g_prefetchHits, g_prefetchMisses, g_prefetchCancelled,
-            (g_prefetchHits + g_prefetchMisses > 0) ? (double)g_prefetchHits / (g_prefetchHits + g_prefetchMisses) * 100.0 : 0.0);
+           (g_prefetchHits + g_prefetchMisses > 0) ? (double)g_prefetchHits / (g_prefetchHits + g_prefetchMisses) * 100.0 : 0.0);
     if (g_compareAsciiHits + g_compareFallbacks > 0)
         Log("[Stats] CompareStringA: %ld fast, %ld fallback (%.1f%%)",
             g_compareAsciiHits, g_compareFallbacks,
-            (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
+           (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
     if (g_fileAttrHits + g_fileAttrMisses > 0)
         Log("[Stats] GetFileAttributes: %ld hits, %ld misses (%.1f%%)",
             g_fileAttrHits, g_fileAttrMisses,
-            (double)g_fileAttrHits / (g_fileAttrHits + g_fileAttrMisses) * 100.0);
+           (double)g_fileAttrHits / (g_fileAttrHits + g_fileAttrMisses) * 100.0);
     if (g_badPtrFastChecks > 0)
         Log("[Stats] IsBadPtr: %ld fast checks", g_badPtrFastChecks);
     if (g_csSpinHits > 0)
@@ -3025,63 +2841,63 @@ static void DumpPeriodicStats() {
     if (g_fsizeHits + g_fsizeMisses > 0)
         Log("[Stats] GetFileSize: %ld hits, %ld misses (%.1f%%)",
             g_fsizeHits, g_fsizeMisses,
-            (double)g_fsizeHits / (g_fsizeHits + g_fsizeMisses) * 100.0);
+           (double)g_fsizeHits / (g_fsizeHits + g_fsizeMisses) * 100.0);
     if (g_wfsSpinHits + g_wfsFallbacks > 0)
         Log("[Stats] WaitForSingleObject: %ld spin, %ld fallback (%.1f%% spin)",
             g_wfsSpinHits, g_wfsFallbacks,
-            (double)g_wfsSpinHits / (g_wfsSpinHits + g_wfsFallbacks) * 100.0);
+           (double)g_wfsSpinHits / (g_wfsSpinHits + g_wfsFallbacks) * 100.0);
     if (g_modHits + g_modMisses > 0)
         Log("[Stats] GetModuleHandle: %ld hits, %ld misses (%.1f%%)",
             g_modHits, g_modMisses,
-            (double)g_modHits / (g_modHits + g_modMisses) * 100.0);
+           (double)g_modHits / (g_modHits + g_modMisses) * 100.0);
     if (g_lstrcmpHits + g_lstrcmpFallbacks > 0)
         Log("[Stats] lstrcmp: %ld fast, %ld fallback (%.1f%%)",
             g_lstrcmpHits, g_lstrcmpFallbacks,
-            (double)g_lstrcmpHits / (g_lstrcmpHits + g_lstrcmpFallbacks) * 100.0);
+           (double)g_lstrcmpHits / (g_lstrcmpHits + g_lstrcmpFallbacks) * 100.0);
     if (g_mbwcFastHits + g_mbwcFallbacks > 0)
         Log("[Stats] MultiByteToWideChar: %ld fast, %ld fallback (%.1f%%)",
             g_mbwcFastHits, g_mbwcFallbacks,
-            (double)g_mbwcFastHits / (g_mbwcFastHits + g_mbwcFallbacks) * 100.0);
+           (double)g_mbwcFastHits / (g_mbwcFastHits + g_mbwcFallbacks) * 100.0);
     if (g_wcmbFastHits + g_wcmbFallbacks > 0)
         Log("[Stats] WideCharToMultiByte: %ld fast, %ld fallback (%.1f%%)",
             g_wcmbFastHits, g_wcmbFallbacks,
-            (double)g_wcmbFastHits / (g_wcmbFastHits + g_wcmbFallbacks) * 100.0);
+           (double)g_wcmbFastHits / (g_wcmbFastHits + g_wcmbFallbacks) * 100.0);
     if (g_profHits + g_profMisses > 0)
         Log("[Stats] GetPrivateProfile: %ld hits, %ld misses (%.1f%%)",
             g_profHits, g_profMisses,
-            (double)g_profHits / (g_profHits + g_profMisses) * 100.0);
+           (double)g_profHits / (g_profHits + g_profMisses) * 100.0);
     if (g_gpaHits + g_gpaMisses > 0)
         Log("[Stats] GetProcAddress: %ld hits, %ld misses, %ld evictions (%.1f%% hit rate)",
             g_gpaHits, g_gpaMisses, g_gpaEvictions,
-            (double)g_gpaHits / (g_gpaHits + g_gpaMisses) * 100.0);
+           (double)g_gpaHits / (g_gpaHits + g_gpaMisses) * 100.0);
     if (g_gmfHits + g_gmfMisses > 0)
         Log("[Stats] GetModuleFileName: %ld hits, %ld misses (%.1f%%)",
             g_gmfHits, g_gmfMisses,
-            (double)g_gmfHits / (g_gmfHits + g_gmfMisses) * 100.0);
+           (double)g_gmfHits / (g_gmfHits + g_gmfMisses) * 100.0);
     if (g_envHits + g_envMisses > 0)
         Log("[Stats] GetEnvironmentVariable: %ld hits, %ld misses (%.1f%%)",
             g_envHits, g_envMisses,
-            (double)g_envHits / (g_envHits + g_envMisses) * 100.0);
+           (double)g_envHits / (g_envHits + g_envMisses) * 100.0);
     if (g_crtStrlenHits + g_crtStrlenFallbacks > 0)
         Log("[Stats] CRT strlen: %ld fast, %ld fallback (%.1f%%)",
             g_crtStrlenHits, g_crtStrlenFallbacks,
-            (double)g_crtStrlenHits / (g_crtStrlenHits + g_crtStrlenFallbacks) * 100.0);
+           (double)g_crtStrlenHits / (g_crtStrlenHits + g_crtStrlenFallbacks) * 100.0);
     if (g_crtStrcmpHits + g_crtStrcmpFallbacks > 0)
         Log("[Stats] CRT strcmp: %ld fast, %ld fallback (%.1f%%)",
             g_crtStrcmpHits, g_crtStrcmpFallbacks,
-            (double)g_crtStrcmpHits / (g_crtStrcmpHits + g_crtStrcmpFallbacks) * 100.0);
+           (double)g_crtStrcmpHits / (g_crtStrcmpHits + g_crtStrcmpFallbacks) * 100.0);
     if (g_crtMemcmpHits + g_crtMemcmpFallbacks > 0)
         Log("[Stats] CRT memcmp: %ld fast, %ld fallback (%.1f%%)",
             g_crtMemcmpHits, g_crtMemcmpFallbacks,
-            (double)g_crtMemcmpHits / (g_crtMemcmpHits + g_crtMemcmpFallbacks) * 100.0);
+           (double)g_crtMemcmpHits / (g_crtMemcmpHits + g_crtMemcmpFallbacks) * 100.0);
     if (g_crtMemcpyHits + g_crtMemcpyFallbacks > 0)
         Log("[Stats] CRT memcpy: %ld fast, %ld fallback (%.1f%%)",
             g_crtMemcpyHits, g_crtMemcpyFallbacks,
-            (double)g_crtMemcpyHits / (g_crtMemcpyHits + g_crtMemcpyFallbacks) * 100.0);
+           (double)g_crtMemcpyHits / (g_crtMemcpyHits + g_crtMemcpyFallbacks) * 100.0);
     if (g_crtMemsetHits + g_crtMemsetFallbacks > 0)
         Log("[Stats] CRT memset: %ld fast, %ld fallback (%.1f%%)",
             g_crtMemsetHits, g_crtMemsetFallbacks,
-            (double)g_crtMemsetHits / (g_crtMemsetHits + g_crtMemsetFallbacks) * 100.0);
+           (double)g_crtMemsetHits / (g_crtMemsetHits + g_crtMemsetFallbacks) * 100.0);
 
     // Frame Throttle stats
     {
@@ -3133,25 +2949,25 @@ static void DumpPeriodicStats() {
     if (g_getstrHits + g_getstrFallbacks > 0) {
         Log("[Stats] luaH_getstr: %I64u hits, %I64u fallbacks (%.1f%%)",
             g_getstrHits, g_getstrFallbacks,
-            (double)g_getstrHits / (g_getstrHits + g_getstrFallbacks) * 100.0);
+           (double)g_getstrHits / (g_getstrHits + g_getstrFallbacks) * 100.0);
     }
 
     if (g_combatLogCacheHits + g_combatLogCacheMisses > 0) {
         Log("[Stats] CombatLog: %I64u hits, %I64u misses (%.1f%%)",
             g_combatLogCacheHits, g_combatLogCacheMisses,
-            (double)g_combatLogCacheHits / (g_combatLogCacheHits + g_combatLogCacheMisses) * 100.0);
+           (double)g_combatLogCacheHits / (g_combatLogCacheHits + g_combatLogCacheMisses) * 100.0);
     }
 
     if (g_pushStrHits + g_pushStrMisses > 0) {
         Log("[Stats] lua_pushstring: %I64u hits, %I64u misses (%.1f%%)",
             g_pushStrHits, g_pushStrMisses,
-            (double)g_pushStrHits / (g_pushStrHits + g_pushStrMisses) * 100.0);
+           (double)g_pushStrHits / (g_pushStrHits + g_pushStrMisses) * 100.0);
     }
 
     if (g_rawGetIHits + g_rawGetIMisses > 0) {
         Log("[Stats] lua_rawgeti: %I64u hits, %I64u misses (%.1f%%)",
             g_rawGetIHits, g_rawGetIMisses,
-            (double)g_rawGetIHits / (g_rawGetIHits + g_rawGetIMisses) * 100.0);
+           (double)g_rawGetIHits / (g_rawGetIHits + g_rawGetIMisses) * 100.0);
     }
 
     if (vaOk && g_vaArenaActive) {
@@ -3171,7 +2987,7 @@ static void DumpPeriodicStats() {
         if (fmtTotal > 0)
             Log("[Stats] Format: %ld fast, %ld fallback (%.1f%%)",
                 fps.formatFastHits, fps.formatFallbacks,
-                (double)fps.formatFastHits / fmtTotal * 100.0);
+               (double)fps.formatFastHits / fmtTotal * 100.0);
     }
     // Receive-side network stats
     if (g_recvCalls > 0 || g_WSARecvCalls > 0)
@@ -3216,7 +3032,7 @@ static void DumpPeriodicStats() {
         if (catTotal > 0)
             Log("[Stats] Concat: %ld fast, %ld fallback (%.1f%%)",
                 lis.concatFastHits, lis.concatFallbacks,
-                (double)lis.concatFastHits / catTotal * 100.0);
+               (double)lis.concatFastHits / catTotal * 100.0);
     }
 
     if (fpStats.tableSortHits > 0 || fpStats.tableSortFallbacks > 0)
@@ -3224,35 +3040,11 @@ static void DumpPeriodicStats() {
 
     Log("[Stats] ====================================");
 
-
 }
 
 // ================================================================
 // 19. sub_869E00 — Zero-Message Frame Continue (disabled)
 //
-// WHAT: Hooks WoW's message pump function (0x00869E00). When
-//       PeekMessageA returns 0 (no pending Windows messages),
-//       the original function returns 0, which kills the outer
-//       do...while loop in sub_480410 — the game STOPS rendering.
-//
-// WHY:  In addon-heavy raids, the message queue can be empty between
-//       addon timer firings. When the queue is empty, WoW goes
-//       completely idle — no rendering, no Lua, no GC. Then it
-//       spikes back when the next timer fires. This causes raid
-//       stutter and frametime variance.
-//
-// HOW:  1. Call original sub_869E00
-//       2. If it returns 0 (no messages → loop exit):
-//          a. Call hooked_Sleep(1) — yields CPU, prevents 100% usage
-//          b. Return 1 — keeps the outer loop alive
-//       3. The outer loop calls sub_480130 (frame render) again
-//       4. Frame pacing is still controlled by our Sleep hook
-//
-// SAFETY: Minimal — just one extra Sleep(1) per idle cycle.
-//         Frame render function handles the dword_D41400 guards.
-//         If hooked_Sleep is null, falls back to Sleep(1) directly.
-//
-// STATUS: Permanently disabled
 // ================================================================
 
 typedef int (__cdecl* MsgPump_fn)(void*, int*, DWORD*, void*, void*);
@@ -3319,33 +3111,6 @@ static bool InstallMsgPumpHook() {
 // ================================================================
 // 20. sub_69E220 — Swap/Present Optimization (Vulkan/D3D9)
 //
-// WHAT: Hooks WoW's frame-end swap function (0x0069E220).
-//       Replicates the function body but SKIPS glFinish() entirely.
-//
-// WHY:  glFinish() is a full GPU pipeline flush. In pure OpenGL it
-//       ensures the GPU has finished rendering before presenting.
-//       But with Vulkan/D3D9 wrapper (d3d9.dll → Vulkan), the
-//       Vulkan presentation engine (vkQueuePresentKHR) already
-//       synchronizes — it won't present until all command buffers
-//       are complete. The glFinish() is 100% dead overhead.
-//
-//       In raids with heavy particle effects, glFinish() blocks
-//       the CPU for milliseconds waiting for the GPU to drain
-//       its entire command queue. This causes frametime spikes.
-//
-// HOW:  1. Replicate sub_69E220 body in C
-//       2. Call all sub-functions identically
-//       3. Skip glFinish() — let Vulkan handle sync via present
-//       4. wglSwapLayerBuffers goes through unchanged (wrapper
-//          maps it to vkQueuePresentKHR)
-//
-//       If using pure OpenGL, set CRASH_TEST_DISABLE_SWAP_RC1=1.
-//
-// SAFETY: All sub-function calls are at original addresses.
-//         Only glFinish is skipped. Falls back to original
-//         if any address validation fails.
-//
-// STATUS: Test build only — Vulkan/D3D9
 // ================================================================
 
 typedef void (__cdecl* SubFn)();
@@ -3378,7 +3143,7 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     void* vtable = *(void**)T;
     void* renderFn = *(void**)((char*)vtable + 0x10);
     if (renderFn)
-        ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
+       ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
 
     // Check [esi+275Ch] & 0x40 → wglSwapLayerBuffers, else glFinish
     if (T[0x275C] & 0x40) {
@@ -3451,22 +3216,6 @@ static inline uint64_t ComputeCStringHash(const char* s) {
 // ================================================================
 // 21f. sub_84E670 — lua_rawgeti Fast Path (integer-key cache)
 //
-// WHAT: Hooks lua_rawgeti (0x0084E670). Caches (table*, int key) → Node*
-//       to bypass collision chain walk for hash-part integer keys.
-// WHY:  sub_85C3A0 (luaH_getnum) has two paths:
-//       1. Array part (key-1 < sizearray): direct pointer — already fast
-//       2. Hash part: compute hash from double → walk collision chain
-//          → compare (type==3 && double match). 10-50ns per collision.
-//       For tables that overflow their array (raid frames, aura lists
-//       with gaps), the hash part dominates. Cache avoids the walk.
-// HOW:  1. 2048-slot direct-mapped cache: FNV-1a(table_ptr ^ key) → Node*
-//       2. On hit: validate node[6]==3 (LUA_TNUMBER) && *(double*)(node+8)==n
-//       3. On miss: call original, capture Node*, store
-//       4. Invalidate on luaH_resize (already hooked)
-// SAFETY: Validates cached Node against live table state. If table was
-//         resized, node[6] won't match or double won't match → fall through.
-//         Full SEH wrapper. Falls through on any anomaly.
-// STATUS: Permanently disabled
 // ================================================================
 
 #define RAWGETI_CACHE_SIZE 2048
@@ -3681,22 +3430,6 @@ static bool InstallLuaRawGetICache() {
 // ================================================================
 // 21e. sub_84E350 — lua_pushstring Fast Path (TString* intern cache)
 //
-// WHAT: Hooks lua_pushstring (0x0084E350). Caches C string content
-//       → interned TString* to skip luaS_newlstr hash + table walk.
-// WHY:  Every C string pushed into Lua goes through luaS_newlstr which
-//       computes FNV-1a hash, walks string table bucket chain, compares
-//       string content. For common WoW strings ("UnitBuff", "GetSpellInfo",
-//       "raid1", "target", etc.) the string is already interned — we just
-//       need to find it again. ~50ns saved per call.
-// HOW:  1. 4096-slot direct-mapped cache: FNV-1a(C string) → TString*
-//       2. On hit: push TValue directly (no strlen, no luaS_newlstr)
-//       3. On miss: call original, capture TString* from L->top
-//       4. Cache cleared on UI reload
-// SAFETY: Interned TStrings are in Lua's permanent string table — they
-//         are never GC'd (always reachable from the string table).
-//         Cache cleared on luaS_resize/UI reload. Full SEH wrapper.
-//         Falls through on nil input or any anomaly.
-// STATUS: Permanently disabled
 // ================================================================
 
 #define PUSHSTR_CACHE_SIZE 4096
@@ -3829,15 +3562,6 @@ static bool InstallLuaPushStringCache() {
 // ================================================================
 // 21c. sub_851C30 — table.concat Fast Path (Direct Array + Inline Nums)
 //
-// WHAT: Replaces table.concat implementation with optimized loop.
-// WHY:  Original calls lua_rawgeti (stack push), type check, lua_tolstring
-//       for EVERY element. High overhead for large arrays.
-//       Also fails on numbers; this hook supports them automatically.
-// HOW:  1. Direct access to table array part (no stack ops).
-//       2. Inline integer-to-string (fast path for ints).
-//       3. Single-pass memcpy into stack buffer.
-//       4. Fallback to original for hash-part or oversized results.
-// STATUS: Stable release
 // ================================================================
 
 #define TABLE_CONCAT_BUF_SIZE 8192
@@ -3890,7 +3614,7 @@ static int __cdecl hooked_table_concat(int L) {
     if (j > sizearray) return orig_table_concat(L); // Hash part fallback
     if (i > j) {
         // Push empty string
-        ((void (*)(int, const char*))0x0084E350)(L, "");
+       ((void (*)(int, const char*))0x0084E350)(L, "");
         return 1;
     }
 
@@ -3947,7 +3671,7 @@ static int __cdecl hooked_table_concat(int L) {
 
     // Push result
     buf[used] = '\0';
-    ((void (*)(int, const char*))0x0084E350)(L, buf);
+   ((void (*)(int, const char*))0x0084E350)(L, buf);
     return 1;
 #endif
 }
@@ -3972,18 +3696,6 @@ static bool InstallTableConcatFastPath() {
 // ================================================================
 // 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (enabled)
 //
-// WHAT: Hooks luaH_getstr (0x0085C430). Caches (table, tstring) → Node*
-//       lookups for repeated table accesses with the same string key.
-// WHY:  Current table lookup hook (luaH_get at 0x0085C470) only hits 2-3%.
-//       The string-key path (sub_85C430) handles 95%+ of hash-part lookups
-//       but has no caching. In addon-heavy raids, the same (table, key)
-//       pairs are accessed thousands of times per second (WeakAuras scans,
-//       raid frame aura checks, unit buff lookups).
-// HOW:  1. 4096-entry direct-mapped cache, FNV-1a hash of (table ^ tstring)
-//       2. Validation: check cached node's key.tt==4 && key.gc==tstring
-//       3. Full SEH wrapper
-//       4. Cache cleared on luaH_resize (already hooked)
-// STATUS: Stable release
 // ================================================================
 
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
@@ -3993,9 +3705,10 @@ static luaH_getstr_fn orig_luaH_getstr = nullptr;
 #define GETSTR_CACHE_MASK (GETSTR_CACHE_SIZE - 1)
 
 struct GetStrCacheEntry {
-    int  table;    // Table* pointer
-    int  tstring;  // TString* pointer
-    void* node;    // Cached Node* result (or &nilObject)
+    int  table;     // Table* pointer
+    int  tstring;   // TString* pointer
+    int  tableNode;  // *(table+20) — hash array base, detects rehashes
+    void* node;     // Cached Node* result (or nilObject)
 };
 
 static GetStrCacheEntry g_getstrCache[GETSTR_CACHE_SIZE];
@@ -4030,8 +3743,11 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
         uint64_t idx = GetStrCacheHash((uintptr_t)table, (uintptr_t)tstring);
         GetStrCacheEntry* entry = &g_getstrCache[idx];
 
-        // Check cache hit with full validation
-        if (entry->table == table && entry->tstring == tstring && entry->node != nullptr) {
+        // Check cache hit with rehash guard (table->node must match)
+        int currentTableNode = *(int*)(table + 20);
+        if (entry->table == table && entry->tstring == tstring
+            && entry->tableNode == currentTableNode
+            && entry->node != nullptr) {
             // Validate cached node: key.tt (node[6]) must be 4 (LUA_TSTRING),
             // key.gc (node[4]) must match the tstring pointer
             if (((int*)entry->node)[6] == 4 && ((int*)entry->node)[4] == tstring) {
@@ -4043,10 +3759,11 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
         // Cache miss — call original
         void* result = orig_luaH_getstr(table, tstring);
 
-        // Store in cache (direct write, no atomics needed — single-threaded path)
-        entry->table = table;
-        entry->tstring = tstring;
-        entry->node = result;
+        // Store in cache with table->node for rehash detection
+        entry->table     = table;
+        entry->tstring   = tstring;
+        entry->tableNode = *(int*)(table + 20);
+        entry->node      = result;
 
         g_getstrFallbacks++;
         return result;
@@ -4091,17 +3808,6 @@ static bool InstallLuaHGetStrCache() {
 // ================================================================
 // 21c. sub_74E290 — CombatLog Event Full Cache
 //
-// WHAT: Hooks CombatLogGetCurrentEventInfo (0x0074E290). Caches the
-//       entire event payload construction by fingerprint hash.
-// WHY:  In 25-man raids, 60-80% of combat log events are identical
-//       periodic aura ticks. Each event triggers 10-25 Lua stack pushes
-//       (lua_pushstring, lua_pushnumber, lua_pushnil, etc.). Caching
-//       eliminates all of this work for duplicate events.
-// HOW:  1. Compute FNV-1a fingerprint of event struct (bytes 0-120)
-//       2. Check 256-entry LRU cache for matching fingerprint
-//       3. On hit: replay cached TValue pushes onto Lua stack
-//       4. On miss: call original, capture pushed TValues, store
-// STATUS: Active — conditional on raid data showing high dupe rate
 // ================================================================
 
 #define COMBATLOG_CACHE_SIZE 256
@@ -4257,29 +3963,6 @@ static bool InstallCombatLogFullCache() {
 // ================================================================
 // 21. sub_85C6F0 — Lua Table Rehash Prevention (enabled)
 //
-// WHAT: Hooks luaH_resize (0x0085C6F0). When Lua allocates a new
-//       table size that's only slightly larger than the current size,
-//       rounds up to the next power of 2.
-//
-// WHY:  Lua 5.1 hash tables rehash (realloc + O(n) copy) every time
-//       the array or hash part grows. Addon-heavy raids create tables
-//       that grow incrementally (10 → 20 → 30 → 50 → 80 → 120 ...).
-//       Each resize is a main-thread spike. By rounding up, one big
-//       rehash now prevents 3-5 small ones later.
-//
-// CHAIN: rawset → lua_settable → luaH_set → luaH_newkey →
-//        luaH_resizearray (0x0085C9B0) → luaH_resize (0x0085C6F0)
-//
-// HOW:  1. Hook sub_85C6F0 at entry (naked function, __usercall conv)
-//       2. Check: a1 > *(a2+0x20) AND a1 < nextPow2(a1) AND
-//          nextPow2(a1) <= currentSize * 4 (cap to avoid over-allocation)
-//       3. If all true: set a1 = nextPow2(a1)
-//       4. Call original via MinHook trampoline
-//
-// SAFETY: Basic pointer validation. No SEH (too expensive on this path).
-//         Falls through to original if any check fails.
-//
-// STATUS: Stable release
 // ================================================================
 
 static inline int luaTable_nextPow2(int n) {
@@ -4436,7 +4119,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool closeOk = InstallCloseHandleHook();
     bool flushOk = InstallFlushFileBuffersHook();
     Log("--- Async MPQ I/O ---");
-    bool asyncIoOk = InstallAsyncIoWorker();    
+    // Worker started after init completes to avoid race with hook setup
+    bool asyncIoOk = true;
     Log("--- MPQ Scan ---");
     ScanExistingMpqHandles();
     Log("--- File Attributes ---");
@@ -4468,6 +4152,29 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool lstrOk = InstallLstrcmpHook();
     Log("--- String Length (lstrlen) ---");
     bool lstrlenOk = InstallLStrLenHooks();
+    bool strlen76Ok = InstallWowStrlenHook();
+    if (strlen76Ok) Log("WoW-internal strlen hook: ACTIVE (SSE2 replacement for sub_76EE30)");
+
+    // CRT strstr SSE2 — algorithmic replacement for byte-by-byte search
+#if !TEST_DISABLE_STRSTR_SSE2
+    bool strstrOk = InstallStrstrSSE2();
+#else
+    bool strstrOk = false;
+#endif
+
+    // CRT memchr + strchr SSE2 — 16-byte SIMD byte scan
+#if !TEST_DISABLE_CRT_CHAR_SSE2
+    bool chrOk = InstallCrtCharSSE2();
+#else
+    bool chrOk = false;
+#endif
+
+    // CRT pow() integer fast-path — x^2=x*x, sqrt, etc.
+#if !TEST_DISABLE_CRT_POW_SSE2
+    bool powOk = InstallCrtPowSSE2();
+#else
+    bool powOk = false;
+#endif
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
@@ -4631,19 +4338,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
-    // Log("--- Multithreaded Physics Simulation ---");
-    // bool physicsMTOk = PhysicsMT::Init(); // Module removed
-
-    Log("");
-    Log("--- Multithreaded Spell Effect Renderer ---");
-#if TEST_DISABLE_SPELL_EFFECT_MT
-    Log("[SpellEffectMT] DISABLED (feature flag)");
-    bool spellEffectMTOk = false;
-#else
-    bool spellEffectMTOk = SpellEffectMT::Init();
-#endif
-
-    Log("");
     Log("--- UI Cache ---");
     bool uiCacheOk = UICache::Init();
 
@@ -4672,17 +4366,37 @@ static DWORD WINAPI MainThread(LPVOID param) {
     }
 #endif
 
+    // Addon file RAM-disk — pre-load all addon files into memory
+#if !TEST_DISABLE_ADDON_PRELOAD
+    bool addonPreloadOk = InitAddonPreload();
+#else
+    bool addonPreloadOk = false;
+#endif
+
+    // Lua bytecode cache (skips script parsing on reload)
+#if !TEST_DISABLE_LUA_BYTECODE_CACHE
+    bool bytecodeOk = LuaBytecodeCache::Init();
+#else
+    bool bytecodeOk = false;
+#endif
+
     bool internalsOk = false;
     Log("");
     Log("--- Lua VM Internals ---");
     Log("[LuaVM] DISABLED (baseline test)");
 
-
+    // Lua VM table lookup cache (luaV_gettable hook)
+    Log("--- Lua VM Table Cache ---");
+    bool vmCacheOk = InstallLuaVMCache();
 
     Log("");
     Log("========================================");
     Log("  Initialization complete");
     Log("========================================");
+
+    // Start async I/O worker after all hooks/workers are ready — avoids init race
+    InstallAsyncIoWorker();
+
     Log("");
     Log("  [%s] mimalloc allocator",           allocOk     ? " OK " : "FAIL");
     Log("  [%s] Sleep hook (PreciseSleep)",    sleepOk     ? " OK " : "FAIL");
@@ -4748,14 +4462,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 // ================================================================
 // 17. GetFileSize / GetFileSizeEx — Cache
 //
-// WHAT: Caches file size results for frequently-queried files.
-// WHY:  WoW repeatedly checks MPQ file sizes during addon loading,
-//       texture streaming, and DB file validation. Each call
-//       triggers a filesystem metadata syscall.
-// HOW:  1. Direct-mapped 256-slot cache using path hash
-//       2. Only caches successful results (valid handles + size > 0)
-//       3. InvalidateOnClose: cache slot cleared on CloseHandle
-// STATUS: Active — reduces filesystem stat overhead
 // ================================================================
 
 static constexpr int FSIZE_CACHE_SIZE = 256;
@@ -4801,14 +4507,6 @@ static bool InstallGetFileSizeCache() {
 // ================================================================
 // 18. WaitForSingleObject — Spin-First for Short Waits
 //
-// WHAT: Spins in user-mode for short timeout waits before entering kernel.
-// WHY:  WaitForSingleObject with timeout <= 1ms is common in WoW
-//       (MPQ streaming thread, network thread). Kernel transitions
-//       for micro-waits cost ~5-10μs vs ~0.5μs for a spin check.
-// HOW:  1. For timeout <= 1ms: spin 32x with _mm_pause + zero-wait
-//       2. If not signaled after spin → fall back to original
-//       3. For timeout > 1ms: use original (kernel wait is appropriate)
-// STATUS: Active — reduces kernel transitions for micro-waits
 // ================================================================
 
 typedef DWORD (WINAPI* WaitForSingleObject_fn)(HANDLE, DWORD);
@@ -4848,14 +4546,6 @@ static bool InstallWaitForSingleObjectHook() {
 // ================================================================
 // 19. GetModuleHandleA — Cache
 //
-// WHAT: Caches GetModuleHandle results for loaded DLLs.
-// WHY:  WoW and addons frequently call GetModuleHandle to check
-//       if certain DLLs are loaded (e.g., "msvcrt.dll", "ws2_32.dll",
-//       "d3d9.dll"). Each call walks the PEB module list.
-// HOW:  1. 128-slot direct-mapped cache using case-insensitive FNV-1a hash
-//       2. Cache is write-through — no invalidation needed (modules
-//          don't unload during WoW's lifetime)
-// STATUS: Active — eliminates PEB walk on every call
 // ================================================================
 
 static constexpr int MOD_CACHE_SIZE = 512;
@@ -4919,16 +4609,6 @@ static bool InstallGetModuleHandleCache() {
 // ================================================================
 // 20. lstrcmpA / lstrcmpiA — Fast Path
 //
-// WHAT: User-mode fast path for simple string comparisons.
-// WHY:  lstrcmp/lstrcmpi are Win32 API calls with overhead.
-//       For pure ASCII strings (most WoW paths, addon names),
-//       a simple byte-by-byte comparison is faster.
-// HOW:  1. hooked_lstrcmpA: strlen + memcmp if same length,
-//       else byte-by-byte compare (bail on non-ASCII → original)
-//       2. hooked_lstrcmpiA: same but with inline uppercase
-//       3. Falls back to original for non-ASCII (Cyrillic, etc.)
-//       4. Strings > 256 chars go directly to original
-// STATUS: Active — faster than API for ASCII strings
 // ================================================================
 
 typedef int (WINAPI* lstrcmpA_fn)(LPCSTR, LPCSTR);
@@ -5020,14 +4700,6 @@ static bool InstallLstrcmpHook() {
 // ================================================================
 // 21. GetPrivateProfileStringA — Cache
 //
-// WHAT: Caches INI file reads (config.wtf, bindings-cache.wtf).
-// WHY:  WoW reads .wtf files during addon init, key binding setup,
-//       and CVAR initialization. Each read is a file open + parse.
-//       Values rarely change during a session.
-// HOW:  1. 128-slot cache using combined hash of (appName, keyName)
-//       2. Only caches successful reads (value retrieved)
-//       3. Returns cached string directly — no file I/O
-// STATUS: Active — eliminates redundant .wtf file reads
 // ================================================================
 
 static constexpr int PROF_CACHE_SIZE = 128;
@@ -5111,14 +4783,6 @@ static bool InstallGetPrivateProfileCache() {
 // ================================================================
 // lstrlenA/W — fast inline string length
 //
-// WHAT: Replaces lstrlenA/W with fast inline length computation.
-// WHY:  WoW and addons call lstrlen thousands of times per frame
-//       for UI text measurement, chat message length, addon string
-//       processing. Each call goes through kernel32.dll import thunk.
-// HOW:  1. lstrlenA: simple while(*p++) count for ANSI strings
-//       2. lstrlenW: same for wide strings
-//       3. Stats: total calls, ANSI vs wide breakdown
-// STATUS: Active — pure function, zero risk
 // ================================================================
 
 typedef int (WINAPI* lstrlenA_fn)(LPCSTR);
@@ -5185,27 +4849,53 @@ static bool InstallLStrLenHooks() {
 }
 
 // ================================================================
+// sub_76EE30 — WoW-internal strlen (byte-by-byte loop, 300+ callers)
+// Replace with SSE2-accelerated inline strlen.
+// ================================================================
+#if !CRASH_TEST_DISABLE_WOW_STRLEN
+
+typedef unsigned int (__stdcall* strlen76_fn)(const char* str);
+static strlen76_fn orig_strlen76 = nullptr;
+
+static long g_strlen76Calls = 0;
+
+static unsigned int __stdcall hooked_strlen76(const char* str) {
+    if (!str) {
+        return orig_strlen76(str); // NULL → error handler (0x57)
+    }
+    InterlockedIncrement(&g_strlen76Calls);
+
+    // Inline SSE2 strlen: scan 16 bytes at a time
+    const char* p = str;
+    __m128i zero = _mm_setzero_si128();
+    while (true) {
+        __m128i chunk = _mm_loadu_si128((const __m128i*)p);
+        __m128i cmp   = _mm_cmpeq_epi8(chunk, zero);
+        int mask      = _mm_movemask_epi8(cmp);
+        if (mask) {
+            unsigned long idx;
+            _BitScanForward(&idx, mask);
+            return (unsigned int)((p + idx) - str);
+        }
+        p += 16;
+    }
+}
+
+static bool InstallWowStrlenHook() {
+    void* target = (void*)0x0076EE30;
+    if (MH_CreateHook(target, (void*)hooked_strlen76, (void**)&orig_strlen76) != MH_OK)
+        return false;
+    if (MH_EnableHook(target) != MH_OK)
+        return false;
+    return true;
+}
+#else
+static bool InstallWowStrlenHook() { return false; }
+#endif
+
+// ================================================================
 // MultiByteToWideChar / WideCharToMultiByte — ASCII fast path
 //
-// WHAT: Bypasses Win32 NLS tables for pure-ASCII input.
-// WHY:  WoW calls these heavily for UI text rendering, localization,
-//       chat messages, item names, tooltips, file path widening.
-//       Typical kernel32 cost is 100-300 ns per call for short strings
-//       due to NLS codepage table lookups, even for ASCII-only input.
-//       99%+ of WoW text fits in the ASCII range.
-// HOW:  1. Fast-path only when CodePage is ASCII-compatible and
-//          dwFlags == 0.
-//       2. Scan input for any byte/wchar >= 0x80 via SSE2
-//          (16 bytes or 8 wchars per iteration).
-//       3. If all ASCII: widen via _mm_unpacklo/hi_epi8 with zero,
-//          narrow via _mm_packus_epi16 — 16 chars per iteration.
-//       4. Any anomaly (flags, non-ASCII, weird codepage) → fallback.
-//       5. Supports query mode (output size = 0), null-terminated
-//          inputs (length = -1), and insufficient-buffer signaling.
-// SAFETY: Bit-exact with Win32 for ASCII-only input across all
-//         ASCII-compatible codepages (CP_ACP, CP_UTF8, CP_OEMCP,
-//         1250-1258, 874). No state, no cache, no invalidation.
-// STATUS: Active — pure computation, zero correctness risk
 // ================================================================
 
 typedef int (WINAPI* MultiByteToWideChar_fn)(UINT, DWORD, LPCCH, int, LPWSTR, int);
@@ -5426,19 +5116,6 @@ static bool InstallMBWCHooks() {
 // ================================================================
 // GetProcAddress — 4-way set-associative cache
 //
-// WHAT: Caches GetProcAddress results by (module, procname) hash.
-// WHY:  Addons and WoW itself call GetProcAddress repeatedly for
-//       dynamic symbol resolution. Each call walks PE export directory
-//       with string comparisons and hash computation.
-// HOW:  1. 4-way set-associative cache (128 sets × 4 ways = 512 slots)
-//       2. Key = hash(module_name + proc_name)
-//       3. LRU replacement within each set (2-bit counter)
-//       4. Module addresses are stable after LoadLibrary
-//       5. Cache is never invalidated (addresses don't change)
-// WHY 4-WAY: Direct-mapped cache had hash collisions → wrong FARPROC
-//            returned → login crash. Set-associative design reduces
-//            collision probability by ~99% while keeping 512 slots.
-// STATUS: Fixed — replaces v3.5.11 direct-mapped design
 // ================================================================
 
 typedef FARPROC (WINAPI* GetProcAddress_fn)(HMODULE, LPCSTR);
@@ -5553,13 +5230,6 @@ static bool InstallGetProcAddressCache() {
 // ================================================================
 // GetModuleFileNameA/W — cache
 //
-// WHAT: Caches GetModuleFileName results by HMODULE handle.
-// WHY:  WoW and addons call it to find installation paths, config
-//       directories, and addon locations. Each call queries the PEB.
-// HOW:  1. 64-slot cache keyed by HMODULE
-//       2. HMODULE values are stable (DLL base addresses)
-//       3. hModule==NULL (exe path) is a constant pre-resolved
-// STATUS: Active — cache of constants, zero risk
 // ================================================================
 
 typedef DWORD (WINAPI* GetModuleFileNameA_fn)(HMODULE, LPSTR, DWORD);
@@ -5643,12 +5313,6 @@ static bool InstallGetModuleFileNameCache() {
 // ================================================================
 // GetEnvironmentVariableA — cache
 //
-// WHAT: Caches environment variable lookups by name.
-// WHY:  WoW reads APPDATA, USERPROFILE, OS, etc. Each call walks
-//       the PEB environment block.
-// HOW:  1. 32-slot cache keyed by variable name hash
-//       2. Env vars are read-only for process lifetime
-// STATUS: Active — cache of constants, zero risk
 // ================================================================
 
 typedef DWORD (WINAPI* GetEnvironmentVariableA_fn)(LPCSTR, LPSTR, DWORD);
@@ -5718,15 +5382,6 @@ static bool InstallEnvironmentVariableCache() {
 // ================================================================
 //  Thread Affinity — Background Worker CPU Pinning
 //
-// WHAT: Pins WoW async task threads to cores 2..N-1.
-// WHY:  WoW creates background threads for MPQ streaming, UI loading,
-//       and network I/O. If the scheduler moves these to the same core
-//       as the main thread, it causes preemption and frame stutter.
-// HOW:  1. Gets process affinity mask (respects user/task manager settings)
-//       2. Skips if <=2 cores (no spare cores for pinning)
-//       3. Hooks internal WoW thread creation function (0x008D2110)
-//       4. Sets ideal processor for each new background thread
-// STATUS: Active — process-affinity-mask aware, safe on all configs
 // ================================================================
 
 static int __cdecl Hooked_ThreadWorker(void* outHandle, LPTHREAD_START_ROUTINE start, LPVOID param, int priority, int a5, int a6, HMODULE hMod) {
@@ -5821,12 +5476,12 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
         lpAddress == NULL &&
         dwSize >= VA_ARENA_PAGE_SIZE &&
         dwSize <= 256 * 1024 * 1024 &&  // cap at 256MB per alloc
-        (flType & MEM_COMMIT) &&
+       (flType & MEM_COMMIT) &&
         !(flType & MEM_RESERVE) &&
         !(flType & MEM_RESET) &&
         !(flType & MEM_PHYSICAL) &&
         !(flType & MEM_LARGE_PAGES) &&
-        (flProtect == PAGE_READONLY || flProtect == PAGE_READWRITE ||
+       (flProtect == PAGE_READONLY || flProtect == PAGE_READWRITE ||
          flProtect == PAGE_EXECUTE_READ || flProtect == PAGE_EXECUTE_READWRITE ||
          flProtect == PAGE_NOACCESS) &&
         IsCallerInWowExe())  // RESTORED: prevent addon/D3D9 from fragmenting arena
@@ -5906,7 +5561,7 @@ va_fallback:
 static BOOL WINAPI Hooked_VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwFreeType) {
     if (g_vaArenaActive &&
         lpAddress >= g_vaArenaBase &&
-        (uintptr_t)lpAddress < ((uintptr_t)g_vaArenaBase + g_vaArenaSize))
+       (uintptr_t)lpAddress < ((uintptr_t)g_vaArenaBase + g_vaArenaSize))
     {
 #if !CRASH_TEST_DISABLE_VA_ARENA
         __try {
@@ -5993,7 +5648,7 @@ static bool InstallVAArena() {
     }
 
     Log("VA Arena: ACTIVE (512MB block @ 0x%08X, 4KB pages, ALL callers, SEH-guarded)",
-        (unsigned)(uintptr_t)g_vaArenaBase);
+       (unsigned)(uintptr_t)g_vaArenaBase);
 
     void* pAlloc = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "VirtualAlloc");
     void* pFree  = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "VirtualFree");
@@ -6042,6 +5697,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             CloseHandle(CreateThread(NULL, 0, MainThread, NULL, 0, NULL));
             break;
         case DLL_PROCESS_DETACH:
+            // Stop background workers BEFORE process teardown.
+            ModelAsync::Shutdown();
+            TextureAsync::Shutdown();
+
             if (reserved != NULL) {
                 if (g_log) {
                     SYSTEMTIME st;
@@ -6056,8 +5715,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             }
 
             // Dynamic FreeLibrary — safe to clean up
+            __try {
             LuaFastPath::Shutdown();
             LuaInternals::Shutdown();
+            LuaBytecodeCache::Shutdown();
+            ShutdownStrstrSSE2();
+            ShutdownCrtCharSSE2();
+            ShutdownCrtPowSSE2();
+            ShutdownAddonPreload();
             ApiCache::Shutdown();
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
@@ -6088,10 +5753,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::Shutdown();
 #endif
-            // PhysicsMT::Shutdown(); // Module removed
-#if !TEST_DISABLE_SPELL_EFFECT_MT
-            SpellEffectMT::Shutdown();
-#endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
                 Log("FlushFileBuffers: %ld MPQ flushes skipped", g_flushSkipped);
@@ -6102,11 +5763,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             if (g_compareAsciiHits + g_compareFallbacks > 0)
                 Log("CompareStringA: %ld ASCII fast, %ld locale fallback (%.1f%% fast)",
                     g_compareAsciiHits, g_compareFallbacks,
-                    (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
+                   (double)g_compareAsciiHits / (g_compareAsciiHits + g_compareFallbacks) * 100.0);
             if (g_fileAttrHits + g_fileAttrMisses > 0)
                 Log("GetFileAttributesA: %ld hits, %ld misses (%.1f%% hit rate)",
                     g_fileAttrHits, g_fileAttrMisses,
-                    (double)g_fileAttrHits / (g_fileAttrHits + g_fileAttrMisses) * 100.0);       
+                   (double)g_fileAttrHits / (g_fileAttrHits + g_fileAttrMisses) * 100.0);       
             if (g_badPtrFastChecks > 0)
                 Log("IsBadPtr: %ld fast checks (avoided SEH probing)", g_badPtrFastChecks);
             if (g_csSpinHits > 0)
@@ -6117,7 +5778,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             if (vaOk && g_vaArenaBase) {
                 Log("VA Arena: %ld hits, %ld fallbacks, %ld failures (%.1f%% arena)",
                     g_vaArenaHits, g_vaArenaFallbacks, g_vaArenaFailures,
-                    (g_vaArenaHits + g_vaArenaFallbacks) > 0 ? (double)g_vaArenaHits / (g_vaArenaHits + g_vaArenaFallbacks) * 100.0 : 0.0);
+                   (g_vaArenaHits + g_vaArenaFallbacks) > 0 ? (double)g_vaArenaHits / (g_vaArenaHits + g_vaArenaFallbacks) * 100.0 : 0.0);
                 ShutdownVAArena();
             }
             if (g_globalAllocFast > 0)
@@ -6156,6 +5817,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
                 if (g_readCache[i].buffer) { mi_free(g_readCache[i].buffer); g_readCache[i].buffer = nullptr; }
+            }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                Log("Exception during DLL shutdown — continuing exit");
             }
             Log("wow_optimize.dll unloaded (clean)");
             LogClose();

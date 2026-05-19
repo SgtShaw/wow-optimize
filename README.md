@@ -17,18 +17,14 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 ### Stability Testing Team
 
-Huge thanks to the community members who extensively tested pre-release builds:
+This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. Massive thanks to:
 
-- **Morbent**
-- **UNOB**
-- **tuan**
-- **Billy Hoyle**
-- **DarkRockDemon**
-- **Raymond**
-- **NoGoodLife**
-
-Their feedback directly shaped the current public-safe release configuration.
-
+- **Morbent** — relentless crash bisection, tested dozens of builds
+- **Billy Hoyle** — same energy, caught the loading screen regression and verified every fix
+- **tuan** — found the bank/AH SSE2 crash
+- **NoGoodLife** — battle-tested network optimizations on WoW Circle, confirmed keepalive/disconnect fixes
+- **feh_dois** — isolated the AwesomeWotlkLib exit crash
+- **UNOB**, **DarkRockDemon**, **Raymond**  — core testing crew across multiple releases
 ---
 
 ## Current Feature Set
@@ -56,7 +52,7 @@ Their feedback directly shaped the current public-safe release configuration.
 - `GetSpellInfo` - disabled (icon corruption, crashes on relog)
 
 ### Lua internal caches (v3.5.5+)
-- `luaH_getstr` - table string-key lookup cache (tested stable)
+- `luaH_getstr` - table string-key lookup cache (disabled in v3.6.1 — stale Node* with mimalloc table recycling)
 
 ### Lua fast paths
 - Phase 1:
@@ -155,12 +151,18 @@ Their feedback directly shaped the current public-safe release configuration.
 
 These features are disabled in public-safe builds because they previously caused regressions or crashes:
 
+- CRT SSE2 memory/string fast paths — cross page boundaries on mimalloc heap (bank/AH crash)
+- CRT SSE2 memchr/strchr — same page-boundary bug (exit crash)
+- WoW-internal SSE2 strlen at `sub_76EE30` — same page-boundary bug (exit crash)
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
 - GetSpellInfo cache (disabled)
 - ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
+- luaH_getstr table lookup cache — stale Node* with mimalloc table recycling
+- Async texture loading hook — caused loading screen regression (was commented out in v3.5.x)
+- Model async workers — loading screen regression
 - `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
 - `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
 - CombatLog full event cache (disabled - stale `TString*` crashes)
@@ -179,34 +181,6 @@ These experimental features were tested and found to provide no measurable benef
 - DispatchPool (dispatcher pool for 20-byte allocations) - hooks active but no real hit in sessions
 - bgpreloadsleep cache - 0 calls in real sessions
 - Subtask Event Pool - 0 reuse / 0 new / 0 returned in real stats
-
----
-
-## New in v3.5.13
-
-### Added
-- **Async texture loading** - worker thread pool eliminates 80-90% of texture loading stutters during teleports and zone changes. Lock-free queue with 8192 entries, LRU cache with 2048 entries, 2 worker threads at THREAD_PRIORITY_BELOW_NORMAL.
-- **Async spell data prefetching** - predictive spell data loading before cast completes reduces spell cast lag by 30-40%. Lock-free queue with 4096 entries, cache with 4096 entries, 1 worker thread.
-- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across 4 worker threads, reduces main thread CPU by 40-50% in addon-heavy setups. Batch processing with lock-free queue (8192 entries).
-- **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models eliminates redundant model loading. Correct `__thiscall` calling convention via MinHook.
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone (Dalaran to ICC, Orgrimmar to Dalaran, etc.), prefetches textures/models/WMOs into OS cache before teleport. Eliminates 50-60% of zone loading stutters. Worker thread pool (2 threads) with lock-free queue (2048 entries).
-- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids. Lock-free queue with async processing.
-
-### Fixed
-- Model async loading crash - converted to synchronous caching mode to avoid ACCESS_VIOLATION from incorrect calling convention. Cache provides speedup on repeated model loads without async complexity.
-
----
-
-## New in v3.5.11
-
-### Fixed
-- **Occasional multi-client relog crash** when returning to character select and entering the world on another character. Lua VM reload handling now waits for the new `lua_State` to settle before reinitializing allocator and GC state, avoiding transient-VM churn during relog.
-- **Teleport / loading-screen OOM** around `M2Shared.cpp:267` ("Not enough memory resources are available to process this command"). The DLL now does an earlier loading-entry trim: high-memory loading transitions trigger an immediate incremental Lua GC step plus mimalloc purge before zone and teleport asset loads begin.
-
-### Stability
-- Addon loading-state polling is now more aggressive on slow or high-memory frames so loading-mode protections engage earlier during teleports, ghost release, and raid exits.
-- Reload reinit also resets stale combat, idle, and loading flags on confirmed Lua VM switches, reducing state carry-over across relog and character changes.
-- CRT memory/string fast paths remain disabled in the public build. The enabled production build caused an immediate client exit after pressing Enter to enter the world, so the hooks stay off until they are isolated and bisected properly.
 
 ---
 
@@ -398,22 +372,53 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 
 ```text
 wow-optimize/
-|-- src/
-|   |-- dllmain.cpp
-|   |-- lua_optimize.cpp / .h
-|   |-- lua_fastpath.cpp / .h
-|   |-- lua_internals.cpp / .h
-|   |-- combatlog_optimize.cpp / .h
-|   |-- api_cache.cpp / .h
-|   |-- ui_cache.cpp / .h
-|   |-- version.h
-|   |-- version.rc
-|   |-- version_proxy.cpp
-|   |-- version_exports.def
-|   `-- wow_loader.cpp
-|-- CMakeLists.txt
-|-- README.md
-`-- LICENSE
+├── src/
+│   ├── dllmain.cpp                       # Core orchestrator, all Win32/CRT hooks
+│   ├── lua_optimize.cpp/.h               # Lua VM: mimalloc, GC, string table, reload
+│   ├── lua_fastpath.cpp/.h               # 20+ Lua C-function fast paths
+│   ├── lua_internals.cpp/.h              # Stub (luaV_concat removed)
+│   ├── lua_vm_cache.cpp/.h               # luaV_gettable cache (disabled)
+│   ├── lua_vm_phase3.cpp/.h              # luaD_call dispatch (incomplete)
+│   ├── lua_bytecode_cache.cpp/.h         # Compiled bytecode cache (disabled)
+│   ├── lua_bytecode_pre_compiler.cpp/.h  # Addon file pre-scanner
+│   ├── combatlog_optimize.cpp/.h         # Retention patch (300s→1800s)
+│   ├── combatlog_mt.cpp/.h               # MT combat log parser
+│   ├── addon_dispatcher.cpp/.h           # MT addon OnUpdate dispatcher
+│   ├── addon_preload.cpp/.h              # Addon file preload (disabled)
+│   ├── spell_prefetch.cpp/.h             # Async spell data on cast
+│   ├── spell_cache.cpp/.h                # Stub (usercall unsupported)
+│   ├── spell_effect_mt.cpp/.h            # MT spell effect renderer
+│   ├── model_async.cpp/.h                # Model prefetch (disabled)
+│   ├── texture_async.cpp/.h              # Texture prefetch (disabled)
+│   ├── texture_decode_mt.cpp/.h          # BLP decode (dormant)
+│   ├── anim_mt.cpp/.h                    # M2 animation (dormant)
+│   ├── mpq_prefetch.cpp/.h               # Zone-based MPQ prefetch
+│   ├── mpq_decompress_mt.cpp/.h          # MT zlib decompress (dormant)
+│   ├── nameplate_batch.cpp/.h            # MT nameplate renderer
+│   ├── sound_prefetch.cpp/.h             # Sound file prefetch
+│   ├── quest_async.cpp/.h                # Async quest data loading
+│   ├── saved_vars_async.cpp/.h           # Async SavedVariables writes
+│   ├── tooltip_cache.cpp/.h              # Tooltip renderer cache
+│   ├── api_cache.cpp/.h                  # GetItemInfo/GetSpellInfo cache (disabled)
+│   ├── ui_cache.cpp/.h                   # Stub (disabled)
+│   ├── ui_frame_batch.cpp/.h             # Frame OnUpdate batcher (disabled)
+│   ├── frame_throttle.cpp/.h             # Script throttling (disabled)
+│   ├── frame_arena.cpp/.h                # 16MB frame-scoped allocator
+│   ├── cache_governor.cpp/.h             # Dynamic TTL/cache bypass in raids
+│   ├── crt_mem_fastpath.cpp              # SSE2 strlen/strcmp/memcpy/memset (disabled)
+│   ├── crt_char_fast.cpp/.h              # SSE2 memchr/strchr (disabled)
+│   ├── crt_pow_sse2.cpp/.h               # SSE2 pow(x,y) fast path
+│   ├── strstr_fast.cpp/.h                # SSE2 Boyer-Moore-Horspool strstr
+│   ├── dxvk_bridge.cpp/.h                # DXVK/Vulkan detection
+│   ├── crash_dumper.cpp/.h               # Vectored exception → minidump
+│   ├── version.h                         # Version + all TEST_DISABLE toggles
+│   ├── version.rc                        # Windows resource
+│   ├── version_proxy.cpp                 # version.dll proxy loader
+│   ├── version_exports.def               # Export forwarding table
+│   └── wow_loader.cpp                    # External injector EXE
+├── CMakeLists.txt
+├── README.md
+└── LICENSE
 ```
 
 ---

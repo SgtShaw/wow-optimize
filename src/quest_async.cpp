@@ -4,6 +4,7 @@
 #if !TEST_DISABLE_QUEST_ASYNC
 
 #include <windows.h>
+#include "lua_optimize.h"
 #include <atomic>
 #include <unordered_map>
 #include <vector>
@@ -128,6 +129,8 @@ static DWORD WINAPI WorkerThread(LPVOID) {
     DataRequest req;
     
     while (!g_shutdown.load(std::memory_order_acquire)) {
+        if (LuaOpt::IsReloading()) { Sleep(10); continue; }
+
         if (!Dequeue(req)) {
             Sleep(10); // No work, sleep briefly
             continue;

@@ -63,12 +63,22 @@ add_library(wow_optimize SHARED
     src/frame_throttle.h
     src/ui_frame_batch.cpp
     src/ui_frame_batch.h
+    src/lua_vm_cache.cpp
+    src/lua_vm_cache.h
     src/tooltip_cache.cpp
     src/tooltip_cache.h
     src/spell_cache.cpp
     src/spell_cache.h
-    src/spell_effect_mt.cpp
-    src/spell_effect_mt.h
+    src/lua_bytecode_cache.cpp
+    src/lua_bytecode_cache.h
+    src/addon_preload.cpp
+    src/addon_preload.h
+    src/strstr_fast.cpp
+    src/strstr_fast.h
+    src/crt_char_fast.cpp
+    src/crt_char_fast.h
+    src/crt_pow_sse2.cpp
+    src/crt_pow_sse2.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
@@ -76,6 +86,7 @@ target_link_libraries(wow_optimize PRIVATE
     mimalloc-static
     psapi
     ws2_32
+    version
 )
 
 target_include_directories(wow_optimize PRIVATE
