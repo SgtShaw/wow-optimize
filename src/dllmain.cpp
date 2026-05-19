@@ -2338,6 +2338,29 @@ typedef HANDLE (WINAPI* CreateFileW_fn)(LPCWSTR, DWORD, DWORD, LPSECURITY_ATTRIB
 static CreateFileA_fn orig_CreateFileA = nullptr;
 static CreateFileW_fn orig_CreateFileW = nullptr;
 
+// Helper: check if path passes through a .MPQ folder (e.g. patch-Sunlight.MPQ\DBFilesClient\...)
+static bool PathPassesThroughMPQ(const char* path) {
+    if (!path) return false;
+    const char* p = path;
+    while (p) {
+        p = strchr(p, '.');
+        if (!p || p == path) return false; // extension can't be first component
+        if (_strnicmp(p, ".mpq", 4) == 0 && (p[4] == '\\' || p[4] == '/' || p[4] == 0)) {
+            // Found .MPQ/ — verify it's a path component, not just part of filename
+            // Ensure there's a separator before the dot (or it's the start of a component)
+            if (p > path && (p[-1] != '\\' && p[-1] != '/' && p[-1] != ':')) {
+                // Could be "thing.MPQfile" — skip
+                p++;
+                continue;
+            }
+            return true;
+        }
+        p++;
+        if (*p == 0) break;
+    }
+    return false;
+}
+
 static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD dwShare,
     LPSECURITY_ATTRIBUTES lpSA, DWORD dwDisposition, DWORD dwFlags, HANDLE hTemplate)
 {
@@ -2355,6 +2378,10 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
         const char* ext = strrchr(checkPath, '.');
         if (ext && _stricmp(ext, ".mpq") == 0) {
             dwFlags |= FILE_FLAG_SEQUENTIAL_SCAN; isMPQ = true;
+        }
+        // Also detect files inside .MPQ folders (patch-Sunlight.MPQ\DBFilesClient\...)
+        if (!isMPQ && PathPassesThroughMPQ(lpFileName)) {
+            isMPQ = true;
         }
     }
     HANDLE result = orig_CreateFileA(lpFileName, dwAccess, dwShare, lpSA, dwDisposition, dwFlags, hTemplate);
@@ -2490,16 +2517,9 @@ static void ScanExistingMpqHandles() {
                                                 FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
         if (len == 0 || len >= MAX_PATH) continue;
 
-        // Check for .mpq/.MPQ in path (handles both files and MPQ-folders)
-        const char* ext = strrchr(pathBuf, '.');
-        bool isMpq = ext && _stricmp(ext, ".mpq") == 0;
-        if (!isMpq) {
-            // Check for .MPQ folder name (e.g. patch-Sunlight.MPQ/)
-            const char* lastSep = strrchr(pathBuf, '\\');
-            const char* name = lastSep ? lastSep + 1 : pathBuf;
-            const char* dot = strrchr(name, '.');
-            isMpq = dot && _stricmp(dot, ".mpq") == 0;
-        }
+        // Check for .mpq/.MPQ in path — file extension, folder name, or parent directory
+        bool isMpq = (len >= 4 && _stricmp(pathBuf + len - 4, ".mpq") == 0)
+                  || PathPassesThroughMPQ(pathBuf);
         if (!isMpq) continue;
 
         if (IsMpqHandle(handle)) {
