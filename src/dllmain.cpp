@@ -305,9 +305,11 @@ static void ClearLuaPushStringCache();
 static bool InstallLuaRawGetICache();
 
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
+void ClearAssetPathCache();
 extern "C" void ClearLuaOptCaches() {
     ClearLuaHGetStrCache();
     ClearLuaPushStringCache();
+    ClearAssetPathCache();
 }
 
 // Stats for new hooks (defined with implementations below)
@@ -2466,7 +2468,7 @@ static void ScanExistingMpqHandles() {
     int mapped  = 0;
     int alreadyTracked = 0;
 
-    for (DWORD h = 4; h < 0x10000; h += 4) {
+    for (DWORD h = 4; h < 0x40000; h += 4) {
         HANDLE handle = (HANDLE)(uintptr_t)h;
 
         SetLastError(0);
@@ -4089,7 +4091,7 @@ struct AssetPathCacheEntry {
 };
 
 static constexpr int ASSET_PATH_CACHE_SIZE = 1024;
-static AssetPathCacheEntry g_assetPathCache[ASSET_PATH_CACHE_SIZE] = {};
+AssetPathCacheEntry g_assetPathCache[ASSET_PATH_CACHE_SIZE] = {};
 long g_assetPathHits = 0;
 long g_assetPathMisses = 0;
 
@@ -4132,6 +4134,10 @@ static bool InstallAssetPathCache() {
         return false;
     Log("Asset path cache: ACTIVE (%d slots, sub_819D40 @ 0x00819D40)", ASSET_PATH_CACHE_SIZE);
     return true;
+}
+
+void ClearAssetPathCache() {
+    memset(g_assetPathCache, 0, sizeof(g_assetPathCache));
 }
 
 // ================================================================
@@ -5818,8 +5824,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             TextureAsync::Shutdown();
 
             if (reserved != NULL) {
-                // Clear caches with mimalloc-owned pointers to prevent stale reads
-                memset(g_assetPathCache, 0, sizeof(g_assetPathCache));
+                ClearAssetPathCache();
                 if (g_log) {
                     SYSTEMTIME st;
                     GetLocalTime(&st);
