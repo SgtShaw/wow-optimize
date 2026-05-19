@@ -4224,34 +4224,7 @@ long g_assetPathHits = 0;
 long g_assetPathMisses = 0;
 
 static int __cdecl hooked_AssetPathResolver(const char* path, int typeIdx, int gender) {
-    // Hash: FNV-1a over path string, mix with type and gender
-    uint32_t h = 0x811C9DC5;
-    if (path) {
-        for (const char* p = path; *p; p++) {
-            char c = *p;
-            if (c >= 'A' && c <= 'Z') c += 32;  // case-insensitive
-            if (c == '/') c = '\\';
-            h ^= (uint8_t)c;
-            h *= 0x01000193;
-        }
-    }
-    h ^= (uint32_t)(typeIdx * 0x9E3779B9);
-    h ^= (uint32_t)(gender * 0x85EBCA77);
-    uint32_t slot = h & (ASSET_PATH_CACHE_SIZE - 1);
-
-    AssetPathCacheEntry* e = &g_assetPathCache[slot];
-    if (e->valid && e->hash == h) {
-        InterlockedIncrement(&g_assetPathHits);
-        return e->result;
-    }
-
-    int result = orig_AssetPathResolver(path, typeIdx, gender);
-
-    e->hash   = h;
-    e->result = result;
-    e->valid  = true;
-    InterlockedIncrement(&g_assetPathMisses);
-    return result;
+    return orig_AssetPathResolver(path, typeIdx, gender); // DISABLED — stale mimalloc pointers on teardown
 }
 
 static bool InstallAssetPathCache() {
