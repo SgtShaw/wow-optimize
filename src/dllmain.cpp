@@ -4448,6 +4448,45 @@ static bool InstallVerCache() {
     return true;
 }
 
+// ================================================================
+// 24. memcmp fast path — inline compare for 4/8/16 byte cases
+// ================================================================
+typedef int (__cdecl* Memcmp_fn)(const void*, const void*, size_t);
+static Memcmp_fn orig_Memcmp = nullptr;
+static long g_memcmpFast = 0;
+
+static int __cdecl hooked_Memcmp_Fast(const void* a, const void* b, size_t n) {
+    if (n == 4) {
+        uint32_t va = *(const uint32_t*)a, vb = *(const uint32_t*)b;
+        InterlockedIncrement(&g_memcmpFast);
+        return (va > vb) - (va < vb);
+    }
+    if (n == 8) {
+        uint64_t va = *(const uint64_t*)a, vb = *(const uint64_t*)b;
+        InterlockedIncrement(&g_memcmpFast);
+        return (va > vb) - (va < vb);
+    }
+    if (n == 16) {
+        const uint64_t* pa = (const uint64_t*)a, *pb = (const uint64_t*)b;
+        if (pa[0] != pb[0]) { InterlockedIncrement(&g_memcmpFast); return pa[0] < pb[0] ? -1 : 1; }
+        if (pa[1] != pb[1]) { InterlockedIncrement(&g_memcmpFast); return pa[1] < pb[1] ? -1 : 1; }
+        InterlockedIncrement(&g_memcmpFast);
+        return 0;
+    }
+    return orig_Memcmp(a, b, n);
+}
+
+static bool InstallMemcmpFast() {
+    HMODULE hCRT = GetModuleHandleA("msvcrt.dll");
+    if (!hCRT) hCRT = GetModuleHandleA("ucrtbase.dll");
+    if (!hCRT) return false;
+    void* p = (void*)GetProcAddress(hCRT, "memcmp");
+    if (!p || MH_CreateHook(p, (void*)hooked_Memcmp_Fast, (void**)&orig_Memcmp) != MH_OK) return false;
+    if (MH_EnableHook(p) != MH_OK) return false;
+    Log("memcmp fast path: ACTIVE (4/8/16-byte inline)");
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4569,6 +4608,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- CRT Memory Fast Paths ---");
     bool crtOk = InstallCrtMemFastPaths();
     bool tvalueMcpyOk = InstallTValueMemcpyHook();
+    bool memcmpOk = InstallMemcmpFast();
     bool sysInfoOk = InstallSysInfoCache();
     bool regCacheOk = InstallRegCache();
     bool smCacheOk = InstallSysMetricsCache();
@@ -4813,7 +4853,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] GetSystemInfo cache",            sysInfoOk    ? " OK " : "SKIP");
     Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");
     Log("  [%s] GetSystemMetrics cache",         smCacheOk    ? " OK " : "SKIP");
-    Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");    
+    Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");
+    Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
+    Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
