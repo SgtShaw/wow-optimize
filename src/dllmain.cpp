@@ -5818,6 +5818,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             TextureAsync::Shutdown();
 
             if (reserved != NULL) {
+                // Clear caches with mimalloc-owned pointers to prevent stale reads
+                memset(g_assetPathCache, 0, sizeof(g_assetPathCache));
                 if (g_log) {
                     SYSTEMTIME st;
                     GetLocalTime(&st);
