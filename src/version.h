@@ -170,7 +170,7 @@
 #define TEST_DISABLE_CRT_POW_SSE2        0
 
 // Addon file RAM-disk — DISABLED: interferes with WoW file I/O
-#define TEST_DISABLE_ADDON_PRELOAD      0  // ENABLED — RAM-cache addon files, instant /reload
+#define TEST_DISABLE_ADDON_PRELOAD      1  // DISABLED — interfere with addon loading, break settings
 
 // Spell Data Caching — cache spell coefficients, ranges, cooldowns
 // Reduces spell casting overhead by 25-35% (sub_80E1B0 is 7.4KB of code)
