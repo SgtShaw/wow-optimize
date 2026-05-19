@@ -2697,7 +2697,9 @@ static void OptimizeWorkingSet() {
 static void ConfigureMimalloc() {
     // Allow large OS pages when enabled by system policy
     mi_option_set(mi_option_allow_large_os_pages, 1);
-    mi_option_set(mi_option_purge_delay, 0);
+    // -1 = never purge. Keeps freed pages mapped so stale Lua string reads
+    // during reload don't ACCESS_VIOLATION. Multi-client overrides to 100ms.
+    mi_option_set(mi_option_purge_delay, -1);
 
     void* warmup = mi_malloc(64 * 1024 * 1024);
     if (warmup) { memset(warmup, 0, 64 * 1024 * 1024); mi_free(warmup); }
