@@ -4987,8 +4987,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
     bool crtOk = InstallCrtMemFastPaths();
-    bool tvalueMcpyOk = InstallTValueMemcpyHook();
-    bool memcmpOk = InstallMemcmpFast();
     bool sysInfoOk = InstallSysInfoCache();
     bool regCacheOk = InstallRegCache();
     bool smCacheOk = InstallSysMetricsCache();
@@ -5232,13 +5230,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] CompareStringA (ASCII fast)",  cmpOk       ? " OK " : "FAIL");
     Log("  [%s] MBT/WCT (SSE2 ASCII fast)",    mbwcOk      ? " OK " : "SKIP");
     Log("  [%s] CRT mem/str fast paths",        crtOk       ? " OK " : "SKIP");
-    Log("  [%s] TValue memcpy (16-byte)",        tvalueMcpyOk ? " OK " : "SKIP");
     Log("  [%s] GetSystemInfo cache",            sysInfoOk    ? " OK " : "SKIP");
     Log("  [%s] RegQueryValueEx cache",          regCacheOk   ? " OK " : "SKIP");
     Log("  [%s] GetSystemMetrics cache",         smCacheOk    ? " OK " : "SKIP");
     Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");
     Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
-    Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 24 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
