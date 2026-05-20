@@ -5367,7 +5367,7 @@ struct RTTICacheEntry {
 };
 
 static RTTICacheEntry g_rttiCache[RTTI_CACHE_SIZE] = {};
-static long g_rttiHits = 0, g_rttiMisses = 0;
+long g_rttiHits = 0, g_rttiMisses = 0;
 
 static int __cdecl hooked_RTTICheck(__int64 guid64, int flags) {
 #if CRASH_TEST_DISABLE_RTTI_CACHE
@@ -5434,7 +5434,7 @@ static bool InstallRTTICache() {
 //   if (bounds_ok) { *out = *(base - delta + cursor); cursor += 4; }
 typedef void* (__fastcall* StreamRead_fn)(void*, void*);
 static StreamRead_fn orig_StreamRead = nullptr;
-static long g_streamReadHits = 0, g_streamReadFallbacks = 0;
+long g_streamReadHits = 0, g_streamReadFallbacks = 0;
 
 static void* __fastcall hooked_StreamRead(void* This, void* out) {
 #if CRASH_TEST_DISABLE_STREAM_FASTPATH
@@ -5468,7 +5468,7 @@ static void* __fastcall hooked_StreamRead(void* This, void* out) {
 //   Same buffer layout as StreamRead.  Writes val at cursor, advances.
 typedef void* (__fastcall* StreamWrite_fn)(void*, int);
 static StreamWrite_fn orig_StreamWrite = nullptr;
-static long g_streamWriteHits = 0, g_streamWriteFallbacks = 0;
+long g_streamWriteHits = 0, g_streamWriteFallbacks = 0;
 
 static void* __fastcall hooked_StreamWrite(void* This, int val) {
 #if CRASH_TEST_DISABLE_STREAM_FASTPATH
