@@ -4656,6 +4656,192 @@ static bool InstallRawAllocTest() {
     return true;
 }
 
+// ================================================================
+// Batch optimizations: kernel caches and fast paths
+// ================================================================
+
+// #1: GetSystemTimeAsFileTime → cached QPC. Timestamps used for profiling.
+typedef void (WINAPI* GSTAFT_fn)(LPFILETIME);
+static GSTAFT_fn orig_GSTAFT = nullptr;
+static LARGE_INTEGER g_gstaftFreq = {};
+static LARGE_INTEGER g_gstaftBase = {};
+static bool g_gstaftInit = false;
+
+static void WINAPI hooked_GSTAFT(LPFILETIME lpFT) {
+    // Return cached QPC-based time with 1ms refresh
+    if (!g_gstaftInit) {
+        QueryPerformanceFrequency(&g_gstaftFreq);
+        QueryPerformanceCounter(&g_gstaftBase);
+        GetSystemTimeAsFileTime(lpFT);
+        g_gstaftInit = true;
+        return;
+    }
+    static LARGE_INTEGER lastQPC = {};
+    static FILETIME lastFT = {};
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    if (now.QuadPart - lastQPC.QuadPart > g_gstaftFreq.QuadPart / 1000) {  // 1ms refresh
+        orig_GSTAFT(&lastFT);
+        lastQPC = now;
+    }
+    *lpFT = lastFT;
+}
+
+// #2: GetACP — code page never changes
+typedef UINT (WINAPI* GetACP_fn)();
+static GetACP_fn orig_GetACP = nullptr;
+static UINT g_cachedACP = 0;
+
+static UINT WINAPI hooked_GetACP() {
+    if (!g_cachedACP) g_cachedACP = orig_GetACP();
+    return g_cachedACP;
+}
+
+// #3: GetUserDefaultLangID — language never changes
+typedef LANGID (WINAPI* GetUserDefaultLangID_fn)();
+static GetUserDefaultLangID_fn orig_GetUDLI = nullptr;
+static LANGID g_cachedLang = 0;
+
+static LANGID WINAPI hooked_GetUDLI() {
+    if (!g_cachedLang) g_cachedLang = orig_GetUDLI();
+    return g_cachedLang;
+}
+
+// #4: GetProcessHeap — always returns the same handle
+typedef HANDLE (WINAPI* GetProcessHeap_fn)();
+static GetProcessHeap_fn orig_GetProcessHeap = nullptr;
+static HANDLE g_cachedHeap = NULL;
+
+static HANDLE WINAPI hooked_GetProcessHeap() {
+    if (!g_cachedHeap) g_cachedHeap = orig_GetProcessHeap();
+    return g_cachedHeap;
+}
+
+// #5: CharUpperA ASCII fast path
+typedef char* (WINAPI* CharUpperA_fn)(char*);
+static CharUpperA_fn orig_CharUpperA = nullptr;
+
+static char* WINAPI hooked_CharUpperA(char* str) {
+    if (str) {
+        for (char* p = str; *p; p++)
+            if (*p >= 'a' && *p <= 'z') *p -= 32;
+    }
+    return str;
+}
+
+// #6: CharLowerA ASCII fast path
+typedef char* (WINAPI* CharLowerA_fn)(char*);
+static CharLowerA_fn orig_CharLowerA = nullptr;
+
+static char* WINAPI hooked_CharLowerA(char* str) {
+    if (str) {
+        for (char* p = str; *p; p++)
+            if (*p >= 'A' && *p <= 'Z') *p += 32;
+    }
+    return str;
+}
+
+// #7: wsprintfA inline for %s and %d — most common format patterns
+typedef int (__cdecl* wsprintfA_fn)(char*, const char*, ...);
+static wsprintfA_fn orig_wsprintfA = nullptr;
+
+static int __cdecl hooked_wsprintfA(char* buf, const char* fmt, ...) {
+    // Fast path: single %s
+    if (fmt[0] == '%' && fmt[1] == 's' && fmt[2] == 0) {
+        va_list va; va_start(va, fmt);
+        const char* s = va_arg(va, const char*);
+        if (s) { size_t n = strlen(s); memcpy(buf, s, n + 1); va_end(va); return (int)n; }
+        va_end(va);
+    }
+    // Fast path: single %d
+    if (fmt[0] == '%' && fmt[1] == 'd' && fmt[2] == 0) {
+        va_list va; va_start(va, fmt);
+        int d = va_arg(va, int);
+        va_end(va);
+        return sprintf(buf, "%d", d);  // Use sprintf for int conversion (safe)
+    }
+    return orig_wsprintfA(buf, fmt);
+}
+
+// #8: MapVirtualKeyA — key mappings cached
+typedef UINT (WINAPI* MapVirtualKeyA_fn)(UINT, UINT);
+static MapVirtualKeyA_fn orig_MapVirtualKeyA = nullptr;
+static UINT g_mvkCache[256][4] = {};  // [code][mapType]
+
+static UINT WINAPI hooked_MapVirtualKeyA(UINT code, UINT mapType) {
+    if (code < 256 && mapType < 4) {
+        UINT& cached = g_mvkCache[code][mapType];
+        if (!cached) cached = orig_MapVirtualKeyA(code, mapType);
+        return cached;
+    }
+    return orig_MapVirtualKeyA(code, mapType);
+}
+
+// #9: GetThreadPriority — thread priority never changes per thread
+typedef int (WINAPI* GetThreadPriority_fn)(HANDLE);
+static GetThreadPriority_fn orig_GetThreadPriority = nullptr;
+static int g_threadPrio[256] = {};  // simple per-handle cache
+
+static int WINAPI hooked_GetThreadPriority(HANDLE h) {
+    DWORD idx = (DWORD)(uintptr_t)h & 255;
+    int& c = g_threadPrio[idx];
+    if (c) return c;
+    c = orig_GetThreadPriority(h);
+    return c;
+}
+
+// #10: lstrlenW — Unicode inline length
+typedef int (WINAPI* lstrlenW_fn)(LPCWSTR);
+static lstrlenW_fn orig_lstrlenW2 = nullptr;  // orig_lstrlenW already exists for SSE2 path
+
+static int WINAPI hooked_lstrlenW_Inline(LPCWSTR str) {
+    if (!str) return 0;
+    const wchar_t* p = str;
+    while (*p) p++;
+    return (int)(p - str);
+}
+
+static bool InstallBatchOpt10() {
+    int ok = 0;
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    HMODULE hU32 = GetModuleHandleA("user32.dll");
+
+    void* p;
+    // #1 GSTAFT
+    p = (void*)GetProcAddress(hK32, "GetSystemTimeAsFileTime");
+    if (p && MH_CreateHook(p, (void*)hooked_GSTAFT, (void**)&orig_GSTAFT) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #2 GetACP
+    p = (void*)GetProcAddress(hK32, "GetACP");
+    if (p && MH_CreateHook(p, (void*)hooked_GetACP, (void**)&orig_GetACP) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #3 GetUserDefaultLangID
+    p = (void*)GetProcAddress(hK32, "GetUserDefaultLangID");
+    if (p && MH_CreateHook(p, (void*)hooked_GetUDLI, (void**)&orig_GetUDLI) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #4 GetProcessHeap
+    p = (void*)GetProcAddress(hK32, "GetProcessHeap");
+    if (p && MH_CreateHook(p, (void*)hooked_GetProcessHeap, (void**)&orig_GetProcessHeap) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #5 CharUpperA
+    p = (void*)GetProcAddress(hU32, "CharUpperA");
+    if (p && MH_CreateHook(p, (void*)hooked_CharUpperA, (void**)&orig_CharUpperA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #6 CharLowerA
+    p = (void*)GetProcAddress(hU32, "CharLowerA");
+    if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #7 wsprintfA
+    p = (void*)GetProcAddress(hU32, "wsprintfA");
+    if (p && MH_CreateHook(p, (void*)hooked_wsprintfA, (void**)&orig_wsprintfA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #8 MapVirtualKeyA
+    p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
+    if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #9 GetThreadPriority
+    p = (void*)GetProcAddress(hK32, "GetThreadPriority");
+    if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #10 lstrlenW
+    p = (void*)GetProcAddress(hK32, "lstrlenW");
+    if (p && MH_CreateHook(p, (void*)hooked_lstrlenW_Inline, (void**)&orig_lstrlenW2) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+
+    Log("Batch opt #1-10: %d/10 active", ok);
+    return ok > 0;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4786,6 +4972,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
     bool wfmoOk = false;    // DISABLED — return value mismatch
     bool rawAllocOk = false;  // DISABLED — unstable, needs mimalloc expertise
+    bool batch10Ok = InstallBatchOpt10();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5030,7 +5217,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
     Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
     Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
-    Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");    
+    Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
+    Log("  [%s] Batch 10 kernel caches",        batch10Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
