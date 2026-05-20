@@ -10,7 +10,7 @@ namespace LuaBytecodePreCompiler {
 static const int  WORKER_COUNT      = 2;
 static const size_t QUEUE_SIZE      = 1024;
 static const size_t QUEUE_MASK      = QUEUE_SIZE - 1;
-static const size_t MAX_PRELOAD_BYTES = 32u * 1024u * 1024u;
+static const size_t MAX_PRELOAD_BYTES = 128u * 1024u * 1024u;
 
 struct Job { wchar_t path[MAX_PATH]; volatile LONG ready; };
 static Job           g_queue[QUEUE_SIZE] = {};
@@ -43,7 +43,10 @@ static void EnumerateDirRecursive(const wchar_t* dir, std::vector<std::wstring>&
             EnumerateDirRecursive(full, out, depth + 1);
         } else {
             size_t n = wcslen(fd.cFileName);
-            if (n >= 4 && _wcsicmp(fd.cFileName + n - 4, L".lua") == 0) {
+            bool isAddonFile = (n >= 4 && _wcsicmp(fd.cFileName + n - 4, L".lua") == 0)
+                            || (n >= 4 && _wcsicmp(fd.cFileName + n - 4, L".toc") == 0)
+                            || (n >= 4 && _wcsicmp(fd.cFileName + n - 4, L".xml") == 0);
+            if (isAddonFile) {
                 out.emplace_back(full);
             }
         }
