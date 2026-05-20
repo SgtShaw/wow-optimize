@@ -4575,15 +4575,21 @@ static long g_rawMallocHits = 0;
 
 static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
     size_t aligned = ((size_t)size + 7) & ~7u;
-    if (aligned == 0) aligned = 8;  // safety: never allocate 0 bytes
+    if (aligned == 0) aligned = 8;  // minimum 1 byte like CRT malloc(0)
     void* p = (flags & 8) ? mi_calloc(1, aligned) : mi_malloc(aligned);
+    if (!p) return p;  // caller handles NULL (original calls error handler, we skip)
     InterlockedIncrement(&g_rawMallocHits);
     return p;
 }
 
 static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
     size_t aligned = ((size_t)newSize + 7) & ~7u;
-    if (aligned == 0) aligned = 8;
+    if (aligned == 0) {
+        // realloc(ptr, 0) = free(ptr), return NULL
+        // Don't use mi_realloc(ptr, 0) — it may or may not return NULL.
+        if (ptr) mi_free(ptr);
+        return nullptr;
+    }
     size_t oldSize = ptr ? _msize(ptr) : 0;
     char* p = (char*)mi_realloc(ptr, aligned);
     if (p && (flags & 8) && oldSize < aligned) {
@@ -4593,8 +4599,7 @@ static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int fi
 }
 
 static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
-    if (!ptr) return 1;
-    mi_free(ptr);
+    if (ptr) mi_free(ptr);
     return 1;
 }
 
@@ -4612,6 +4617,41 @@ static bool InstallRawAllocReplacement() {
     if (MH_EnableHook(pFree)    != MH_OK) return false;
 
     Log("Raw allocator: ACTIVE (direct mimalloc, skip _msize+alignment)");
+    return true;
+}
+
+// ================================================================
+// Raw allocator pass-through (test phase — verifies hook stability)
+// ================================================================
+static WoWMalloc_fn  g_passOrigMalloc  = nullptr;
+static WoWRealloc_fn g_passOrigRealloc = nullptr;
+static WoWFree_fn    g_passOrigFree    = nullptr;
+
+static void* __stdcall PassThroughMalloc(int size, int file, DWORD line, char flags) {
+    InterlockedIncrement(&g_rawMallocHits);
+    return g_passOrigMalloc(size, file, line, flags);
+}
+static char* __stdcall PassThroughRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
+    return g_passOrigRealloc(ptr, newSize, file, line, flags);
+}
+static int   __stdcall PassThroughFree(void* ptr, int file, int line, int flags) {
+    return g_passOrigFree(ptr, file, line, flags);
+}
+
+static bool InstallRawAllocTest() {
+    void* pMalloc  = (void*)0x0076E540;
+    void* pRealloc = (void*)0x0076E5E0;
+    void* pFree    = (void*)0x0076E5A0;
+
+    if (MH_CreateHook(pMalloc,  (void*)PassThroughMalloc,  (void**)&g_passOrigMalloc)  != MH_OK) return false;
+    if (MH_CreateHook(pRealloc, (void*)PassThroughRealloc, (void**)&g_passOrigRealloc) != MH_OK) return false;
+    if (MH_CreateHook(pFree,    (void*)PassThroughFree,    (void**)&g_passOrigFree)    != MH_OK) return false;
+
+    if (MH_EnableHook(pMalloc)  != MH_OK) return false;
+    if (MH_EnableHook(pRealloc) != MH_OK) return false;
+    if (MH_EnableHook(pFree)    != MH_OK) return false;
+
+    Log("Raw allocator: PASS-THROUGH (calls original, verifying hook stability)");
     return true;
 }
 
@@ -4744,7 +4784,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool verCacheOk = InstallVerCache();
     bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
     bool wfmoOk = false;    // DISABLED — return value mismatch
-    bool rawAllocOk = false;  // STILL UNSTABLE — mimalloc corruption despite correct sigs
+    bool rawAllocOk = InstallRawAllocReplacement();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
