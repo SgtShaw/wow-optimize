@@ -104,7 +104,7 @@
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             1   // sub_69E220 swap — glFinish skip (Vulkan/D3D9 only)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — DISABLED: causes 0x84E68D loading screen crash (corrupts Lua state during init)
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
