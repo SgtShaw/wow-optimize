@@ -5447,8 +5447,8 @@ static void* __fastcall hooked_StreamRead(void* This, void* out) {
         uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
         uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
 
-        // Fast bounds check: cursor + 4 <= base + size (relative to committed region)
-        if (cursor + 4 <= base + size && cursor >= base) {
+        // Fast bounds: cursor within [delta, delta+size) (relative to committed region)
+        if (cursor + 4 <= delta + size && cursor >= delta) {
             uintptr_t addr = cursor - delta + base;
             if (addr > 0x10000 && addr < 0xBFFF0000) {
                 *(uint32_t*)out = *(uint32_t*)addr;
@@ -5481,7 +5481,8 @@ static void* __fastcall hooked_StreamWrite(void* This, int val) {
         uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
         uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
 
-        if (cursor + 4 <= base + size && cursor >= base) {
+        // Fast bounds: cursor within [delta, delta+size) — same as sub_47B0A0
+        if (cursor + 4 <= delta + size && cursor >= delta) {
             uintptr_t addr = cursor - delta + base;
             if (addr > 0x10000 && addr < 0xBFFF0000) {
                 *(uint32_t*)addr = val;
