@@ -4958,6 +4958,29 @@ static bool InstallBatchOpt30() {
     return ok > 0;
 }
 
+// ================================================================
+// Force timingMethod=0 (RDTSC) — hook timing test to always pass
+// sub_86AD50 returns (*(DWORD*)(dword_D4159C + 3)) — timing error code.
+// Hooking to return 0 makes WoW think TSC is always synced.
+// Benefits: highest precision timer on modern hardware, no QPC fallback.
+// ================================================================
+typedef int (__cdecl* TimingTest_fn)();
+static TimingTest_fn orig_TimingTest = nullptr;
+
+static int __cdecl hooked_TimingTest() {
+    return 0;  // Always pass — RDTSC is invariant on modern CPUs (last 10+ years)
+}
+
+static bool InstallTimingTestMethodFix() {
+    void* target = (void*)0x0086AD50;
+    if (MH_CreateHook(target, (void*)hooked_TimingTest, (void**)&orig_TimingTest) != MH_OK)
+        return false;
+    if (MH_EnableHook(target) != MH_OK)
+        return false;
+    Log("Timing method fix: ACTIVE (force timingMethod=0, RDTSC always passes)");
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -5091,6 +5114,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch10Ok = InstallBatchOpt10();
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
+    bool timingFixOk = InstallTimingTestMethodFix();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5338,7 +5362,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");
+    Log("  [%s] Timing method fix (RDTSC)",     timingFixOk  ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
