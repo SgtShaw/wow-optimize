@@ -4741,7 +4741,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool verCacheOk = InstallVerCache();
     bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
     bool wfmoOk = false;    // DISABLED — return value mismatch
-    bool rawAllocOk = InstallRawAllocReplacement();
+    bool rawAllocOk = false;  // DISABLED — crashes on launch, _msize on freed ptr
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
