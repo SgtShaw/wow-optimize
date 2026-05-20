@@ -4741,27 +4741,9 @@ static char* WINAPI hooked_CharLowerA(char* str) {
     return str;
 }
 
-// #7: wsprintfA inline for %s and %d — most common format patterns
+// #7: REMOVED — wsprintfA variadic args can't be forwarded
 typedef int (__cdecl* wsprintfA_fn)(char*, const char*, ...);
-static wsprintfA_fn orig_wsprintfA = nullptr;
-
-static int __cdecl hooked_wsprintfA(char* buf, const char* fmt, ...) {
-    // Fast path: single %s
-    if (fmt[0] == '%' && fmt[1] == 's' && fmt[2] == 0) {
-        va_list va; va_start(va, fmt);
-        const char* s = va_arg(va, const char*);
-        if (s) { size_t n = strlen(s); memcpy(buf, s, n + 1); va_end(va); return (int)n; }
-        va_end(va);
-    }
-    // Fast path: single %d
-    if (fmt[0] == '%' && fmt[1] == 'd' && fmt[2] == 0) {
-        va_list va; va_start(va, fmt);
-        int d = va_arg(va, int);
-        va_end(va);
-        return sprintf(buf, "%d", d);  // Use sprintf for int conversion (safe)
-    }
-    return orig_wsprintfA(buf, fmt);
-}
+static wsprintfA_fn orig_wsprintfA = nullptr; // kept for future use, hook not installed
 
 // #8: MapVirtualKeyA — key mappings cached
 typedef UINT (WINAPI* MapVirtualKeyA_fn)(UINT, UINT);
@@ -4825,9 +4807,7 @@ static bool InstallBatchOpt10() {
     // #6 CharLowerA
     p = (void*)GetProcAddress(hU32, "CharLowerA");
     if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
-    // #7 wsprintfA
-    p = (void*)GetProcAddress(hU32, "wsprintfA");
-    if (p && MH_CreateHook(p, (void*)hooked_wsprintfA, (void**)&orig_wsprintfA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #7 wsprintfA REMOVED — variadic args can't forward
     // #8 MapVirtualKeyA
     p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
     if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
@@ -4838,7 +4818,7 @@ static bool InstallBatchOpt10() {
     p = (void*)GetProcAddress(hK32, "lstrlenW");
     if (p && MH_CreateHook(p, (void*)hooked_lstrlenW_Inline, (void**)&orig_lstrlenW2) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
 
-    Log("Batch opt #1-10: %d/10 active", ok);
+    Log("Batch opt #1-9: %d/9 active", ok);
     return ok > 0;
 }
 
@@ -5296,7 +5276,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
     Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
-    Log("  [%s] Batch 10 kernel caches",        batch10Ok    ? " OK " : "SKIP");
+    Log("  [%s] Batch 9 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
