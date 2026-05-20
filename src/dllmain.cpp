@@ -4555,6 +4555,63 @@ extern "C" void ReleaseLoadingArena() {
     ReleaseSRWLockExclusive(&g_arenaLock);
 }
 
+// ================================================================
+// LMEM raw allocator replacement — direct mimalloc
+// ================================================================
+// sub_76E540: WoW malloc wrapper: align to 8 + CRT malloc + _msize
+// sub_76E5E0: WoW realloc wrapper: align + CRT realloc + _msize + zero-fill
+// sub_76E5A0: WoW free wrapper: _msize + CRT free
+// All 3 already go CRT→mimalloc but wrappers cost ~30 cycles each.
+// Direct mimalloc skips _msize (walks segment metadata — expensive).
+
+typedef void* (__stdcall* WoWMalloc_fn)(int size, int file, DWORD line, char flags);
+typedef char* (__stdcall* WoWRealloc_fn)(char* ptr, unsigned int newSize, int file, DWORD line, int flags);
+typedef int   (__stdcall* WoWFree_fn)(void* ptr, int file, int line, int flags);
+
+static WoWMalloc_fn  orig_WoWMalloc  = nullptr;
+static WoWRealloc_fn orig_WoWRealloc = nullptr;
+static WoWFree_fn    orig_WoWFree    = nullptr;
+static long g_rawMallocHits = 0;
+
+static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
+    size_t aligned = ((size_t)size + 7) & ~7u;
+    void* p = (flags & 8) ? mi_calloc(1, aligned) : mi_malloc(aligned);
+    InterlockedIncrement(&g_rawMallocHits);
+    return p;
+}
+
+static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
+    size_t aligned = ((size_t)newSize + 7) & ~7u;
+    char* p = (char*)mi_realloc(ptr, aligned);
+    if (p && (flags & 8) && (!ptr || newSize > _msize(ptr))) {
+        size_t oldSize = ptr ? _msize(ptr) : 0;
+        if (aligned > oldSize) memset(p + oldSize, 0, aligned - oldSize);
+    }
+    return p;
+}
+
+static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
+    mi_free(ptr);
+    return 1;
+}
+
+static bool InstallRawAllocReplacement() {
+    void* pMalloc  = (void*)0x0076E540;
+    void* pRealloc = (void*)0x0076E5E0;
+    void* pFree    = (void*)0x0076E5A0;
+
+    if (MH_CreateHook(pMalloc,  (void*)hooked_WoWMalloc,  (void**)&orig_WoWMalloc)  != MH_OK) return false;
+    if (MH_CreateHook(pRealloc, (void*)hooked_WoWRealloc, (void**)&orig_WoWRealloc) != MH_OK) return false;
+    if (MH_CreateHook(pFree,    (void*)hooked_WoWFree,    (void**)&orig_WoWFree)    != MH_OK) return false;
+
+    if (MH_EnableHook(pMalloc)  != MH_OK) return false;
+    if (MH_EnableHook(pRealloc) != MH_OK) return false;
+    if (MH_EnableHook(pFree)    != MH_OK) return false;
+
+    Log("Raw allocator: ACTIVE (direct mimalloc, skip _msize+alignment)");
+    return true;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4684,6 +4741,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool verCacheOk = InstallVerCache();
     bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
     bool wfmoOk = false;    // DISABLED — return value mismatch
+    bool rawAllocOk = InstallRawAllocReplacement();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -4927,7 +4985,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
     Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
     Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
-    Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");    
+    Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
+    Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
