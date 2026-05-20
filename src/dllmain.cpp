@@ -3084,6 +3084,8 @@ static void DumpPeriodicStats() {
            (double)g_assetPathHits / (g_assetPathHits + g_assetPathMisses) * 100.0);
     if (g_tvalueMemcpyHits > 0)
         Log("[Stats] TValue memcpy: %ld 16-byte fast copies", g_tvalueMemcpyHits);
+    if (g_lastFrameMs > 0)
+        Log("[Stats] Frame: %.1f ms (lower = smoother)", g_lastFrameMs);
     if (g_sysInfoHits > 0)
         Log("[Stats] GetSystemInfo: %ld cached", g_sysInfoHits);
     if (g_regCacheHits + g_regCacheMisses > 0)
