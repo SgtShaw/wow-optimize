@@ -192,9 +192,9 @@ These experimental features were tested and found to provide no measurable benef
 
 **CriticalSection 3-stage spin** — 8000 spin count + exponential backoff retry. Fewer kernel transitions for short-held locks (StormLib file reads, LMEM pool ops).
 
-**mimalloc 23 size-class pre-warming** — zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
+**CRT SSE2 fast paths re-enabled** — strlen/strcmp/memcmp/memcpy/memset with page-boundary guard. Checks `((ptr & 0xFFF) > 0xFF0)` — falls back to original if within 16 bytes of page end. 99.6% SSE2 hit rate, 0.4% page-edge fallback. Previously disabled due to bank/AH crashes (v3.6.0).
 
-**TValue memcpy 16-byte inline** + **memcmp 4/8-byte inline** — Lua VM copies and string compares.
+**mimalloc 23 size-class pre-warming** — zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
 
 **MPQ folder detection** — patch-Sunlight.MPQ style unpacked patches, files inside .MPQ directories, Interface virtual MPQ archive. Includes trailing backslash fix.
 
