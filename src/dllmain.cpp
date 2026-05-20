@@ -5126,7 +5126,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch10Ok = InstallBatchOpt10();
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
-    bool timingFixOk = InstallTimingTestMethodFix();
+    bool timingFixOk = false;  // DISABLED — silent close, may break RDTSC calibration
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
