@@ -2563,11 +2563,11 @@ static void ScanExistingMpqHandles() {
         tracked, mapped, g_mpqMapTotalBytes / (1024.0 * 1024.0), alreadyTracked);
 #else
     int foldersDetected = 0;
+    char dataDir[MAX_PATH] = "";  // stored for Interface detection later
     // Filesystem scan: find .MPQ folders not yet opened by WoW
     // (e.g. patch-Sunlight.MPQ\ with only sub-folders, no handles yet)
     {
         // Use first tracked MPQ to find Data directory
-        char dataDir[MAX_PATH] = "";
         for (int i = 0; i < MPQ_HASH_SIZE; i++) {
             if (g_mpqHash[i].occupied) {
                 DWORD plen = pGetFinalPathNameByHandleA(g_mpqHash[i].handle,
@@ -2613,6 +2613,18 @@ static void ScanExistingMpqHandles() {
                     FindClose(hFind);
                 }
             }
+        }
+    }
+
+    // Detect Interface folder as virtual MPQ (addon files, icons, UI textures)
+    {
+        char* lastSlash = strrchr(dataDir, '\\');
+        if (lastSlash) {
+            *lastSlash = 0;
+            char ifPath[MAX_PATH];
+            snprintf(ifPath, MAX_PATH, "%s\\Interface", dataDir);
+            if (GetFileAttributesA(ifPath) != INVALID_FILE_ATTRIBUTES)
+                Log("MPQ virtual archive: %s (Interface)", ifPath);
         }
     }
 
