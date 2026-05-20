@@ -4575,27 +4575,27 @@ static long g_rawMallocHits = 0;
 
 static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
     size_t aligned = ((size_t)size + 7) & ~7u;
-    if (aligned == 0) aligned = 8;  // minimum 1 byte like CRT malloc(0)
+    if (aligned == 0) aligned = 8;
     void* p = (flags & 8) ? mi_calloc(1, aligned) : mi_malloc(aligned);
-    if (!p) return p;  // caller handles NULL (original calls error handler, we skip)
-    InterlockedIncrement(&g_rawMallocHits);
-    return p;
+    if (p) { InterlockedIncrement(&g_rawMallocHits); return p; }
+    // Fallback to original (handles error logging + recovery)
+    return orig_WoWMalloc ? orig_WoWMalloc(size, file, line, flags) : p;
 }
 
 static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
     size_t aligned = ((size_t)newSize + 7) & ~7u;
     if (aligned == 0) {
-        // realloc(ptr, 0) = free(ptr), return NULL
-        // Don't use mi_realloc(ptr, 0) — it may or may not return NULL.
         if (ptr) mi_free(ptr);
         return nullptr;
     }
     size_t oldSize = ptr ? _msize(ptr) : 0;
     char* p = (char*)mi_realloc(ptr, aligned);
-    if (p && (flags & 8) && oldSize < aligned) {
-        memset(p + oldSize, 0, aligned - oldSize);
+    if (p) {
+        if ((flags & 8) && oldSize < aligned)
+            memset(p + oldSize, 0, aligned - oldSize);
+        return p;
     }
-    return p;
+    return orig_WoWRealloc ? orig_WoWRealloc(ptr, newSize, file, line, flags) : p;
 }
 
 static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
