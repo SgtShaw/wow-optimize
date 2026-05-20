@@ -4582,10 +4582,10 @@ static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char fla
 
 static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
     size_t aligned = ((size_t)newSize + 7) & ~7u;
+    size_t oldSize = ptr ? _msize(ptr) : 0;  // save BEFORE mi_realloc frees ptr
     char* p = (char*)mi_realloc(ptr, aligned);
-    if (p && (flags & 8) && (!ptr || newSize > _msize(ptr))) {
-        size_t oldSize = ptr ? _msize(ptr) : 0;
-        if (aligned > oldSize) memset(p + oldSize, 0, aligned - oldSize);
+    if (p && (flags & 8) && oldSize < aligned) {
+        memset(p + oldSize, 0, aligned - oldSize);
     }
     return p;
 }
@@ -4741,7 +4741,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool verCacheOk = InstallVerCache();
     bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
     bool wfmoOk = false;    // DISABLED — return value mismatch
-    bool rawAllocOk = false;  // DISABLED — crashes on launch, _msize on freed ptr
+    bool rawAllocOk = InstallRawAllocReplacement();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
