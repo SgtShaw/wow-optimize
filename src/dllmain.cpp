@@ -4842,6 +4842,83 @@ static bool InstallBatchOpt10() {
     return ok > 0;
 }
 
+// ================================================================
+// Batch #11-20: more kernel caches and fast paths
+// ================================================================
+
+// #11: GetOEMCP
+typedef UINT (WINAPI* GetOEMCP_fn)();
+static GetOEMCP_fn orig_GetOEMCP = nullptr; static UINT g_oemcp = 0;
+static UINT WINAPI hooked_GetOEMCP() { if (!g_oemcp) g_oemcp = orig_GetOEMCP(); return g_oemcp; }
+
+// #12: GetDoubleClickTime
+typedef UINT (WINAPI* GetDoubleClickTime_fn)();
+static GetDoubleClickTime_fn orig_GetDoubleClickTime = nullptr; static UINT g_dct = 0;
+static UINT WINAPI hooked_GetDoubleClickTime() { if (!g_dct) g_dct = orig_GetDoubleClickTime(); return g_dct; }
+
+// #13: GetCursorPos — 16ms cache
+typedef BOOL (WINAPI* GetCursorPos_fn)(LPPOINT);
+static GetCursorPos_fn orig_GetCursorPos = nullptr;
+static POINT g_lastCursor = {}; static DWORD g_lastCursorTick = 0;
+static BOOL WINAPI hooked_GetCursorPos(LPPOINT lp) {
+    DWORD now = GetTickCount();
+    if (now - g_lastCursorTick < 16) { *lp = g_lastCursor; return TRUE; }
+    BOOL r = orig_GetCursorPos(lp); if (r) { g_lastCursor = *lp; g_lastCursorTick = now; } return r;
+}
+
+// #14: GetSysColor
+typedef DWORD (WINAPI* GetSysColor_fn)(int);
+static GetSysColor_fn orig_GetSysColor = nullptr; static DWORD g_sysColors[32] = {};
+static DWORD WINAPI hooked_GetSysColor(int idx) {
+    if (idx < 32) { if (!g_sysColors[idx]) g_sysColors[idx] = orig_GetSysColor(idx); return g_sysColors[idx]; }
+    return orig_GetSysColor(idx);
+}
+
+// #15: GetKeyboardLayout
+typedef HKL (WINAPI* GetKeyboardLayout_fn)(DWORD);
+static GetKeyboardLayout_fn orig_GetKeyboardLayout = nullptr; static HKL g_kbl = 0;
+static HKL WINAPI hooked_GetKeyboardLayout(DWORD id) { if (!g_kbl) g_kbl = orig_GetKeyboardLayout(id); return g_kbl; }
+
+// #16: GetKeyboardLayoutNameA
+typedef BOOL (WINAPI* GetKeyboardLayoutNameA_fn)(char*);
+static GetKeyboardLayoutNameA_fn orig_GetKeyboardLayoutNameA = nullptr; static char g_kbln[9] = {};
+static BOOL WINAPI hooked_GetKeyboardLayoutNameA(char* buf) { if (g_kbln[0]) { memcpy(buf, g_kbln, 9); return TRUE; } BOOL r = orig_GetKeyboardLayoutNameA(g_kbln); memcpy(buf, g_kbln, 9); return r; }
+
+// #17: GetCaretBlinkTime
+typedef UINT (WINAPI* GetCaretBlinkTime_fn)();
+static GetCaretBlinkTime_fn orig_GetCaretBlinkTime = nullptr; static UINT g_cbt = 0;
+static UINT WINAPI hooked_GetCaretBlinkTime() { if (!g_cbt) g_cbt = orig_GetCaretBlinkTime(); return g_cbt; }
+
+// #18: IsWindow
+typedef BOOL (WINAPI* IsWindow_fn)(HWND);
+static IsWindow_fn orig_IsWindow = nullptr; static HWND g_lastIW = NULL; static BOOL g_lastIWRes = TRUE;
+static BOOL WINAPI hooked_IsWindow(HWND h) { if (h == g_lastIW) return g_lastIWRes; g_lastIWRes = orig_IsWindow(h); g_lastIW = h; return g_lastIWRes; }
+
+// #19: GetDesktopWindow
+typedef HWND (WINAPI* GetDesktopWindow_fn)();
+static GetDesktopWindow_fn orig_GetDesktopWindow = nullptr; static HWND g_desktop = NULL;
+static HWND WINAPI hooked_GetDesktopWindow() { if (!g_desktop) g_desktop = orig_GetDesktopWindow(); return g_desktop; }
+
+// #20: GetFocus — 16ms cache
+typedef HWND (WINAPI* GetFocus_fn)();
+static GetFocus_fn orig_GetFocus = nullptr; static HWND g_lastFocus = NULL; static DWORD g_lastFocusTick = 0;
+static HWND WINAPI hooked_GetFocus() { DWORD now = GetTickCount(); if (now - g_lastFocusTick < 16) return g_lastFocus; g_lastFocus = orig_GetFocus(); g_lastFocusTick = now; return g_lastFocus; }
+
+static bool InstallBatchOpt20() {
+    int ok = 0;
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll"), hU32 = GetModuleHandleA("user32.dll");
+    void* p;
+    #define H(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    H(hK32, GetOEMCP, orig_GetOEMCP); H(hU32, GetDoubleClickTime, orig_GetDoubleClickTime);
+    H(hU32, GetCursorPos, orig_GetCursorPos); H(hU32, GetSysColor, orig_GetSysColor);
+    H(hU32, GetKeyboardLayout, orig_GetKeyboardLayout); H(hU32, GetKeyboardLayoutNameA, orig_GetKeyboardLayoutNameA);
+    H(hU32, GetCaretBlinkTime, orig_GetCaretBlinkTime); H(hU32, IsWindow, orig_IsWindow);
+    H(hU32, GetDesktopWindow, orig_GetDesktopWindow); H(hU32, GetFocus, orig_GetFocus);
+    #undef H
+    Log("Batch opt #11-20: %d/10 active", ok);
+    return ok > 0;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -4973,6 +5050,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool wfmoOk = false;    // DISABLED — return value mismatch
     bool rawAllocOk = false;  // DISABLED — unstable, needs mimalloc expertise
     bool batch10Ok = InstallBatchOpt10();
+    bool batch20Ok = InstallBatchOpt20();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5218,7 +5296,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
     Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
-    Log("  [%s] Batch 10 kernel caches",        batch10Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 10 kernel caches",        batch10Ok    ? " OK " : "SKIP");
+    Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
