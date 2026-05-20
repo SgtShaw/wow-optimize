@@ -4523,6 +4523,36 @@ static bool InstallWFMOFast() {
     return true;
 }
 
+// ================================================================
+// VA Arena — dynamic 256MB reserve during loading screens
+// ================================================================
+static void* g_loadingArena = nullptr;
+static SRWLOCK g_arenaLock = SRWLOCK_INIT;
+
+extern "C" void ReserveLoadingArena() {
+    AcquireSRWLockExclusive(&g_arenaLock);
+    if (g_loadingArena) { ReleaseSRWLockExclusive(&g_arenaLock); return; }
+
+    g_loadingArena = VirtualAlloc(nullptr, 256 * 1024 * 1024, MEM_RESERVE, PAGE_NOACCESS);
+    ReleaseSRWLockExclusive(&g_arenaLock);
+
+    if (g_loadingArena) {
+        Log("[VA-Arena] Reserved 256MB for loading screen model/texture allocation");
+    } else {
+        Log("[VA-Arena] Failed to reserve 256MB (VA fragmented — continuing)");
+    }
+}
+
+extern "C" void ReleaseLoadingArena() {
+    AcquireSRWLockExclusive(&g_arenaLock);
+    if (g_loadingArena) {
+        VirtualFree(g_loadingArena, 0, MEM_RELEASE);
+        g_loadingArena = nullptr;
+        Log("[VA-Arena] Released — VA space returned to process");
+    }
+    ReleaseSRWLockExclusive(&g_arenaLock);
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks

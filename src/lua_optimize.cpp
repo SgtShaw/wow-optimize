@@ -41,6 +41,11 @@
 #include "lua_vm_cache.h"
 #include "lua_bytecode_cache.h"
 #include "addon_preload.h"
+
+// VA Arena helpers (defined in dllmain.cpp)
+extern "C" void ReserveLoadingArena();
+extern "C" void ReleaseLoadingArena();
+
 #include "lua_internals.h"
 
 #include <cstdio>
@@ -857,6 +862,10 @@ static void ReadAddonStateFromLua(lua_State* L) {
         if (Config.isLoading && !wasLoading) {
             UICache::ClearCache();
             TryTrimForLoadingScreen(L);
+            ReserveLoadingArena();  // VA arena: claim 256MB for M2/WMO loading
+        }
+        if (!Config.isLoading && wasLoading) {
+            ReleaseLoadingArena(); // VA arena: return to gameplay
         }
 
         const char* currentMode = GetGCModeName();
