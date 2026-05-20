@@ -4672,7 +4672,7 @@ static void WINAPI hooked_GSTAFT(LPFILETIME lpFT) {
     if (!g_gstaftInit) {
         QueryPerformanceFrequency(&g_gstaftFreq);
         QueryPerformanceCounter(&g_gstaftBase);
-        GetSystemTimeAsFileTime(lpFT);
+        orig_GSTAFT(lpFT);  // Must call original, not hooked function!
         g_gstaftInit = true;
         return;
     }
