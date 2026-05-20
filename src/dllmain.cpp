@@ -4650,8 +4650,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool smCacheOk = InstallSysMetricsCache();
     bool noDebugOk = InstallNoDebuggerPresent();
     bool verCacheOk = InstallVerCache();
-    bool loadLibOk = InstallLoadLibFast();
-    bool wfmoOk = InstallWFMOFast();
+    bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
+    bool wfmoOk = false;    // DISABLED — return value mismatch
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
