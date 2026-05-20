@@ -4888,6 +4888,80 @@ static bool InstallBatchOpt20() {
     return ok > 0;
 }
 
+// ================================================================
+// Batch #21-30: more caches and fast paths
+// ================================================================
+
+// #21: GetTickCount64 — redirect to QPC (same as GetTickCount hook)
+typedef ULONGLONG (WINAPI* GetTickCount64_fn)();
+static GetTickCount64_fn orig_GetTickCount64 = nullptr;
+static ULONGLONG WINAPI hooked_GetTickCount64() {
+    LARGE_INTEGER qpc;
+    QueryPerformanceCounter(&qpc);
+    static LARGE_INTEGER freq;
+    static bool init = false;
+    if (!init) { QueryPerformanceFrequency(&freq); init = true; }
+    return (ULONGLONG)(qpc.QuadPart * 1000 / freq.QuadPart);
+}
+
+// #22: GetClientRect — cached per HWND (window size rarely changes)
+typedef BOOL (WINAPI* GetClientRect_fn)(HWND, LPRECT);
+static GetClientRect_fn orig_GetClientRect = nullptr;
+static HWND g_crHwnd = NULL; static RECT g_crCache = {};
+static BOOL WINAPI hooked_GetClientRect(HWND h, LPRECT r) {
+    if (h == g_crHwnd) { *r = g_crCache; return TRUE; }
+    BOOL res = orig_GetClientRect(h, r);
+    if (res) { g_crHwnd = h; g_crCache = *r; }
+    return res;
+}
+
+// #23: GetWindowRect — cached per HWND
+typedef BOOL (WINAPI* GetWindowRect_fn)(HWND, LPRECT);
+static GetWindowRect_fn orig_GetWindowRect = nullptr;
+static HWND g_wrHwnd = NULL; static RECT g_wrCache = {};
+static BOOL WINAPI hooked_GetWindowRect(HWND h, LPRECT r) {
+    if (h == g_wrHwnd) { *r = g_wrCache; return TRUE; }
+    BOOL res = orig_GetWindowRect(h, r);
+    if (res) { g_wrHwnd = h; g_wrCache = *r; }
+    return res;
+}
+
+// #24-25: REMOVED — GetDateFormatA/GetTimeFormatA pass-through (no speedup)
+// #26: SetCursorPos — no-op during gameplay (WoW manages cursor)
+typedef BOOL (WINAPI* SetCursorPos_fn)(int, int);
+static SetCursorPos_fn orig_SetCursorPos = nullptr;
+static BOOL WINAPI hooked_SetCursorPos(int x, int y) { return TRUE; }  // WoW handles cursor separately
+
+// #27: ShowCursor — cached (only changes on UI mode switch)
+typedef int (WINAPI* ShowCursor_fn)(BOOL);
+static ShowCursor_fn orig_ShowCursor = nullptr; static int g_showCount = -1;
+static int WINAPI hooked_ShowCursor(BOOL show) {
+    if (show) { if (g_showCount < 0) g_showCount = orig_ShowCursor(TRUE); g_showCount++; return g_showCount; }
+    else { if (g_showCount > 0) g_showCount--; return g_showCount; }
+}
+
+// #28-29: REMOVED — GetDC/ReleaseDC unsafe (prevents screen updates)
+// #30: ValidateRect — no-op (WoW uses D3D/OGL, not GDI)
+typedef BOOL (WINAPI* ValidateRect_fn)(HWND, const RECT*);
+static ValidateRect_fn orig_ValidateRect = nullptr;
+static BOOL WINAPI hooked_ValidateRect(HWND h, const RECT* r) { return TRUE; }
+
+static bool InstallBatchOpt30() {
+    int ok = 0;
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll"), hU32 = GetModuleHandleA("user32.dll");
+    void* p;
+    #define H31(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    H31(hK32, GetTickCount64, orig_GetTickCount64);
+    H31(hU32, GetClientRect, orig_GetClientRect);
+    H31(hU32, GetWindowRect, orig_GetWindowRect);
+    H31(hU32, SetCursorPos, orig_SetCursorPos);
+    H31(hU32, ShowCursor, orig_ShowCursor);
+    H31(hU32, ValidateRect, orig_ValidateRect);
+    #undef H31
+    Log("Batch opt #21-26: %d/6 active", ok);
+    return ok > 0;
+}
+
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -5020,6 +5094,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool rawAllocOk = false;  // DISABLED — unstable, needs mimalloc expertise
     bool batch10Ok = InstallBatchOpt10();
     bool batch20Ok = InstallBatchOpt20();
+    bool batch30Ok = InstallBatchOpt30();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5266,7 +5341,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
+    Log("  [%s] Batch 26 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
