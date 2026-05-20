@@ -4927,10 +4927,7 @@ static BOOL WINAPI hooked_GetWindowRect(HWND h, LPRECT r) {
 }
 
 // #24-25: REMOVED — GetDateFormatA/GetTimeFormatA pass-through (no speedup)
-// #26: SetCursorPos — no-op during gameplay (WoW manages cursor)
-typedef BOOL (WINAPI* SetCursorPos_fn)(int, int);
-static SetCursorPos_fn orig_SetCursorPos = nullptr;
-static BOOL WINAPI hooked_SetCursorPos(int x, int y) { return TRUE; }  // WoW handles cursor separately
+// #26: SetCursorPos REMOVED — no-op breaks mouselook (cursor must move)
 
 // #27: ShowCursor — cached (only changes on UI mode switch)
 typedef int (WINAPI* ShowCursor_fn)(BOOL);
@@ -4954,11 +4951,10 @@ static bool InstallBatchOpt30() {
     H31(hK32, GetTickCount64, orig_GetTickCount64);
     H31(hU32, GetClientRect, orig_GetClientRect);
     H31(hU32, GetWindowRect, orig_GetWindowRect);
-    H31(hU32, SetCursorPos, orig_SetCursorPos);
     H31(hU32, ShowCursor, orig_ShowCursor);
     H31(hU32, ValidateRect, orig_ValidateRect);
     #undef H31
-    Log("Batch opt #21-26: %d/6 active", ok);
+    Log("Batch opt #21-25: %d/5 active", ok);
     return ok > 0;
 }
 
