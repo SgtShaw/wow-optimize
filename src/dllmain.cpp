@@ -4849,10 +4849,7 @@ static int WINAPI hooked_ShowCursor(BOOL show) {
 }
 
 // #28-29: REMOVED — GetDC/ReleaseDC unsafe (prevents screen updates)
-// #30: ValidateRect — no-op (WoW uses D3D/OGL, not GDI)
-typedef BOOL (WINAPI* ValidateRect_fn)(HWND, const RECT*);
-static ValidateRect_fn orig_ValidateRect = nullptr;
-static BOOL WINAPI hooked_ValidateRect(HWND h, const RECT* r) { return TRUE; }
+// #30: ValidateRect REMOVED — no-op prevents UI repaints, freezes on friend list open
 
 static bool InstallBatchOpt30() {
     int ok = 0;
@@ -4863,9 +4860,9 @@ static bool InstallBatchOpt30() {
     H31(hU32, GetClientRect, orig_GetClientRect);
     H31(hU32, GetWindowRect, orig_GetWindowRect);
     H31(hU32, ShowCursor, orig_ShowCursor);
-    H31(hU32, ValidateRect, orig_ValidateRect);
+    // H31(hU32, ValidateRect, orig_ValidateRect); // REMOVED — prevents UI repaint, freezes on friend list
     #undef H31
-    Log("Batch opt #21-25: %d/5 active", ok);
+    Log("Batch opt #21-24: %d/4 active", ok);
     return ok > 0;
 }
 
@@ -5244,7 +5241,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 24 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
