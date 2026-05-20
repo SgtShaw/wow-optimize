@@ -5338,7 +5338,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 26 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
