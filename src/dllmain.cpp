@@ -113,7 +113,7 @@
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen — DISABLED: SSE2 page-boundary crash (0x5D917D10)
 #define CRASH_TEST_DISABLE_RTTI_CACHE           0   // sub_4D4DB0 object type check cache (1905 callers)
-#define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 stream buffer r/w fast path (2662 callers)
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 — DISABLED: heap corruption, ERROR #132 at 0x7745A1C6
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
