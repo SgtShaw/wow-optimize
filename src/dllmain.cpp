@@ -112,7 +112,7 @@
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen — DISABLED: SSE2 page-boundary crash (0x5D917D10)
-#define CRASH_TEST_DISABLE_RTTI_CACHE           0   // sub_4D4DB0 object type check cache (1905 callers)
+#define CRASH_TEST_DISABLE_RTTI_CACHE           1   // sub_4D4DB0 object type check cache (1905 callers)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 — DISABLED: heap corruption, ERROR #132 at 0x7745A1C6
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
@@ -332,6 +332,9 @@ long g_crtStrcmpHits = 0, g_crtStrcmpFallbacks = 0;
 long g_crtMemcmpHits = 0, g_crtMemcmpFallbacks = 0;
 long g_crtMemcpyHits = 0, g_crtMemcpyFallbacks = 0;
 long g_crtMemsetHits = 0, g_crtMemsetFallbacks = 0;
+volatile LONG64 g_memchrHits = 0, g_memchrFallbacks = 0;
+volatile LONG64 g_strchrHits = 0, g_strchrFallbacks = 0;
+volatile LONG64 g_strcpyHits = 0, g_strcpyFallbacks = 0;
 static uint64_t g_tableReshapeHits = 0;
 static uint64_t g_getstrHits = 0, g_getstrFallbacks = 0;
 static uint64_t g_combatLogCacheHits = 0, g_combatLogCacheMisses = 0;
@@ -3047,6 +3050,18 @@ static void DumpPeriodicStats() {
         Log("[Stats] CRT memset: %ld fast, %ld fallback (%.1f%%)",
             g_crtMemsetHits, g_crtMemsetFallbacks,
            (double)g_crtMemsetHits / (g_crtMemsetHits + g_crtMemsetFallbacks) * 100.0);
+    if (g_memchrHits + g_memchrFallbacks > 0)
+        Log("[Stats] CRT memchr: %lld fast, %lld fallback (%.1f%%)",
+            g_memchrHits, g_memchrFallbacks,
+           (double)g_memchrHits / (g_memchrHits + g_memchrFallbacks) * 100.0);
+    if (g_strchrHits + g_strchrFallbacks > 0)
+        Log("[Stats] CRT strchr: %lld fast, %lld fallback (%.1f%%)",
+            g_strchrHits, g_strchrFallbacks,
+           (double)g_strchrHits / (g_strchrHits + g_strchrFallbacks) * 100.0);
+    if (g_strcpyHits + g_strcpyFallbacks > 0)
+        Log("[Stats] CRT strcpy: %lld fast, %lld fallback (%.1f%%)",
+            g_strcpyHits, g_strcpyFallbacks,
+           (double)g_strcpyHits / (g_strcpyHits + g_strcpyFallbacks) * 100.0);
 
     // Frame Throttle stats
     {

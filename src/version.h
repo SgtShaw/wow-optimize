@@ -165,7 +165,7 @@
 
 // CRT memchr + strchr SSE2 — 16-byte SIMD byte scan
 // DISABLED: same page-boundary bug as CRT_MEM_FASTPATHS (v3.6.0)
-#define TEST_DISABLE_CRT_CHAR_SSE2       1
+#define TEST_DISABLE_CRT_CHAR_SSE2       0
 
 // CRT pow() integer fast-path — x^2=x*x, sqrt, etc.
 #define TEST_DISABLE_CRT_POW_SSE2        0
