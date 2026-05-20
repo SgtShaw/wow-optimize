@@ -96,9 +96,10 @@
 #define TEST_DISABLE_MBWC               0
 
 // CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths —
-// DISABLED: SSE2 16-byte reads cross page boundaries on mimalloc heap,
-// causing bank/AH crash (0x5A5B7D00) + loading screen stale-pointer AV (0x84E68D)
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
+// Page-boundary guards added (v3.6.2): checks ((ptr & 0xFFF) > 0xFF0)
+// within 16 bytes of page end, falls back to original. Avoids SSE2
+// 16-byte reads crossing into unmapped mimalloc pages.
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0   // ENABLED — page boundary guards added to strlen/strcmp/memcpy/memset
 
 // Deferred unit field update queue — disabled: UI/texture
 // flickering due to immediate-mode rendering mismatch (v3.5.x)

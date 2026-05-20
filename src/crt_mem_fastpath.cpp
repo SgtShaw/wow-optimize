@@ -47,6 +47,9 @@ static memset_fn  orig_memset  = nullptr;
 static size_t __cdecl hooked_strlen(const char* s) {
     CRT_ENTER();
     if (!s) { CRT_LEAVE(); goto fallback; }
+    // Page-boundary guard: if within 16 bytes of 4KB boundary,
+    // SSE2 16-byte load would cross into unmapped page → fallback
+    if (((uintptr_t)s & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t len = 0;
@@ -75,6 +78,8 @@ fallback:
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     CRT_ENTER();
     if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
+    if (((uintptr_t)s1 & 0xFFF) > 0xFF0 || ((uintptr_t)s2 & 0xFFF) > 0xFF0)
+        { CRT_LEAVE(); goto fallback; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
@@ -147,6 +152,9 @@ fallback:
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     CRT_ENTER();
     if (!dst || !src || n == 0) { CRT_LEAVE(); goto fallback; }
+    // Page-boundary guard: SSE2 16-byte stores/loads near page end
+    if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0)
+        { CRT_LEAVE(); goto fallback; }
     __try {
         if (src < dst && (const char*)src + n > (char*)dst) { CRT_LEAVE(); goto fallback; }
 
@@ -175,6 +183,7 @@ fallback:
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     CRT_ENTER();
     if (!dst || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (((uintptr_t)dst & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
     __try {
         __m128i val = _mm_set1_epi8((char)c);
         __m128i* d = (__m128i*)dst;
