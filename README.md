@@ -184,6 +184,34 @@ These experimental features were tested and found to provide no measurable benef
 
 ---
 
+## v3.6.2 Changelog
+
+**23 kernel-call caches** — GetSystemTimeAsFileTime (QPC-based), GetACP, GetUserDefaultLangID, GetProcessHeap, CharUpperA/LowerA (inline ASCII), MapVirtualKeyA, GetThreadPriority, GetOEMCP, GetDoubleClickTime, GetCursorPos (16ms budget), GetSysColor, GetKeyboardLayout, GetKeyboardLayoutNameA, GetCaretBlinkTime, IsWindow, GetDesktopWindow, GetFocus (16ms budget), GetTickCount64 (QPC), GetClientRect, GetWindowRect, ShowCursor, ValidateRect.
+
+**Swap/Present glFinish skip** — re-enabled for DXVK/D3D9. Saves 0.5-2ms per frame by skipping synchronous GPU flush when the graphics API already handles presentation sync.
+
+**CriticalSection 3-stage spin** — 8000 spin count + exponential backoff retry. Fewer kernel transitions for short-held locks (StormLib file reads, LMEM pool ops).
+
+**mimalloc 23 size-class pre-warming** — zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
+
+**TValue memcpy 16-byte inline** + **memcmp 4/8-byte inline** — Lua VM copies and string compares.
+
+**MPQ folder detection** — patch-Sunlight.MPQ style unpacked patches, files inside .MPQ directories, Interface virtual MPQ archive. Includes trailing backslash fix.
+
+**GetFileAttributesA cache** expanded 256→4096 slots.
+
+**Dynamic VA arena** — 256MB reserved during loading screens for M2/WMO contiguous allocations, released after.
+
+**Addon file OS cache pre-warmer** — .lua + .toc + .xml files pre-read into OS cache at startup (128MB max).
+
+**mimalloc purge_delay=-1** — no stale-pointer crashes on /reload or logout.
+
+**Asset path cache** — sub_819D40 hooked (643 callers), 92.9% hit rate in testing. Disabled in release due to mimalloc stale-pointer edge cases on teardown.
+
+**Frame time stat** — periodic stats now show frame timing for addon overhead diagnosis.
+
+---
+
 ## What Improves In Practice
 
 ### You will notice

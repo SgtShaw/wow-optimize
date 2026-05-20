@@ -4568,107 +4568,6 @@ extern "C" void ReleaseLoadingArena() {
 }
 
 // ================================================================
-// LMEM raw allocator replacement — direct mimalloc
-// ================================================================
-// sub_76E540: WoW malloc wrapper: align to 8 + CRT malloc + _msize
-// sub_76E5E0: WoW realloc wrapper: align + CRT realloc + _msize + zero-fill
-// sub_76E5A0: WoW free wrapper: _msize + CRT free
-// All 3 already go CRT→mimalloc but wrappers cost ~30 cycles each.
-// Direct mimalloc skips _msize (walks segment metadata — expensive).
-
-typedef void* (__stdcall* WoWMalloc_fn)(int size, int file, DWORD line, char flags);
-typedef char* (__stdcall* WoWRealloc_fn)(char* ptr, unsigned int newSize, int file, DWORD line, int flags);
-typedef int   (__stdcall* WoWFree_fn)(void* ptr, int file, int line, int flags);
-
-static WoWMalloc_fn  orig_WoWMalloc  = nullptr;
-static WoWRealloc_fn orig_WoWRealloc = nullptr;
-static WoWFree_fn    orig_WoWFree    = nullptr;
-static long g_rawMallocHits = 0;
-
-static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
-    size_t aligned = ((size_t)size + 7) & ~7u;
-    if (aligned == 0) aligned = 8;
-    // Use CRT malloc/calloc (already hooked → mimalloc) — keeps CRT wrapper safety
-    void* p = (flags & 8) ? calloc(1, aligned) : malloc(aligned);
-    if (p) InterlockedIncrement(&g_rawMallocHits);
-    return p;
-}
-
-static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
-    size_t aligned = ((size_t)newSize + 7) & ~7u;
-    if (aligned == 0) { if (ptr) free(ptr); return nullptr; }
-    size_t oldSize = ptr ? _msize(ptr) : 0;
-    char* p = (char*)realloc(ptr, aligned);
-    if (p && (flags & 8) && oldSize < aligned)
-        memset(p + oldSize, 0, aligned - oldSize);
-    return p;
-}
-
-static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
-    if (ptr) free(ptr);
-    return 1;
-}
-
-extern WoWMalloc_fn  g_passOrigMalloc;
-extern WoWRealloc_fn g_passOrigRealloc;
-extern WoWFree_fn    g_passOrigFree;
-extern void* __stdcall PassThroughMalloc(int, int, DWORD, char);
-extern char* __stdcall PassThroughRealloc(char*, unsigned int, int, DWORD, int);
-extern int   __stdcall PassThroughFree(void*, int, int, int);
-
-static bool InstallRawAllocReplacement() {
-    void* pMalloc  = (void*)0x0076E540;
-    void* pRealloc = (void*)0x0076E5E0;
-    void* pFree    = (void*)0x0076E5A0;
-
-    if (MH_CreateHook(pMalloc,  (void*)hooked_WoWMalloc,  (void**)&orig_WoWMalloc)  != MH_OK) return false;
-    if (MH_CreateHook(pRealloc, (void*)hooked_WoWRealloc, (void**)&orig_WoWRealloc) != MH_OK) return false;
-    if (MH_CreateHook(pFree,    (void*)hooked_WoWFree,    (void**)&orig_WoWFree)    != MH_OK) return false;
-
-    if (MH_EnableHook(pMalloc)  != MH_OK) return false;
-    if (MH_EnableHook(pRealloc) != MH_OK) return false;
-    if (MH_EnableHook(pFree)    != MH_OK) return false;
-
-    Log("Raw allocator: ACTIVE (direct mimalloc, skip _msize+alignment)");
-    return true;
-}
-
-// ================================================================
-// Raw allocator pass-through (test phase — verifies hook stability)
-// ================================================================
-static WoWMalloc_fn  g_passOrigMalloc  = nullptr;
-static WoWRealloc_fn g_passOrigRealloc = nullptr;
-static WoWFree_fn    g_passOrigFree    = nullptr;
-
-static void* __stdcall PassThroughMalloc(int size, int file, DWORD line, char flags) {
-    InterlockedIncrement(&g_rawMallocHits);
-    return g_passOrigMalloc(size, file, line, flags);
-}
-static char* __stdcall PassThroughRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
-    return g_passOrigRealloc(ptr, newSize, file, line, flags);
-}
-static int   __stdcall PassThroughFree(void* ptr, int file, int line, int flags) {
-    return g_passOrigFree(ptr, file, line, flags);
-}
-
-static bool InstallRawAllocTest() {
-    void* pMalloc  = (void*)0x0076E540;
-    void* pRealloc = (void*)0x0076E5E0;
-    void* pFree    = (void*)0x0076E5A0;
-
-    if (MH_CreateHook(pMalloc,  (void*)PassThroughMalloc,  (void**)&g_passOrigMalloc)  != MH_OK) return false;
-    if (MH_CreateHook(pRealloc, (void*)PassThroughRealloc, (void**)&g_passOrigRealloc) != MH_OK) return false;
-    if (MH_CreateHook(pFree,    (void*)PassThroughFree,    (void**)&g_passOrigFree)    != MH_OK) return false;
-
-    if (MH_EnableHook(pMalloc)  != MH_OK) return false;
-    if (MH_EnableHook(pRealloc) != MH_OK) return false;
-    if (MH_EnableHook(pFree)    != MH_OK) return false;
-
-    Log("Raw allocator: PASS-THROUGH (calls original, verifying hook stability)");
-    return true;
-}
-
-// ================================================================
 // Batch optimizations: kernel caches and fast paths
 // ================================================================
 
@@ -4971,28 +4870,6 @@ static bool InstallBatchOpt30() {
 }
 
 // ================================================================
-// Force timingMethod=0 (RDTSC) — hook timing test to always pass
-// sub_86AD50 returns (*(DWORD*)(dword_D4159C + 3)) — timing error code.
-// Hooking to return 0 makes WoW think TSC is always synced.
-// Benefits: highest precision timer on modern hardware, no QPC fallback.
-// ================================================================
-typedef int (__cdecl* TimingTest_fn)();
-static TimingTest_fn orig_TimingTest = nullptr;
-
-static int __cdecl hooked_TimingTest() {
-    return 0;  // Always pass — RDTSC is invariant on modern CPUs (last 10+ years)
-}
-
-static bool InstallTimingTestMethodFix() {
-    void* target = (void*)0x0086AD50;
-    if (MH_CreateHook(target, (void*)hooked_TimingTest, (void**)&orig_TimingTest) != MH_OK)
-        return false;
-    if (MH_EnableHook(target) != MH_OK)
-        return false;
-    Log("Timing method fix: ACTIVE (force timingMethod=0, RDTSC always passes)");
-    return true;
-}
-
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -5120,13 +4997,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool smCacheOk = InstallSysMetricsCache();
     bool noDebugOk = InstallNoDebuggerPresent();
     bool verCacheOk = InstallVerCache();
-    bool loadLibOk = false; // DISABLED — may cause loader lock deadlock
-    bool wfmoOk = false;    // DISABLED — return value mismatch
-    bool rawAllocOk = false;  // DISABLED — unstable, needs mimalloc expertise
     bool batch10Ok = InstallBatchOpt10();
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
-    bool timingFixOk = false;  // DISABLED — silent close, may break RDTSC calibration
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5369,13 +5242,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] GetVersionExA cache",            verCacheOk   ? " OK " : "SKIP");
     Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
     Log("  [%s] memcmp fast path",               memcmpOk     ? " OK " : "SKIP");
-    Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
-    Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
-    Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");
-    Log("  [%s] Timing method fix (RDTSC)",     timingFixOk  ? " OK " : "SKIP");    
+    Log("  [%s] Batch 25 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
