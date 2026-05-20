@@ -4466,13 +4466,7 @@ static int __cdecl hooked_Memcmp_Fast(const void* a, const void* b, size_t n) {
         InterlockedIncrement(&g_memcmpFast);
         return (va > vb) - (va < vb);
     }
-    if (n == 16) {
-        const uint64_t* pa = (const uint64_t*)a, *pb = (const uint64_t*)b;
-        if (pa[0] != pb[0]) { InterlockedIncrement(&g_memcmpFast); return pa[0] < pb[0] ? -1 : 1; }
-        if (pa[1] != pb[1]) { InterlockedIncrement(&g_memcmpFast); return pa[1] < pb[1] ? -1 : 1; }
-        InterlockedIncrement(&g_memcmpFast);
-        return 0;
-    }
+    // 16-byte removed — crosses page boundaries (same bug as CRT fast paths)
     return orig_Memcmp(a, b, n);
 }
 
@@ -4483,7 +4477,7 @@ static bool InstallMemcmpFast() {
     void* p = (void*)GetProcAddress(hCRT, "memcmp");
     if (!p || MH_CreateHook(p, (void*)hooked_Memcmp_Fast, (void**)&orig_Memcmp) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
-    Log("memcmp fast path: ACTIVE (4/8/16-byte inline)");
+    Log("memcmp fast path: ACTIVE (4/8-byte inline)");
     return true;
 }
 
