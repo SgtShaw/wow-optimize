@@ -4576,32 +4576,33 @@ static long g_rawMallocHits = 0;
 static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
     size_t aligned = ((size_t)size + 7) & ~7u;
     if (aligned == 0) aligned = 8;
-    void* p = (flags & 8) ? mi_calloc(1, aligned) : mi_malloc(aligned);
-    if (p) { InterlockedIncrement(&g_rawMallocHits); return p; }
-    // Fallback to original (handles error logging + recovery)
-    return orig_WoWMalloc ? orig_WoWMalloc(size, file, line, flags) : p;
+    // Use CRT malloc/calloc (already hooked → mimalloc) — keeps CRT wrapper safety
+    void* p = (flags & 8) ? calloc(1, aligned) : malloc(aligned);
+    if (p) InterlockedIncrement(&g_rawMallocHits);
+    return p;
 }
 
 static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
     size_t aligned = ((size_t)newSize + 7) & ~7u;
-    if (aligned == 0) {
-        if (ptr) mi_free(ptr);
-        return nullptr;
-    }
+    if (aligned == 0) { if (ptr) free(ptr); return nullptr; }
     size_t oldSize = ptr ? _msize(ptr) : 0;
-    char* p = (char*)mi_realloc(ptr, aligned);
-    if (p) {
-        if ((flags & 8) && oldSize < aligned)
-            memset(p + oldSize, 0, aligned - oldSize);
-        return p;
-    }
-    return orig_WoWRealloc ? orig_WoWRealloc(ptr, newSize, file, line, flags) : p;
+    char* p = (char*)realloc(ptr, aligned);
+    if (p && (flags & 8) && oldSize < aligned)
+        memset(p + oldSize, 0, aligned - oldSize);
+    return p;
 }
 
 static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
-    if (ptr) mi_free(ptr);
+    if (ptr) free(ptr);
     return 1;
 }
+
+extern WoWMalloc_fn  g_passOrigMalloc;
+extern WoWRealloc_fn g_passOrigRealloc;
+extern WoWFree_fn    g_passOrigFree;
+extern void* __stdcall PassThroughMalloc(int, int, DWORD, char);
+extern char* __stdcall PassThroughRealloc(char*, unsigned int, int, DWORD, int);
+extern int   __stdcall PassThroughFree(void*, int, int, int);
 
 static bool InstallRawAllocReplacement() {
     void* pMalloc  = (void*)0x0076E540;
