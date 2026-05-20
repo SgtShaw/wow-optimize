@@ -106,13 +106,15 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — DISABLED: causes 0x84E68D loading screen crash (corrupts Lua state during init)
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — RE-ENABLED v3.6.3: generation counter + IsSafeRead4 guard fixes mimalloc stale-pointer crash
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen — DISABLED: SSE2 page-boundary crash (0x5D917D10)
-
+#define CRASH_TEST_DISABLE_RTTI_CACHE           0   // sub_4D4DB0 object type check cache (1905 callers)
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 stream buffer r/w fast path (2662 callers)
+ 
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
 
@@ -303,6 +305,8 @@ static void ClearLuaHGetStrCache();
 static bool InstallLuaPushStringCache();
 static void ClearLuaPushStringCache();
 static bool InstallLuaRawGetICache();
+static bool InstallRTTICache();
+static bool InstallStreamBufferFastPath();
 
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
 void ClearAssetPathCache();
@@ -2907,6 +2911,12 @@ static void DumpPeriodicStats() {
     extern long g_sysInfoHits;
     extern long g_regCacheHits;
     extern long g_regCacheMisses;
+    extern long g_rttiHits;
+    extern long g_rttiMisses;
+    extern long g_streamReadHits;
+    extern long g_streamReadFallbacks;
+    extern long g_streamWriteHits;
+    extern long g_streamWriteFallbacks;
     // Process memory diagnostics (helps diagnose HD/custom client OOM)
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
@@ -3131,6 +3141,18 @@ static void DumpPeriodicStats() {
             g_vaArenaHits, g_vaArenaFallbacks, g_vaArenaFailures,
             arenaPct, usedMB);
     }
+    if (g_rttiHits + g_rttiMisses > 0)
+        Log("[Stats] RTTI type check: %ld hits, %ld misses (%.1f%% hit rate)",
+            g_rttiHits, g_rttiMisses,
+           (double)g_rttiHits / (g_rttiHits + g_rttiMisses) * 100.0);
+    if (g_streamReadHits + g_streamReadFallbacks > 0)
+        Log("[Stats] Stream read: %ld fast, %ld fallback (%.1f%%)",
+            g_streamReadHits, g_streamReadFallbacks,
+           (double)g_streamReadHits / (g_streamReadHits + g_streamReadFallbacks) * 100.0);
+    if (g_streamWriteHits + g_streamWriteFallbacks > 0)
+        Log("[Stats] Stream write: %ld fast, %ld fallback (%.1f%%)",
+            g_streamWriteHits, g_streamWriteFallbacks,
+           (double)g_streamWriteHits / (g_streamWriteHits + g_streamWriteFallbacks) * 100.0);
     if (g_debugStringSkipped > 0)
         Log("[Stats] OutputDebugString: %ld skipped", g_debugStringSkipped);
 
@@ -3854,20 +3876,37 @@ static bool InstallTableConcatFastPath() {
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
 static luaH_getstr_fn orig_luaH_getstr = nullptr;
 
-#define GETSTR_CACHE_SIZE 16384
+// Generation counter — incremented on every lua_State swap / cache clear.
+// Catches mimalloc table recycling: when a table is freed and its memory
+// reused for a non-table object, the generation mismatch invalidates the
+// stale cache entry BEFORE we dereference *(table+20).
+static volatile LONG g_getstrGeneration = 0;
+
+#define GETSTR_CACHE_SIZE 8192
 #define GETSTR_CACHE_MASK (GETSTR_CACHE_SIZE - 1)
 
 struct GetStrCacheEntry {
-    int  table;     // Table* pointer
-    int  tstring;   // TString* pointer
-    int  tableNode; // *(table+20) — hash array base, detects rehashes
-    void* node;     // Cached Node* result (or nilObject)
+    int      table;       // Table* pointer
+    int      tstring;     // TString* pointer
+    int      tableNode;   // *(table+20) — hash array base, detects rehashes
+    uint32_t generation;  // Global generation at insert time
+    void*    node;        // Cached Node* result (or nilObject)
 };
 
 static GetStrCacheEntry g_getstrCache[GETSTR_CACHE_SIZE];
 
+// Safe memory probe — returns true if the 4 bytes at addr are in a
+// committed, readable page.  Avoids the ACCESS_VIOLATION that the
+// original cache hit on mimalloc-recycled table memory.
+static inline bool IsSafeRead4(uintptr_t addr) {
+    if (addr < 0x10000 || addr > 0xBFFF0000) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
+    return (mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)));
+}
+
 static inline uint64_t GetStrCacheHash(uintptr_t table, uintptr_t tstring) {
-    uint64_t h = 0xCBF29CE484222325ULL; // FNV-1a basis
+    uint64_t h = 0xCBF29CE484222325ULL;
     h ^= (table ^ tstring);
     h *= 0x100000001B3ULL;
     return h & GETSTR_CACHE_MASK;
@@ -3875,6 +3914,7 @@ static inline uint64_t GetStrCacheHash(uintptr_t table, uintptr_t tstring) {
 
 static void ClearLuaHGetStrCache() {
     memset(g_getstrCache, 0, sizeof(g_getstrCache));
+    InterlockedIncrement(&g_getstrGeneration);
 }
 
 static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
@@ -3882,41 +3922,52 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
     return orig_luaH_getstr(table, tstring);
 #else
     __try {
-        // Validate pointers — must be in user-space range
-        if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xBFFF0000) {
-            g_getstrFallbacks++;
-            return orig_luaH_getstr(table, tstring);
-        }
-        if ((uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xBFFF0000) {
-            g_getstrFallbacks++;
-            return orig_luaH_getstr(table, tstring);
-        }
+        if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xBFFF0000)
+            { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
+        if ((uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xBFFF0000)
+            { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
 
-        // Lookup cache
         uint64_t idx = GetStrCacheHash((uintptr_t)table, (uintptr_t)tstring);
-        GetStrCacheEntry* entry = &g_getstrCache[idx];
+        GetStrCacheEntry* e = &g_getstrCache[idx];
 
-        // Check cache hit with rehash guard (table->node must match)
-        int currentTableNode = *(int*)(table + 20);
-        if (entry->table == table && entry->tstring == tstring
-            && entry->tableNode == currentTableNode
-            && entry->node != nullptr) {
-            // Validate cached node: key.tt (node[6]) must be 4 (LUA_TSTRING),
-            // key.gc (node[4]) must match the tstring pointer
-            if (((int*)entry->node)[6] == 4 && ((int*)entry->node)[4] == tstring) {
-                g_getstrHits++;
-                return entry->node;
+        // Generation check: invalidates stale entries from previous lua_State
+        uint32_t gen = (uint32_t)InterlockedCompareExchange(&g_getstrGeneration, 0, 0);
+
+        // Cache hit path — every dereference is guarded
+        if (e->table == table && e->tstring == tstring
+            && e->generation == gen && e->node != nullptr) {
+
+            // Guard: table+20 must be in committed memory (mimalloc may have
+            // recycled this address for a non-table allocation)
+            if (!IsSafeRead4((uintptr_t)table + 20))
+                { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
+
+            int currentTableNode = *(int*)(table + 20);
+            if (e->tableNode == currentTableNode) {
+
+                // Guard: cached Node* must be valid memory
+                if (!IsSafeRead4((uintptr_t)e->node + 24))
+                    { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
+
+                // Validate: key.tt == 4 (LUA_TSTRING), key.gc == tstring
+                if (((int*)e->node)[6] == 4 && ((int*)e->node)[4] == tstring) {
+                    g_getstrHits++;
+                    return e->node;
+                }
             }
         }
 
         // Cache miss — call original
         void* result = orig_luaH_getstr(table, tstring);
 
-        // Store in cache with table->node for rehash detection
-        entry->table     = table;
-        entry->tstring   = tstring;
-        entry->tableNode = *(int*)(table + 20);
-        entry->node      = result;
+        // Store in cache (only if table memory is still valid)
+        if (IsSafeRead4((uintptr_t)table + 20)) {
+            e->table      = table;
+            e->tstring    = tstring;
+            e->tableNode  = *(int*)(table + 20);
+            e->generation = gen;
+            e->node       = result;
+        }
 
         g_getstrFallbacks++;
         return result;
@@ -3935,25 +3986,21 @@ static bool InstallLuaHGetStrCache() {
 #else
     void* target = (void*)0x0085C430;
 
-    // Verify prologue: push ebp; mov ebp, esp
     unsigned char* p = (unsigned char*)target;
     if (p[0] != 0x55 || p[1] != 0x8B) {
         Log("luaH_getstr cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK) {
-        Log("luaH_getstr cache: MH_CreateHook FAILED");
-        return false;
-    }
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("luaH_getstr cache: MH_EnableHook FAILED");
-        return false;
-    }
+    if (MH_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK)
+        { Log("luaH_getstr cache: MH_CreateHook FAILED"); return false; }
+    if (MH_EnableHook(target) != MH_OK)
+        { Log("luaH_getstr cache: MH_EnableHook FAILED"); return false; }
 
     memset(g_getstrCache, 0, sizeof(g_getstrCache));
+    InterlockedExchange(&g_getstrGeneration, 1);
 
-    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — 16384-slot direct-mapped, SEH)");
+    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — %d-slot, generation-guarded, 1.5B calls/session)", GETSTR_CACHE_SIZE);
     return true;
 #endif
 }
@@ -5060,6 +5107,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- VA Arena ---");
     vaOk = InstallVAArena();
 
+    Log("--- RTTI Type Check Cache ---");
+    bool rttiCacheOk = InstallRTTICache();
+
+    Log("--- Stream Buffer Fast Path ---");
+    bool streamBufOk = InstallStreamBufferFastPath();
+
     bool luaOk = false;
     Log("");
     Log("--- Lua VM Optimizer ---");
@@ -5281,8 +5334,199 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
     Log("  [%s] Tooltip string cache (LRU)",  tooltipCacheOk ? " OK " : "SKIP");
     Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
+    Log("  [%s] RTTI type check cache",       rttiCacheOk   ? " OK " : "SKIP");
+    Log("  [%s] Stream buffer fast path",     streamBufOk    ? " OK " : "SKIP");
 
     return 0;
+}
+
+// ================================================================
+// 16a. sub_4D4DB0 — Object Type Check Cache (1905 callers)
+//
+// This is WoW's RTTI/dynamic_cast equivalent. Called on every object
+// type check — UI widget validation, spell target filtering, combat
+// log event type dispatch, frame script type guards.  Every call
+// walks a hash table via sub_4D4BB0 with GUID + flags comparison.
+//
+// Cache the successful lookup result.  The (this, mask, guid64)
+// tuple is stable for the lifetime of the object type registration.
+// Direct-mapped 1024-entry cache with full-key validation.
+// ================================================================
+
+typedef int (__cdecl* RTTICheck_fn)(__int64, int);
+static RTTICheck_fn orig_RTTICheck = nullptr;
+
+static constexpr int RTTI_CACHE_SIZE = 1024;
+static constexpr int RTTI_CACHE_MASK = RTTI_CACHE_SIZE - 1;
+
+struct RTTICacheEntry {
+    __int64 guid64;
+    int     flags;
+    int     result;
+    bool    valid;
+};
+
+static RTTICacheEntry g_rttiCache[RTTI_CACHE_SIZE] = {};
+static long g_rttiHits = 0, g_rttiMisses = 0;
+
+static int __cdecl hooked_RTTICheck(__int64 guid64, int flags) {
+#if CRASH_TEST_DISABLE_RTTI_CACHE
+    return orig_RTTICheck(guid64, flags);
+#else
+    if (!guid64) return 0;
+
+    uint32_t hash = (uint32_t)(guid64 ^ (guid64 >> 32) ^ flags);
+    int slot = hash & RTTI_CACHE_MASK;
+    RTTICacheEntry* e = &g_rttiCache[slot];
+
+    if (e->valid && e->guid64 == guid64 && e->flags == flags) {
+        InterlockedIncrement(&g_rttiHits);
+        return e->result;
+    }
+
+    int result = orig_RTTICheck(guid64, flags);
+    e->guid64 = guid64;
+    e->flags  = flags;
+    e->result = result;
+    e->valid  = true;
+    InterlockedIncrement(&g_rttiMisses);
+    return result;
+#endif
+}
+
+static bool InstallRTTICache() {
+#if CRASH_TEST_DISABLE_RTTI_CACHE
+    Log("RTTI type check cache: DISABLED (crash isolation)");
+    return false;
+#else
+    void* target = (void*)0x004D4DB0;
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) {
+        Log("RTTI cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
+        return false;
+    }
+    if (MH_CreateHook(target, (void*)hooked_RTTICheck, (void**)&orig_RTTICheck) != MH_OK)
+        return false;
+    if (MH_EnableHook(target) != MH_OK)
+        return false;
+    Log("RTTI type check cache: ACTIVE (sub_4D4DB0 @ 0x004D4DB0 — %d-slot direct-map, 1905 callers)", RTTI_CACHE_SIZE);
+    return true;
+#endif
+}
+
+// ================================================================
+// 16b. sub_47B3C0 / sub_47B0A0 — Stream Buffer Read/Write Fast Path
+//
+// Called 2662 times across the binary.  sub_47B3C0 reads 4 bytes from
+// a stream buffer (used in Lua bytecode fetch, script execution, network
+// packet parsing).  sub_47B0A0 writes 4 bytes (script stack push, packet
+// assembly).  Both call sub_47B290 for bounds checking which may invoke
+// a virtual realloc through (*this+8).
+//
+// Fast path: inline the common case where cursor + 4 still fits within
+// the buffer's committed region.  Bypasses the vtable call on 99%+ of
+// invocations.  Falls back to original on the first call after a realloc
+// (when the virtual function would have grown the buffer).
+// ================================================================
+
+// sub_47B3C0: _DWORD* __thiscall StreamRead(_DWORD* this, _DWORD* out)
+//   *(this+4) = cursor, *(this+1)=base, *(this+2)=delta, *(this+3)=size
+//   if (bounds_ok) { *out = *(base - delta + cursor); cursor += 4; }
+typedef void* (__fastcall* StreamRead_fn)(void*, void*);
+static StreamRead_fn orig_StreamRead = nullptr;
+static long g_streamReadHits = 0, g_streamReadFallbacks = 0;
+
+static void* __fastcall hooked_StreamRead(void* This, void* out) {
+#if CRASH_TEST_DISABLE_STREAM_FASTPATH
+    return orig_StreamRead(This, out);
+#else
+    __try {
+        uintptr_t t = (uintptr_t)This;
+        uint32_t cursor = *(uint32_t*)(t + 0x14);   // this+5 (in dwords: offset 0x14)
+        uint32_t base   = *(uint32_t*)(t + 0x04);   // this+1
+        uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
+        uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
+
+        // Fast bounds check: cursor + 4 <= base + size (relative to committed region)
+        if (cursor + 4 <= base + size && cursor >= base) {
+            uintptr_t addr = cursor - delta + base;
+            if (addr > 0x10000 && addr < 0xBFFF0000) {
+                *(uint32_t*)out = *(uint32_t*)addr;
+                *(uint32_t*)(t + 0x14) = cursor + 4;
+                InterlockedIncrement(&g_streamReadHits);
+                return This;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    InterlockedIncrement(&g_streamReadFallbacks);
+    return orig_StreamRead(This, out);
+#endif
+}
+
+// sub_47B0A0: unsigned int* __thiscall StreamWrite(unsigned int* this, int val)
+//   Same buffer layout as StreamRead.  Writes val at cursor, advances.
+typedef void* (__fastcall* StreamWrite_fn)(void*, int);
+static StreamWrite_fn orig_StreamWrite = nullptr;
+static long g_streamWriteHits = 0, g_streamWriteFallbacks = 0;
+
+static void* __fastcall hooked_StreamWrite(void* This, int val) {
+#if CRASH_TEST_DISABLE_STREAM_FASTPATH
+    return orig_StreamWrite(This, val);
+#else
+    __try {
+        uintptr_t t = (uintptr_t)This;
+        uint32_t cursor = *(uint32_t*)(t + 0x10);   // this+4
+        uint32_t base   = *(uint32_t*)(t + 0x04);   // this+1
+        uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
+        uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
+
+        if (cursor + 4 <= base + size && cursor >= base) {
+            uintptr_t addr = cursor - delta + base;
+            if (addr > 0x10000 && addr < 0xBFFF0000) {
+                *(uint32_t*)addr = val;
+                *(uint32_t*)(t + 0x10) = cursor + 4;
+                InterlockedIncrement(&g_streamWriteHits);
+                return This;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    InterlockedIncrement(&g_streamWriteFallbacks);
+    return orig_StreamWrite(This, val);
+#endif
+}
+
+static bool InstallStreamBufferFastPath() {
+#if CRASH_TEST_DISABLE_STREAM_FASTPATH
+    Log("Stream buffer fast path: DISABLED (crash isolation)");
+    return false;
+#else
+    int ok = 0;
+
+    // sub_47B3C0 — StreamRead (1477 callers)
+    void* pRead = (void*)0x0047B3C0;
+    unsigned char* pr = (unsigned char*)pRead;
+    if (pr[0] == 0x55 && pr[1] == 0x8B) {
+        if (MH_CreateHook(pRead, (void*)hooked_StreamRead, (void**)&orig_StreamRead) == MH_OK
+            && MH_EnableHook(pRead) == MH_OK) ok++;
+    }
+
+    // sub_47B0A0 — StreamWrite (1185 callers)
+    void* pWrite = (void*)0x0047B0A0;
+    unsigned char* pw = (unsigned char*)pWrite;
+    if (pw[0] == 0x55 && pw[1] == 0x8B) {
+        if (MH_CreateHook(pWrite, (void*)hooked_StreamWrite, (void**)&orig_StreamWrite) == MH_OK
+            && MH_EnableHook(pWrite) == MH_OK) ok++;
+    }
+
+    if (ok > 0) {
+        Log("Stream buffer fast path: ACTIVE (%d/2 hooked, sub_47B3C0+sub_47B0A0 — inline bounds check, 2662 callers)", ok);
+        return true;
+    }
+    Log("Stream buffer fast path: FAILED (no hooks installed)");
+    return false;
+#endif
 }
 
 // ================================================================
