@@ -4772,16 +4772,7 @@ static int WINAPI hooked_GetThreadPriority(HANDLE h) {
     return c;
 }
 
-// #10: lstrlenW — Unicode inline length
-typedef int (WINAPI* lstrlenW_fn)(LPCWSTR);
-static lstrlenW_fn orig_lstrlenW2 = nullptr;  // orig_lstrlenW already exists for SSE2 path
-
-static int WINAPI hooked_lstrlenW_Inline(LPCWSTR str) {
-    if (!str) return 0;
-    const wchar_t* p = str;
-    while (*p) p++;
-    return (int)(p - str);
-}
+// #10: lstrlenW REMOVED — already hooked by SSE2 fast path (duplicate hook crashes MinHook)
 
 static bool InstallBatchOpt10() {
     int ok = 0;
@@ -4814,11 +4805,9 @@ static bool InstallBatchOpt10() {
     // #9 GetThreadPriority
     p = (void*)GetProcAddress(hK32, "GetThreadPriority");
     if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
-    // #10 lstrlenW
-    p = (void*)GetProcAddress(hK32, "lstrlenW");
-    if (p && MH_CreateHook(p, (void*)hooked_lstrlenW_Inline, (void**)&orig_lstrlenW2) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    // #10 lstrlenW REMOVED — duplicate hook
 
-    Log("Batch opt #1-9: %d/9 active", ok);
+    Log("Batch opt #1-8: %d/8 active", ok);
     return ok > 0;
 }
 
@@ -5276,7 +5265,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] LoadLibraryA skip",              loadLibOk    ? " OK " : "SKIP");
     Log("  [%s] WFMO->WFSO shortcut",            wfmoOk       ? " OK " : "SKIP");
     Log("  [%s] Raw allocator (mimalloc)",       rawAllocOk   ? " OK " : "FAIL");
-    Log("  [%s] Batch 9 kernel caches",         batch10Ok    ? " OK " : "SKIP");
+    Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
