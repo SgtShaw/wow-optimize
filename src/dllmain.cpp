@@ -4575,6 +4575,7 @@ static long g_rawMallocHits = 0;
 
 static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char flags) {
     size_t aligned = ((size_t)size + 7) & ~7u;
+    if (aligned == 0) aligned = 8;  // safety: never allocate 0 bytes
     void* p = (flags & 8) ? mi_calloc(1, aligned) : mi_malloc(aligned);
     InterlockedIncrement(&g_rawMallocHits);
     return p;
@@ -4582,7 +4583,8 @@ static void* __stdcall hooked_WoWMalloc(int size, int file, DWORD line, char fla
 
 static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int file, DWORD line, int flags) {
     size_t aligned = ((size_t)newSize + 7) & ~7u;
-    size_t oldSize = ptr ? _msize(ptr) : 0;  // save BEFORE mi_realloc frees ptr
+    if (aligned == 0) aligned = 8;
+    size_t oldSize = ptr ? _msize(ptr) : 0;
     char* p = (char*)mi_realloc(ptr, aligned);
     if (p && (flags & 8) && oldSize < aligned) {
         memset(p + oldSize, 0, aligned - oldSize);
@@ -4591,6 +4593,7 @@ static char* __stdcall hooked_WoWRealloc(char* ptr, unsigned int newSize, int fi
 }
 
 static int __stdcall hooked_WoWFree(void* ptr, int file, int line, int flags) {
+    if (!ptr) return 1;
     mi_free(ptr);
     return 1;
 }
