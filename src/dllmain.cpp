@@ -106,7 +106,7 @@
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          0   // luaH_getstr — RE-ENABLED v3.6.3: generation counter + IsSafeRead4 guard fixes mimalloc stale-pointer crash
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — DISABLED: ERROR #134 — mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
