@@ -186,19 +186,12 @@ static void InitHardwareCursor() {
         // Remove window clipping to prevent cursor trapping/lag
         ClipCursor(NULL);
 
-        // Force hardware cursor: gxCursor CVar writes byte_CABCDD.
-        // gxCursor=0 = hardware cursor (low latency, GPU-rendered).
-        // gxCursor=1 = software cursor (laggy, tied to render loop).
-        // NVIDIA driver broke hardware cursor years ago; this override
-        // forces hardware mode regardless of Config.wtf setting.
-        // byte_CABCDD at 0xCABCDD: 0 = hardware, 1 = software
-        *(volatile uint8_t*)0x00CABCDD = 0;
-
-        // Force cursor lag prevention: gxFixLag CVar writes byte_CABCDE.
-        // When enabled, WoW uses GetCursorPos polling instead of
-        // WM_MOUSEMOVE for cursor updates — smoother on modern GPUs.
-        // byte_CABCDE at 0xCABCDE: 0 = disabled, 1 = enabled
-        *(volatile uint8_t*)0x00CABCDE = 1;
+        // Hardware cursor byte patches DISABLED — crash isolation.
+        // byte_CABCDD/CABCDE force gxCursor=0 + gxFixLag=1 which on
+        // private servers (Circle/Warmane) activates an uninitialized
+        // cursor rendering path → NULL deref at [edi]+0 → [0x0+18].
+        // *(volatile uint8_t*)0x00CABCDD = 0;
+        // *(volatile uint8_t*)0x00CABCDE = 1;
 
         g_cursorInitDone = true;
         Log("Hardware cursor: ACTIVE (forced hardware mode, lag fix, clipping disabled)");
