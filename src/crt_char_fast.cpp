@@ -119,6 +119,35 @@ fallback:
     return orig_strcpy(dst, src);
 }
 
+// ====== strcat ======
+typedef char* (__cdecl *strcat_fn)(char*, const char*);
+static strcat_fn orig_strcat = nullptr;
+
+static char* __cdecl Hooked_strcat(char* dst, const char* src) {
+    CHAR_ENTER();
+    if (!dst || !src) { CHAR_LEAVE(); goto fallback; }
+    if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0) { CHAR_LEAVE(); goto fallback; }
+    __try {
+        const __m128i zero = _mm_setzero_si128();
+        size_t dlen = 0;
+        while (true) {
+            __m128i v = _mm_loadu_si128((const __m128i*)(dst + dlen));
+            int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
+            if (mask) { unsigned long idx; _BitScanForward(&idx, mask); dlen += idx; break; }
+            dlen += 16;
+        }
+        char* d = dst + dlen;
+        while (true) {
+            __m128i v = _mm_loadu_si128((const __m128i*)src);
+            _mm_storeu_si128((__m128i*)d, v);
+            int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
+            if (mask) { CHAR_LEAVE(); InterlockedIncrement64(&g_strcpyHits); return dst; }
+            src += 16; d += 16;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) { CHAR_LEAVE(); }
+fallback: InterlockedIncrement64(&g_strcpyFallbacks); return orig_strcat(dst, src);
+}
+
 bool InstallCrtCharSSE2() {
     HMODULE crt = GetModuleHandleA("msvcrt.dll");
     if (!crt) crt = GetModuleHandleA("ucrtbase.dll");
@@ -133,9 +162,10 @@ bool InstallCrtCharSSE2() {
     tryHook("memchr",  (void*)Hooked_memchr,  (void**)&orig_memchr);
     tryHook("strchr",  (void*)Hooked_strchr,  (void**)&orig_strchr);
     tryHook("strcpy",  (void*)Hooked_strcpy,  (void**)&orig_strcpy);
+    tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat);
 
     if (ok > 0) {
-        Log("[CrtChar] Active: memchr+strchr+strcpy SSE2 (%d/3 hooked, page-boundary guarded)", ok);
+        Log("[CrtChar] Active: memchr+strchr+strcpy+strcat SSE2 (%d/4 hooked, page-boundary guarded)", ok);
         return true;
     }
     Log("[CrtChar] No hooks installed");
@@ -146,6 +176,7 @@ void ShutdownCrtCharSSE2() {
     if (orig_memchr)  MH_DisableHook((void*)orig_memchr);
     if (orig_strchr)  MH_DisableHook((void*)orig_strchr);
     if (orig_strcpy)  MH_DisableHook((void*)orig_strcpy);
+    if (orig_strcat)  MH_DisableHook((void*)orig_strcat);
 }
 
 #else
