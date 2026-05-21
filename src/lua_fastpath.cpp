@@ -1,5 +1,5 @@
 // ================================================================
-// Lua Fast Path — Direct C function hooks for WoW's Lua 5.1 VM
+// Lua Fast Path вЂ” Direct C function hooks for WoW's Lua 5.1 VM
 //
 // ================================================================
 
@@ -189,7 +189,7 @@ static lua_CFunction_t orig_str_rep = nullptr;
 static long g_strRepHits       = 0;
 static long g_strRepFallbacks  = 0;
 
-// ipairs factory hook — Phase 2
+// ipairs factory hook вЂ” Phase 2
 // Architecture: ipairs(table) returns (iterator_closure, table, 0)
 // We hook the factory to return our custom fast iterator closure.
 // Future optimization: replace the returned iterator with our fast version.
@@ -275,6 +275,21 @@ static int __cdecl Hooked_StrFormat(lua_State* L) {
         }
     }
 
+    // Fast multi-specifier: %d/%d, %d-%d, %s:%d
+    if (numArgs == 2 && fmtLen == 5 && !memcmp(fmt, "%d/%d", 5)) {
+        char b[64]; _snprintf(b,63,"%d/%d",(int)lua_tonumber_(L,2),(int)lua_tonumber_(L,3));
+        b[63]=0; lua_pushstring_(L,b); g_formatFastHits++; return 1;
+    }
+    if (numArgs == 2 && fmtLen == 5 && !memcmp(fmt, "%d-%d", 5)) {
+        char b[64]; _snprintf(b,63,"%d-%d",(int)lua_tonumber_(L,2),(int)lua_tonumber_(L,3));
+        b[63]=0; lua_pushstring_(L,b); g_formatFastHits++; return 1;
+    }
+    if (numArgs == 2 && fmtLen == 6 && !memcmp(fmt, "%s: %d", 6)) {
+        size_t sl=0; const char* s=lua_tolstring_(L,2,&sl);
+        char b[256]; _snprintf(b,255,"%s: %d",s?s:"",(int)lua_tonumber_(L,3));
+        b[255]=0; lua_pushstring_(L,b); g_formatFastHits++; return 1;
+    }
+
     // Ultra-fast: "%d"
     if (numArgs == 1 && fmtLen == 2 && fmt[0] == '%' && fmt[1] == 'd') {
         char buf[32];
@@ -320,7 +335,7 @@ static int __cdecl Hooked_StrFormat(lua_State* L) {
         }
     }
 
-    // No specifiers — return as-is
+    // No specifiers вЂ” return as-is
     {
         bool hasSpec = false;
         for (size_t i = 0; i < fmtLen; i++) {
@@ -480,7 +495,7 @@ static bool CalibrateStackLayout(lua_State* L) {
     }
 
     lua_settop_(L, topBefore);
-    Log("[FastPath] Calibration FAILED — cannot determine stack layout");
+    Log("[FastPath] Calibration FAILED вЂ” cannot determine stack layout");
     return false;
 }
 
@@ -687,7 +702,7 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
     }
 
 // ================================================================
-    // Ultra-fast path for ^([^%s]+) — match first word/token
+    // Ultra-fast path for ^([^%s]+) вЂ” match first word/token
     // Common in chat parsing: "extract first word from string"
     // Pattern: ^ ( [ ^ % s ] + )
     // Length: 10
@@ -718,7 +733,7 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
     }
 
     // ================================================================
-    // Ultra-fast path for ^(.-)%s*$ — trim trailing whitespace
+    // Ultra-fast path for ^(.-)%s*$ вЂ” trim trailing whitespace
     // Common in UI text cleanup.
     // Pattern: ^ ( . - ) % s * $
     // Length: 9
@@ -793,6 +808,24 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
 
             g_matchFallbacks++;
             return orig_str_match(L);
+        }
+    }
+
+
+    // Case 3: captured class (%d+), (%w+)
+    if (pLen >= 5 && pLen <= 6 && p[pLen-2] == '%' && p[pLen-1] == '+') {
+        int off = (p[0] == '^') ? 1 : 0;
+        if ((pLen - off) == 5 && p[off] == '(' && p[off+4] == ')') {
+            char cls = p[off+2];
+            if (cls == 'd' || cls == 'a' || cls == 'w' || cls == 'l' || cls == 'u') {
+                if (off && init != 1) { lua_pushnil_(L); g_matchHits++; return 1; }
+                const char* start = off ? searchStart : s + (init - 1);
+                size_t maxLen = off ? searchLen : sLen - (init - 1);
+                size_t i = 0;
+                while (i < maxLen && MatchAsciiClass((unsigned char)start[i], cls)) i++;
+                if (i > 0 && PushSubstring(L, start, i)) { g_matchHits++; return 1; }
+                lua_pushnil_(L); g_matchHits++; return 1;
+            }
         }
     }
 
@@ -1720,7 +1753,7 @@ static int __cdecl Hooked_Select(lua_State* L) {
             g_selectHits++;
             return 1;
         }
-        // Non-'#' string index is an error in Lua — fall through to original
+        // Non-'#' string index is an error in Lua вЂ” fall through to original
         goto fallback;
     }
 
@@ -1763,14 +1796,14 @@ static int __cdecl Hooked_RawEqual(lua_State* L) {
         return 1;
     }
 
-    // Type match — nil is always equal
+    // Type match вЂ” nil is always equal
     if (t1 == LUA_TNIL) {
         lua_pushboolean_(L, 1);
         g_rawequalHits++;
         return 1;
     }
 
-    // All other types — fallback to original for safety
+    // All other types вЂ” fallback to original for safety
     goto fallback;
 
 fallback:
@@ -1779,7 +1812,7 @@ fallback:
 }
 
 // ================================================================
-// Hooked_Math_Random — math.random fast path
+// Hooked_Math_Random вЂ” math.random fast path
 // CRT rand() call without Lua VM overhead.
 // ================================================================
 
@@ -1822,7 +1855,7 @@ static int __cdecl Hooked_Math_Random(lua_State* L) {
 }
 
 // ================================================================
-// Hooked_Math_Sqrt — math.sqrt fast path
+// Hooked_Math_Sqrt вЂ” math.sqrt fast path
 // CRT sqrt() call without Lua VM overhead.
 // ================================================================
 
@@ -1838,7 +1871,7 @@ static int __cdecl Hooked_Math_Sqrt(lua_State* L) {
 }
 
 // ================================================================
-// Hooked_StrRep — string.rep fast path
+// Hooked_StrRep вЂ” string.rep fast path
 // Repeat string N times without Lua VM overhead.
 // ================================================================
 
@@ -1881,7 +1914,7 @@ static int __cdecl Hooked_StrRep(lua_State* L) {
 }
 
 // ================================================================
-// Hooked_IPairs_Factory — ipairs() factory fast path
+// Hooked_IPairs_Factory вЂ” ipairs() factory fast path
 // Optimized ipairs() factory that returns our fast iterator.
 // ================================================================
 
@@ -1917,7 +1950,7 @@ static int __cdecl Hooked_IPairs_Factory(lua_State* L) {
 }
 
 // ================================================================
-// Hooked_IPairs_Iterator — ipairs iterator fast path
+// Hooked_IPairs_Iterator вЂ” ipairs iterator fast path
 // Fast numeric table iteration via luaH_getnum (bypasses lua_gettable).
 // ================================================================
 
@@ -1980,7 +2013,7 @@ static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
 // Phase 2: discovery and hook installation.
 
 // ================================================================
-// Hooked_StrFind_Full — string.find with pattern matching
+// Hooked_StrFind_Full вЂ” string.find with pattern matching
 // Full string.find with Lua pattern support (not just plain mode).
 // ================================================================
 
@@ -2153,7 +2186,7 @@ static FuncHookEntry g_funcHooks[] = {
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
     {nullptr, "sort", (void*)Hooked_TableSort, &orig_table_sort, 0x00851E00, false},
 #endif    
-#if 0  // UnitAPI DMA disabled — STACK_OVERFLOW (1.9B recursive calls)
+#if 0  // UnitAPI DMA disabled вЂ” STACK_OVERFLOW (1.9B recursive calls)
     {nullptr, "UnitHealth",   (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
     {nullptr, "UnitHealthMax", (void*)Hooked_UnitHealthMax, &orig_UnitHealthMax, 0x0060EC60, false},
     {nullptr, "UnitPower",    (void*)Hooked_UnitPower,     &orig_UnitPower,     0x0060ED40, false},
@@ -2177,20 +2210,20 @@ static constexpr int NUM_FUNC_HOOKS = sizeof(g_funcHooks) / sizeof(g_funcHooks[0
 
 #else
 
-// Permanently disabled — all Phase 2 hooks disabled for testing
+// Permanently disabled вЂ” all Phase 2 hooks disabled for testing
 static constexpr int NUM_FUNC_HOOKS = 0;
 
 #endif // TEST_DISABLE_ALL_PHASE2
 
 // ================================================================
-// Unit API Fast Paths — Direct CGUnit_C field reads
+// Unit API Fast Paths вЂ” Direct CGUnit_C field reads
 // ================================================================
 
 // ================================================================
 // Unit API Fast Paths Implementation
 // ================================================================
 
-#if 0  // UnitAPI DMA disabled — STACK_OVERFLOW (1.9B recursive calls)
+#if 0  // UnitAPI DMA disabled вЂ” STACK_OVERFLOW (1.9B recursive calls)
 
 typedef void (__cdecl* fn_ParseUnitToken)(const char* str, int* out_token, int flags);
 typedef void*(__cdecl* fn_ResolveUnit)(int token_low, int token_high, int flags);
@@ -2411,7 +2444,7 @@ namespace LuaFastPath {
 
 bool Init() {
     Log("[FastPath] ====================================");
-    Log("[FastPath]  Lua Fast Path — Phase 1");
+    Log("[FastPath]  Lua Fast Path вЂ” Phase 1");
     Log("[FastPath] ====================================");
 
     __try {
@@ -2433,7 +2466,7 @@ bool Init() {
     }
 
     g_active = true;
-    Log("[FastPath]  Phase 1 [ OK ] — string.format hooked");
+    Log("[FastPath]  Phase 1 [ OK ] вЂ” string.format hooked");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
     return true;
@@ -2442,7 +2475,7 @@ bool Init() {
 bool InitPhase2(lua_State* L) {
 #if TEST_DISABLE_ALL_PHASE2
    (void)L;
-    Log("[FastPath] Phase 2: DISABLED (production — permanently)");
+    Log("[FastPath] Phase 2: DISABLED (production вЂ” permanently)");
     return false;
 #else
     if (!L) return false;
@@ -2453,10 +2486,10 @@ bool InitPhase2(lua_State* L) {
     g_layout.valid = false;
     if (!CalibrateStackLayout(L)) {
         if (g_phase2Active) {
-            Log("[FastPath]  Phase 2 calibration failed — keeping existing hooks");
+            Log("[FastPath]  Phase 2 calibration failed вЂ” keeping existing hooks");
             return true;
         }
-        Log("[FastPath]  Phase 2 FAILED — calibration unsuccessful");
+        Log("[FastPath]  Phase 2 FAILED вЂ” calibration unsuccessful");
         return false;
     }
 
@@ -2504,12 +2537,12 @@ bool InitPhase2(lua_State* L) {
 
 #if TEST_DISABLE_PHASE2_WRITES
         // Permanently disabled: write hooks that modify Lua tables/stack
-        // via RawTValue* copies — proven to cause hangs in real gameplay
+        // via RawTValue* copies вЂ” proven to cause hangs in real gameplay
         if (strcmp(e.name, "rawset") == 0 ||
             strcmp(e.name, "insert") == 0 ||
             strcmp(e.name, "remove") == 0 ||
             strcmp(e.name, "next") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* table writes)",
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe вЂ” RawTValue* table writes)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
@@ -2517,11 +2550,11 @@ bool InitPhase2(lua_State* L) {
 
 #if TEST_DISABLE_PHASE2_READS
         // Permanently disabled: table read hooks that write to stack
-        // via RawTValue* copies — proven to cause hangs in real gameplay
+        // via RawTValue* copies вЂ” proven to cause hangs in real gameplay
         if (strcmp(e.name, "rawget") == 0 ||
             strcmp(e.name, "concat") == 0 ||
             strcmp(e.name, "unpack") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe вЂ” RawTValue* stack writes)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
@@ -2542,7 +2575,7 @@ bool InitPhase2(lua_State* L) {
             strcmp(e.name, "tonumber") == 0 ||
             strcmp(e.name, "select") == 0 ||
             strcmp(e.name, "rawequal") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — proven to cause hangs)",
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe вЂ” proven to cause hangs)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
@@ -2666,20 +2699,20 @@ void Shutdown() {
 // ================================================================
 // Phase 3: WoW C-level API hooks
 //
-// Permanently disabled — UnitName had 0% hit rate in real sessions.
-// Dynamic units (raid1, nameplate1) change every frame — cache never
+// Permanently disabled вЂ” UnitName had 0% hit rate in real sessions.
+// Dynamic units (raid1, nameplate1) change every frame вЂ” cache never
 // reuses. Static units (player, target) are called once at UI load.
 // Code kept available for future production use only.
 // ================================================================
 
 bool InitWoWHooks(lua_State* L) {
    (void)L;
-    Log("[FastPath]  Phase 3 [ SKIP ] — WoW C-level API hooks disabled");
+    Log("[FastPath]  Phase 3 [ SKIP ] вЂ” WoW C-level API hooks disabled");
     return false;
 }
 
 void InvalidateWoWCache() {
-    // No-op — reserved for future use
+    // No-op вЂ” reserved for future use
 }
 
 Stats GetStats() {
