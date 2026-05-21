@@ -110,6 +110,32 @@ fallback:
     return orig_strcmp(s1, s2);
 }
 
+// strncmp SSE2
+typedef int (__cdecl* strncmp_fn)(const char*, const char*, size_t);
+static strncmp_fn orig_strncmp = nullptr;
+
+static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
+    CRT_ENTER();
+    if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (((uintptr_t)s1 & 0xFFF) > 0xFF0 || ((uintptr_t)s2 & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
+    __try {
+        const __m128i zero = _mm_setzero_si128(); size_t i = 0;
+        while (i + 16 <= n) {
+            __m128i a = _mm_loadu_si128((const __m128i*)(s1+i));
+            __m128i b = _mm_loadu_si128((const __m128i*)(s2+i));
+            int eq = _mm_movemask_epi8(_mm_cmpeq_epi8(a,b));
+            if (eq != 0xFFFF) { unsigned long idx; _BitScanForward(&idx,(~eq&0xFFFF));
+                CRT_LEAVE(); return i+idx<n ? (unsigned char)s1[i+idx]-(unsigned char)s2[i+idx] : 0; }
+            if (_mm_movemask_epi8(_mm_cmpeq_epi8(a,zero))) { CRT_LEAVE(); return 0; }
+            i += 16;
+        }
+        while (i < n) { int d=(unsigned char)s1[i]-(unsigned char)s2[i]; if(d){CRT_LEAVE();return d;} if(!s1[i]){CRT_LEAVE();return 0;} i++; }
+        CRT_LEAVE(); return 0;
+    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+fallback: return orig_strncmp(s1,s2,n);
+}
+
+
 // ================================================================
 // memcmp — SSE2 vectorized comparison
 // ================================================================
@@ -229,9 +255,10 @@ bool InstallCrtMemFastPaths() {
     tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp);
     tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
     tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
+    tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp);
 
     if (ok > 0) {
-        Log("[CRT] Fast paths: ACTIVE (%d/5 hooked, SSE2 optimized)", ok);
+        Log("[CRT] Fast paths: ACTIVE (%d/6 hooked, SSE2 optimized)", ok);
         return true;
     }
     Log("[CRT] Fast paths: FAILED (no hooks installed)");
