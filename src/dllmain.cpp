@@ -71,6 +71,7 @@
 #include "strstr_fast.h"
 #include "crt_char_fast.h"
 #include "crt_pow_sse2.h"
+#include "crt_wchar_fast.h"
 
 #include "version.h"
 
@@ -5130,6 +5131,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #else
     bool powOk = false;
 #endif
+    bool wcharOk = InstallCrtWcharSSE2();
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
@@ -6896,6 +6898,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownStrstrSSE2();
             ShutdownCrtCharSSE2();
             ShutdownCrtPowSSE2();
+            ShutdownCrtWcharSSE2();
             ShutdownAddonPreload();
             ApiCache::Shutdown();
             UICache::Shutdown();                       
