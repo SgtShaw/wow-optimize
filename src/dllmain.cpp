@@ -608,8 +608,10 @@ static void PreciseSleep(double milliseconds) {
             else
                 orig_Sleep(0);
         } else {
-            // Single client: precise busy-wait for sub-ms accuracy
-            if (remainingMs > 2.0)
+            // Single client: hybrid sleep — long waits use bulk Sleep, short busy-wait
+            if (remainingMs > 16.0)
+                orig_Sleep((DWORD)(remainingMs - 2.0));
+            else if (remainingMs > 2.0)
                 orig_Sleep(1);
             else if (remainingMs > 0.3)
                 SwitchToThread();
