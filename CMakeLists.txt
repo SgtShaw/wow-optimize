@@ -79,6 +79,8 @@ add_library(wow_optimize SHARED
     src/crt_char_fast.h
     src/crt_pow_sse2.cpp
     src/crt_pow_sse2.h
+    src/crt_wchar_fast.cpp
+    src/crt_wchar_fast.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

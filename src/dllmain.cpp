@@ -4823,11 +4823,8 @@ static UINT WINAPI hooked_GetDoubleClickTime() { if (!g_dct) g_dct = orig_GetDou
 // #13: GetCursorPos — 16ms cache
 typedef BOOL (WINAPI* GetCursorPos_fn)(LPPOINT);
 static GetCursorPos_fn orig_GetCursorPos = nullptr;
-static POINT g_lastCursor = {}; static DWORD g_lastCursorTick = 0;
 static BOOL WINAPI hooked_GetCursorPos(LPPOINT lp) {
-    DWORD now = GetTickCount();
-    if (now - g_lastCursorTick < 16) { *lp = g_lastCursor; return TRUE; }
-    BOOL r = orig_GetCursorPos(lp); if (r) { g_lastCursor = *lp; g_lastCursorTick = now; } return r;
+    return orig_GetCursorPos(lp);  // pass-through — 16ms cache causes cursor lag on high-refresh displays
 }
 
 // #14: GetSysColor
