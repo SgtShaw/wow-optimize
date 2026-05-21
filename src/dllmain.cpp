@@ -5014,7 +5014,7 @@ static bool InstallBatchOpt35() {
 }
 
 // ================================================================
-// Batch #36-39: more kernel32 immutable-data caches
+// Batch #36-38: kernel32 immutable-data caches
 // #36: GetCurrentProcess — always returns (HANDLE)-1
 typedef HANDLE (WINAPI* GetCurrentProcess_fn)();
 static GetCurrentProcess_fn orig_GetCurrentProcess = nullptr;
@@ -5023,15 +5023,7 @@ static HANDLE WINAPI hooked_GetCurrentProcess() {
     if (g_hProc) return g_hProc;
     g_hProc = orig_GetCurrentProcess(); return g_hProc;
 }
-// #37: GetCurrentThread — per-thread pseudo-handle
-typedef HANDLE (WINAPI* GetCurrentThread_fn)();
-static GetCurrentThread_fn orig_GetCurrentThread = nullptr;
-__declspec(thread) static HANDLE g_hThread = NULL;
-static HANDLE WINAPI hooked_GetCurrentThread() {
-    if (g_hThread) return g_hThread;
-    g_hThread = orig_GetCurrentThread(); return g_hThread;
-}
-// #38: GetCPInfo — code page info immutable per session
+// #37: GetCPInfo — code page info immutable per session
 typedef BOOL (WINAPI* GetCPInfo_fn)(UINT, LPCPINFO);
 static GetCPInfo_fn orig_GetCPInfo = nullptr;
 static CPINFO g_cpInfo[4] = {}; static BOOL g_cpValid[4] = {};
@@ -5040,14 +5032,14 @@ static BOOL WINAPI hooked_GetCPInfo(UINT cp, LPCPINFO lp) {
     if (idx < 3 && g_cpValid[idx]) { *lp = g_cpInfo[idx]; return TRUE; }
     BOOL r = orig_GetCPInfo(cp, &g_cpInfo[idx]); if (r && lp) *lp = g_cpInfo[idx]; g_cpValid[idx] = r; return r;
 }
-static bool InstallBatchOpt39() {
+// #38: GetCurrentThread — already handled at line 2256, returns (HANDLE)-2 constant
+static bool InstallBatchOpt38() {
     int ok = 0; HMODULE hK32 = GetModuleHandleA("kernel32.dll"); void* p;
-    #define H39(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
-    H39(GetCurrentProcess, orig_GetCurrentProcess);
-    H39(GetCurrentThread, orig_GetCurrentThread);
-    H39(GetCPInfo, orig_GetCPInfo);
-    #undef H39
-    Log("Batch opt #36-39: %d/3 active", ok);
+    #define H38(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    H38(GetCurrentProcess, orig_GetCurrentProcess);
+    H38(GetCPInfo, orig_GetCPInfo);
+    #undef H38
+    Log("Batch opt #36-38: %d/2 active", ok);
     return ok > 0;
 }
 
@@ -5181,7 +5173,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
     bool batch35Ok = InstallBatchOpt35();
-    bool batch39Ok = InstallBatchOpt39();
+    bool batch38Ok = InstallBatchOpt38();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5432,7 +5424,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 24 kernel caches",        batch30Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 35 kernel caches",        batch35Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 39 kernel caches",        batch39Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 38 kernel caches",        batch38Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
