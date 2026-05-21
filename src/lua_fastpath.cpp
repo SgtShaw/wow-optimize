@@ -2153,7 +2153,7 @@ static FuncHookEntry g_funcHooks[] = {
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
     {nullptr, "sort", (void*)Hooked_TableSort, &orig_table_sort, 0x00851E00, false},
 #endif    
-#if !TEST_DISABLE_UNIT_API_FASTPATH
+#if 0  // UnitAPI DMA disabled — STACK_OVERFLOW (1.9B recursive calls)
     {nullptr, "UnitHealth",   (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
     {nullptr, "UnitHealthMax", (void*)Hooked_UnitHealthMax, &orig_UnitHealthMax, 0x0060EC60, false},
     {nullptr, "UnitPower",    (void*)Hooked_UnitPower,     &orig_UnitPower,     0x0060ED40, false},
@@ -2190,7 +2190,7 @@ static constexpr int NUM_FUNC_HOOKS = 0;
 // Unit API Fast Paths Implementation
 // ================================================================
 
-#if !TEST_DISABLE_UNIT_API_FASTPATH
+#if 0  // UnitAPI DMA disabled — STACK_OVERFLOW (1.9B recursive calls)
 
 typedef void (__cdecl* fn_ParseUnitToken)(const char* str, int* out_token, int flags);
 typedef void*(__cdecl* fn_ResolveUnit)(int token_low, int token_high, int flags);
@@ -2405,7 +2405,7 @@ fallback:
     return orig_UnitPowerMax(L);
 }
 
-#endif // !TEST_DISABLE_UNIT_API_FASTPATH
+#endif // UnitAPI DMA disabled
 
 namespace LuaFastPath {
 

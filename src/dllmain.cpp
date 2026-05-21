@@ -4609,6 +4609,13 @@ extern "C" void ReserveLoadingArena() {
     AcquireSRWLockExclusive(&g_arenaLock);
     if (g_loadingArena) { ReleaseSRWLockExclusive(&g_arenaLock); return; }
 
+    // Skip on HD clients — VA space already under pressure (32-bit, 1.3GB WS)
+    PROCESS_MEMORY_COUNTERS pmc = {};
+    pmc.cb = sizeof(pmc);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
+        && pmc.WorkingSetSize > 800u * 1024u * 1024u)
+        { ReleaseSRWLockExclusive(&g_arenaLock); return; }
+
     g_loadingArena = VirtualAlloc(nullptr, 256 * 1024 * 1024, MEM_RESERVE, PAGE_NOACCESS);
     ReleaseSRWLockExclusive(&g_arenaLock);
 
