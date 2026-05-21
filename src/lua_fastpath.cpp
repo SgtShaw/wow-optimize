@@ -291,6 +291,29 @@ static int __cdecl Hooked_StrFormat(lua_State* L) {
     }
 
     // Ultra-fast: "%d"
+    // Fast: width-specified numeric: %02d, %04d, %x, %X, %u (single arg)
+    if (numArgs == 1 && fmtLen >= 3 && fmtLen <= 5 && fmt[0] == '%') {
+        char last = fmt[fmtLen-1];
+        if (last == 'd' || last == 'i' || last == 'u' || last == 'x' || last == 'X') {
+            bool allNum = true;
+            for (size_t i = 1; i < fmtLen-1; i++) if (fmt[i] < '0' || fmt[i] > '9') { allNum = false; break; }
+            if (allNum) {
+                char b[64]; _snprintf(b,63,fmt,(int)lua_tonumber_(L,2)); b[63]=0;
+                lua_pushstring_(L,b); g_formatFastHits++; return 1;
+            }
+        }
+    }
+    // Fast: %02x hex color component
+    if (numArgs == 1 && fmtLen == 4 && fmt[0] == '%' && fmt[1] == '0' && fmt[2] >= '0' && fmt[2] <= '9' && (fmt[3] == 'x' || fmt[3] == 'X')) {
+        char b[64]; _snprintf(b,63,fmt,(unsigned)lua_tonumber_(L,2)); b[63]=0;
+        lua_pushstring_(L,b); g_formatFastHits++; return 1;
+    }
+    // Fast: %.Ng float
+    if (numArgs == 1 && fmtLen == 4 && fmt[0] == '%' && fmt[1] == '.' && fmt[2] >= '0' && fmt[2] <= '9' && (fmt[3] == 'g' || fmt[3] == 'G')) {
+        char b[64]; _snprintf(b,63,fmt,lua_tonumber_(L,2)); b[63]=0;
+        if (b[0]) { lua_pushstring_(L,b); g_formatFastHits++; return 1; }
+    }
+
     if (numArgs == 1 && fmtLen == 2 && fmt[0] == '%' && fmt[1] == 'd') {
         char buf[32];
         _snprintf(buf, 31, "%d", (int)lua_tonumber_(L, 2));
