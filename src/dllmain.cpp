@@ -4630,7 +4630,7 @@ extern "C" void ReserveLoadingArena() {
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
-        && pmc.WorkingSetSize > 800u * 1024u * 1024u)
+        && pmc.WorkingSetSize > 500u * 1024u * 1024u)
         { ReleaseSRWLockExclusive(&g_arenaLock); return; }
 
     g_loadingArena = VirtualAlloc(nullptr, 256 * 1024 * 1024, MEM_RESERVE, PAGE_NOACCESS);
