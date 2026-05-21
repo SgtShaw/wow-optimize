@@ -5174,7 +5174,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool frameThrottleOk = InstallFrameThrottling();
 
     Log("--- Tooltip String Caching ---");
-    bool tooltipCacheOk = TooltipCache::Init();
+    bool tooltipCacheOk = false;  // DISABLED: placeholder — tracks hits but never caches results
 
     Log("--- Spell Data Caching ---");
     bool spellCacheOk = SpellCache::Init();
