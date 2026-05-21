@@ -4936,6 +4936,70 @@ static bool InstallBatchOpt30() {
 }
 
 // ================================================================
+// Batch #31-35: kernel32 immutable-data caches
+// ================================================================
+
+// #31: GetComputerNameA — never changes during session
+typedef BOOL (WINAPI* GetComputerNameA_fn)(LPSTR, LPDWORD);
+static GetComputerNameA_fn orig_GetComputerNameA = nullptr;
+static char g_computerName[64] = {};
+static BOOL WINAPI hooked_GetComputerNameA(LPSTR buf, LPDWORD nSize) {
+    if (g_computerName[0]) { DWORD len = (DWORD)strlen(g_computerName) + 1; if (*nSize >= len) { memcpy(buf, g_computerName, len); return TRUE; } }
+    BOOL r = orig_GetComputerNameA(g_computerName, nSize); memcpy(buf, g_computerName, (size_t)*nSize + 1); return r;
+}
+
+// #32: GetUserNameA — never changes during session
+typedef BOOL (WINAPI* GetUserNameA_fn)(LPSTR, LPDWORD);
+static GetUserNameA_fn orig_GetUserNameA = nullptr;
+static char g_userName[64] = {};
+static BOOL WINAPI hooked_GetUserNameA(LPSTR buf, LPDWORD nSize) {
+    if (g_userName[0]) { DWORD len = (DWORD)strlen(g_userName) + 1; if (*nSize >= len) { memcpy(buf, g_userName, len); return TRUE; } }
+    BOOL r = orig_GetUserNameA(g_userName, nSize); memcpy(buf, g_userName, (size_t)*nSize + 1); return r;
+}
+
+// #33: GetSystemDirectoryA — never changes
+typedef UINT (WINAPI* GetSystemDirectoryA_fn)(LPSTR, UINT);
+static GetSystemDirectoryA_fn orig_GetSystemDirectoryA = nullptr;
+static char g_sysDir[MAX_PATH] = {};
+static UINT WINAPI hooked_GetSystemDirectoryA(LPSTR buf, UINT nSize) {
+    if (g_sysDir[0]) { UINT len = (UINT)strlen(g_sysDir) + 1; if (nSize >= len) { memcpy(buf, g_sysDir, len); return len - 1; } }
+    UINT r = orig_GetSystemDirectoryA(g_sysDir, MAX_PATH); if (buf != g_sysDir) memcpy(buf, g_sysDir, (size_t)r + 1); return r;
+}
+
+// #34: GetWindowsDirectoryA — never changes
+typedef UINT (WINAPI* GetWindowsDirectoryA_fn)(LPSTR, UINT);
+static GetWindowsDirectoryA_fn orig_GetWindowsDirectoryA = nullptr;
+static char g_winDir[MAX_PATH] = {};
+static UINT WINAPI hooked_GetWindowsDirectoryA(LPSTR buf, UINT nSize) {
+    if (g_winDir[0]) { UINT len = (UINT)strlen(g_winDir) + 1; if (nSize >= len) { memcpy(buf, g_winDir, len); return len - 1; } }
+    UINT r = orig_GetWindowsDirectoryA(g_winDir, MAX_PATH); if (buf != g_winDir) memcpy(buf, g_winDir, (size_t)r + 1); return r;
+}
+
+// #35: GetTempPathA — changes only on reboot
+typedef DWORD (WINAPI* GetTempPathA_fn)(DWORD, LPSTR);
+static GetTempPathA_fn orig_GetTempPathA = nullptr;
+static char g_tempPath[MAX_PATH] = {};
+static DWORD WINAPI hooked_GetTempPathA(DWORD nSize, LPSTR buf) {
+    if (g_tempPath[0]) { DWORD len = (DWORD)strlen(g_tempPath) + 1; if (nSize >= len) { memcpy(buf, g_tempPath, len); return len - 1; } }
+    DWORD r = orig_GetTempPathA(MAX_PATH, g_tempPath); if (buf != g_tempPath) memcpy(buf, g_tempPath, (size_t)r + 1); return r;
+}
+
+static bool InstallBatchOpt35() {
+    int ok = 0;
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    void* p;
+    #define H35(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    H35(GetComputerNameA, orig_GetComputerNameA);
+    H35(GetUserNameA, orig_GetUserNameA);
+    H35(GetSystemDirectoryA, orig_GetSystemDirectoryA);
+    H35(GetWindowsDirectoryA, orig_GetWindowsDirectoryA);
+    H35(GetTempPathA, orig_GetTempPathA);
+    #undef H35
+    Log("Batch opt #31-35: %d/5 active", ok);
+    return ok > 0;
+}
+
+// ================================================================
 // Main initialization thread.
 static DWORD WINAPI MainThread(LPVOID param) {
     // One-time caches initialized before hooks
@@ -5064,6 +5128,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch10Ok = InstallBatchOpt10();
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
+    bool batch35Ok = InstallBatchOpt35();
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5312,7 +5377,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] IsDebuggerPresent no-op",        noDebugOk    ? " OK " : "SKIP");
     Log("  [%s] Batch 8 kernel caches",         batch10Ok    ? " OK " : "SKIP");
     Log("  [%s] Batch 20 kernel caches",        batch20Ok    ? " OK " : "SKIP");
-    Log("  [%s] Batch 24 kernel caches",        batch30Ok    ? " OK " : "SKIP");    
+    Log("  [%s] Batch 24 kernel caches",        batch30Ok    ? " OK " : "SKIP");
+    Log("  [%s] Batch 35 kernel caches",        batch35Ok    ? " OK " : "SKIP");    
     Log("  [%s] OutputDebugString (no-op)",    debugOk     ? " OK " : "FAIL");
     Log("  [%s] CriticalSection (spin+try)",   csOk        ? " OK " : "FAIL");
     Log("  [%s] Network (NODELAY+ACK+QoS+KA)", netOk      ? " OK " : "FAIL");
