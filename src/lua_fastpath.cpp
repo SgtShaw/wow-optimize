@@ -303,6 +303,12 @@ static int __cdecl Hooked_StrFormat(lua_State* L) {
             }
         }
     }
+    // Fast: %02d:%02d вЂ” time display (timers, cooldowns)
+    if (numArgs == 2 && fmtLen == 8 && !memcmp(fmt, "%02d:%02d", 8)) {
+        char b[64]; _snprintf(b,63,"%02d:%02d",(int)lua_tonumber_(L,2),(int)lua_tonumber_(L,3));
+        b[63]=0; lua_pushstring_(L,b); g_formatFastHits++; return 1;
+    }
+
     // Fast: %02x hex color component
     if (numArgs == 1 && fmtLen == 4 && fmt[0] == '%' && fmt[1] == '0' && fmt[2] >= '0' && fmt[2] <= '9' && (fmt[3] == 'x' || fmt[3] == 'X')) {
         char b[64]; _snprintf(b,63,fmt,(unsigned)lua_tonumber_(L,2)); b[63]=0;
