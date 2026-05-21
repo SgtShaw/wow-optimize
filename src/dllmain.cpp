@@ -5173,7 +5173,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
     bool batch35Ok = InstallBatchOpt35();
-    bool batch38Ok = InstallBatchOpt38();
+    bool batch38Ok = false;  // DISABLED: crash isolation
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
