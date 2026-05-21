@@ -68,6 +68,9 @@ fallback:
 }
 
 bool InstallCrtWcharSSE2() {
+    return false;  // DISABLED: broken — ASCII wchar_t (0x00XX) have zero high byte,
+    // _mm_cmpeq_epi8 finds zero at position 1, returns length 0. Needs
+    // byte-mask filtering to only check low bytes of each wchar_t pair.
     HMODULE crt = GetModuleHandleA("msvcrt.dll");
     if (!crt) crt = GetModuleHandleA("ucrtbase.dll");
     if (!crt) { Log("[CrtWchar] msvcrt/ucrtbase not found"); return false; }
