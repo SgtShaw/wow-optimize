@@ -2477,25 +2477,35 @@ bool Init() {
     Log("[FastPath] ====================================");
 
     __try {
-        MH_STATUS s = MH_CreateHook((void*)ADDR_str_format, (void*)Hooked_StrFormat,
-                                    (void**)&orig_str_format);
-        if (s != MH_OK) {
-            Log("[FastPath]   string.format MH_CreateHook failed (%d)", (int)s);
-            return false;
+        if (IsWine()) {
+            // Rosetta-safe: defer string.format hook to Phase 2 (Lua API path)
+            // Phase 1 runs before lua_State is available, so we can't use Lua API yet.
+            // Phase 2 will install it via lua_setfield (data write, no x86 patch).
+            orig_str_format = (lua_CFunction_t)ADDR_str_format;
+            Log("[FastPath]   string.format      0x%08X  [DEFERRED] (Rosetta-safe, Phase 2)",
+                (unsigned)ADDR_str_format);
+        } else {
+            MH_STATUS s = MH_CreateHook((void*)ADDR_str_format, (void*)Hooked_StrFormat,
+                                        (void**)&orig_str_format);
+            if (s != MH_OK) {
+                Log("[FastPath]   string.format MH_CreateHook failed (%d)", (int)s);
+                return false;
+            }
+            s = MH_EnableHook((void*)ADDR_str_format);
+            if (s != MH_OK) {
+                Log("[FastPath]   string.format MH_EnableHook failed (%d)", (int)s);
+                return false;
+            }
+            Log("[FastPath]   string.format      0x%08X  [ OK ]", (unsigned)ADDR_str_format);
         }
-        s = MH_EnableHook((void*)ADDR_str_format);
-        if (s != MH_OK) {
-            Log("[FastPath]   string.format MH_EnableHook failed (%d)", (int)s);
-            return false;
-        }
-        Log("[FastPath]   string.format      0x%08X  [ OK ]", (unsigned)ADDR_str_format);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[FastPath]   string.format: EXCEPTION");
         return false;
     }
 
     g_active = true;
-    Log("[FastPath]  Phase 1 [ OK ] вЂ” string.format hooked");
+    Log("[FastPath]  Phase 1 [ OK ] вЂ" string.format %s",
+        IsWine() ? "deferred to Phase 2" : "hooked");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
     return true;
@@ -2558,11 +2568,14 @@ bool InitPhase2(lua_State* L) {
         if (e.address == 0)
             continue;
 
-        if (e.address == ADDR_str_format) {
+        if (e.address == ADDR_str_format && !IsWine()) {
+            // On native Windows, Phase 1 already installed inline hook
             Log("[FastPath]   %-8s.%-8s  SKIP (already hooked in Phase 1)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
+        // On Wine/Rosetta, string.format was deferred from Phase 1.
+        // Fall through to install via Rosetta-safe Lua API path below.
 
 #if TEST_DISABLE_PHASE2_WRITES
         // Permanently disabled: write hooks that modify Lua tables/stack
@@ -2611,24 +2624,73 @@ bool InitPhase2(lua_State* L) {
 #endif
 
         __try {
-            MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
-            if (s != MH_OK) {
-                Log("[FastPath]   %-8s.%-8s  MH_CreateHook failed (%d)",
-                    e.table ? e.table : "_G", e.name, (int)s);
-                continue;
-            }
-            s = MH_EnableHook((void*)e.address);
-            if (s != MH_OK) {
-                Log("[FastPath]   %-8s.%-8s  MH_EnableHook failed (%d)",
-                    e.table ? e.table : "_G", e.name, (int)s);
-                continue;
-            }
+            if (IsWine()) {
+                // ============================================================
+                // Rosetta-safe path: replace lua_CFunction pointer via Lua API
+                // This is a DATA write to Lua heap — no x86 code modification,
+                // completely invisible to rosettax87 JIT translator.
+                // ============================================================
+                typedef void (__cdecl *fn_lua_setfield)(lua_State*, int, const char*);
+                static fn_lua_setfield lua_setfield_ = (fn_lua_setfield)0x0084E900;
 
-            e.hooked = true;
-            hookedNow++;
-            hookedTotal++;
-            Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]",
-                e.table ? e.table : "_G", e.name, (unsigned)e.address);
+                // Get the table containing the function
+                if (e.table) {
+                    lua_getfield_(L, LUA_GLOBALSINDEX, e.table);
+                    if (lua_type_(L, -1) != LUA_TTABLE) {
+                        lua_settop_(L, -2); // pop non-table
+                        Log("[FastPath]   %-8s.%-8s  SKIP (table not found)",
+                            e.table, e.name);
+                        continue;
+                    }
+                } else {
+                    lua_pushvalue_(L, LUA_GLOBALSINDEX);
+                }
+
+                // Save original function pointer
+                lua_getfield_(L, -1, e.name);
+                if (lua_type_(L, -1) == LUA_TFUNCTION) {
+                    // Store original as upvalue so our hook can call it
+                    // For simplicity, store the address directly
+                    *e.origFn = (lua_CFunction_t)e.address;
+                } else {
+                    lua_settop_(L, -3); // pop nil + table
+                    Log("[FastPath]   %-8s.%-8s  SKIP (not a function)",
+                        e.table ? e.table : "_G", e.name);
+                    continue;
+                }
+                lua_settop_(L, -2); // pop old function, keep table
+
+                // Push our hook as a C closure with original as upvalue
+                lua_pushcclosure_(L, (int(__cdecl*)(lua_State*))e.hookFn, 0);
+                lua_setfield_(L, -2, e.name);
+                lua_settop_(L, -2); // pop table
+
+                e.hooked = true;
+                hookedNow++;
+                hookedTotal++;
+                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ] (Rosetta-safe)",
+                    e.table ? e.table : "_G", e.name, (unsigned)e.address);
+            } else {
+                // Native Windows path: inline hook via MinHook
+                MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
+                if (s != MH_OK) {
+                    Log("[FastPath]   %-8s.%-8s  MH_CreateHook failed (%d)",
+                        e.table ? e.table : "_G", e.name, (int)s);
+                    continue;
+                }
+                s = MH_EnableHook((void*)e.address);
+                if (s != MH_OK) {
+                    Log("[FastPath]   %-8s.%-8s  MH_EnableHook failed (%d)",
+                        e.table ? e.table : "_G", e.name, (int)s);
+                    continue;
+                }
+
+                e.hooked = true;
+                hookedNow++;
+                hookedTotal++;
+                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]",
+                    e.table ? e.table : "_G", e.name, (unsigned)e.address);
+            }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             Log("[FastPath]   %-8s.%-8s  EXCEPTION during hook",
@@ -2656,13 +2718,21 @@ void ResetPhase2Discovery() {
 
 void Shutdown() {
     if (g_active) {
-        MH_DisableHook((void*)ADDR_str_format);
+        if (!IsWine()) {
+            MH_DisableHook((void*)ADDR_str_format);
+        }
+        // On Wine/Rosetta, string.format was replaced via Lua API.
+        // No MH_DisableHook needed — the replacement is just a data pointer
+        // in Lua's table. WoW will clean up Lua state on exit anyway.
     }
 
 #if !TEST_DISABLE_ALL_PHASE2
     for (int i = 0; i < NUM_FUNC_HOOKS; i++) {
         if (g_funcHooks[i].hooked && g_funcHooks[i].address) {
-            MH_DisableHook((void*)g_funcHooks[i].address);
+            if (!IsWine()) {
+                MH_DisableHook((void*)g_funcHooks[i].address);
+            }
+            // On Wine/Rosetta: Lua API replacements are cleaned up with Lua state
             g_funcHooks[i].hooked = false;
         }
     }

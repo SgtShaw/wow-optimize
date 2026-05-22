@@ -101,6 +101,11 @@
 // 16-byte reads crossing into unmapped mimalloc pages.
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1   // DISABLED: VA exhaustion under heavy load (dungeon finder crash at 2.4GB WS)
 
+// Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
+// DISABLED: stale object pointers corrupt hash table state → infinite probe loop
+// Cannot safely cache: WoW mutates object table within-frame, no synchronization point
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
+
 // Deferred unit field update queue - disabled: UI/texture
 // flickering due to immediate-mode rendering mismatch (v3.5.x)
 #define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1

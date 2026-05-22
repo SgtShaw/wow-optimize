@@ -63,6 +63,7 @@
 #include "addon_dispatcher.h"
 #include "model_async.h"
 #include "mpq_prefetch.h"
+#include "obj_vis_cache.h"
 #include "sound_prefetch.h"
 #include "quest_async.h"
 #include "nameplate_batch.h"
@@ -685,6 +686,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
         MPQPrefetch::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_OBJ_VIS_CACHE
+        ObjVisCache::OnFrame();
 #endif
 #if !TEST_DISABLE_SOUND_PREFETCH
         SoundPrefetch::OnFrame();
@@ -5321,6 +5325,89 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- Object Visibility Cache ---");
+#if TEST_DISABLE_OBJ_VIS_CACHE
+    Log("[ObjVisCache] DISABLED (feature flag)");
+#else
+    ObjVisCache::Init();
+#endif
+
+    // Crash fix: sub_5E90D0 dereferences dword_C24238 without NULL check.
+    // During loading screen transitions, this global may be uninitialized (NULL),
+    // causing ACCESS_VIOLATION at 0x5E9108. Patch: insert test ecx,ecx / jz
+    // after the mov ecx, [C24238] at 0x5E90FF.
+    {
+        // Original at 0x5E90FF:
+        //   8B 0D 38 42 C2 00   mov ecx, [C24238]   (6 bytes)
+        //   83 C4 08            add esp, 8           (3 bytes)
+        //   3B 04 B1            cmp eax, [ecx+esi*4] (3 bytes)
+        //
+        // Patched:
+        //   8B 0D 38 42 C2 00   mov ecx, [C24238]   (6 bytes, unchanged)
+        //   85 C9               test ecx, ecx        (2 bytes, replaces add esp,8 first 2)
+        //   74 05               jz short +5          (2 bytes, skip cmp if NULL)
+        //   90                  nop                   (1 byte, padding)
+        //   3B 04 B1            cmp eax, [ecx+esi*4] (3 bytes, unchanged)
+        //
+        // When ecx==NULL: jz skips over cmp to 0x5E910B (jz short loc_5E9112)
+        // But we still need add esp,8! So instead, move add esp before the test:
+        //
+        // Better patch at 0x5E90FF (overwrite 12 bytes):
+        //   8B 0D 38 42 C2 00   mov ecx, [C24238]
+        //   83 C4 08            add esp, 8
+        //   85 C9               test ecx, ecx
+        //   74 01               jz short +1 (skip next nop, land on ret-like path)
+        //   90                  nop
+        // Then 0x5E9108 cmp stays but is only reached when ecx!=NULL
+        //
+        // Actually simplest: just NOP the cmp when ecx is NULL by patching
+        // the function entry to add an early-out. But that's complex.
+        //
+        // Simplest safe patch: overwrite 0x5E9105-0x5E910A (6 bytes):
+        //   Original: 83 C4 08 3B 04 B1  (add esp,8; cmp eax,[ecx+esi*4])
+        //   Patched:  83 C4 08 85 C9 74  (add esp,8; test ecx,ecx; jz ...)
+        //   Then we need the jz target to skip the cmp. But cmp is only 3 bytes
+        //   and we consumed it. We need to reconstruct cmp after the jz.
+        //
+        // Cleanest: use a 5-byte NOP sled + redirect. Too complex for inline.
+        // Use MinHook instead.
+
+        typedef void (__cdecl *Sub5E90D0_fn)();
+        static Sub5E90D0_fn orig_Sub5E90D0 = nullptr;
+
+        // Check if dword_C24238 is NULL before calling original
+        // sub_5E90D0 is __cdecl retn (no args, no stack cleanup)
+        struct NullGuard_5E90D0 {
+            static void __cdecl Hooked() {
+                uint32_t* pGlobal = (uint32_t*)0xC24238;
+                // If the global array pointer is NULL, skip the function entirely.
+                // The function only updates visual alert state - skipping is safe.
+                if (*pGlobal == 0) {
+                    return;
+                }
+                orig_Sub5E90D0();
+            }
+        };
+
+        void* target = (void*)0x5E90D0;
+        // Use WineSafe_CreateHook to avoid Rosetta JIT desync on macOS
+        if (WineSafe_CreateHook(target, (void*)NullGuard_5E90D0::Hooked, (void**)&orig_Sub5E90D0) == MH_OK) {
+            if (MH_EnableHook(target) == MH_OK) {
+                Log("[CrashFix] sub_5E90D0 NULL guard: ACTIVE (dword_C24238 check)");
+            } else {
+                Log("[CrashFix] sub_5E90D0 NULL guard: enable failed");
+                MH_RemoveHook(target);
+            }
+        } else {
+            if (IsWine()) {
+                Log("[CrashFix] sub_5E90D0 NULL guard: SKIPPED (Wine/Rosetta - WoW .text patch unsafe)");
+            } else {
+                Log("[CrashFix] sub_5E90D0 NULL guard: hook creation failed");
+            }
+        }
+    }
+
+    Log("");
     Log("--- Async Sound/Audio Prefetching ---");
 #if TEST_DISABLE_SOUND_PREFETCH
     Log("[SoundPrefetch] DISABLED (feature flag)");
@@ -7093,6 +7180,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::Shutdown();
+#endif
+#if !TEST_DISABLE_OBJ_VIS_CACHE
+            ObjVisCache::Shutdown();
 #endif
 #if !TEST_DISABLE_SOUND_PREFETCH
             SoundPrefetch::Shutdown();
