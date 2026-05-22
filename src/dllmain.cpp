@@ -194,7 +194,7 @@ static void InitHardwareCursor() {
         // *(volatile uint8_t*)0x00CABCDE = 1;
 
         g_cursorInitDone = true;
-        Log("Hardware cursor: ACTIVE (forced hardware mode, lag fix, clipping disabled)");
+        Log("Hardware cursor: ACTIVE (clipping disabled, visibility reset)");
     }
 }
 
@@ -332,7 +332,7 @@ static long g_lstrcmpHits = 0, g_lstrcmpFallbacks = 0;
 static long g_mbwcFastHits = 0, g_mbwcFallbacks = 0;
 static long g_wcmbFastHits = 0, g_wcmbFallbacks = 0;
 static long g_profHits = 0, g_profMisses = 0;
-static long g_gpaHits = 0, g_gpaMisses = 0, g_gpaEvictions = 0;
+static long g_gpaHits = 0, g_gpaMisses = 0, g_gpaEvictions = 0, g_gpaBypasses = 0;
 static long g_envHits = 0, g_envMisses = 0;
 static long g_gmfHits = 0, g_gmfMisses = 0;
 long g_crtStrlenHits = 0, g_crtStrlenFallbacks = 0;
@@ -601,10 +601,8 @@ static void PreciseSleep(double milliseconds) {
             else
                 orig_Sleep(0);
         } else {
-            // Single client: hybrid sleep — long waits use bulk Sleep, short busy-wait
-            if (remainingMs > 16.0)
-                orig_Sleep((DWORD)(remainingMs - 2.0));
-            else if (remainingMs > 2.0)
+            // Single client: precise busy-wait for sub-ms accuracy
+            if (remainingMs > 2.0)
                 orig_Sleep(1);
             else if (remainingMs > 0.3)
                 SwitchToThread();
@@ -2771,6 +2769,11 @@ static void OptimizeThreads() {
     if (!mainTid) { Log("WARNING: Could not find main thread"); return; }
 
     g_mainThreadId = mainTid;
+
+    if (IsWine()) {
+        Log("Main thread %lu: ideal-core/priority SKIPPED (Wine/Rosetta)", mainTid);
+        return;
+    }
 
     HANDLE hMain = OpenThread(THREAD_SET_INFORMATION | THREAD_QUERY_INFORMATION, FALSE, mainTid);
     if (!hMain) return;
@@ -6312,7 +6315,8 @@ static bool InstallMBWCHooks() {
 }
 
 // ================================================================
-// GetProcAddress — 4-way set-associative cache
+// GetProcAddress — 4-way set-associative cache (v3.6.5: strcmp-verified,
+// Wine security-module bypass)
 //
 // ================================================================
 
@@ -6323,16 +6327,88 @@ static GetProcAddress_fn orig_GetProcAddress = nullptr;
 static const int GPA_CACHE_WAYS = 4;
 static const int GPA_CACHE_SETS = 128;
 static const int GPA_CACHE_SET_MASK = GPA_CACHE_SETS - 1;
+static const int GPA_NAME_MAX = 64;
 
 struct GpaCacheEntry {
     uintptr_t moduleHash;
     uintptr_t procHash;
     FARPROC   address;
+    char      procName[GPA_NAME_MAX];  // full name for strcmp verification
     uint8_t   lru;      // LRU counter (0-3, higher = more recently used)
     bool      valid;
 };
 
 static GpaCacheEntry g_gpaCache[GPA_CACHE_SETS][GPA_CACHE_WAYS] = {};
+
+// Wine bypass: security/HTTP modules and SSPI function names must pass
+// through to orig_GetProcAddress so Wine's delay-load / forwarder
+// resolution chain is not short-circuited.
+static bool g_gpaWineMode = false;
+
+// Module policy cache: memoise bypass decision per HMODULE
+struct GpaModulePolicy {
+    HMODULE hMod;
+    bool    bypass;
+    bool    valid;
+};
+static const int GPA_MODULE_POLICY_SIZE = 64;
+static GpaModulePolicy g_gpaModulePolicy[GPA_MODULE_POLICY_SIZE] = {};
+
+static bool IsWineGpaBypassModule(HMODULE hModule) {
+    // Check memoised policy
+    int slot = (int)(((uintptr_t)hModule >> 4) & (GPA_MODULE_POLICY_SIZE - 1));
+    if (g_gpaModulePolicy[slot].valid && g_gpaModulePolicy[slot].hMod == hModule)
+        return g_gpaModulePolicy[slot].bypass;
+
+    // Resolve module basename
+    char path[MAX_PATH];
+    DWORD len = GetModuleFileNameA(hModule, path, MAX_PATH);
+    bool bypass = false;
+    if (len > 0) {
+        // Find basename
+        const char* base = path;
+        for (const char* p = path; *p; p++) {
+            if (*p == '\\' || *p == '/') base = p + 1;
+        }
+        // _stricmp for case-insensitive comparison
+        static const char* bypassModules[] = {
+            "secur32.dll", "security.dll", "schannel.dll", "sspicli.dll",
+            "wininet.dll", "winhttp.dll", "crypt32.dll", "cryptnet.dll",
+            "bcrypt.dll", "ncrypt.dll", "kerberos.dll", nullptr
+        };
+        for (int i = 0; bypassModules[i]; i++) {
+            if (_stricmp(base, bypassModules[i]) == 0) { bypass = true; break; }
+        }
+    }
+
+    g_gpaModulePolicy[slot].hMod = hModule;
+    g_gpaModulePolicy[slot].bypass = bypass;
+    g_gpaModulePolicy[slot].valid = true;
+    return bypass;
+}
+
+static bool IsWineSecurityProcName(LPCSTR name) {
+    if (!name || (uintptr_t)name < 0x10000) return false;
+    static const char* bypassPrefixes[] = {
+        "AcquireCredentialsHandle", "InitializeSecurityContext",
+        "AcceptSecurityContext", "EncryptMessage", "DecryptMessage",
+        "MakeSignature", "VerifySignature", "QuerySecurityContextToken",
+        "CompleteAuthToken", "DeleteSecurityContext",
+        "FreeCredentialsHandle", "QuerySecurityPackageInfo",
+        "FreeContextBuffer", "EnumerateSecurityPackages",
+        nullptr
+    };
+    for (int i = 0; bypassPrefixes[i]; i++) {
+        size_t plen = strlen(bypassPrefixes[i]);
+        if (strncmp(name, bypassPrefixes[i], plen) == 0) return true;
+    }
+    return false;
+}
+
+static inline bool ShouldBypassGpaCache(HMODULE hModule, LPCSTR lpProcName) {
+    if (!g_gpaWineMode) return false;
+    return IsWineGpaBypassModule(hModule) || IsWineSecurityProcName(lpProcName);
+}
 
 static inline uintptr_t HashPtr(const void* p, size_t len) {
     const uint8_t* b = (const uint8_t*)p;
@@ -6349,15 +6425,24 @@ static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) 
         return orig_GetProcAddress(hModule, lpProcName);
     }
 
+    // Wine: bypass security/HTTP modules
+    if (ShouldBypassGpaCache(hModule, lpProcName)) {
+        g_gpaBypasses++;
+        return orig_GetProcAddress(hModule, lpProcName);
+    }
+
     // Compute cache key
+    size_t nameLen = strlen(lpProcName);
     uintptr_t modHash = (uintptr_t)hModule;
-    uintptr_t procHash = HashPtr(lpProcName, strlen(lpProcName));
+    uintptr_t procHash = HashPtr(lpProcName, nameLen);
     int setIdx = (int)((modHash ^ procHash) & GPA_CACHE_SET_MASK);
 
-    // Search all 4 ways in this set
+    // Search all 4 ways in this set — hash AND strcmp
     GpaCacheEntry* set = g_gpaCache[setIdx];
     for (int way = 0; way < GPA_CACHE_WAYS; way++) {
-        if (set[way].valid && set[way].moduleHash == modHash && set[way].procHash == procHash) {
+        if (set[way].valid && set[way].moduleHash == modHash &&
+            set[way].procHash == procHash &&
+            strcmp(set[way].procName, lpProcName) == 0) {
             // Cache hit — update LRU
             set[way].lru = 3;
             for (int i = 0; i < GPA_CACHE_WAYS; i++) {
@@ -6370,7 +6455,7 @@ static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) 
 
     // Cache miss — call original
     FARPROC addr = orig_GetProcAddress(hModule, lpProcName);
-    if (addr) {
+    if (addr && nameLen < GPA_NAME_MAX) {
         // Find victim: invalid slot first, else LRU=0
         int victim = -1;
         for (int way = 0; way < GPA_CACHE_WAYS; way++) {
@@ -6388,12 +6473,13 @@ static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) 
                 }
             }
         }
-        if (victim == -1) victim = 0; // Fallback (should never happen)
+        if (victim == -1) victim = 0;
 
-        // Insert into cache
+        // Insert into cache with full name
         set[victim].moduleHash = modHash;
         set[victim].procHash   = procHash;
         set[victim].address    = addr;
+        memcpy(set[victim].procName, lpProcName, nameLen + 1);
         set[victim].lru        = 3;
         set[victim].valid      = true;
 
@@ -6420,7 +6506,9 @@ static bool InstallGetProcAddressCache() {
     if (MH_CreateHook(p, (void*)hooked_GetProcAddress, (void**)&orig_GetProcAddress) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
 
-    Log("GetProcAddress cache: ACTIVE (4-way set-associative, 128 sets, LRU)");
+    g_gpaWineMode = IsWine();
+    Log("GetProcAddress cache: ACTIVE (4-way, 128 sets, strcmp-verified%s)",
+        g_gpaWineMode ? ", Wine security bypass" : "");
     return true;
 #endif
 }
@@ -6608,6 +6696,10 @@ static bool InstallThreadAffinity() {
     Log("Thread affinity: DISABLED (crash isolation)");
     return false;
 #else
+    if (IsWine()) {
+        Log("Thread affinity: SKIPPED (Wine/Rosetta)");
+        return false;
+    }
     DWORD_PTR processMask = 0, systemMask = 0;
     if (!GetProcessAffinityMask(GetCurrentProcess(), &processMask, &systemMask)) {
         Log("Thread affinity: SKIP (GetProcessAffinityMask failed)");
