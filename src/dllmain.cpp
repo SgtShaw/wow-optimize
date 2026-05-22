@@ -122,6 +122,7 @@ extern bool InstallCrtMemFastPaths();
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
 static bool InstallThreadAffinity();
+static void InstallWineSTIPNoop();
 
 #define VA_ARENA_PAGE_SIZE  4096
 #define VA_ARENA_MAX_PAGES  131072  // 512MB
@@ -5230,6 +5231,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool combatLogFullCacheOk = InstallCombatLogFullCache();
 
     Log("--- Thread Affinity ---");
+    if (IsWine()) {
+        // On Wine/Rosetta, hook SetThreadIdealProcessor at the kernel32
+        // level to make it a no-op. WoW's own sub_8D2110 (ThreadWorker)
+        // and potentially WoWsilicon call this natively — our own
+        // InstallThreadAffinity guard only prevents OUR hook from pinning,
+        // but cannot stop WoW's original code. The rosettax87 JIT desyncs
+        // when any caller changes thread affinity.
+        InstallWineSTIPNoop();
+    }
     g_threadAffOk = InstallThreadAffinity();
 
     Log("--- VA Arena ---");
@@ -6689,6 +6699,27 @@ static bool IsExecutableMemory(uintptr_t addr) {
     if (mbi.State != MEM_COMMIT) return false;
     return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
                             PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
+// Wine/Rosetta: make SetThreadIdealProcessor a global no-op.
+// WoW's own sub_8D2110 and external injectors (WoWsilicon) call this
+// natively. Guarding only our own hook sites is insufficient — we must
+// intercept the kernel32 entry point itself to prevent rosettax87 desync.
+static DWORD WINAPI Noop_SetThreadIdealProcessor(HANDLE hThread, DWORD dwIdealProcessor) {
+    (void)hThread; (void)dwIdealProcessor;
+    return 0;  // return "previous ideal processor" = 0
+}
+
+static void InstallWineSTIPNoop() {
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return;
+    void* p = (void*)GetProcAddress(hK32, "SetThreadIdealProcessor");
+    if (!p) return;
+    static DWORD(WINAPI* orig)(HANDLE, DWORD) = nullptr;
+    if (MH_CreateHook(p, (void*)Noop_SetThreadIdealProcessor, (void**)&orig) == MH_OK &&
+        MH_EnableHook(p) == MH_OK) {
+        Log("SetThreadIdealProcessor: NO-OP on Wine (prevents rosettax87 desync)");
+    }
 }
 
 static bool InstallThreadAffinity() {
