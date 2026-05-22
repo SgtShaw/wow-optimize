@@ -1,4 +1,4 @@
-// Addon file RAM-disk — pre-loads all addon files into memory at startup.
+// Addon file RAM-disk - pre-loads all addon files into memory at startup.
 // When WoW reads addon files, serve from cache instead of disk/MPQ I/O.
 // Eliminates addon loading stutter on /reload, zone transitions, character login.
 

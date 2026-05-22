@@ -19,12 +19,12 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. Massive thanks to:
 
-- **Morbent** — relentless crash bisection, tested dozens of builds
-- **Billy Hoyle** — same energy, caught the loading screen regression and verified every fix
-- **tuan** — found the bank/AH SSE2 crash
-- **NoGoodLife** — battle-tested network optimizations on WoW Circle, confirmed keepalive/disconnect fixes
-- **feh_dois** — isolated the AwesomeWotlkLib exit crash
-- **UNOB**, **DarkRockDemon**, **Raymond**  — core testing crew across multiple releases
+- **Morbent** - relentless crash bisection, tested dozens of builds
+- **Billy Hoyle** - same energy, caught the loading screen regression and verified every fix
+- **tuan** - found the bank/AH SSE2 crash
+- **NoGoodLife** - battle-tested network optimizations on WoW Circle, confirmed keepalive/disconnect fixes
+- **feh_dois** - isolated the AwesomeWotlkLib exit crash
+- **UNOB**, **DarkRockDemon**, **Raymond**  - core testing crew across multiple releases
 ---
 
 ## Current Feature Set
@@ -52,7 +52,7 @@ This project wouldn't exist without the community. Every crash report, every bis
 - `GetSpellInfo` - disabled (icon corruption, crashes on relog)
 
 ### Lua internal caches (v3.5.5+)
-- `luaH_getstr` - table string-key lookup cache (disabled in v3.6.1 — stale Node* with mimalloc table recycling)
+- `luaH_getstr` - table string-key lookup cache (disabled in v3.6.1 - stale Node* with mimalloc table recycling)
 
 ### Lua fast paths
 - Phase 1:
@@ -151,18 +151,18 @@ This project wouldn't exist without the community. Every crash report, every bis
 
 These features are disabled in public-safe builds because they previously caused regressions or crashes:
 
-- CRT SSE2 memory/string fast paths — cross page boundaries on mimalloc heap (bank/AH crash)
-- CRT SSE2 memchr/strchr — same page-boundary bug (exit crash)
-- WoW-internal SSE2 strlen at `sub_76EE30` — same page-boundary bug (exit crash)
+- CRT SSE2 memory/string fast paths - cross page boundaries on mimalloc heap (bank/AH crash)
+- CRT SSE2 memchr/strchr - same page-boundary bug (exit crash)
+- WoW-internal SSE2 strlen at `sub_76EE30` - same page-boundary bug (exit crash)
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
 - GetSpellInfo cache (disabled)
 - ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
-- luaH_getstr table lookup cache — stale Node* with mimalloc table recycling
-- Async texture loading hook — caused loading screen regression (was commented out in v3.5.x)
-- Model async workers — loading screen regression
+- luaH_getstr table lookup cache - stale Node* with mimalloc table recycling
+- Async texture loading hook - caused loading screen regression (was commented out in v3.5.x)
+- Model async workers - loading screen regression
 - `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
 - `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
 - CombatLog full event cache (disabled - stale `TString*` crashes)
@@ -186,29 +186,29 @@ These experimental features were tested and found to provide no measurable benef
 
 ## v3.6.2 Changelog
 
-**23 kernel-call caches** — GetSystemTimeAsFileTime (QPC-based), GetACP, GetUserDefaultLangID, GetProcessHeap, CharUpperA/LowerA (inline ASCII), MapVirtualKeyA, GetThreadPriority, GetOEMCP, GetDoubleClickTime, GetCursorPos (16ms budget), GetSysColor, GetKeyboardLayout, GetKeyboardLayoutNameA, GetCaretBlinkTime, IsWindow, GetDesktopWindow, GetFocus (16ms budget), GetTickCount64 (QPC), GetClientRect, GetWindowRect, ShowCursor, ValidateRect.
+**23 kernel-call caches** - GetSystemTimeAsFileTime (QPC-based), GetACP, GetUserDefaultLangID, GetProcessHeap, CharUpperA/LowerA (inline ASCII), MapVirtualKeyA, GetThreadPriority, GetOEMCP, GetDoubleClickTime, GetCursorPos (16ms budget), GetSysColor, GetKeyboardLayout, GetKeyboardLayoutNameA, GetCaretBlinkTime, IsWindow, GetDesktopWindow, GetFocus (16ms budget), GetTickCount64 (QPC), GetClientRect, GetWindowRect, ShowCursor, ValidateRect.
 
-**Swap/Present glFinish skip** — re-enabled for DXVK/D3D9. Saves 0.5-2ms per frame by skipping synchronous GPU flush when the graphics API already handles presentation sync.
+**Swap/Present glFinish skip** - re-enabled for DXVK/D3D9. Saves 0.5-2ms per frame by skipping synchronous GPU flush when the graphics API already handles presentation sync.
 
-**CriticalSection 3-stage spin** — 8000 spin count + exponential backoff retry. Fewer kernel transitions for short-held locks (StormLib file reads, LMEM pool ops).
+**CriticalSection 3-stage spin** - 8000 spin count + exponential backoff retry. Fewer kernel transitions for short-held locks (StormLib file reads, LMEM pool ops).
 
-**CRT SSE2 fast paths re-enabled** — strlen/strcmp/memcmp/memcpy/memset with page-boundary guard. Checks `((ptr & 0xFFF) > 0xFF0)` — falls back to original if within 16 bytes of page end. 99.6% SSE2 hit rate, 0.4% page-edge fallback. Previously disabled due to bank/AH crashes (v3.6.0).
+**CRT SSE2 fast paths re-enabled** - strlen/strcmp/memcmp/memcpy/memset with page-boundary guard. Checks `((ptr & 0xFFF) > 0xFF0)` - falls back to original if within 16 bytes of page end. 99.6% SSE2 hit rate, 0.4% page-edge fallback. Previously disabled due to bank/AH crashes (v3.6.0).
 
-**mimalloc 23 size-class pre-warming** — zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
+**mimalloc 23 size-class pre-warming** - zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
 
-**MPQ folder detection** — patch-Sunlight.MPQ style unpacked patches, files inside .MPQ directories, Interface virtual MPQ archive. Includes trailing backslash fix.
+**MPQ folder detection** - patch-Sunlight.MPQ style unpacked patches, files inside .MPQ directories, Interface virtual MPQ archive. Includes trailing backslash fix.
 
 **GetFileAttributesA cache** expanded 256→4096 slots.
 
-**Dynamic VA arena** — 256MB reserved during loading screens for M2/WMO contiguous allocations, released after.
+**Dynamic VA arena** - 256MB reserved during loading screens for M2/WMO contiguous allocations, released after.
 
-**Addon file OS cache pre-warmer** — .lua + .toc + .xml files pre-read into OS cache at startup (128MB max).
+**Addon file OS cache pre-warmer** - .lua + .toc + .xml files pre-read into OS cache at startup (128MB max).
 
-**mimalloc purge_delay=-1** — no stale-pointer crashes on /reload or logout.
+**mimalloc purge_delay=-1** - no stale-pointer crashes on /reload or logout.
 
-**Asset path cache** — sub_819D40 hooked (643 callers), 92.9% hit rate in testing. Disabled in release due to mimalloc stale-pointer edge cases on teardown.
+**Asset path cache** - sub_819D40 hooked (643 callers), 92.9% hit rate in testing. Disabled in release due to mimalloc stale-pointer edge cases on teardown.
 
-**Frame time stat** — periodic stats now show frame timing for addon overhead diagnosis.
+**Frame time stat** - periodic stats now show frame timing for addon overhead diagnosis.
 
 ---
 
@@ -302,6 +302,28 @@ wow_optimize automatically detects when multiple WoW instances are running.
   - reduced working set targets
 
 This reduces CPU pressure compared to forcing aggressive single-client timing on all clients.
+
+---
+
+## macOS / Apple Silicon (WoWSilicon)
+
+wow_optimize works on macOS via [WoWSilicon](https://github.com/WoWSilicon/WoWSilicon), which runs WoW 3.3.5a natively on Apple Silicon using Wine + [rosettax87](https://github.com/Lifeisawful/rosettax87_jit) translation.
+
+### DLL load order
+
+In `dlls.txt`, `winerosetta.dll` must be loaded before `libSiliconPatch.dll`:
+
+```
+mods/winerosetta.dll
+mods/libSiliconPatch.dll
+mods/wow_optimize.dll
+```
+
+Swapping the first two causes a rosetta error. Without wow_optimize the order does not matter, but with it loaded the translation layer must initialize before any hooks are installed.
+
+### Testing credits
+
+macOS/WoWSilicon compatibility was tested by **David** (`_oldq`).
 
 ---
 

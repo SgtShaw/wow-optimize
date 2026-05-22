@@ -1,4 +1,4 @@
-// Async Model/M2 Loader — background MPQ prefetch
+// Async Model/M2 Loader - background MPQ prefetch
 // Hooks sub_81C390. Worker threads read model files ahead of WoW.
 //
 // Approach: cannot safely cache model pointers (WoW frees/reuses).
@@ -8,6 +8,7 @@
 #include "model_async.h"
 #include "lua_optimize.h"
 #include "MinHook.h"
+#include "version.h"
 #include <cstdio>
 #include <cstring>
 
@@ -145,7 +146,7 @@ bool Init() {
     }
 
     void* target = (void*)0x0081C390;
-    if (MH_CreateHook(target, (void*)Hooked_LoadModel, (void**)&orig_LoadModel) != MH_OK ||
+    if (WineSafe_CreateHook(target, (void*)Hooked_LoadModel, (void**)&orig_LoadModel) != MH_OK ||
         MH_EnableHook(target) != MH_OK) {
         Log("[ModelAsync] Hook failed");
         return false;

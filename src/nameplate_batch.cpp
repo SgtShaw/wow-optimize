@@ -1,5 +1,5 @@
 // ================================================================
-// Multithreaded Nameplate Renderer — Implementation
+// Multithreaded Nameplate Renderer - Implementation
 // ================================================================
 
 #include "nameplate_batch.h"

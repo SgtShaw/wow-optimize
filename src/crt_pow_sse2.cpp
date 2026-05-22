@@ -1,4 +1,4 @@
-// CRT pow() fast-path — intercept common integer exponents
+// CRT pow() fast-path - intercept common integer exponents
 // pow(x,2)=x*x, pow(x,0.5)=sqrt(x) etc. cover 90%+ of WoW usage
 // Falls through to original CRT pow for complex cases (10x slower but rare)
 
@@ -18,7 +18,7 @@ static volatile LONG64 g_calls = 0, g_fast = 0;
 static double __cdecl Hooked_pow(double x, double y) {
     g_calls++;
     
-    // Common integer/fractional exponents — exact, not approximation
+    // Common integer/fractional exponents - exact, not approximation
     if (y == 2.0) { g_fast++; return x * x; }
     if (y == 3.0) { g_fast++; return x * x * x; }
     if (y == 4.0) { double x2 = x*x; g_fast++; return x2*x2; }

@@ -1,7 +1,7 @@
 #pragma once
 
 // ================================================================
-// Spell Data Caching — Cache spell coefficients, ranges, cooldowns
+// Spell Data Caching - Cache spell coefficients, ranges, cooldowns
 //
 // ================================================================
 

@@ -1,5 +1,5 @@
-// CRT strstr SSE2 fast path — replaces byte-by-byte search with SSE2
-// Not a cache — algorithmic improvement. Called by addon string ops.
+// CRT strstr SSE2 fast path - replaces byte-by-byte search with SSE2
+// Not a cache - algorithmic improvement. Called by addon string ops.
 
 #include "strstr_fast.h"
 #include "version.h"
@@ -41,7 +41,7 @@ static const char* __cdecl Hooked_strstr(const char* haystack, const char* needl
     const char* p = haystack;
     
     if (needleLen <= 4) {
-        // Tiny pattern — unrolled comparison
+        // Tiny pattern - unrolled comparison
         while (p <= end) {
             if (p[0] == first) {
                 bool match = true;
@@ -53,7 +53,7 @@ static const char* __cdecl Hooked_strstr(const char* haystack, const char* needl
             p++;
         }
     } else if (needleLen <= 8) {
-        // Medium pattern — use uint64 comparison for speed
+        // Medium pattern - use uint64 comparison for speed
         uint64_t needle64 = 0;
         memcpy(&needle64, needle, needleLen);
         while (p <= end) {
@@ -68,7 +68,7 @@ static const char* __cdecl Hooked_strstr(const char* haystack, const char* needl
             p++;
         }
     } else {
-        // 9-16 byte pattern — use SSE2
+        // 9-16 byte pattern - use SSE2
         __m128i needleXmm = _mm_loadu_si128((__m128i*)needle);
         __m128i mask = _mm_cmpeq_epi8(needleXmm, _mm_set1_epi8(first));
         int maskBits = _mm_movemask_epi8(mask);

@@ -1,5 +1,5 @@
 // ================================================================
-//  wow_loader.exe — Auto-loader for wow_optimize.dll
+//  wow_loader.exe - Auto-loader for wow_optimize.dll
 //  WoW 3.3.5a
 //
 //  Launches Wow.exe and injects wow_optimize.dll automatically.
@@ -170,7 +170,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
                     "wow_optimize.dll could not be loaded.\n"
                     "WoW will start normally without optimizations.\n\n"
                     "Check Logs\\wow_loader.log for details.",
-                    "wow_loader — Warning",
+                    "wow_loader - Warning",
                     MB_OK | MB_ICONWARNING);
     }
 

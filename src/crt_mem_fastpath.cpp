@@ -1,5 +1,5 @@
 // ================================================================
-// CRT Memory/String Fast Paths — SSE2 optimized msvcrt hooks
+// CRT Memory/String Fast Paths - SSE2 optimized msvcrt hooks
 //
 // ================================================================
 
@@ -18,7 +18,7 @@ extern long g_crtMemcmpHits, g_crtMemcmpFallbacks;
 extern long g_crtMemcpyHits, g_crtMemcpyFallbacks;
 extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 
-// Thread-local recursion guard — prevents circular re-entry between
+// Thread-local recursion guard - prevents circular re-entry between
 // mimalloc and CRT hooks. mimalloc may call memset/memcpy while holding
 // internal locks; if our hook then triggers another allocation, deadlock.
 static __declspec(thread) volatile LONG g_crtInHook = 0;
@@ -42,7 +42,7 @@ static memcpy_fn  orig_memcpy  = nullptr;
 static memset_fn  orig_memset  = nullptr;
 
 // ================================================================
-// strlen — SSE2 null-terminator scan
+// strlen - SSE2 null-terminator scan
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
     CRT_ENTER();
@@ -73,7 +73,7 @@ fallback:
 }
 
 // ================================================================
-// strcmp — SSE2 byte-wise compare (ASCII-safe)
+// strcmp - SSE2 byte-wise compare (ASCII-safe)
 // ================================================================
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     CRT_ENTER();
@@ -137,7 +137,7 @@ fallback: return orig_strncmp(s1,s2,n);
 
 
 // ================================================================
-// memcmp — SSE2 vectorized comparison
+// memcmp - SSE2 vectorized comparison
 // ================================================================
 static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     CRT_ENTER();
@@ -173,7 +173,7 @@ fallback:
 }
 
 // ================================================================
-// memcpy — SSE2 unaligned copy (safe for overlapping regions)
+// memcpy - SSE2 unaligned copy (safe for overlapping regions)
 // ================================================================
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     CRT_ENTER();
@@ -204,7 +204,7 @@ fallback:
 }
 
 // ================================================================
-// memset — SSE2 byte broadcast
+// memset - SSE2 byte broadcast
 // ================================================================
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     CRT_ENTER();
@@ -255,7 +255,7 @@ bool InstallCrtMemFastPaths() {
     tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp);
     tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
     tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
-    // tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp); // DISABLED — crash isolation
+    // tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp); // DISABLED - crash isolation
 
     if (ok > 0) {
         Log("[CRT] Fast paths: ACTIVE (%d/5 hooked, SSE2 optimized)", ok);

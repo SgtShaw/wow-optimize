@@ -1,5 +1,5 @@
 // ================================================================
-// UI Widget Cache — DISABLED
+// UI Widget Cache - DISABLED
 //
 // ================================================================
 
@@ -9,7 +9,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// UICache namespace — stub implementation (disabled).
+// UICache namespace - stub implementation (disabled).
 // ================================================================
 namespace UICache {
 

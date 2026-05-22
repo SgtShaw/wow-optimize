@@ -1,5 +1,5 @@
 // ================================================================
-// UI Frame Update Batching — Batch OnUpdate callbacks per frame
+// UI Frame Update Batching - Batch OnUpdate callbacks per frame
 //
 // ================================================================
 

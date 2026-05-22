@@ -353,7 +353,7 @@ static bool DequeueEffectResult(SpellEffectMT::EffectResult* result) {
 }
 
 // ================================================================
-// sub_6F8C50 — effect update hook
+// sub_6F8C50 - effect update hook
 //
 // PARAMETERS:
 //   - this (ECX): Pointer to CEffect object
@@ -672,7 +672,7 @@ bool Init() {
     
     // Create hook
     void* target = (void*)targetAddr;
-    if (MH_CreateHook(target, (void*)Hooked_UpdateEffectAttachment, (void**)&orig_UpdateEffectAttachment) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)Hooked_UpdateEffectAttachment, (void**)&orig_UpdateEffectAttachment) != MH_OK) {
         Log("[SpellEffectMT] ERROR: Failed to create hook at 0x%08X", targetAddr);
         Shutdown();
         return false;

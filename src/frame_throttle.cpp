@@ -1,5 +1,5 @@
 // ================================================================
-// Frame Script Throttling — Reduce OnUpdate overhead
+// Frame Script Throttling - Reduce OnUpdate overhead
 //
 // ================================================================
 

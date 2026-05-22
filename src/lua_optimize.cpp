@@ -1,19 +1,19 @@
 // ================================================================
-// Lua VM Optimizer — GC, allocator, string table, addon interface
+// Lua VM Optimizer - GC, allocator, string table, addon interface
 //
 // Comprehensive optimization of WoW's Lua 5.1 virtual machine.
 //
 // COMPONENTS:
-//   1. Lua Allocator Replacement — mimalloc for Lua VM memory
+//   1. Lua Allocator Replacement - mimalloc for Lua VM memory
 //      Replaces WoW's default allocator (0x008558E0, SMemAlloc-based)
 //      with mimalloc. All Lua objects (TString, Table, Closure, etc.)
 //      are allocated through mimalloc instead of WoW's pool allocator.
 //
-//   2. String Table Pre-sizing — expands Lua's string hash table from
+//   2. String Table Pre-sizing - expands Lua's string hash table from
 //      default 32-64 buckets to 32768 buckets at startup. Heavy addon
-//      sessions create 30k-50k strings — pre-sizing avoids rehash freezes.
+//      sessions create 30k-50k strings - pre-sizing avoids rehash freezes.
 //
-//   3. GC Optimization — tunes Lua's incremental GC:
+//   3. GC Optimization - tunes Lua's incremental GC:
 //      - pause: 200 -> 110 (start GC sooner)
 //      - stepmul: 200 -> 300 (do more work per step)
 //      - stops auto-GC, uses manual stepping every frame
@@ -21,15 +21,15 @@
 //        loading(256KB)
 //      - Frame-time based pre-adjustment: slow frames → less GC
 //      - Adaptive post-GC: smoothed GC time → adjusts base step sizes
-//      - Emergency GC (incremental): triggers 1MB GC steps if memory > 500 MB (never full collect — avoids main thread stalls)
+//      - Emergency GC (incremental): triggers 1MB GC steps if memory > 500 MB (never full collect - avoids main thread stalls)
 //
-//   4. Addon Interface — bidirectional communication with Lua addons
+//   4. Addon Interface - bidirectional communication with Lua addons
 //      via global variables (LUABOOST_DLL_*, LUABOOST_ADDON_*)
 //      - Reads combat/idle/loading state from addon
 //      - Writes GC stats, memory usage, version to addon
 //      - Processes GC requests from addon (step/full collect)
 //
-//   5. UI Reload Detection — detects lua_State changes (UI reload)
+//   5. UI Reload Detection - detects lua_State changes (UI reload)
 //      and reinitializes all optimizations for the new VM.
 // ================================================================
 
@@ -138,7 +138,7 @@ static struct {
 } Api;
 
 // ================================================================
-//  Configuration — 4-tier GC stepping
+//  Configuration - 4-tier GC stepping
 //  Increased from v3.5.5 defaults to handle heavy addon sessions (300-400MB Lua memory).
 //  At 60fps: normal=128KB → 7.7 MB/sec, idle=256KB → 15 MB/sec, loading=512KB → 30 MB/sec.
 // ================================================================
@@ -146,10 +146,10 @@ static struct {
 static struct {
     int  gcPause        = 110;
     int  gcStepMul      = 300;
-    int  normalStepKB   = 128;   // was 64 — heavy sessions need faster collection
+    int  normalStepKB   = 128;   // was 64 - heavy sessions need faster collection
     int  combatStepKB   = 64;    // Raised from 32 → 64 to prevent memory ballooning during combat logs
-    int  idleStepKB     = 256;   // was 128 — aggressive cleanup while AFK
-    int  loadingStepKB  = 512;   // was 256 — rapid cleanup during zone transitions
+    int  idleStepKB     = 256;   // was 128 - aggressive cleanup while AFK
+    int  loadingStepKB  = 512;   // was 256 - rapid cleanup during zone transitions
     bool manualGCMode   = true;
 
     bool inCombat       = false;
@@ -287,7 +287,7 @@ static lua_State* ReadLuaState() {
 }
 
 // ================================================================
-//  Lua Allocator Replacement — mimalloc for Lua VM
+//  Lua Allocator Replacement - mimalloc for Lua VM
 //
 // ================================================================
 
@@ -370,7 +370,7 @@ static bool ReplaceLuaAllocator(lua_State* L) {
         if (currentAlloc != 0x008558E0) {
             Log("[LuaOpt-Alloc] WARNING: frealloc is not 0x008558E0 (got 0x%08X)",
                (unsigned)currentAlloc);
-            Log("[LuaOpt-Alloc] Unexpected allocator — skipping replacement for safety");
+            Log("[LuaOpt-Alloc] Unexpected allocator - skipping replacement for safety");
             return false;
         }
 
@@ -536,7 +536,7 @@ static bool PreSizeStringTable(lua_State* L) {
 }
 
 // ================================================================
-//  GC Optimization — 4-tier adaptive stepping
+//  GC Optimization - 4-tier adaptive stepping
 //
 // ================================================================
 static bool OptimizeGC(lua_State* L) {
@@ -545,7 +545,7 @@ static bool OptimizeGC(lua_State* L) {
     __try {
         int testMem = Api.lua_gc(L, LUA_GCCOUNT, 0);
         if (testMem < 0 || testMem > 4 * 1024 * 1024) {
-            Log("[LuaOpt] lua_gc returned implausible value %d — aborting", testMem);
+            Log("[LuaOpt] lua_gc returned implausible value %d - aborting", testMem);
             return false;
         }
         Log("[LuaOpt] lua_gc verified OK: Lua memory = %d KB", testMem);
@@ -559,7 +559,7 @@ static bool OptimizeGC(lua_State* L) {
 
         if (Config.manualGCMode) {
             Api.lua_gc(L, LUA_GCSTOP, 0);
-            Log("[LuaOpt] Auto GC stopped — manual stepping active");
+            Log("[LuaOpt] Auto GC stopped - manual stepping active");
         }
 
         int memKB = Api.lua_gc(L, LUA_GCCOUNT, 0);
@@ -620,7 +620,7 @@ static void StepGC(lua_State* L, double frameMs) {
     }
 
     // Skip GC for first 30 frames after entering loading mode
-    // Zone transitions are fragile — Lua VM is in transitional state
+    // Zone transitions are fragile - Lua VM is in transitional state
     if (Config.isLoading) {
         if (g_loadingGraceFrames < 30) {
             g_loadingGraceFrames++;
@@ -639,10 +639,10 @@ static void StepGC(lua_State* L, double frameMs) {
     // Frame-time based pre-adjustment: reduce GC pressure when frames are slow
     if (frameMs > 0.0) {
         if (frameMs > 16.0) {
-            // Frame took > 16ms (below 60 FPS) — minimize GC to avoid further slowdown
+            // Frame took > 16ms (below 60 FPS) - minimize GC to avoid further slowdown
             if (stepKB > 4) stepKB = stepKB / 2;
         } else if (frameMs < 8.0) {
-            // Frame took < 8ms (above 120 FPS) — increase GC to catch up on garbage
+            // Frame took < 8ms (above 120 FPS) - increase GC to catch up on garbage
             stepKB = stepKB * 3 / 2;
         }
         // 8-16ms: normal step, no adjustment needed
@@ -659,7 +659,7 @@ static void StepGC(lua_State* L, double frameMs) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("[LuaOpt] EXCEPTION in GC step — disabling");
+        Log("[LuaOpt] EXCEPTION in GC step - disabling");
         State.gcOptimized = false;
         return;
     }
@@ -669,9 +669,9 @@ static void StepGC(lua_State* L, double frameMs) {
     g_smoothedGcMs = g_smoothedGcMs * 0.95 + gcMs * 0.05;
 
     // Post-GC adaptive: adjust base step sizes based on GC time.
-    // SLOW adaptation — prevent step sizes from collapsing during heavy sessions.
+    // SLOW adaptation - prevent step sizes from collapsing during heavy sessions.
     if (g_smoothedGcMs > 2.0) {
-        // Only decrease if GC is VERY slow (>5ms) — avoid over-reacting to temporary spikes.
+        // Only decrease if GC is VERY slow (>5ms) - avoid over-reacting to temporary spikes.
         if (g_smoothedGcMs > 5.0) {
             if (Config.isLoading) {
                 if (Config.loadingStepKB > 64) Config.loadingStepKB -= 32;
@@ -702,11 +702,11 @@ static void StepGC(lua_State* L, double frameMs) {
         State.luaMemoryKB = kb + (b / 1024.0);
     }
 
-    // Emergency GC: INCREMENTAL only — never block main thread with full collect.
+    // Emergency GC: INCREMENTAL only - never block main thread with full collect.
     // Full collect (LUA_GCCOLLECT) causes 500ms-2s stalls → network timeout → ping spike.
     // Instead: aggressive incremental steps spread over multiple frames.
-    // Threshold: 300 MB (355 MB was causing OOM crashes — 32-bit address space fragmentation).
-    // Loading mode: MUCH more aggressive — 64 MB steps, 2s cooldown (teleport safety).
+    // Threshold: 300 MB (355 MB was causing OOM crashes - 32-bit address space fragmentation).
+    // Loading mode: MUCH more aggressive - 64 MB steps, 2s cooldown (teleport safety).
     // Normal mode: 16 MB steps, 10s cooldown (balance for raid performance).
     static double g_lastEmergencyMem = 0.0;
     static DWORD  g_lastEmergencyTick = 0;
@@ -716,10 +716,10 @@ static void StepGC(lua_State* L, double frameMs) {
         double memMB = State.luaMemoryKB / 1024.0;
 
         // Loading mode: aggressive emergency GC (teleport/zone transition safety).
-        // During loading there is no rendering — we can collect hard without affecting FPS.
+        // During loading there is no rendering - we can collect hard without affecting FPS.
         // This prevents M2 model allocation failures when memory is already high.
         if (Config.isLoading) {
-            // 64 MB step every 2 seconds during loading — clear memory fast.
+            // 64 MB step every 2 seconds during loading - clear memory fast.
             if (!Config.isLoading && memMB > g_lastEmergencyMem + 5.0 && (nowTick - g_lastEmergencyTick) > 10000) {
                 Api.lua_gc(L, LUA_GCSTEP, 16384);  // 16 MB step
                 State.fullCollects++;
@@ -844,7 +844,7 @@ static void TryTrimForLoadingScreen(lua_State* L) {
 }
 
 // ================================================================
-//  Addon State Reader — reads globals set by !LuaBoost addon
+//  Addon State Reader - reads globals set by !LuaBoost addon
 //
 // ================================================================
 static void ReadAddonStateFromLua(lua_State* L) {
@@ -1048,17 +1048,17 @@ static void ProcessGCRequests(lua_State* L) {
             Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_REQUEST");
 
             if (val < 0) {
-                // CRITICAL FIX: Never do full collect — causes 500ms-2s stalls
+                // CRITICAL FIX: Never do full collect - causes 500ms-2s stalls
                 // Instead, do incremental 1MB GC steps (same as emergency GC)
                 // RATE LIMIT: max 1 full GC collect per 5 seconds
                 static DWORD lastFullGCTick = 0;
                 DWORD nowTick = GetTickCount();
                 if ((LONG)(nowTick - lastFullGCTick) < 5000) {
-                    // Rate limited — skip silently
+                    // Rate limited - skip silently
                     return;
                 }
                 lastFullGCTick = nowTick;
-                Log("[LuaOpt] Addon requested full GC collect — using incremental steps instead (rate limited: 1/5s)");
+                Log("[LuaOpt] Addon requested full GC collect - using incremental steps instead (rate limited: 1/5s)");
                 for (int i = 0; i < 10; i++) {
                     Api.lua_gc(L, LUA_GCSTEP, 1024); // 1MB steps
                 }
@@ -1073,7 +1073,7 @@ static void ProcessGCRequests(lua_State* L) {
                     stepGCCount = 0;
                 }
                 if (stepGCCount >= 10) {
-                    // Rate limited — skip silently
+                    // Rate limited - skip silently
                     return;
                 }
                 stepGCCount++;
@@ -1088,7 +1088,7 @@ static void ProcessGCRequests(lua_State* L) {
 }
 
 // ================================================================
-// Timing Method Fix — Force QPC & block timingtesterror fallback
+// Timing Method Fix - Force QPC & block timingtesterror fallback
 // ================================================================
 #if !TEST_DISABLE_TIMING_FIX
 typedef int (__thiscall* CVar_SetFn)(void* This, const char* value, char a3, char a4, char a5, char a6);
@@ -1117,7 +1117,7 @@ void ForceTimingOverride() {
         Log("[TimingFix] MH_EnableHook failed");
         return;
     }
-    Log("[TimingFix] CVar_Set hook installed (0x%08X) — intercepting timingMethod/timingTestError", (unsigned)orig_CVar_Set);
+    Log("[TimingFix] CVar_Set hook installed (0x%08X) - intercepting timingMethod/timingTestError", (unsigned)orig_CVar_Set);
 }
 #else
 void ForceTimingOverride() {}
@@ -1129,7 +1129,7 @@ static void DoMainThreadInit() {
     Api.L = ReadLuaState();
 
     if (!Api.L) {
-        Log("[LuaOpt] lua_State* is NULL — Lua VM not ready");
+        Log("[LuaOpt] lua_State* is NULL - Lua VM not ready");
         Log("[LuaOpt] Will retry on next frame");
         InterlockedExchange(&g_luaInitState, 1);
         State.initialized = false;
@@ -1187,7 +1187,7 @@ namespace LuaOpt {
 
 bool PrepareFromWorkerThread() {
     Log("[LuaOpt] ====================================");
-    Log("[LuaOpt]  Lua VM Optimizer — Preparing");
+    Log("[LuaOpt]  Lua VM Optimizer - Preparing");
     Log("[LuaOpt] ====================================");
 
     if (!ResolveAddresses()) {
@@ -1213,7 +1213,7 @@ bool PrepareFromWorkerThread() {
     g_addressesValid = true;
     InterlockedExchange(&g_luaInitState, 1);
 
-    Log("[LuaOpt] Ready — waiting for main thread...");
+    Log("[LuaOpt] Ready - waiting for main thread...");
     return true;
 }
 
@@ -1268,7 +1268,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     // v3.5.11 debounce logic removed: causes ACCESS_VIOLATION with overlay hooks
     // that expect immediate lua_State availability during UI transitions.
     if (currentL != Api.L) {
-        Log("[LuaOpt] lua_State changed (UI reload) — updating pointer");
+        Log("[LuaOpt] lua_State changed (UI reload) - updating pointer");
 
         // v3.7.3: full init only once. Re-initializing on every UI reload
         // causes heap corruption and #132 crashes from stale pointers in hooks.
@@ -1309,7 +1309,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             SetupLuaInterface(Api.L);
         } else {
             // Subsequent swap: clear caches + re-setup interface only.
-            // Skip ReplaceLuaAllocator/OptimizeGC/PreSizeStringTable — they
+            // Skip ReplaceLuaAllocator/OptimizeGC/PreSizeStringTable - they
             // caused heap corruption on re-init in earlier versions.
             Api.L = currentL;
             State.gcOptimized = false;
@@ -1329,7 +1329,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             LuaBytecodeCache::OnLuaStateSwap();
             ClearAddonPreload();
             SetupLuaInterface(Api.L);
-            Log("[LuaOpt] Subsequent swap — caches cleared, interface re-setup");
+            Log("[LuaOpt] Subsequent swap - caches cleared, interface re-setup");
         }
         g_addonReadCounter = 0;
         g_gcRequestCounter = 0;

@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // wow_optimize.dll
 // Author: SUPREMATIST
 //
@@ -14,18 +14,18 @@
 //
 // OPTIMIZATION CATEGORIES:
 //   1.  Memory allocator replacement (mimalloc for CRT)
-//   2.  Sleep hook — precise frame pacing, GC stepping, combat log
-//   3.  Network — TCP_NODELAY, ACK freq, QoS, buffer sizing
+//   2.  Sleep hook - precise frame pacing, GC stepping, combat log
+//   3.  Network - TCP_NODELAY, ACK freq, QoS, buffer sizing
 //   4.  MPQ handle tracking (O(1) hash) + memory mapping + prefetch
-//   5.  ReadFile — adaptive read-ahead cache for MPQ
-//   6.  Timer precision — GetTickCount, timeGetTime, QPC coalescing
-//   7.  System hooks — CS spin, heap LFH, thread ID cache, BadPtr
-//   8.  File I/O — CreateFile sequential scan, CloseHandle invalidation
-//   9.  Thread/process tuning — affinity, priority, working set
-//   10. Lua VM — GC optimizer, mimalloc allocator, string table
-//   11. Lua fast paths — 28+ C function hooks
-//   12. API cache — GetItemInfo result caching
-//   13. Combat log — retention patching + periodic clears
+//   5.  ReadFile - adaptive read-ahead cache for MPQ
+//   6.  Timer precision - GetTickCount, timeGetTime, QPC coalescing
+//   7.  System hooks - CS spin, heap LFH, thread ID cache, BadPtr
+//   8.  File I/O - CreateFile sequential scan, CloseHandle invalidation
+//   9.  Thread/process tuning - affinity, priority, working set
+//   10. Lua VM - GC optimizer, mimalloc allocator, string table
+//   11. Lua fast paths - 28+ C function hooks
+//   12. API cache - GetItemInfo result caching
+//   13. Combat log - retention patching + periodic clears
 // ================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -83,38 +83,38 @@
 // ================================================================
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
-#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc mimalloc (ALREADY DISABLED — risky)
+#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc mimalloc (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_CS_ENTER        0   // CriticalSection TryEnter spin
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
 #define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path
-#define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED — risky)
+#define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_QPC_CACHE       0   // QPC coalescing cache
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning
-#define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED — tested bad)
-#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc — DISABLED: causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
-#define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED — tested bad)
-#define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED — 0 hits)
-#define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED — 0 hits)
+#define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
+#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc - DISABLED: causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
+#define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
+#define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED - 0 hits)
+#define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED - 0 hits)
 
 // Crash isolation toggles for hooks
-#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache — ENABLED (tested stable by Morbent + Billy Hoyle)
-#define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED — tested bad, crashes WoW)
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache - ENABLED (tested stable by Morbent + Billy Hoyle)
+#define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED - tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
-#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED — freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap — glFinish skip (Vulkan/D3D9, safe on DXVK)
+#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED - freezes on char select)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr — DISABLED: ERROR #134 — mimalloc reuses table addresses within session, generation counter insufficient
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - DISABLED: ERROR #134 - mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
-#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen — DISABLED: SSE2 page-boundary crash (0x5D917D10)
+#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - DISABLED: SSE2 page-boundary crash (0x5D917D10)
 #define CRASH_TEST_DISABLE_RTTI_CACHE           1   // sub_4D4DB0 object type check cache (1905 callers)
-#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 — DISABLED: heap corruption, ERROR #132 at 0x7745A1C6
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 - DISABLED: heap corruption, ERROR #132 at 0x7745A1C6
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
@@ -155,7 +155,7 @@ static void ShutdownVAArena();
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// Timing Method Fix — Console override only (hook removed for safety)
+// Timing Method Fix - Console override only (hook removed for safety)
 // ================================================================
 #if !TEST_DISABLE_TIMING_FIX
 static bool InstallTimingFix() {
@@ -167,7 +167,7 @@ static bool InstallTimingFix() { return false; }
 #endif
 
 // ================================================================
-// Hardware Cursor & Raw Input — bypass engine cursor centering
+// Hardware Cursor & Raw Input - bypass engine cursor centering
 // ================================================================
 #if !TEST_DISABLE_HARDWARE_CURSOR
 
@@ -187,7 +187,7 @@ static void InitHardwareCursor() {
         // Remove window clipping to prevent cursor trapping/lag
         ClipCursor(NULL);
 
-        // Hardware cursor byte patches DISABLED — crash isolation.
+        // Hardware cursor byte patches DISABLED - crash isolation.
         // byte_CABCDD/CABCDE force gxCursor=0 + gxFixLag=1 which on
         // private servers (Circle/Warmane) activates an uninitialized
         // cursor rendering path → NULL deref at [edi]+0 → [0x0+18].
@@ -215,7 +215,7 @@ static bool InstallHardwareCursorHooks() {
 #endif
 
 // ================================================================
-// Deferred Unit Field Updates — Synchronous Batch Processor
+// Deferred Unit Field Updates - Synchronous Batch Processor
 // ================================================================
 static constexpr int FIELD_QUEUE_SIZE = 4096;
 static constexpr int FIELD_QUEUE_MASK = FIELD_QUEUE_SIZE - 1;
@@ -288,7 +288,7 @@ static bool InstallFieldUpdateHook() {
     return false;
 #else
     void* target = (void*)0x006A3C40;
-    if (MH_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
+    if (WineSafe_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
     if (MH_EnableHook(target) != MH_OK) return false;
 
     Log("Deferred field updates: ACTIVE (sync batch flush, 4096 slots)");
@@ -351,7 +351,7 @@ static uint64_t g_pushStrHits = 0, g_pushStrMisses = 0;
 static uint64_t g_rawGetIHits = 0, g_rawGetIMisses = 0;
 
 // ================================================================
-// Thread Affinity — background worker core pinning
+// Thread Affinity - background worker core pinning
 // Pins WoW async task threads to cores 2..N-1, protecting main thread.
 // ================================================================
 static bool  g_threadAffOk = false;
@@ -365,6 +365,8 @@ static fn_ThreadWorker orig_ThreadWorker = nullptr;
 #pragma comment(lib, "psapi.lib")
 #pragma comment(lib, "ws2_32.lib")
 
+// WineSafe_CreateHook is now defined in version.h (shared across all TUs)
+
 // ================================================================
 // Global state
 // ================================================================
@@ -375,7 +377,7 @@ static DWORD  g_nextMiCollectTick = 0;  // Next mimalloc collect (multi-client o
 static void   DumpPeriodicStats();
 
 // ================================================================
-// Logging — ring buffer + background thread
+// Logging - ring buffer + background thread
 //
 // ================================================================
 static FILE* g_log = nullptr;
@@ -656,7 +658,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         }
         g_lastSleepTime = now;
 
-        // Detect lua_State destruction (logout/exit) — clear caches
+        // Detect lua_State destruction (logout/exit) - clear caches
         static uintptr_t g_lastLState = 0;
         uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
         if (g_lastLState && currentL == 0) {
@@ -829,7 +831,7 @@ static int WINAPI hooked_connect(SOCKET s, const struct sockaddr* name, int name
     int savedError = WSAGetLastError();
 
     if (result == 0) {
-        // Synchronous connect succeeded — optimize immediately
+        // Synchronous connect succeeded - optimize immediately
         OptimizeSocket(s, "connect");
     } else if (savedError == WSAEWOULDBLOCK) {
         AddPendingSocket(s);
@@ -849,7 +851,7 @@ static int WINAPI hooked_send(SOCKET s, const char* buf, int len, int flags) {
 }
 
 // ================================================================
-// 3b. recv / WSARecv — receive-side socket optimization
+// 3b. recv / WSARecv - receive-side socket optimization
 //
 // ================================================================
 
@@ -1037,10 +1039,10 @@ static void UntrackMpqHandle(HANDLE h) {
 // 4b. Memory-Mapped MPQ Files
 //
 // ================================================================
-// MPQ map lock — always defined (used by scanner even when mmap disabled)
+// MPQ map lock - always defined (used by scanner even when mmap disabled)
 static SRWLOCK g_mpqMapLock = SRWLOCK_INIT;
 
-// MPQ handle tracking — always defined
+// MPQ handle tracking - always defined
 struct MpqMapping {
     HANDLE fileHandle;
     HANDLE mappingHandle;
@@ -1158,7 +1160,7 @@ static void DestroyMpqMapping(HANDLE hFile) {
             // NOTE: mappingHandle is intentionally NOT closed here.
             // CloseHandle is hooked → hooked_CloseHandle → AcquireSRWLock → DEADLOCK
             // The OS will close the handle when the process exits.
-            // For runtime cleanup, we just unmap the view — that's sufficient.
+            // For runtime cleanup, we just unmap the view - that's sufficient.
             g_mpqMapTotalBytes -= g_mpqMappings[i].fileSize;
             g_mpqMapCount--;
             g_mpqMappings[i].active = false;
@@ -1179,7 +1181,7 @@ typedef BOOL (WINAPI* ReadFile_fn)(HANDLE, LPVOID, DWORD, LPDWORD, LPOVERLAPPED)
 static ReadFile_fn orig_ReadFile = nullptr;
 
 // ================================================================
-// Async MPQ I/O — Predictive Read-Ahead for .m2/.blp
+// Async MPQ I/O - Predictive Read-Ahead for .m2/.blp
 // ================================================================
 #if !TEST_DISABLE_ASYNC_MPQ_IO
 
@@ -1202,7 +1204,7 @@ static volatile bool g_asyncIoShutdown = false;
 
 static DWORD WINAPI AsyncIoWorkerProc(LPVOID) {
     while (!g_asyncIoShutdown) {
-        // Pause during lua_State swap — MPQ handles and buffers may be stale
+        // Pause during lua_State swap - MPQ handles and buffers may be stale
         if (LuaOpt::IsSwapping()) {
             Sleep(1);
             continue;
@@ -1491,7 +1493,7 @@ static bool InstallReadFileHook() {
 }
 
 // ================================================================
-// 5b. Async MPQ Prefetch Queue — background overlapped reads
+// 5b. Async MPQ Prefetch Queue - background overlapped reads
 //
 // ================================================================
 
@@ -1622,7 +1624,7 @@ static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, D
 }
 
 // ================================================================
-// 6. GetTickCount — QPC Precision
+// 6. GetTickCount - QPC Precision
 //
 // ================================================================
 typedef DWORD (WINAPI* GetTickCount_fn)(void);
@@ -1650,7 +1652,7 @@ static bool InstallGetTickCountHook() {
 }
 
 // ================================================================
-// 6b. timeGetTime (WINMM) — QPC Precision
+// 6b. timeGetTime (WINMM) - QPC Precision
 // ================================================================
 
 typedef DWORD (WINAPI* timeGetTime_fn)(void);
@@ -1698,7 +1700,7 @@ static void WINAPI hooked_EnterCS(LPCRITICAL_SECTION lpCS) {
     }
 
     // Spin-wait with 3 retries at increasing intervals
-    // Most CS holds are <1us — catching them saves kernel transition
+    // Most CS holds are <1us - catching them saves kernel transition
     static const int retrySpins[] = {8, 64, 256};
     for (int r = 0; r < 3; r++) {
         for (int i = 0; i < retrySpins[r]; i++) _mm_pause();
@@ -1736,7 +1738,7 @@ static bool InstallCriticalSectionHook() {
 }
 
 // ================================================================
-// 7b. Heap Optimization — Low Fragmentation Heap
+// 7b. Heap Optimization - Low Fragmentation Heap
 //
 // ================================================================
 
@@ -1791,7 +1793,7 @@ static bool InstallHeapOptimization() {
 }
 
 // ================================================================
-// 7a. HeapAlloc/HeapFree → mimalloc — redirect process heap to mimalloc
+// 7a. HeapAlloc/HeapFree → mimalloc - redirect process heap to mimalloc
 //
 // Windows HeapAlloc/HeapFree are used by Win32 APIs and WoW internal
 // code. Redirecting the process heap to mimalloc catches all remaining
@@ -1877,7 +1879,7 @@ static bool InstallHeapRedirectToMimalloc() {
 }
 
 // ================================================================
-// 7c. OutputDebugStringA — No-op when no debugger
+// 7c. OutputDebugStringA - No-op when no debugger
 //
 // ================================================================
 
@@ -1903,7 +1905,7 @@ static bool InstallOutputDebugStringHook() {
 }
 
 // ================================================================
-// 7d. CompareStringA — Fast ASCII Path
+// 7d. CompareStringA - Fast ASCII Path
 //
 // ================================================================
 
@@ -1943,7 +1945,7 @@ static int WINAPI hooked_CompareStringA(LCID Locale, DWORD dwCmpFlags,
             unsigned char c1 = (unsigned char)lpString1[i1];
             unsigned char c2 = (unsigned char)lpString2[i2];
 
-            // Bail on non-ASCII — needs locale-aware comparison
+            // Bail on non-ASCII - needs locale-aware comparison
             if (c1 > 127 || c2 > 127)
                 goto cmp_fallback;
 
@@ -1982,7 +1984,7 @@ static bool InstallCompareStringHook() {
 }
 
 // ================================================================
-// 7e. GetFileAttributesA — Cache for MPQ paths
+// 7e. GetFileAttributesA - Cache for MPQ paths
 //
 // ================================================================
 
@@ -2096,7 +2098,7 @@ static bool InstallSetFilePointerHook() {
 }
 
 // ================================================================
-// 7h. GlobalAlloc/GlobalFree — mimalloc for GMEM_FIXED
+// 7h. GlobalAlloc/GlobalFree - mimalloc for GMEM_FIXED
 //
 // ================================================================
 
@@ -2159,7 +2161,7 @@ static bool InstallGlobalAllocHooks() {
 }
 
 // ================================================================
-// 7f2. IsBadReadPtr / IsBadWritePtr — Fast Path
+// 7f2. IsBadReadPtr / IsBadWritePtr - Fast Path
 //
 // ================================================================
 
@@ -2224,7 +2226,7 @@ static bool InstallBadPtrHooks() {
 }
 
 // ================================================================
-// 7f. GetCurrentThreadId — TLS Cached
+// 7f. GetCurrentThreadId - TLS Cached
 //
 // ================================================================
 
@@ -2275,7 +2277,7 @@ static bool InstallThreadIdCacheHook() {
 }
 
 // ================================================================
-// 7f3. QueryPerformanceCounter — Coalesced with RDTSC fast path
+// 7f3. QueryPerformanceCounter - Coalesced with RDTSC fast path
 //
 // ================================================================
 
@@ -2354,7 +2356,7 @@ static bool InstallQPCHook() {
 }
 
 // ================================================================
-// 8. CreateFile — Sequential Scan + MPQ Tracking
+// 8. CreateFile - Sequential Scan + MPQ Tracking
 //
 // ================================================================
 typedef HANDLE (WINAPI* CreateFileA_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
@@ -2370,10 +2372,10 @@ static bool PathPassesThroughMPQ(const char* path) {
         p = strchr(p, '.');
         if (!p || p == path) return false; // extension can't be first component
         if (_strnicmp(p, ".mpq", 4) == 0 && (p[4] == '\\' || p[4] == '/' || p[4] == 0)) {
-            // Found .MPQ/ — verify it's a path component, not just part of filename
+            // Found .MPQ/ - verify it's a path component, not just part of filename
             // Ensure there's a separator before the dot (or it's the start of a component)
             if (p > path && (p[-1] != '\\' && p[-1] != '/' && p[-1] != ':')) {
-                // Could be "thing.MPQfile" — skip
+                // Could be "thing.MPQfile" - skip
                 p++;
                 continue;
             }
@@ -2469,7 +2471,7 @@ static bool InstallFileHooks() {
 }
 
 // ================================================================
-// 9. CloseHandle — Cache Invalidation
+// 9. CloseHandle - Cache Invalidation
 //
 // ================================================================
 typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
@@ -2519,7 +2521,7 @@ static void ScanExistingMpqHandles() {
             GetProcAddress(hK32, "GetFinalPathNameByHandleA");
     }
     if (!pGetFinalPathNameByHandleA) {
-        Log("MPQ scan: GetFinalPathNameByHandleA not available — skipped");
+        Log("MPQ scan: GetFinalPathNameByHandleA not available - skipped");
         return;
     }
 
@@ -2541,7 +2543,7 @@ static void ScanExistingMpqHandles() {
                                                 FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
         if (len == 0 || len >= MAX_PATH) continue;
 
-        // Check for .mpq/.MPQ in path — file extension, folder name, or parent directory
+        // Check for .mpq/.MPQ in path - file extension, folder name, or parent directory
         bool isMpq = (len >= 4 && _stricmp(pathBuf + len - 4, ".mpq") == 0)
                   || PathPassesThroughMPQ(pathBuf);
         if (!isMpq) continue;
@@ -2650,7 +2652,7 @@ static void ScanExistingMpqHandles() {
 }
 
 // ================================================================
-// 9b. FlushFileBuffers — Skip for MPQ (read-only)
+// 9b. FlushFileBuffers - Skip for MPQ (read-only)
 //
 // ================================================================
 
@@ -2710,7 +2712,7 @@ static void SetHighTimerResolution() {
                 actualMs, requestedMs,
                 g_isMultiClient ? ", multi-client mode" : "");
         } else {
-            Log("Timer resolution: SET (actual value invalid: %.0f ms — Wine/VM detected, ignoring)",
+            Log("Timer resolution: SET (actual value invalid: %.0f ms - Wine/VM detected, ignoring)",
                 actualMs);
             Log("Timer resolution: requested %.3f ms%s",
                 requestedMs,
@@ -2721,7 +2723,7 @@ static void SetHighTimerResolution() {
     }
 }
 
-// 11. Large pages — requires SeLockMemoryPrivilege.
+// 11. Large pages - requires SeLockMemoryPrivilege.
 //
 // Enables mimalloc large page support if privilege is available.
 static void TryEnableLargePages() {
@@ -2742,7 +2744,7 @@ static void TryEnableLargePages() {
     Log("Large pages: enabled for mimalloc");
 }
 
-// 12. Thread optimization — ideal processor, priority.
+// 12. Thread optimization - ideal processor, priority.
 //
 static void OptimizeThreads() {
     DWORD pid = GetCurrentProcessId();
@@ -2830,7 +2832,7 @@ static void ConfigureMimalloc() {
 
     // Pre-warm size classes: allocate+free batches to seed mimalloc's
     // internal page caches.  First allocation of each size class triggers
-    // VirtualAlloc — pre-warming avoids this during gameplay.
+    // VirtualAlloc - pre-warming avoids this during gameplay.
     // Sizes chosen from Lua TValue (16), Node (24-32), Table (56),
     // TString (~24-128), Proto (~256-512), plus common addon object sizes.
     static const size_t seedSizes[] = {
@@ -2857,7 +2859,7 @@ static void AdjustMimallocForMultiClient() {
     }
 }
 
-// 16. FPS cap removal — patches CMP EAX, 200 to CMP EAX, 999.
+// 16. FPS cap removal - patches CMP EAX, 200 to CMP EAX, 999.
 //
 static uintptr_t FindPattern(uintptr_t base, size_t size, const uint8_t* pat, const char* mask) {
     for (size_t i = 0; i < size; i++) {
@@ -2890,14 +2892,14 @@ static void TryRemoveFPSCap() {
         // Verify: instruction after CMP should be a conditional jump
         uint8_t b = *(uint8_t*)(found + 5);
         if (b == 0x7E || b == 0x7F) {
-            // JLE or JG short — valid FPS cap pattern
+            // JLE or JG short - valid FPS cap pattern
             addr = found;
             break;
         }
         if (b == 0x0F) {
             uint8_t b2 = *(uint8_t*)(found + 6);
             if (b2 == 0x8E || b2 == 0x8F) {
-                // JLE or JG near — valid FPS cap pattern
+                // JLE or JG near - valid FPS cap pattern
                 addr = found;
                 break;
             }
@@ -3247,7 +3249,7 @@ static void DumpPeriodicStats() {
 }
 
 // ================================================================
-// 19. sub_869E00 — Zero-Message Frame Continue (disabled)
+// 19. sub_869E00 - Zero-Message Frame Continue (disabled)
 //
 // ================================================================
 
@@ -3298,7 +3300,7 @@ static bool InstallMsgPumpHook() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_MsgPump, (void**)&orig_MsgPump) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_MsgPump, (void**)&orig_MsgPump) != MH_OK) {
         Log("MsgPump hook: MH_CreateHook FAILED");
         return false;
     }
@@ -3307,13 +3309,13 @@ static bool InstallMsgPumpHook() {
         return false;
     }
 
-    Log("MsgPump hook: ACTIVE (sub_869E00 @ 0x00869E00 — zero-message frame continue)");
+    Log("MsgPump hook: ACTIVE (sub_869E00 @ 0x00869E00 - zero-message frame continue)");
     return true;
 #endif
 }
 
 // ================================================================
-// 20. sub_69E220 — Swap/Present Optimization (Vulkan/D3D9)
+// 20. sub_69E220 - Swap/Present Optimization (Vulkan/D3D9)
 //
 // ================================================================
 
@@ -3355,14 +3357,14 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
         if (orig_wglSwapLayerBuffers && hdc)
             orig_wglSwapLayerBuffers(hdc, 1);
     } else {
-        // SKIP glFinish — Vulkan/D3D9 handles presentation sync
+        // SKIP glFinish - Vulkan/D3D9 handles presentation sync
         g_glFinishSkips++;
     }
 
     // Post-swap cleanup
     orig_sub_6836D0(This, nullptr);
     orig_sub_6833A0(This, nullptr);
-    // nullsub_3 (0x005EEB70) is a 1-byte no-op — skipped
+    // nullsub_3 (0x005EEB70) is a 1-byte no-op - skipped
 }
 
 static bool InstallSwapPresentHook() {
@@ -3391,7 +3393,7 @@ static bool InstallSwapPresentHook() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_SwapPresent, (void**)&orig_SwapPresent) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_SwapPresent, (void**)&orig_SwapPresent) != MH_OK) {
         Log("Swap hook: MH_CreateHook FAILED");
         return false;
     }
@@ -3400,7 +3402,7 @@ static bool InstallSwapPresentHook() {
         return false;
     }
 
-    Log("Swap present hook: ACTIVE (sub_69E220 @ 0x0069E220 — glFinish skip, Vulkan/D3D9)");
+    Log("Swap present hook: ACTIVE (sub_69E220 @ 0x0069E220 - glFinish skip, Vulkan/D3D9)");
     return true;
 #endif
 }
@@ -3418,7 +3420,7 @@ static inline uint64_t ComputeCStringHash(const char* s) {
 }
 
 // ================================================================
-// 21f. sub_84E670 — lua_rawgeti Fast Path (integer-key cache)
+// 21f. sub_84E670 - lua_rawgeti Fast Path (integer-key cache)
 //
 // ================================================================
 
@@ -3507,7 +3509,7 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
             return src[3];
         }
 
-        // Hash part — use cache with Node* from luaH_getnum (sub_85C3A0)
+        // Hash part - use cache with Node* from luaH_getnum (sub_85C3A0)
         uint64_t hash = 0xCBF29CE484222325ULL;
         hash ^= (uintptr_t)table;
         hash *= 0x100000001B3ULL;
@@ -3524,7 +3526,7 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
             // Validate: key type tag (node+24 = key.tt) must be LUA_TNUMBER (3)
             // Validate: key value (node+16 = key.n) must match n
             if (*(int*)(node + 24) == 3 && *(double*)(node + 16) == (double)n) {
-                // Cache hit — push TValue from Node[0..3]
+                // Cache hit - push TValue from Node[0..3]
                 __try {
                     DWORD* top = *(DWORD**)(L + 0x0C);
                     top[0] = *(DWORD*)(node + 0);
@@ -3549,7 +3551,7 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
             }
         }
 
-        // Cache miss — call luaH_getnum directly (bypass lua_rawgeti entirely)
+        // Cache miss - call luaH_getnum directly (bypass lua_rawgeti entirely)
         void* nodePtr = orig_luaH_getnum(table, n);
 
         // Check if it's a real Node (not nil sentinel at 0x00A46F78)
@@ -3590,7 +3592,7 @@ static int __cdecl hooked_lua_rawgeti(int L, int idx, int n) {
             }
         }
 
-        // Nil or invalid — fall through to original
+        // Nil or invalid - fall through to original
         g_rawGetIMisses++;
         return orig_lua_rawgeti(L, idx, n);
     }
@@ -3615,7 +3617,7 @@ static bool InstallLuaRawGetICache() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_lua_rawgeti, (void**)&orig_lua_rawgeti) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_lua_rawgeti, (void**)&orig_lua_rawgeti) != MH_OK) {
         Log("lua_rawgeti cache: MH_CreateHook FAILED");
         return false;
     }
@@ -3626,13 +3628,13 @@ static bool InstallLuaRawGetICache() {
 
     memset(g_rawGetICache, 0, sizeof(g_rawGetICache));
 
-    Log("lua_rawgeti cache: ACTIVE (sub_84E670 @ 0x0084E670 — 2048-slot integer-key cache, SEH)");
+    Log("lua_rawgeti cache: ACTIVE (sub_84E670 @ 0x0084E670 - 2048-slot integer-key cache, SEH)");
     return true;
 #endif
 }
 
 // ================================================================
-// 21e. sub_84E350 — lua_pushstring Fast Path (TString* intern cache)
+// 21e. sub_84E350 - lua_pushstring Fast Path (TString* intern cache)
 //
 // ================================================================
 
@@ -3659,7 +3661,7 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
 #if CRASH_TEST_DISABLE_LUA_PUSHSTRING
     return orig_lua_pushstring(L, s);
 #else
-    // nil input — push nil
+    // nil input - push nil
     if (!s || (uintptr_t)s < 0x10000 || (uintptr_t)s > 0xBFFF0000) {
         g_pushStrMisses++;
         return orig_lua_pushstring(L, s);
@@ -3706,7 +3708,7 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
             }
         }
 
-        // Cache miss — call original
+        // Cache miss - call original
         int result = orig_lua_pushstring(L, s);
 
         // Capture TString* from L->top - 16 bytes
@@ -3747,7 +3749,7 @@ static bool InstallLuaPushStringCache() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_lua_pushstring, (void**)&orig_lua_pushstring) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_lua_pushstring, (void**)&orig_lua_pushstring) != MH_OK) {
         Log("lua_pushstring cache: MH_CreateHook FAILED");
         return false;
     }
@@ -3758,13 +3760,13 @@ static bool InstallLuaPushStringCache() {
 
     memset(g_pushStrCache, 0, sizeof(g_pushStrCache));
 
-    Log("lua_pushstring cache: ACTIVE (sub_84E350 @ 0x0084E350 — 4096-slot TString* intern, SEH)");
+    Log("lua_pushstring cache: ACTIVE (sub_84E350 @ 0x0084E350 - 4096-slot TString* intern, SEH)");
     return true;
 #endif
 }
 
 // ================================================================
-// 21c. sub_851C30 — table.concat Fast Path (Direct Array + Inline Nums)
+// 21c. sub_851C30 - table.concat Fast Path (Direct Array + Inline Nums)
 //
 // ================================================================
 
@@ -3797,7 +3799,7 @@ static int __cdecl hooked_table_concat(int L) {
         sep = (const char*)(ts + 16);
         sep_len = *(int*)(ts + 8);
     } else if (sep_type == 3) {
-        // Number separator — fallback to original
+        // Number separator - fallback to original
         return orig_table_concat(L);
     } else if (sep_type != 0) {
         return orig_table_concat(L);
@@ -3889,23 +3891,23 @@ static bool InstallTableConcatFastPath() {
     unsigned char* p = (unsigned char*)target;
     if (p[0] != 0x55 || p[1] != 0x8B) return false;
 
-    if (MH_CreateHook(target, (void*)hooked_table_concat, (void**)&orig_table_concat) != MH_OK) return false;
+    if (WineSafe_CreateHook(target, (void*)hooked_table_concat, (void**)&orig_table_concat) != MH_OK) return false;
     if (MH_EnableHook(target) != MH_OK) return false;
 
-    Log("table.concat fast path: ACTIVE (sub_851C30 @ 0x00851C30 — array direct + inline nums)");
+    Log("table.concat fast path: ACTIVE (sub_851C30 @ 0x00851C30 - array direct + inline nums)");
     return true;
 #endif
 }
 
 // ================================================================
-// 21b. sub_85C430 — Lua Table String-Key Lookup Fast Path (enabled)
+// 21b. sub_85C430 - Lua Table String-Key Lookup Fast Path (enabled)
 //
 // ================================================================
 
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
 static luaH_getstr_fn orig_luaH_getstr = nullptr;
 
-// Generation counter — incremented on every lua_State swap / cache clear.
+// Generation counter - incremented on every lua_State swap / cache clear.
 // Catches mimalloc table recycling: when a table is freed and its memory
 // reused for a non-table object, the generation mismatch invalidates the
 // stale cache entry BEFORE we dereference *(table+20).
@@ -3917,14 +3919,14 @@ static volatile LONG g_getstrGeneration = 0;
 struct GetStrCacheEntry {
     int      table;       // Table* pointer
     int      tstring;     // TString* pointer
-    int      tableNode;   // *(table+20) — hash array base, detects rehashes
+    int      tableNode;   // *(table+20) - hash array base, detects rehashes
     uint32_t generation;  // Global generation at insert time
     void*    node;        // Cached Node* result (or nilObject)
 };
 
 static GetStrCacheEntry g_getstrCache[GETSTR_CACHE_SIZE];
 
-// Safe memory probe — returns true if the 4 bytes at addr are in a
+// Safe memory probe - returns true if the 4 bytes at addr are in a
 // committed, readable page.  Avoids the ACCESS_VIOLATION that the
 // original cache hit on mimalloc-recycled table memory.
 static inline bool IsSafeRead4(uintptr_t addr) {
@@ -3962,7 +3964,7 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
         // Generation check: invalidates stale entries from previous lua_State
         uint32_t gen = (uint32_t)InterlockedCompareExchange(&g_getstrGeneration, 0, 0);
 
-        // Cache hit path — every dereference is guarded
+        // Cache hit path - every dereference is guarded
         if (e->table == table && e->tstring == tstring
             && e->generation == gen && e->node != nullptr) {
 
@@ -3986,7 +3988,7 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
             }
         }
 
-        // Cache miss — call original
+        // Cache miss - call original
         void* result = orig_luaH_getstr(table, tstring);
 
         // Store in cache (only if table memory is still valid)
@@ -4021,7 +4023,7 @@ static bool InstallLuaHGetStrCache() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK)
+    if (WineSafe_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK)
         { Log("luaH_getstr cache: MH_CreateHook FAILED"); return false; }
     if (MH_EnableHook(target) != MH_OK)
         { Log("luaH_getstr cache: MH_EnableHook FAILED"); return false; }
@@ -4029,13 +4031,13 @@ static bool InstallLuaHGetStrCache() {
     memset(g_getstrCache, 0, sizeof(g_getstrCache));
     InterlockedExchange(&g_getstrGeneration, 1);
 
-    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 — %d-slot, generation-guarded, 1.5B calls/session)", GETSTR_CACHE_SIZE);
+    Log("luaH_getstr cache: ACTIVE (sub_85C430 @ 0x0085C430 - %d-slot, generation-guarded, 1.5B calls/session)", GETSTR_CACHE_SIZE);
     return true;
 #endif
 }
 
 // ================================================================
-// 21c. sub_74E290 — CombatLog Event Full Cache
+// 21c. sub_74E290 - CombatLog Event Full Cache
 //
 // ================================================================
 
@@ -4047,7 +4049,7 @@ static bool InstallLuaHGetStrCache() {
 struct CombatLogCacheEntry {
     uint64_t fingerprint;
     int      fieldCount;
-    // Captured TValue data — raw 16-byte TValue per field
+    // Captured TValue data - raw 16-byte TValue per field
     struct {
         uint64_t value_lo; // TValue value union (double or gc ptr)
         uint32_t tt;       // type tag
@@ -4113,7 +4115,7 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
         CombatLogCacheEntry* entry = &g_combatLogCache[idx];
 
         if (entry->fingerprint == fp && entry->fieldCount > 0 && entry->lruStamp > 0) {
-            // Cache hit — replay the TValue pushes
+            // Cache hit - replay the TValue pushes
             uint64_t* topPtr = *(uint64_t**)(luaState + 0x0C);
             for (int i = 0; i < entry->fieldCount; i++) {
                 uint64_t* dst = (uint64_t*)(topPtr + i * 2); // 2x uint64_t = 16 bytes
@@ -4128,7 +4130,7 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
             return entry->fieldCount;
         }
 
-        // Cache miss — call original
+        // Cache miss - call original
         int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
 
         // Capture the pushed TValue data from the Lua stack
@@ -4173,7 +4175,7 @@ static bool InstallCombatLogFullCache() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_CombatLogEvent, (void**)&orig_CombatLogEvent) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_CombatLogEvent, (void**)&orig_CombatLogEvent) != MH_OK) {
         Log("CombatLog full cache: MH_CreateHook FAILED");
         return false;
     }
@@ -4184,13 +4186,13 @@ static bool InstallCombatLogFullCache() {
 
     memset(g_combatLogCache, 0, sizeof(g_combatLogCache));
 
-    Log("CombatLog full cache: ACTIVE (sub_74E290 @ 0x0074E290 — 256-slot LRU, TValue replay)");
+    Log("CombatLog full cache: ACTIVE (sub_74E290 @ 0x0074E290 - 256-slot LRU, TValue replay)");
     return true;
 #endif
 }
 
 // ================================================================
-// 21. sub_85C6F0 — Lua Table Rehash Prevention (enabled)
+// 21. sub_85C6F0 - Lua Table Rehash Prevention (enabled)
 //
 // ================================================================
 
@@ -4202,14 +4204,14 @@ static inline int luaTable_nextPow2(int n) {
     return n + 1;
 }
 
-// Decision function — called from naked hook, must be __cdecl
+// Decision function - called from naked hook, must be __cdecl
 static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     if (!table) return newSize;
-    // Validate pointer — must be in valid user-space range
+    // Validate pointer - must be in valid user-space range
     uintptr_t p = (uintptr_t)table;
     if (p < 0x10000 || p > 0xBFFF0000) return newSize;
 
-    // CRITICAL: Clear luaH_getstr cache on every resize — old Node* pointers are invalidated
+    // CRITICAL: Clear luaH_getstr cache on every resize - old Node* pointers are invalidated
     ClearLuaHGetStrCache();
     ClearLuaRawGetICache();
 
@@ -4232,7 +4234,7 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     return newSize;
 }
 
-// Naked hook — preserves exact __usercall register state
+// Naked hook - preserves exact __usercall register state
 // On entry: eax = a1 (newSize), ecx = a2 (table*), [esp] = ret addr, [esp+4] = a3
 static void* g_luaHResizeTrampoline = nullptr;
 
@@ -4278,7 +4280,7 @@ static bool InstallLuaHResizeHook() {
         return false;
     }
 
-    if (MH_CreateHook(target, (void*)hooked_luaH_resize, &g_luaHResizeTrampoline) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)hooked_luaH_resize, &g_luaHResizeTrampoline) != MH_OK) {
         Log("LuaH_resize hook: MH_CreateHook FAILED");
         return false;
     }
@@ -4287,13 +4289,13 @@ static bool InstallLuaHResizeHook() {
         return false;
     }
 
-    Log("LuaH_resize hook: ACTIVE (sub_85C6F0 @ 0x0085C6F0 — table rehash prevention, round-up to pow2)");
+    Log("LuaH_resize hook: ACTIVE (sub_85C6F0 @ 0x0085C6F0 - table rehash prevention, round-up to pow2)");
     return true;
 #endif
 }
 
 // ================================================================
-// 22. sub_819D40 — Asset Path Resolver Cache (643 callers)
+// 22. sub_819D40 - Asset Path Resolver Cache (643 callers)
 //
 // Every texture, model, sound, and UI load resolves its path through
 // this function.  It does strlen+sprintf+MPQ lookup per call.
@@ -4314,12 +4316,12 @@ long g_assetPathHits = 0;
 long g_assetPathMisses = 0;
 
 static int __cdecl hooked_AssetPathResolver(const char* path, int typeIdx, int gender) {
-    return orig_AssetPathResolver(path, typeIdx, gender); // DISABLED — stale mimalloc pointers on teardown
+    return orig_AssetPathResolver(path, typeIdx, gender); // DISABLED - stale mimalloc pointers on teardown
 }
 
 static bool InstallAssetPathCache() {
     void* target = (void*)0x00819D40;
-    if (MH_CreateHook(target, (void*)hooked_AssetPathResolver, (void**)&orig_AssetPathResolver) != MH_OK)
+    if (WineSafe_CreateHook(target, (void*)hooked_AssetPathResolver, (void**)&orig_AssetPathResolver) != MH_OK)
         return false;
     if (MH_EnableHook(target) != MH_OK)
         return false;
@@ -4337,7 +4339,7 @@ void ClearAssetPathCache() {
 // luaV_execute copies TValue structures (16 bytes) millions of times
 // per frame.  Generic memcpy has alignment checks + size dispatch
 // overhead.  For exactly 16 bytes, two movq are faster and always
-// page-safe.  Separate from CRT fast paths — minimal, targeted.
+// page-safe.  Separate from CRT fast paths - minimal, targeted.
 // ================================================================
 typedef void* (__cdecl* Memcpy_fn)(void*, const void*, size_t);
 static Memcpy_fn orig_Memcpy = nullptr;
@@ -4363,7 +4365,7 @@ static bool InstallTValueMemcpyHook() {
     void* p = (void*)GetProcAddress(hCRT, "memcpy");
     if (!p) return false;
 
-    if (MH_CreateHook(p, (void*)hooked_Memcpy_TValue, (void**)&orig_Memcpy) != MH_OK)
+    if (WineSafe_CreateHook(p, (void*)hooked_Memcpy_TValue, (void**)&orig_Memcpy) != MH_OK)
         return false;
     if (MH_EnableHook(p) != MH_OK)
         return false;
@@ -4373,7 +4375,7 @@ static bool InstallTValueMemcpyHook() {
 }
 
 // ================================================================
-// 24. GetSystemInfo cache — SYSTEM_INFO never changes, called by addons
+// 24. GetSystemInfo cache - SYSTEM_INFO never changes, called by addons
 // ================================================================
 typedef void (WINAPI* GetSystemInfo_fn)(LPSYSTEM_INFO);
 static GetSystemInfo_fn orig_GetSystemInfo = nullptr;
@@ -4400,7 +4402,7 @@ static bool InstallSysInfoCache() {
 }
 
 // ================================================================
-// 25. RegQueryValueExA cache — WTF config reads, 256-slot hash
+// 25. RegQueryValueExA cache - WTF config reads, 256-slot hash
 // ================================================================
 typedef LONG (WINAPI* RegQueryValueExA_fn)(HKEY, LPCSTR, LPDWORD, LPDWORD, LPBYTE, LPDWORD);
 static RegQueryValueExA_fn orig_RegQueryValueExA = nullptr;
@@ -4463,7 +4465,7 @@ static bool InstallRegCache() {
 }
 
 // ================================================================
-// 26. GetSystemMetrics cache — screen dimensions, called by UI addons
+// 26. GetSystemMetrics cache - screen dimensions, called by UI addons
 // ================================================================
 typedef int (WINAPI* GetSystemMetrics_fn)(int);
 static GetSystemMetrics_fn orig_GetSystemMetrics = nullptr;
@@ -4490,7 +4492,7 @@ static bool InstallSysMetricsCache() {
 }
 
 // ================================================================
-// 27. IsDebuggerPresent no-op — always false, skips syscall
+// 27. IsDebuggerPresent no-op - always false, skips syscall
 // ================================================================
 typedef BOOL (WINAPI* IsDebuggerPresent_fn)();
 static IsDebuggerPresent_fn orig_IsDebuggerPresent = nullptr;
@@ -4506,7 +4508,7 @@ static bool InstallNoDebuggerPresent() {
 }
 
 // ================================================================
-// 28. GetVersionExA cache — Windows version never changes
+// 28. GetVersionExA cache - Windows version never changes
 // ================================================================
 typedef BOOL (WINAPI* GetVersionExA_fn)(LPOSVERSIONINFOA);
 static GetVersionExA_fn orig_GetVersionExA = nullptr;
@@ -4539,7 +4541,7 @@ static bool InstallVerCache() {
 }
 
 // ================================================================
-// 24. memcmp fast path — inline compare for 4/8/16 byte cases
+// 24. memcmp fast path - inline compare for 4/8/16 byte cases
 // ================================================================
 typedef int (__cdecl* Memcmp_fn)(const void*, const void*, size_t);
 static Memcmp_fn orig_Memcmp = nullptr;
@@ -4556,7 +4558,7 @@ static int __cdecl hooked_Memcmp_Fast(const void* a, const void* b, size_t n) {
         InterlockedIncrement(&g_memcmpFast);
         return (va > vb) - (va < vb);
     }
-    // 16-byte removed — crosses page boundaries (same bug as CRT fast paths)
+    // 16-byte removed - crosses page boundaries (same bug as CRT fast paths)
     return orig_Memcmp(a, b, n);
 }
 
@@ -4572,7 +4574,7 @@ static bool InstallMemcmpFast() {
 }
 
 // ================================================================
-// 25a. LoadLibraryA skip — return handle if DLL already loaded
+// 25a. LoadLibraryA skip - return handle if DLL already loaded
 // ================================================================
 typedef HMODULE (WINAPI* LoadLibraryA_fn)(LPCSTR);
 static LoadLibraryA_fn orig_LoadLibraryA = nullptr;
@@ -4614,7 +4616,7 @@ static bool InstallWFMOFast() {
 }
 
 // ================================================================
-// VA Arena — dynamic 256MB reserve during loading screens
+// VA Arena - dynamic 256MB reserve during loading screens
 // ================================================================
 static void* g_loadingArena = nullptr;
 static SRWLOCK g_arenaLock = SRWLOCK_INIT;
@@ -4623,7 +4625,7 @@ extern "C" void ReserveLoadingArena() {
     AcquireSRWLockExclusive(&g_arenaLock);
     if (g_loadingArena) { ReleaseSRWLockExclusive(&g_arenaLock); return; }
 
-    // Skip on HD clients — VA space already under pressure (32-bit, 1.3GB WS)
+    // Skip on HD clients - VA space already under pressure (32-bit, 1.3GB WS)
     PROCESS_MEMORY_COUNTERS pmc = {};
     pmc.cb = sizeof(pmc);
     if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
@@ -4636,7 +4638,7 @@ extern "C" void ReserveLoadingArena() {
     if (g_loadingArena) {
         Log("[VA-Arena] Reserved 256MB for loading screen model/texture allocation");
     } else {
-        Log("[VA-Arena] Failed to reserve 256MB (VA fragmented — continuing)");
+        Log("[VA-Arena] Failed to reserve 256MB (VA fragmented - continuing)");
     }
 }
 
@@ -4645,7 +4647,7 @@ extern "C" void ReleaseLoadingArena() {
     if (g_loadingArena) {
         VirtualFree(g_loadingArena, 0, MEM_RELEASE);
         g_loadingArena = nullptr;
-        Log("[VA-Arena] Released — VA space returned to process");
+        Log("[VA-Arena] Released - VA space returned to process");
     }
     ReleaseSRWLockExclusive(&g_arenaLock);
 }
@@ -4681,7 +4683,7 @@ static void WINAPI hooked_GSTAFT(LPFILETIME lpFT) {
     *lpFT = lastFT;
 }
 
-// #2: GetACP — code page never changes
+// #2: GetACP - code page never changes
 typedef UINT (WINAPI* GetACP_fn)();
 static GetACP_fn orig_GetACP = nullptr;
 static UINT g_cachedACP = 0;
@@ -4691,7 +4693,7 @@ static UINT WINAPI hooked_GetACP() {
     return g_cachedACP;
 }
 
-// #3: GetUserDefaultLangID — language never changes
+// #3: GetUserDefaultLangID - language never changes
 typedef LANGID (WINAPI* GetUserDefaultLangID_fn)();
 static GetUserDefaultLangID_fn orig_GetUDLI = nullptr;
 static LANGID g_cachedLang = 0;
@@ -4701,7 +4703,7 @@ static LANGID WINAPI hooked_GetUDLI() {
     return g_cachedLang;
 }
 
-// #4: GetProcessHeap — always returns the same handle
+// #4: GetProcessHeap - always returns the same handle
 typedef HANDLE (WINAPI* GetProcessHeap_fn)();
 static GetProcessHeap_fn orig_GetProcessHeap = nullptr;
 static HANDLE g_cachedHeap = NULL;
@@ -4735,11 +4737,11 @@ static char* WINAPI hooked_CharLowerA(char* str) {
     return str;
 }
 
-// #7: REMOVED — wsprintfA variadic args can't be forwarded
+// #7: REMOVED - wsprintfA variadic args can't be forwarded
 typedef int (__cdecl* wsprintfA_fn)(char*, const char*, ...);
 static wsprintfA_fn orig_wsprintfA = nullptr; // kept for future use, hook not installed
 
-// #8: MapVirtualKeyA — key mappings cached
+// #8: MapVirtualKeyA - key mappings cached
 typedef UINT (WINAPI* MapVirtualKeyA_fn)(UINT, UINT);
 static MapVirtualKeyA_fn orig_MapVirtualKeyA = nullptr;
 static UINT g_mvkCache[256][4] = {};  // [code][mapType]
@@ -4753,7 +4755,7 @@ static UINT WINAPI hooked_MapVirtualKeyA(UINT code, UINT mapType) {
     return orig_MapVirtualKeyA(code, mapType);
 }
 
-// #9: GetThreadPriority — thread priority never changes per thread
+// #9: GetThreadPriority - thread priority never changes per thread
 typedef int (WINAPI* GetThreadPriority_fn)(HANDLE);
 static GetThreadPriority_fn orig_GetThreadPriority = nullptr;
 static int g_threadPrio[256] = {};  // simple per-handle cache
@@ -4766,7 +4768,7 @@ static int WINAPI hooked_GetThreadPriority(HANDLE h) {
     return c;
 }
 
-// #10: lstrlenW REMOVED — already hooked by SSE2 fast path (duplicate hook crashes MinHook)
+// #10: lstrlenW REMOVED - already hooked by SSE2 fast path (duplicate hook crashes MinHook)
 
 static bool InstallBatchOpt10() {
     int ok = 0;
@@ -4792,14 +4794,14 @@ static bool InstallBatchOpt10() {
     // #6 CharLowerA
     p = (void*)GetProcAddress(hU32, "CharLowerA");
     if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
-    // #7 wsprintfA REMOVED — variadic args can't forward
+    // #7 wsprintfA REMOVED - variadic args can't forward
     // #8 MapVirtualKeyA
     p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
     if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
     // #9 GetThreadPriority
     p = (void*)GetProcAddress(hK32, "GetThreadPriority");
     if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
-    // #10 lstrlenW REMOVED — duplicate hook
+    // #10 lstrlenW REMOVED - duplicate hook
 
     Log("Batch opt #1-8: %d/8 active", ok);
     return ok > 0;
@@ -4819,11 +4821,11 @@ typedef UINT (WINAPI* GetDoubleClickTime_fn)();
 static GetDoubleClickTime_fn orig_GetDoubleClickTime = nullptr; static UINT g_dct = 0;
 static UINT WINAPI hooked_GetDoubleClickTime() { if (!g_dct) g_dct = orig_GetDoubleClickTime(); return g_dct; }
 
-// #13: GetCursorPos — 16ms cache
+// #13: GetCursorPos - 16ms cache
 typedef BOOL (WINAPI* GetCursorPos_fn)(LPPOINT);
 static GetCursorPos_fn orig_GetCursorPos = nullptr;
 static BOOL WINAPI hooked_GetCursorPos(LPPOINT lp) {
-    return orig_GetCursorPos(lp);  // pass-through — 16ms cache causes cursor lag on high-refresh displays
+    return orig_GetCursorPos(lp);  // pass-through - 16ms cache causes cursor lag on high-refresh displays
 }
 
 // #14: GetSysColor
@@ -4859,7 +4861,7 @@ typedef HWND (WINAPI* GetDesktopWindow_fn)();
 static GetDesktopWindow_fn orig_GetDesktopWindow = nullptr; static HWND g_desktop = NULL;
 static HWND WINAPI hooked_GetDesktopWindow() { if (!g_desktop) g_desktop = orig_GetDesktopWindow(); return g_desktop; }
 
-// #20: GetFocus — 16ms cache
+// #20: GetFocus - 16ms cache
 typedef HWND (WINAPI* GetFocus_fn)();
 static GetFocus_fn orig_GetFocus = nullptr; static HWND g_lastFocus = NULL; static DWORD g_lastFocusTick = 0;
 static HWND WINAPI hooked_GetFocus() { DWORD now = GetTickCount(); if (now - g_lastFocusTick < 16) return g_lastFocus; g_lastFocus = orig_GetFocus(); g_lastFocusTick = now; return g_lastFocus; }
@@ -4883,7 +4885,7 @@ static bool InstallBatchOpt20() {
 // Batch #21-30: more caches and fast paths
 // ================================================================
 
-// #21: GetTickCount64 — redirect to QPC (same as GetTickCount hook)
+// #21: GetTickCount64 - redirect to QPC (same as GetTickCount hook)
 typedef ULONGLONG (WINAPI* GetTickCount64_fn)();
 static GetTickCount64_fn orig_GetTickCount64 = nullptr;
 static ULONGLONG WINAPI hooked_GetTickCount64() {
@@ -4895,7 +4897,7 @@ static ULONGLONG WINAPI hooked_GetTickCount64() {
     return (ULONGLONG)(qpc.QuadPart * 1000 / freq.QuadPart);
 }
 
-// #22: GetClientRect — cached per HWND (window size rarely changes)
+// #22: GetClientRect - cached per HWND (window size rarely changes)
 typedef BOOL (WINAPI* GetClientRect_fn)(HWND, LPRECT);
 static GetClientRect_fn orig_GetClientRect = nullptr;
 static HWND g_crHwnd = NULL; static RECT g_crCache = {};
@@ -4906,7 +4908,7 @@ static BOOL WINAPI hooked_GetClientRect(HWND h, LPRECT r) {
     return res;
 }
 
-// #23: GetWindowRect — cached per HWND
+// #23: GetWindowRect - cached per HWND
 typedef BOOL (WINAPI* GetWindowRect_fn)(HWND, LPRECT);
 static GetWindowRect_fn orig_GetWindowRect = nullptr;
 static HWND g_wrHwnd = NULL; static RECT g_wrCache = {};
@@ -4917,10 +4919,10 @@ static BOOL WINAPI hooked_GetWindowRect(HWND h, LPRECT r) {
     return res;
 }
 
-// #24-25: REMOVED — GetDateFormatA/GetTimeFormatA pass-through (no speedup)
-// #26: SetCursorPos REMOVED — no-op breaks mouselook (cursor must move)
+// #24-25: REMOVED - GetDateFormatA/GetTimeFormatA pass-through (no speedup)
+// #26: SetCursorPos REMOVED - no-op breaks mouselook (cursor must move)
 
-// #27: ShowCursor — cached (only changes on UI mode switch)
+// #27: ShowCursor - cached (only changes on UI mode switch)
 typedef int (WINAPI* ShowCursor_fn)(BOOL);
 static ShowCursor_fn orig_ShowCursor = nullptr; static int g_showCount = -1;
 static int WINAPI hooked_ShowCursor(BOOL show) {
@@ -4928,8 +4930,8 @@ static int WINAPI hooked_ShowCursor(BOOL show) {
     else { if (g_showCount > 0) g_showCount--; return g_showCount; }
 }
 
-// #28-29: REMOVED — GetDC/ReleaseDC unsafe (prevents screen updates)
-// #30: ValidateRect REMOVED — no-op prevents UI repaints, freezes on friend list open
+// #28-29: REMOVED - GetDC/ReleaseDC unsafe (prevents screen updates)
+// #30: ValidateRect REMOVED - no-op prevents UI repaints, freezes on friend list open
 
 static bool InstallBatchOpt30() {
     int ok = 0;
@@ -4940,7 +4942,7 @@ static bool InstallBatchOpt30() {
     H31(hU32, GetClientRect, orig_GetClientRect);
     H31(hU32, GetWindowRect, orig_GetWindowRect);
     H31(hU32, ShowCursor, orig_ShowCursor);
-    // H31(hU32, ValidateRect, orig_ValidateRect); // REMOVED — prevents UI repaint, freezes on friend list
+    // H31(hU32, ValidateRect, orig_ValidateRect); // REMOVED - prevents UI repaint, freezes on friend list
     #undef H31
     Log("Batch opt #21-24: %d/4 active", ok);
     return ok > 0;
@@ -4950,7 +4952,7 @@ static bool InstallBatchOpt30() {
 // Batch #31-35: kernel32 immutable-data caches
 // ================================================================
 
-// #31: GetComputerNameA — never changes during session
+// #31: GetComputerNameA - never changes during session
 typedef BOOL (WINAPI* GetComputerNameA_fn)(LPSTR, LPDWORD);
 static GetComputerNameA_fn orig_GetComputerNameA = nullptr;
 static char g_computerName[64] = {};
@@ -4959,7 +4961,7 @@ static BOOL WINAPI hooked_GetComputerNameA(LPSTR buf, LPDWORD nSize) {
     BOOL r = orig_GetComputerNameA(g_computerName, nSize); memcpy(buf, g_computerName, (size_t)*nSize + 1); return r;
 }
 
-// #32: GetUserNameA — never changes during session
+// #32: GetUserNameA - never changes during session
 typedef BOOL (WINAPI* GetUserNameA_fn)(LPSTR, LPDWORD);
 static GetUserNameA_fn orig_GetUserNameA = nullptr;
 static char g_userName[64] = {};
@@ -4968,7 +4970,7 @@ static BOOL WINAPI hooked_GetUserNameA(LPSTR buf, LPDWORD nSize) {
     BOOL r = orig_GetUserNameA(g_userName, nSize); memcpy(buf, g_userName, (size_t)*nSize + 1); return r;
 }
 
-// #33: GetSystemDirectoryA — never changes
+// #33: GetSystemDirectoryA - never changes
 typedef UINT (WINAPI* GetSystemDirectoryA_fn)(LPSTR, UINT);
 static GetSystemDirectoryA_fn orig_GetSystemDirectoryA = nullptr;
 static char g_sysDir[MAX_PATH] = {};
@@ -4977,7 +4979,7 @@ static UINT WINAPI hooked_GetSystemDirectoryA(LPSTR buf, UINT nSize) {
     UINT r = orig_GetSystemDirectoryA(g_sysDir, MAX_PATH); if (buf != g_sysDir) memcpy(buf, g_sysDir, (size_t)r + 1); return r;
 }
 
-// #34: GetWindowsDirectoryA — never changes
+// #34: GetWindowsDirectoryA - never changes
 typedef UINT (WINAPI* GetWindowsDirectoryA_fn)(LPSTR, UINT);
 static GetWindowsDirectoryA_fn orig_GetWindowsDirectoryA = nullptr;
 static char g_winDir[MAX_PATH] = {};
@@ -4986,7 +4988,7 @@ static UINT WINAPI hooked_GetWindowsDirectoryA(LPSTR buf, UINT nSize) {
     UINT r = orig_GetWindowsDirectoryA(g_winDir, MAX_PATH); if (buf != g_winDir) memcpy(buf, g_winDir, (size_t)r + 1); return r;
 }
 
-// #35: GetTempPathA — changes only on reboot
+// #35: GetTempPathA - changes only on reboot
 typedef DWORD (WINAPI* GetTempPathA_fn)(DWORD, LPSTR);
 static GetTempPathA_fn orig_GetTempPathA = nullptr;
 static char g_tempPath[MAX_PATH] = {};
@@ -5012,7 +5014,7 @@ static bool InstallBatchOpt35() {
 
 // ================================================================
 // Batch #36-38: kernel32 immutable-data caches
-// #36: GetCurrentProcess — always returns (HANDLE)-1
+// #36: GetCurrentProcess - always returns (HANDLE)-1
 typedef HANDLE (WINAPI* GetCurrentProcess_fn)();
 static GetCurrentProcess_fn orig_GetCurrentProcess = nullptr;
 static HANDLE g_hProc = NULL;
@@ -5020,7 +5022,7 @@ static HANDLE WINAPI hooked_GetCurrentProcess() {
     if (g_hProc) return g_hProc;
     g_hProc = orig_GetCurrentProcess(); return g_hProc;
 }
-// #37: GetCPInfo — code page info immutable per session
+// #37: GetCPInfo - code page info immutable per session
 typedef BOOL (WINAPI* GetCPInfo_fn)(UINT, LPCPINFO);
 static GetCPInfo_fn orig_GetCPInfo = nullptr;
 static CPINFO g_cpInfo[4] = {}; static BOOL g_cpValid[4] = {};
@@ -5029,7 +5031,7 @@ static BOOL WINAPI hooked_GetCPInfo(UINT cp, LPCPINFO lp) {
     if (idx < 3 && g_cpValid[idx]) { *lp = g_cpInfo[idx]; return TRUE; }
     BOOL r = orig_GetCPInfo(cp, &g_cpInfo[idx]); if (r && lp) *lp = g_cpInfo[idx]; g_cpValid[idx] = r; return r;
 }
-// #38: GetCurrentThread — already handled at line 2256, returns (HANDLE)-2 constant
+// #38: GetCurrentThread - already handled at line 2256, returns (HANDLE)-2 constant
 static bool InstallBatchOpt38() {
     int ok = 0; HMODULE hK32 = GetModuleHandleA("kernel32.dll"); void* p;
     #define H38(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
@@ -5136,21 +5138,21 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool strlen76Ok = InstallWowStrlenHook();
     if (strlen76Ok) Log("WoW-internal strlen hook: ACTIVE (SSE2 replacement for sub_76EE30)");
 
-    // CRT strstr SSE2 — algorithmic replacement for byte-by-byte search
+    // CRT strstr SSE2 - algorithmic replacement for byte-by-byte search
 #if !TEST_DISABLE_STRSTR_SSE2
     bool strstrOk = InstallStrstrSSE2();
 #else
     bool strstrOk = false;
 #endif
 
-    // CRT memchr + strchr SSE2 — 16-byte SIMD byte scan
+    // CRT memchr + strchr SSE2 - 16-byte SIMD byte scan
 #if !TEST_DISABLE_CRT_CHAR_SSE2
     bool chrOk = InstallCrtCharSSE2();
 #else
     bool chrOk = false;
 #endif
 
-    // CRT pow() integer fast-path — x^2=x*x, sqrt, etc.
+    // CRT pow() integer fast-path - x^2=x*x, sqrt, etc.
 #if !TEST_DISABLE_CRT_POW_SSE2
     bool powOk = InstallCrtPowSSE2();
 #else
@@ -5203,7 +5205,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool frameThrottleOk = InstallFrameThrottling();
 
     Log("--- Tooltip String Caching ---");
-    bool tooltipCacheOk = false;  // DISABLED: placeholder — tracks hits but never caches results
+    bool tooltipCacheOk = false;  // DISABLED: placeholder - tracks hits but never caches results
 
     Log("--- Spell Data Caching ---");
     bool spellCacheOk = SpellCache::Init();
@@ -5234,7 +5236,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (IsWine()) {
         // On Wine/Rosetta, hook SetThreadIdealProcessor at the kernel32
         // level to make it a no-op. WoW's own sub_8D2110 (ThreadWorker)
-        // and potentially WoWsilicon call this natively — our own
+        // and potentially WoWsilicon call this natively - our own
         // InstallThreadAffinity guard only prevents OUR hook from pinning,
         // but cannot stop WoW's original code. The rosettax87 JIT desyncs
         // when any caller changes thread affinity.
@@ -5255,7 +5257,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Lua VM Optimizer ---");
 #if TEST_DISABLE_LUA_VM_OPT
-    Log("[LuaOpt] DISABLED (baseline test — system hooks only)");
+    Log("[LuaOpt] DISABLED (baseline test - system hooks only)");
 #else
     luaOk = LuaOpt::PrepareFromWorkerThread();
 #endif
@@ -5370,11 +5372,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     __try {
         fastPathOk = LuaFastPath::Init();
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[FastPath] EXCEPTION 0x%08X — SKIPPED", GetExceptionCode());
+        Log("[FastPath] EXCEPTION 0x%08X - SKIPPED", GetExceptionCode());
     }
 #endif
 
-    // Addon file RAM-disk — pre-load all addon files into memory
+    // Addon file RAM-disk - pre-load all addon files into memory
 #if !TEST_DISABLE_ADDON_PRELOAD
     bool addonPreloadOk = InitAddonPreload();
 #else
@@ -5402,7 +5404,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  Initialization complete");
     Log("========================================");
 
-    // Start async I/O worker after all hooks/workers are ready — avoids init race
+    // Start async I/O worker after all hooks/workers are ready - avoids init race
     InstallAsyncIoWorker();
 
     Log("");
@@ -5439,7 +5441,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     #if !CRASH_TEST_DISABLE_MPQ_MMAP
         Log("  [ OK ] MPQ memory mapping (1-256MB files)");
     #else
-        Log("  [SKIP] MPQ memory mapping (disabled — stability)");
+        Log("  [SKIP] MPQ memory mapping (disabled - stability)");
     #endif  
     Log("  [%s] CloseHandle (cache cleanup)",  closeOk     ? " OK " : "FAIL");
     Log("  [%s] FlushFileBuffers (MPQ skip)",  flushOk     ? " OK " : "FAIL");
@@ -5481,10 +5483,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 }
 
 // ================================================================
-// 16a. sub_4D4DB0 — Object Type Check Cache (1905 callers)
+// 16a. sub_4D4DB0 - Object Type Check Cache (1905 callers)
 //
 // This is WoW's RTTI/dynamic_cast equivalent. Called on every object
-// type check — UI widget validation, spell target filtering, combat
+// type check - UI widget validation, spell target filtering, combat
 // log event type dispatch, frame script type guards.  Every call
 // walks a hash table via sub_4D4BB0 with GUID + flags comparison.
 //
@@ -5545,17 +5547,17 @@ static bool InstallRTTICache() {
         Log("RTTI cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
         return false;
     }
-    if (MH_CreateHook(target, (void*)hooked_RTTICheck, (void**)&orig_RTTICheck) != MH_OK)
+    if (WineSafe_CreateHook(target, (void*)hooked_RTTICheck, (void**)&orig_RTTICheck) != MH_OK)
         return false;
     if (MH_EnableHook(target) != MH_OK)
         return false;
-    Log("RTTI type check cache: ACTIVE (sub_4D4DB0 @ 0x004D4DB0 — %d-slot direct-map, 1905 callers)", RTTI_CACHE_SIZE);
+    Log("RTTI type check cache: ACTIVE (sub_4D4DB0 @ 0x004D4DB0 - %d-slot direct-map, 1905 callers)", RTTI_CACHE_SIZE);
     return true;
 #endif
 }
 
 // ================================================================
-// 16b. sub_47B3C0 / sub_47B0A0 — Stream Buffer Read/Write Fast Path
+// 16b. sub_47B3C0 / sub_47B0A0 - Stream Buffer Read/Write Fast Path
 //
 // Called 2662 times across the binary.  sub_47B3C0 reads 4 bytes from
 // a stream buffer (used in Lua bytecode fetch, script execution, network
@@ -5621,7 +5623,7 @@ static void* __fastcall hooked_StreamWrite(void* This, int val) {
         uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
         uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
 
-        // Fast bounds: cursor within [delta, delta+size) — same as sub_47B0A0
+        // Fast bounds: cursor within [delta, delta+size) - same as sub_47B0A0
         if (cursor + 4 <= delta + size && cursor >= delta) {
             uintptr_t addr = cursor - delta + base;
             if (addr > 0x10000 && addr < 0xBFFF0000) {
@@ -5645,24 +5647,24 @@ static bool InstallStreamBufferFastPath() {
 #else
     int ok = 0;
 
-    // sub_47B3C0 — StreamRead (1477 callers)
+    // sub_47B3C0 - StreamRead (1477 callers)
     void* pRead = (void*)0x0047B3C0;
     unsigned char* pr = (unsigned char*)pRead;
     if (pr[0] == 0x55 && pr[1] == 0x8B) {
-        if (MH_CreateHook(pRead, (void*)hooked_StreamRead, (void**)&orig_StreamRead) == MH_OK
+        if (WineSafe_CreateHook(pRead, (void*)hooked_StreamRead, (void**)&orig_StreamRead) == MH_OK
             && MH_EnableHook(pRead) == MH_OK) ok++;
     }
 
-    // sub_47B0A0 — StreamWrite (1185 callers)
+    // sub_47B0A0 - StreamWrite (1185 callers)
     void* pWrite = (void*)0x0047B0A0;
     unsigned char* pw = (unsigned char*)pWrite;
     if (pw[0] == 0x55 && pw[1] == 0x8B) {
-        if (MH_CreateHook(pWrite, (void*)hooked_StreamWrite, (void**)&orig_StreamWrite) == MH_OK
+        if (WineSafe_CreateHook(pWrite, (void*)hooked_StreamWrite, (void**)&orig_StreamWrite) == MH_OK
             && MH_EnableHook(pWrite) == MH_OK) ok++;
     }
 
     if (ok > 0) {
-        Log("Stream buffer fast path: ACTIVE (%d/2 hooked, sub_47B3C0+sub_47B0A0 — inline bounds check, 2662 callers)", ok);
+        Log("Stream buffer fast path: ACTIVE (%d/2 hooked, sub_47B3C0+sub_47B0A0 - inline bounds check, 2662 callers)", ok);
         return true;
     }
     Log("Stream buffer fast path: FAILED (no hooks installed)");
@@ -5671,7 +5673,7 @@ static bool InstallStreamBufferFastPath() {
 }
 
 // ================================================================
-// 17. GetFileSize / GetFileSizeEx — Cache
+// 17. GetFileSize / GetFileSizeEx - Cache
 //
 // ================================================================
 
@@ -5695,7 +5697,7 @@ typedef BOOL (WINAPI* GetFileSizeEx_fn)(HANDLE, PLARGE_INTEGER);
 static GetFileSizeEx_fn orig_GetFileSizeEx = nullptr;
 
 static BOOL WINAPI hooked_GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
-    // Cache disabled for testing — pass through to original
+    // Cache disabled for testing - pass through to original
     return orig_GetFileSizeEx(hFile, lpFileSize);
 }
 
@@ -5716,7 +5718,7 @@ static bool InstallGetFileSizeCache() {
 }
 
 // ================================================================
-// 18. WaitForSingleObject — Spin-First for Short Waits
+// 18. WaitForSingleObject - Spin-First for Short Waits
 //
 // ================================================================
 
@@ -5755,7 +5757,7 @@ static bool InstallWaitForSingleObjectHook() {
 }
 
 // ================================================================
-// 19. GetModuleHandleA — Cache
+// 19. GetModuleHandleA - Cache
 //
 // ================================================================
 
@@ -5818,7 +5820,7 @@ static bool InstallGetModuleHandleCache() {
 }
 
 // ================================================================
-// 20. lstrcmpA / lstrcmpiA — Fast Path
+// 20. lstrcmpA / lstrcmpiA - Fast Path
 //
 // ================================================================
 
@@ -5909,7 +5911,7 @@ static bool InstallLstrcmpHook() {
 }
 
 // ================================================================
-// 21. GetPrivateProfileStringA — Cache
+// 21. GetPrivateProfileStringA - Cache
 //
 // ================================================================
 
@@ -5992,7 +5994,7 @@ static bool InstallGetPrivateProfileCache() {
 }
 
 // ================================================================
-// lstrlenA/W — fast inline string length
+// lstrlenA/W - fast inline string length
 //
 // ================================================================
 
@@ -6060,7 +6062,7 @@ static bool InstallLStrLenHooks() {
 }
 
 // ================================================================
-// sub_76EE30 — WoW-internal strlen (byte-by-byte loop, 300+ callers)
+// sub_76EE30 - WoW-internal strlen (byte-by-byte loop, 300+ callers)
 // Replace with SSE2-accelerated inline strlen.
 // ================================================================
 #if !CRASH_TEST_DISABLE_WOW_STRLEN
@@ -6094,7 +6096,7 @@ static unsigned int __stdcall hooked_strlen76(const char* str) {
 
 static bool InstallWowStrlenHook() {
     void* target = (void*)0x0076EE30;
-    if (MH_CreateHook(target, (void*)hooked_strlen76, (void**)&orig_strlen76) != MH_OK)
+    if (WineSafe_CreateHook(target, (void*)hooked_strlen76, (void**)&orig_strlen76) != MH_OK)
         return false;
     if (MH_EnableHook(target) != MH_OK)
         return false;
@@ -6105,7 +6107,7 @@ static bool InstallWowStrlenHook() { return false; }
 #endif
 
 // ================================================================
-// MultiByteToWideChar / WideCharToMultiByte — ASCII fast path
+// MultiByteToWideChar / WideCharToMultiByte - ASCII fast path
 //
 // ================================================================
 
@@ -6325,7 +6327,7 @@ static bool InstallMBWCHooks() {
 }
 
 // ================================================================
-// GetProcAddress — 4-way set-associative cache (v3.6.5: strcmp-verified,
+// GetProcAddress - 4-way set-associative cache (v3.6.5: strcmp-verified,
 // Wine security-module bypass)
 //
 // ================================================================
@@ -6430,7 +6432,7 @@ static inline uintptr_t HashPtr(const void* p, size_t len) {
 }
 
 static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) {
-    // Ordinal lookup — no caching
+    // Ordinal lookup - no caching
     if ((uintptr_t)lpProcName < 0x10000) {
         return orig_GetProcAddress(hModule, lpProcName);
     }
@@ -6447,13 +6449,13 @@ static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) 
     uintptr_t procHash = HashPtr(lpProcName, nameLen);
     int setIdx = (int)((modHash ^ procHash) & GPA_CACHE_SET_MASK);
 
-    // Search all 4 ways in this set — hash AND strcmp
+    // Search all 4 ways in this set - hash AND strcmp
     GpaCacheEntry* set = g_gpaCache[setIdx];
     for (int way = 0; way < GPA_CACHE_WAYS; way++) {
         if (set[way].valid && set[way].moduleHash == modHash &&
             set[way].procHash == procHash &&
             strcmp(set[way].procName, lpProcName) == 0) {
-            // Cache hit — update LRU
+            // Cache hit - update LRU
             set[way].lru = 3;
             for (int i = 0; i < GPA_CACHE_WAYS; i++) {
                 if (i != way && set[i].lru > 0) set[i].lru--;
@@ -6463,7 +6465,7 @@ static FARPROC WINAPI hooked_GetProcAddress(HMODULE hModule, LPCSTR lpProcName) 
         }
     }
 
-    // Cache miss — call original
+    // Cache miss - call original
     FARPROC addr = orig_GetProcAddress(hModule, lpProcName);
     if (addr && nameLen < GPA_NAME_MAX) {
         // Find victim: invalid slot first, else LRU=0
@@ -6524,7 +6526,7 @@ static bool InstallGetProcAddressCache() {
 }
 
 // ================================================================
-// GetModuleFileNameA/W — cache
+// GetModuleFileNameA/W - cache
 //
 // ================================================================
 
@@ -6607,7 +6609,7 @@ static bool InstallGetModuleFileNameCache() {
 }
 
 // ================================================================
-// GetEnvironmentVariableA — cache
+// GetEnvironmentVariableA - cache
 //
 // ================================================================
 
@@ -6676,7 +6678,7 @@ static bool InstallEnvironmentVariableCache() {
 }
 
 // ================================================================
-//  Thread Affinity — Background Worker CPU Pinning
+//  Thread Affinity - Background Worker CPU Pinning
 //
 // ================================================================
 
@@ -6703,7 +6705,7 @@ static bool IsExecutableMemory(uintptr_t addr) {
 
 // Wine/Rosetta: make SetThreadIdealProcessor a global no-op.
 // WoW's own sub_8D2110 and external injectors (WoWsilicon) call this
-// natively. Guarding only our own hook sites is insufficient — we must
+// natively. Guarding only our own hook sites is insufficient - we must
 // intercept the kernel32 entry point itself to prevent rosettax87 desync.
 static DWORD WINAPI Noop_SetThreadIdealProcessor(HANDLE hThread, DWORD dwIdealProcessor) {
     (void)hThread; (void)dwIdealProcessor;
@@ -6761,7 +6763,7 @@ static bool InstallThreadAffinity() {
 
     void* p = (void*)0x008D2110;
     if (!IsExecutableMemory((uintptr_t)p)) return false;
-    if (MH_CreateHook(p, (void*)Hooked_ThreadWorker, (void**)&orig_ThreadWorker) != MH_OK) return false;
+    if (WineSafe_CreateHook(p, (void*)Hooked_ThreadWorker, (void**)&orig_ThreadWorker) != MH_OK) return false;
     if (MH_EnableHook(p) != MH_OK) return false;
 
     Log("Thread affinity: ACTIVE (process-mask aware, %d worker cores)", g_affinityCount);
@@ -6770,7 +6772,7 @@ static bool InstallThreadAffinity() {
 }
 
 // ================================================================
-// VA Arena v2 — High-address reserved arena with caller filtering
+// VA Arena v2 - High-address reserved arena with caller filtering
 // ================================================================
 
 static bool IsCallerInWowExe() {
@@ -6792,7 +6794,7 @@ static bool IsCallerInWowExe() {
 
 static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD flType, DWORD flProtect) {
     // Intercept ALL committed, non-fixed, non-reserve allocations
-    // No caller filtering — serve everyone (Wow.exe, addons, mimalloc, D3D9, etc.)
+    // No caller filtering - serve everyone (Wow.exe, addons, mimalloc, D3D9, etc.)
     if (g_vaArenaActive &&
         lpAddress == NULL &&
         dwSize >= VA_ARENA_PAGE_SIZE &&
@@ -6892,7 +6894,7 @@ static BOOL WINAPI Hooked_VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwF
             AcquireSRWLockExclusive(&g_vaArenaLock);
             DWORD spanLen = g_vaArenaSpan[page];
             if (spanLen == 0) {
-                // Not an arena head page — fallback
+                // Not an arena head page - fallback
                 ReleaseSRWLockExclusive(&g_vaArenaLock);
                 goto vf_fallback;
             }
@@ -7061,7 +7063,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 break;
             }
 
-            // Dynamic FreeLibrary — safe to clean up
+            // Dynamic FreeLibrary - safe to clean up
             __try {
             LuaFastPath::Shutdown();
             LuaInternals::Shutdown();
@@ -7167,7 +7169,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 if (g_readCache[i].buffer) { mi_free(g_readCache[i].buffer); g_readCache[i].buffer = nullptr; }
             }
             } __except(EXCEPTION_EXECUTE_HANDLER) {
-                Log("Exception during DLL shutdown — continuing exit");
+                Log("Exception during DLL shutdown - continuing exit");
             }
             Log("wow_optimize.dll unloaded (clean)");
             LogClose();

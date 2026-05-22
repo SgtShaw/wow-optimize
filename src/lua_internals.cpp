@@ -1,5 +1,5 @@
 // ================================================================
-// Lua VM Internals — DISABLED (luaV_concat hook removed)
+// Lua VM Internals - DISABLED (luaV_concat hook removed)
 //
 // ================================================================
 
@@ -12,7 +12,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// LuaInternals namespace — stub implementation (disabled).
+// LuaInternals namespace - stub implementation (disabled).
 // ================================================================
 namespace LuaInternals {
 

@@ -1,5 +1,5 @@
 // ================================================================
-// Combat Log Optimizer — retention patching + periodic clears
+// Combat Log Optimizer - retention patching + periodic clears
 //
 // ================================================================
 
@@ -149,7 +149,7 @@ void OnFrame(DWORD mainThreadId) {
 
     // Periodic CombatLogClearEntries disabled: conflicts with addons like
     // Recount that read the combat log buffer. Retention patch (1800s) is
-    // sufficient — game handles cleanup via normal retention mechanism.
+    // sufficient - game handles cleanup via normal retention mechanism.
    (void)nowMs;
 }
 

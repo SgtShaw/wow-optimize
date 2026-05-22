@@ -1,5 +1,5 @@
 // ================================================================
-// Predictive MPQ Prefetcher — Header
+// Predictive MPQ Prefetcher - Header
 // ================================================================
 
 #pragma once

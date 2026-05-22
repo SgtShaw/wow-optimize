@@ -1,5 +1,5 @@
 // ================================================================
-// Multithreaded Spell Effect Renderer — Header
+// Multithreaded Spell Effect Renderer - Header
 //
 // ================================================================
 

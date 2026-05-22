@@ -1,4 +1,4 @@
-// Lua bytecode cache — skips script parsing on cache hit
+// Lua bytecode cache - skips script parsing on cache hit
 // Hooks luaL_loadbuffer (0x84F860). Compiles source → bytecode once,
 // caches bytecode, serves from cache on subsequent loads.
 // Workers pre-fetch source files to warm the cache on startup.
@@ -80,7 +80,7 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
     do {
         if (!buf || sz == 0) { rc = orig_luaL_loadbuffer(L, buf, sz, name); break; }
 
-        // Already compiled bytecode — pass through directly
+        // Already compiled bytecode - pass through directly
         if ((unsigned char)buf[0] == LUA_SIGNATURE) {
             rc = orig_luaL_loadbuffer(L, buf, sz, name);
             break;
@@ -107,7 +107,7 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
                 InterlockedIncrement64(&g_hits);
                 break;
             }
-            // Bytecode incompatible — evict and recompile
+            // Bytecode incompatible - evict and recompile
             AcquireSRWLockExclusive(&g_cacheLock);
             auto it = g_cache.find(h);
             if (it != g_cache.end()) {

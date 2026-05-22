@@ -1,5 +1,5 @@
 // ================================================================
-// Multithreaded Addon Update Dispatcher — Implementation
+// Multithreaded Addon Update Dispatcher - Implementation
 // ================================================================
 
 #include "addon_dispatcher.h"

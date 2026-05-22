@@ -3,7 +3,7 @@
 // Worker-pool decompressor for MPQ block reads. Pairs with the
 // existing ReadFile MPQ cache in dllmain.cpp: when a multi-block
 // read is detected, blocks are dispatched to workers for parallel
-// inflate. Stub-safe — pool runs even if no offload arrives.
+// inflate. Stub-safe - pool runs even if no offload arrives.
 
 #include <windows.h>
 #include <cstdint>

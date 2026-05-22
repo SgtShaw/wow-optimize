@@ -1,10 +1,10 @@
 // ================================================================
-// Multithreaded Combat Log Parser — Implementation
+// Multithreaded Combat Log Parser - Implementation
 // ================================================================
 
 #include "combatlog_mt.h"
-#include "version.h"
 #include "MinHook.h"
+#include "version.h"
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
@@ -394,7 +394,7 @@ bool Init() {
 
     // Install hook
     void* target = (void*)targetAddr;
-    if (MH_CreateHook(target, (void*)Hooked_DispatchEvents, (void**)&orig_DispatchEvents) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)Hooked_DispatchEvents, (void**)&orig_DispatchEvents) != MH_OK) {
         Log("[CombatLogMT] ERROR: Failed to create hook");
         Shutdown();
         return false;

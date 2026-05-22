@@ -40,7 +40,7 @@ typedef void (__cdecl *luaV_gettable_fn)(void*, void*, void*, void*);
 static luaV_gettable_fn orig_luaV_gettable = nullptr;
 
 static void __cdecl Hooked_luaV_gettable(void* L, void* table, void* key, void* result) {
-    // Skip cache during lua_State swap — old table/key pointers are stale
+    // Skip cache during lua_State swap - old table/key pointers are stale
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
         orig_luaV_gettable(L, table, key, result);
         return;

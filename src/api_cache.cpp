@@ -1,5 +1,5 @@
 // ================================================================
-// WoW API Result Cache — Direct Memory Access Implementation
+// WoW API Result Cache - Direct Memory Access Implementation
 //
 // Caches return values of GetItemInfo() and GetSpellInfo()
 //       Lua API calls to avoid repeated MPQ reads and DBC parsing.
@@ -24,8 +24,8 @@ typedef double lua_Number;
 // TValue layout
 // Matches RawTValue from lua_fastpath.cpp exactly.
 //
-// Offset 0:  Value union (void* gc / double n) — 8 bytes
-// Offset 8:  tt (int) — type tag
+// Offset 0:  Value union (void* gc / double n) - 8 bytes
+// Offset 8:  tt (int) - type tag
 // Offset 12: taint (uint32_t)
 // Total: 16 bytes per TValue
 // ================================================================
@@ -49,9 +49,9 @@ static inline RawTValue* GetStackBase(lua_State* L) {
 
 // TString layout:
 // Offset 0-7:   CommonHeader (gc header)
-// Offset 8:     len (int) — string length
+// Offset 8:     len (int) - string length
 // Offset 12:    hash (unsigned int)
-// Offset 16:    str[0] — string data (flexible array member)
+// Offset 16:    str[0] - string data (flexible array member)
 static inline const char* ReadTStringDirect(RawTValue* tv, size_t* out_len) {
     if (tv->tt != 4) return NULL;  // LUA_TSTRING
 
@@ -111,7 +111,7 @@ static ScriptFunc_fn orig_GetItemInfo  = nullptr;
 static ScriptFunc_fn orig_GetSpellInfo = nullptr;
 
 // ================================================================
-// Cache structures — 8192 slots per cache, direct-mapped.
+// Cache structures - 8192 slots per cache, direct-mapped.
 // ================================================================
 
 static constexpr int CACHE_SIZE    = 8192;
@@ -151,7 +151,7 @@ static long g_spellMisses = 0;
 static bool g_active      = false;
 
 // ================================================================
-// FNV-1a Hash — limited length for long item links.
+// FNV-1a Hash - limited length for long item links.
 // ================================================================
 
 static inline uint32_t HashStr(const char* s, size_t max_len) {
@@ -166,7 +166,7 @@ static inline uint32_t HashStr(const char* s, size_t max_len) {
 }
 
 // ================================================================
-// Direct Memory Capture — reads return values from stack
+// Direct Memory Capture - reads return values from stack
 // using TValue* pointer math, NO lua API calls.
 // ================================================================
 
@@ -255,7 +255,7 @@ static void CaptureSpellReturnValues(lua_State* L, SpellCacheEntry* e,
 }
 
 // ================================================================
-// Replay — uses API calls to safely push values (string interning).
+// Replay - uses API calls to safely push values (string interning).
 // ================================================================
 
 static inline void ReplayItemCachedValues(lua_State* L, ItemCacheEntry* e) {
@@ -281,7 +281,7 @@ static inline void ReplaySpellCachedValues(lua_State* L, SpellCacheEntry* e) {
 }
 
 // ================================================================
-// Hooked_GetItemInfo — Direct Memory Access version.
+// Hooked_GetItemInfo - Direct Memory Access version.
 // ================================================================
 
 static int __cdecl Hooked_GetItemInfo(lua_State* L) {
@@ -330,7 +330,7 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 }
 
 // ================================================================
-// Hooked_GetSpellInfo — Direct Memory Access version.
+// Hooked_GetSpellInfo - Direct Memory Access version.
 // ================================================================
 
 static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
@@ -403,9 +403,9 @@ namespace ApiCache {
 
 bool Init() {
 #if TEST_DISABLE_GETSPELLINFO_CACHE
-    Log("[ApiCache] Init  — Direct Memory Access | TEST: GetSpellInfo DISABLED");
+    Log("[ApiCache] Init  - Direct Memory Access | TEST: GetSpellInfo DISABLED");
 #else
-    Log("[ApiCache] Init  — Direct Memory Access");
+    Log("[ApiCache] Init  - Direct Memory Access");
 #endif
 
     int hooked = 0;
@@ -417,11 +417,11 @@ bool Init() {
     if (HookFunc("GetSpellInfo", ADDR_GetSpellInfo, (void*)Hooked_GetSpellInfo, (void**)&orig_GetSpellInfo))
         hooked++;
 #else
-    Log("[ApiCache]   GetSpellInfo              [ SKIP — permanently disabled ]");
+    Log("[ApiCache]   GetSpellInfo              [ SKIP - permanently disabled ]");
 #endif
 
     if (hooked == 0) {
-        Log("[ApiCache]  DISABLED — no hooks installed");
+        Log("[ApiCache]  DISABLED - no hooks installed");
         return false;
     }
 
@@ -455,7 +455,7 @@ void Shutdown() {
 }
 
 void OnNewFrame() {
-    // No-op — reserved for future use
+    // No-op - reserved for future use
 }
 
 void ClearCache() {

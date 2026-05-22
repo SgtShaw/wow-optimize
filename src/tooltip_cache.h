@@ -1,7 +1,7 @@
 #pragma once
 
 // ================================================================
-// Tooltip String Caching — Cache formatted tooltip strings
+// Tooltip String Caching - Cache formatted tooltip strings
 //
 // ================================================================
 

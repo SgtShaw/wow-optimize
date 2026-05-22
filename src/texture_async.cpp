@@ -1,4 +1,4 @@
-// Async Texture Loader — background MPQ prefetch
+// Async Texture Loader - background MPQ prefetch
 // Hooks sub_619330. Worker threads pre-read texture files into OS cache.
 // On cache miss: queue prefetch. On cache hit: return instantly.
 // WoW loads textures asynchronously, so we just ensure data is in RAM.
@@ -6,6 +6,7 @@
 #include "texture_async.h"
 #include "lua_optimize.h"
 #include "MinHook.h"
+#include "version.h"
 #include <cstdio>
 #include <cstring>
 
@@ -115,7 +116,7 @@ static void __cdecl Hooked_LoadTexture(int a1, char* filename) {
         return;
     }
 
-    // Always call original — we can't bypass WoW's internal texture pipeline.
+    // Always call original - we can't bypass WoW's internal texture pipeline.
     orig_LoadTexture(a1, filename);
 
     // Queue background prefetch so next load hits OS cache.
@@ -145,7 +146,7 @@ bool Init() {
     }
 
     void* target = (void*)0x00619330;
-    if (MH_CreateHook(target, (void*)Hooked_LoadTexture, (void**)&orig_LoadTexture) != MH_OK ||
+    if (WineSafe_CreateHook(target, (void*)Hooked_LoadTexture, (void**)&orig_LoadTexture) != MH_OK ||
         MH_EnableHook(target) != MH_OK) {
         Log("[TextureAsync] Hook failed");
         return false;

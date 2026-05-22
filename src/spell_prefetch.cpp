@@ -1,10 +1,11 @@
 // ================================================================
-// Async Spell Data Prefetcher — Implementation
+// Async Spell Data Prefetcher - Implementation
 // ================================================================
 
 #include "spell_prefetch.h"
 #include "lua_optimize.h"
 #include "MinHook.h"
+#include "version.h"
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
@@ -274,7 +275,7 @@ bool Init() {
 
     // Install hook
     void* target = (void*)targetAddr;
-    if (MH_CreateHook(target, (void*)Hooked_CastSpell, (void**)&orig_CastSpell) != MH_OK) {
+    if (WineSafe_CreateHook(target, (void*)Hooked_CastSpell, (void**)&orig_CastSpell) != MH_OK) {
         Log("[SpellPrefetch] ERROR: Failed to create hook");
         Shutdown();
         return false;
