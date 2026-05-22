@@ -24,6 +24,7 @@ This project wouldn't exist without the community. Every crash report, every bis
 - **tuan** - found the bank/AH SSE2 crash
 - **NoGoodLife** - battle-tested network optimizations on WoW Circle, confirmed keepalive/disconnect fixes
 - **feh_dois** - isolated the AwesomeWotlkLib exit crash
+- **David** (`_oldq`) — macOS/WoWSilicon compatibility testing, Rosetta JIT debugging
 - **UNOB**, **DarkRockDemon**, **Raymond**  - core testing crew across multiple releases
 ---
 
@@ -184,6 +185,60 @@ These experimental features were tested and found to provide no measurable benef
 
 ---
 
+## v3.6.5 Changelog (since v3.6.1)
+
+### macOS / Apple Silicon support
+- Full WoWSilicon compatibility via Wine + rosettax87 JIT translation
+- Rosetta-safe Lua fast paths: replaces `lua_CFunction` pointers via Lua C API (`lua_getfield`/`lua_pushcclosure`/`lua_setfield`) instead of patching x86 code — data writes to Lua heap, invisible to rosettax87 JIT translator
+- All WoW-internal MinHook hooks automatically skipped on Wine to prevent JIT translation desync
+- System-level hooks (allocator, timers, networking, file I/O, critical sections, QPC) remain fully active on Wine/Rosetta
+- Thread pinning and priority adjustments skipped on Wine (incompatible with Rosetta scheduling)
+- Crash dumper adapted for Wine (text reports, no dbghelp dependency)
+
+### Stability fixes
+- Disabled CRT SSE2 memory fast paths — VA exhaustion under heavy load (dungeon finder crash at 2.4GB working set)
+- Disabled hardware cursor byte patches — NULL dereference on private servers
+- Disabled CRT char hooks and batch 38 — crash isolation for WoW Circle/Warmane
+- Disabled wcslen/wcscpy SSE2 — broken zero-detection for ASCII `wchar_t`
+- Fixed batch 38 name collision, disabled strncmp/strcat hooks for crash isolation
+- Disabled GetCursorPos 16ms cache — causes cursor lag
+- Disabled tooltip cache — placeholder, never stored results
+- Lowered VA arena skip threshold from 800MB to 500MB
+- Fixed camera stutter + STACK_OVERFLOW crash in raids
+- Re-enabled CRT memchr/strchr SSE2 with page-boundary guard, added strcpy
+- Disabled `luaH_getstr` — ERROR #134, stale Node* from address reuse within session
+- Disabled stream buffer hooks — heap corruption, ERROR #132
+- Fixed logout/exit crash — detect `lua_State` destruction, clear caches
+- Fixed MPQ folder scan — also check parent Data directory
+- Disabled addon RAM-cache — corrupts addon loading, resets settings
+- Disabled LoadLibraryA and WFMO hooks — cause silent close on loading
+- Disabled asset path cache — stale mimalloc pointers crash all teardowns
+- Disabled Lua bytecode cache — ERROR #134 corrupt chunks confirmed
+- Removed SetCursorPos no-op — breaks mouselook
+- Removed ValidateRect no-op — prevents UI repaint, freezes on friend list
+- Fixed timing method fix — silent close on start
+- Forced `timingMethod=0` (RDTSC) via hook
+
+### New optimizations
+- **Batches 20-38**: 40+ additional kernel-call caches (GetOEMCP, GetCursorPos, GetSysColor, GetKeyboardLayout, GetTickCount64 QPC, GetClientRect, GetWindowRect, ShowCursor, GetCurrentProcess, GetCurrentThread, GetCPInfo, and more)
+- **Sleep hook bulk mode**: waits >16ms use bulk Sleep instead of spin-wait
+- **string.format expanded**: width-specified numerics (`%02d`, `%02x`, `%.Ng`), time display (`%02d:%02d`)
+- **string.match expanded**: additional pattern fast paths
+- **SSE2 CRT hooks**: strcat, strncmp, wcslen, wcscpy (with safety guards)
+- **memcmp fast path**: inline 4/8/16-byte compares
+- **TValue memcpy 16-byte fast path**: millions of Lua TValue copies per frame
+- **Dynamic VA arena**: reserve 256MB during loading, release after
+- **Addon file pre-warmer enhanced**: also reads .toc/.xml, 32MB→128MB
+- **mimalloc size-class seeding**: zero warm-up page faults during gameplay
+- **MPQ folder detection**: .MPQ directories, Interface virtual archive, trailing backslash fix
+- **Frame time stat**: periodic stats show addon processing overhead
+- **Hardware cursor**: force `gxCursor=0` + `gxFixLag=1` via byte patches
+
+### ObjVisCache (disabled)
+- Object visibility cache for `sub_4D4BB0` hash lookup — implemented and tested across 3 iterations (TLS+VirtualAlloc, static pool, disabled). Concluded that caching object pointers from WoW's mutable hash table is fundamentally unsafe: stale pointers corrupt probe chains causing infinite loops. Code preserved for future reference.
+
+---
+
 ## v3.6.2 Changelog
 
 **23 kernel-call caches** - GetSystemTimeAsFileTime (QPC-based), GetACP, GetUserDefaultLangID, GetProcessHeap, CharUpperA/LowerA (inline ASCII), MapVirtualKeyA, GetThreadPriority, GetOEMCP, GetDoubleClickTime, GetCursorPos (16ms budget), GetSysColor, GetKeyboardLayout, GetKeyboardLayoutNameA, GetCaretBlinkTime, IsWindow, GetDesktopWindow, GetFocus (16ms budget), GetTickCount64 (QPC), GetClientRect, GetWindowRect, ShowCursor, ValidateRect.
@@ -321,6 +376,12 @@ mods/wow_optimize.dll
 
 Swapping the first two causes a rosetta error. Without wow_optimize the order does not matter, but with it loaded the translation layer must initialize before any hooks are installed.
 
+### Known limitations on Wine/Rosetta
+
+On Wine, WoW-internal hooks (Lua fast paths, combat log MT, spell prefetch, swap/present, asset path cache, etc.) are automatically skipped to prevent rosettax87 JIT translation desync. System-level hooks (allocator, timers, networking, file I/O, critical sections, QPC) remain fully active and provide meaningful performance benefits.
+
+This is detected at runtime — no configuration needed. On native Windows, all hooks work as normal.
+
 ### Testing credits
 
 macOS/WoWSilicon compatibility was tested by **David** (`_oldq`).
@@ -444,6 +505,7 @@ wow-optimize/
 │   ├── anim_mt.cpp/.h                    # M2 animation (dormant)
 │   ├── mpq_prefetch.cpp/.h               # Zone-based MPQ prefetch
 │   ├── mpq_decompress_mt.cpp/.h          # MT zlib decompress (dormant)
+│   ├── obj_vis_cache.cpp/.h              # Object visibility cache (disabled)
 │   ├── nameplate_batch.cpp/.h            # MT nameplate renderer
 │   ├── sound_prefetch.cpp/.h             # Sound file prefetch
 │   ├── quest_async.cpp/.h                # Async quest data loading

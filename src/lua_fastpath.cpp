@@ -2504,7 +2504,7 @@ bool Init() {
     }
 
     g_active = true;
-    Log("[FastPath]  Phase 1 [ OK ] вЂ" string.format %s",
+    Log("[FastPath]  Phase 1 [ OK ] - string.format %s",
         IsWine() ? "deferred to Phase 2" : "hooked");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
@@ -2627,7 +2627,7 @@ bool InitPhase2(lua_State* L) {
             if (IsWine()) {
                 // ============================================================
                 // Rosetta-safe path: replace lua_CFunction pointer via Lua API
-                // This is a DATA write to Lua heap — no x86 code modification,
+                // This is a DATA write to Lua heap - no x86 code modification,
                 // completely invisible to rosettax87 JIT translator.
                 // ============================================================
                 typedef void (__cdecl *fn_lua_setfield)(lua_State*, int, const char*);
@@ -2722,7 +2722,7 @@ void Shutdown() {
             MH_DisableHook((void*)ADDR_str_format);
         }
         // On Wine/Rosetta, string.format was replaced via Lua API.
-        // No MH_DisableHook needed — the replacement is just a data pointer
+        // No MH_DisableHook needed - the replacement is just a data pointer
         // in Lua's table. WoW will clean up Lua state on exit anyway.
     }
 
