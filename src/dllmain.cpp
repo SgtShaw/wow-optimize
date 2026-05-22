@@ -7015,6 +7015,31 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
+            // Wine/Rosetta: neutralize SetThreadIdealProcessor BEFORE
+            // spawning MainThread. WoW's sub_8D2110 and external injectors
+            // (WoWsilicon) may call it on background threads before our
+            // init thread installs hooks. This inline patch is loader-lock
+            // safe (only VirtualProtect + memory write).
+            {
+                HMODULE k32 = GetModuleHandleA("kernel32.dll");
+                if (k32) {
+                    FARPROC stip = GetProcAddress(k32, "SetThreadIdealProcessor");
+                    if (stip) {
+                        // Check for Wine: ntdll exports wine_get_version
+                        HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+                        bool isWine = ntdll && (GetProcAddress(ntdll, "wine_get_version") != NULL);
+                        if (isWine) {
+                            DWORD oldProt;
+                            // xor eax,eax; ret 8  →  return 0, clean stdcall args
+                            unsigned char stub[] = { 0x33, 0xC0, 0xC2, 0x08, 0x00 };
+                            if (VirtualProtect((void*)stip, sizeof(stub), PAGE_EXECUTE_READWRITE, &oldProt)) {
+                                memcpy((void*)stip, stub, sizeof(stub));
+                                VirtualProtect((void*)stip, sizeof(stub), oldProt, &oldProt);
+                            }
+                        }
+                    }
+                }
+            }
             CloseHandle(CreateThread(NULL, 0, MainThread, NULL, 0, NULL));
             break;
         case DLL_PROCESS_DETACH:
