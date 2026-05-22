@@ -99,7 +99,7 @@
 // Page-boundary guards added (v3.6.2): checks ((ptr & 0xFFF) > 0xFF0)
 // within 16 bytes of page end, falls back to original. Avoids SSE2
 // 16-byte reads crossing into unmapped mimalloc pages.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0   // ENABLED - page boundary guards added to strlen/strcmp/memcpy/memset
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1   // DISABLED: VA exhaustion under heavy load (dungeon finder crash at 2.4GB WS)
 
 // Deferred unit field update queue - disabled: UI/texture
 // flickering due to immediate-mode rendering mismatch (v3.5.x)
