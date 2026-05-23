@@ -7117,7 +7117,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             // Rosetta: disable x87 JIT cache to force re-translation after hooks
             // This MUST happen before any hooks install, so rosettax87 doesn't
             // serve stale ARM64 translations for patched x86 code.
-            if (IsRosetta()) {
+            // Also enable on Wine: CrossOver on Apple Silicon runs WoW.exe (Windows
+            // binary) through Rosetta underneath. Setting the env var on plain Wine
+            // (Linux) is harmless — it's simply ignored there.
+            if (IsRosetta() || IsWine()) {
                 SetEnvironmentVariableA("ROSETTA_X87_DISABLE_CACHE", "1");
                 // Signal to lua_fastpath that MinHook inline hooks are now safe
                 extern bool g_rosettaCacheDisabled;

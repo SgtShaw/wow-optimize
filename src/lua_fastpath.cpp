@@ -2492,15 +2492,16 @@ bool Init() {
     Log("[FastPath] ====================================");
 
     __try {
-        // Rosetta with cache disabled can use MinHook (like native Windows)
-        bool useMinHook = !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled);
-        
+        // Use MinHook on native Windows, or on Wine/Rosetta when JIT cache is disabled
+        // (CrossOver on Apple Silicon runs WoW.exe through Rosetta underneath)
+        bool useMinHook = g_rosettaCacheDisabled || (!IsWine() && !IsRosetta());
+
         if (!useMinHook) {
-            // Rosetta-safe: defer string.format hook to Phase 2 (Lua API path)
+            // Legacy Rosetta-safe path: defer string.format hook to Phase 2 (Lua API path)
             // Phase 1 runs before lua_State is available, so we can't use Lua API yet.
             // Phase 2 will install it via lua_setfield (data write, no x86 patch).
             orig_str_format = (lua_CFunction_t)ADDR_str_format;
-            Log("[FastPath]   string.format      0x%08X  [DEFERRED] (Rosetta-safe, Phase 2)",
+            Log("[FastPath]   string.format      0x%08X  [DEFERRED] (Lua API path, Phase 2)",
                 (unsigned)ADDR_str_format);
         } else {
             MH_STATUS s = MH_CreateHook((void*)ADDR_str_format, (void*)Hooked_StrFormat,
@@ -2514,9 +2515,9 @@ bool Init() {
                 Log("[FastPath]   string.format MH_EnableHook failed (%d)", (int)s);
                 return false;
             }
-            Log("[FastPath]   string.format      0x%08X  [ OK ]%s", 
+            Log("[FastPath]   string.format      0x%08X  [ OK ]%s",
                 (unsigned)ADDR_str_format,
-                (IsRosetta() && g_rosettaCacheDisabled) ? " (Rosetta, JIT cache disabled)" : "");
+                g_rosettaCacheDisabled ? " (JIT cache disabled)" : "");
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[FastPath]   string.format: EXCEPTION");
@@ -2525,7 +2526,7 @@ bool Init() {
 
     g_active = true;
     Log("[FastPath]  Phase 1 [ OK ] - string.format %s",
-        (!IsWine() && (!IsRosetta() || g_rosettaCacheDisabled)) ? "hooked" : "deferred to Phase 2");
+        (g_rosettaCacheDisabled || (!IsWine() && !IsRosetta())) ? "hooked" : "deferred to Phase 2");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
     return true;
@@ -2588,14 +2589,14 @@ bool InitPhase2(lua_State* L) {
         if (e.address == 0)
             continue;
 
-        if (e.address == ADDR_str_format && !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled)) {
-            // On native Windows (or Rosetta with cache disabled), Phase 1 already installed inline hook
+        if (e.address == ADDR_str_format && (!IsWine() || g_rosettaCacheDisabled)) {
+            // Phase 1 already installed inline hook (native Windows, or Wine/Rosetta with cache disabled)
             Log("[FastPath]   %-8s.%-8s  SKIP (already hooked in Phase 1)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
-        // On Wine/Rosetta (without cache disabled), string.format was deferred from Phase 1.
-        // Fall through to install via Rosetta-safe Lua API path below.
+        // On legacy Rosetta (without cache disabled), string.format was deferred from Phase 1.
+        // Fall through to install via Lua API path below.
 
 #if TEST_DISABLE_PHASE2_WRITES
         // Write hooks that modify Lua tables/stack
@@ -2644,15 +2645,15 @@ bool InitPhase2(lua_State* L) {
 #endif
 
         __try {
-            // Rosetta with cache disabled can use MinHook (like native Windows)
-            bool useMinHook = !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled);
-            
+            // Use MinHook on native Windows, or on Wine/Rosetta when JIT cache is disabled
+            // (CrossOver on Apple Silicon runs WoW.exe through Rosetta underneath)
+            bool useMinHook = g_rosettaCacheDisabled || (!IsWine() && !IsRosetta());
+
             if (!useMinHook) {
                 // ============================================================
-                // Rosetta-safe path: replace lua_CFunction pointer via Lua API
+                // Legacy Rosetta-safe path: replace lua_CFunction pointer via Lua API
                 // This is a DATA write to Lua heap - no x86 code modification,
                 // completely invisible to rosettax87 JIT translator.
-                // Also used on Wine where system call hooking is safer.
                 // ============================================================
                 typedef void (__cdecl *fn_lua_setfield)(lua_State*, int, const char*);
                 static fn_lua_setfield lua_setfield_ = (fn_lua_setfield)0x0084E900;
@@ -2704,10 +2705,10 @@ bool InitPhase2(lua_State* L) {
                 e.hooked = true;
                 hookedNow++;
                 hookedTotal++;
-                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ] (Rosetta-safe)",
+                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ] (Lua API path)",
                     e.table ? e.table : "_G", e.name, (unsigned)e.address);
             } else {
-                // Native Windows path (or Rosetta with cache disabled): inline hook via MinHook
+                // MinHook inline hook path (native Windows, or Wine/Rosetta with cache disabled)
                 MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
                 if (s != MH_OK) {
                     Log("[FastPath]   %-8s.%-8s  MH_CreateHook failed (%d)",
@@ -2726,7 +2727,7 @@ bool InitPhase2(lua_State* L) {
                 hookedTotal++;
                 Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]%s",
                     e.table ? e.table : "_G", e.name, (unsigned)e.address,
-                    (IsRosetta() && g_rosettaCacheDisabled) ? " (Rosetta, JIT cache disabled)" : "");
+                    g_rosettaCacheDisabled ? " (JIT cache disabled)" : "");
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
