@@ -162,7 +162,7 @@ bool InstallCrtCharSSE2() {
     tryHook("memchr",  (void*)Hooked_memchr,  (void**)&orig_memchr);
     tryHook("strchr",  (void*)Hooked_strchr,  (void**)&orig_strchr);
     tryHook("strcpy",  (void*)Hooked_strcpy,  (void**)&orig_strcpy);
-    // tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat); // DISABLED - crash isolation
+    // tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat); // disabled
 
     if (ok > 0) {
         Log("[CrtChar] Active: memchr+strchr+strcpy SSE2 (%d/3 hooked, page-boundary guarded)", ok);

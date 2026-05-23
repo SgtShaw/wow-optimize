@@ -71,7 +71,7 @@ static volatile LONG g_entriesScannedThisFrame = 0;  // Entries processed this f
 static volatile LONG g_entriesDroppedDueToBudget = 0; // Entries skipped due to budget limits
 
 // ================================================================
-// Raid Detection State (v3.5.14 raid stutter fix)
+// Raid Detection State
 // ================================================================
 static volatile LONG g_raidDisableCount = 0;        // Times COMBATLOG_MT disabled in raids
 static volatile LONG g_openWorldEnableCount = 0;   // Times COMBATLOG_MT enabled in open world
@@ -106,7 +106,7 @@ static bool IsExecutable(uintptr_t addr) {
 }
 
 // ================================================================
-// Raid Detection Helper (v3.5.14 raid stutter fix)
+// Raid Detection Helper
 // ================================================================
 // Returns true if currently in a raid environment
 // Instance types: 0=none, 1=party, 2=raid, 3=pvp, 4=arena
@@ -235,8 +235,8 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
 
 // ================================================================
 // Hooked Function: sub_74F910 (Combat Log Event Dispatcher)
-// FIXED: Cursor-based incremental processing to prevent raid stutters
-// v3.5.14: Added raid detection to disable COMBATLOG_MT in raids
+// Cursor-based incremental processing to prevent raid stutters
+// Raid detection disables COMBATLOG_MT automatically
 // ================================================================
 static int __cdecl Hooked_DispatchEvents() {
     // Emergency disable check - allows instant rollback if needed
@@ -358,7 +358,7 @@ bool Init() {
     g_entriesScannedThisFrame = 0;
     g_entriesDroppedDueToBudget = 0;
 
-    // Initialize raid detection state (v3.5.14 raid stutter fix)
+    // Initialize raid detection state
     g_raidDisableCount = 0;
     g_openWorldEnableCount = 0;
     g_instanceType = 0;
@@ -493,7 +493,7 @@ Stats GetStats() {
     s.maxEntriesPerFrame = g_maxEntriesPerFrame;
     s.maxScanTimeUs = g_maxScanTimeUs;
 
-    // NEW: Raid detection statistics (v3.5.14 raid stutter fix)
+    // Raid detection statistics
     s.raidDisableCount = g_raidDisableCount;
     s.openWorldEnableCount = g_openWorldEnableCount;
     s.instanceType = g_instanceType;

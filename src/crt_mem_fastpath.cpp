@@ -255,7 +255,7 @@ bool InstallCrtMemFastPaths() {
     tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp);
     tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
     tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
-    // tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp); // DISABLED - crash isolation
+    // tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp); // disabled
 
     if (ok > 0) {
         Log("[CRT] Fast paths: ACTIVE (%d/5 hooked, SSE2 optimized)", ok);

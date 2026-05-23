@@ -139,7 +139,7 @@ static struct {
 
 // ================================================================
 //  Configuration - 4-tier GC stepping
-//  Increased from v3.5.5 defaults to handle heavy addon sessions (300-400MB Lua memory).
+//  Increased defaults to handle heavy addon sessions (300-400MB Lua memory).
 //  At 60fps: normal=128KB → 7.7 MB/sec, idle=256KB → 15 MB/sec, loading=512KB → 30 MB/sec.
 // ================================================================
 
@@ -185,7 +185,7 @@ static int g_lastSyncLoading = -1;
 static lua_State* g_pendingLuaState = nullptr;
 static DWORD g_pendingLuaStateTick = 0;
 static int g_pendingLuaStateFrames = 0;
-static bool g_vmInitializedOnce = false;  // v3.7.3: full init only once, subsequent swaps are lightweight
+static bool g_vmInitializedOnce = false;
 
 // Thread-safe state flags for worker threads (atomic, no lock needed)
 static std::atomic<bool> g_isReloading{false};
@@ -1265,12 +1265,12 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateFrames = 0;
     }
 
-    // v3.5.11 debounce logic removed: causes ACCESS_VIOLATION with overlay hooks
+    // Debounce removed: causes ACCESS_VIOLATION with overlay hooks
     // that expect immediate lua_State availability during UI transitions.
     if (currentL != Api.L) {
         Log("[LuaOpt] lua_State changed (UI reload) - updating pointer");
 
-        // v3.7.3: full init only once. Re-initializing on every UI reload
+        // Full init only once. Re-initializing on every UI reload
         // causes heap corruption and #132 crashes from stale pointers in hooks.
         if (!g_vmInitializedOnce) {
             Log("[LuaOpt] First-time VM initialization");

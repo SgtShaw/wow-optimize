@@ -1,17 +1,11 @@
 // ================================================================
 // crash_dumper.cpp - Top-level exception filter crash reporter
 //
-// v3.6.5 rewrite: replaced first-chance VEH with
-// SetUnhandledExceptionFilter. The old VEH called
-// MiniDumpWriteDump for every first-chance exception - including
-// handled SEH probes and x87 traps - which on Wine takes the
-// loader lock and wedges the process for 60 s per dump.
-//
-// The unhandled filter runs ONLY on genuine unhandled crashes,
-// chains to WoW's own WowError filter, and uses a platform-aware
-// dump format:
+// Uses SetUnhandledExceptionFilter instead of first-chance VEH.
+// The unhandled filter runs only on genuine unhandled crashes,
+// chains to WoW's WowError filter, and uses platform-aware dump:
 //   - Wine:    plain-text report (registers + EBP-chain stack +
-//              module map). No dbghelp - no loader-lock hazard.
+//              module map). No dbghelp.
 //   - Windows: minidump (MiniDumpNormal, no ScanMemory).
 // ================================================================
 

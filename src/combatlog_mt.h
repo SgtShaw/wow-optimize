@@ -28,7 +28,7 @@ struct Stats {
     uint32_t maxEntriesPerFrame;            // Current frame budget (entries)
     uint32_t maxScanTimeUs;                 // Current time budget (microseconds)
     
-    // NEW: Raid detection statistics (v3.5.14 raid stutter fix)
+    // Raid detection statistics
     volatile LONG raidDisableCount;         // Times COMBATLOG_MT disabled in raids
     volatile LONG openWorldEnableCount;     // Times COMBATLOG_MT enabled in open world
     volatile LONG instanceType;             // Current instance type (0=none, 1=party, 2=raid, 3=pvp, 4=arena)

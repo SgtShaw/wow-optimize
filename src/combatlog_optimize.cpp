@@ -147,7 +147,7 @@ void OnFrame(DWORD mainThreadId) {
         if (ReadRetention() != TARGET_RETENTION_SEC) WriteRetention(TARGET_RETENTION_SEC);
     }
 
-    // Periodic CombatLogClearEntries disabled: conflicts with addons like
+    // Periodic CombatLogClearEntry - conflicts with addons like
     // Recount that read the combat log buffer. Retention patch (1800s) is
     // sufficient - game handles cleanup via normal retention mechanism.
    (void)nowMs;
