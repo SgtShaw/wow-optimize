@@ -124,6 +124,21 @@ static inline double ReadRawNumber(const RawTValue* tv) {
     return d;
 }
 
+// Rosetta cache-disabled flag: set by DllMain after setting ROSETTA_X87_DISABLE_CACHE=1.
+// When true, MinHook inline hooks are safe on Rosetta (JIT re-translates on every call).
+// When false, must use Lua API path (data writes only, no x86 code modification).
+bool g_rosettaCacheDisabled = false;
+
+// Memory validation for function pointers
+static bool IsExecutable(uintptr_t addr) {
+    if (addr == 0) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
+    if (mbi.State != MEM_COMMIT) return false;
+    return (mbi.Protect & (PAGE_EXECUTE | PAGE_EXECUTE_READ |
+                            PAGE_EXECUTE_READWRITE | PAGE_EXECUTE_WRITECOPY)) != 0;
+}
+
 // ================================================================
 // Phase 1: string.format hook (hardcoded address 0x00853C50).
 //
@@ -2477,7 +2492,10 @@ bool Init() {
     Log("[FastPath] ====================================");
 
     __try {
-        if (IsWine()) {
+        // Rosetta with cache disabled can use MinHook (like native Windows)
+        bool useMinHook = !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled);
+        
+        if (!useMinHook) {
             // Rosetta-safe: defer string.format hook to Phase 2 (Lua API path)
             // Phase 1 runs before lua_State is available, so we can't use Lua API yet.
             // Phase 2 will install it via lua_setfield (data write, no x86 patch).
@@ -2496,7 +2514,9 @@ bool Init() {
                 Log("[FastPath]   string.format MH_EnableHook failed (%d)", (int)s);
                 return false;
             }
-            Log("[FastPath]   string.format      0x%08X  [ OK ]", (unsigned)ADDR_str_format);
+            Log("[FastPath]   string.format      0x%08X  [ OK ]%s", 
+                (unsigned)ADDR_str_format,
+                (IsRosetta() && g_rosettaCacheDisabled) ? " (Rosetta, JIT cache disabled)" : "");
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[FastPath]   string.format: EXCEPTION");
@@ -2505,7 +2525,7 @@ bool Init() {
 
     g_active = true;
     Log("[FastPath]  Phase 1 [ OK ] - string.format %s",
-        IsWine() ? "deferred to Phase 2" : "hooked");
+        (!IsWine() && (!IsRosetta() || g_rosettaCacheDisabled)) ? "hooked" : "deferred to Phase 2");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
     return true;
@@ -2568,18 +2588,18 @@ bool InitPhase2(lua_State* L) {
         if (e.address == 0)
             continue;
 
-        if (e.address == ADDR_str_format && !IsWine()) {
-            // On native Windows, Phase 1 already installed inline hook
+        if (e.address == ADDR_str_format && !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled)) {
+            // On native Windows (or Rosetta with cache disabled), Phase 1 already installed inline hook
             Log("[FastPath]   %-8s.%-8s  SKIP (already hooked in Phase 1)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
-        // On Wine/Rosetta, string.format was deferred from Phase 1.
+        // On Wine/Rosetta (without cache disabled), string.format was deferred from Phase 1.
         // Fall through to install via Rosetta-safe Lua API path below.
 
 #if TEST_DISABLE_PHASE2_WRITES
-        // Permanently disabled: write hooks that modify Lua tables/stack
-        // via RawTValue* copies вЂ” proven to cause hangs in real gameplay
+        // Write hooks that modify Lua tables/stack
+        // via RawTValue* copies вЂ" causes hangs in real gameplay
         if (strcmp(e.name, "rawset") == 0 ||
             strcmp(e.name, "insert") == 0 ||
             strcmp(e.name, "remove") == 0 ||
@@ -2591,8 +2611,8 @@ bool InitPhase2(lua_State* L) {
 #endif
 
 #if TEST_DISABLE_PHASE2_READS
-        // Permanently disabled: table read hooks that write to stack
-        // via RawTValue* copies вЂ” proven to cause hangs in real gameplay
+        // Table read hooks that write to stack
+        // via RawTValue* copies вЂ" causes hangs in real gameplay
         if (strcmp(e.name, "rawget") == 0 ||
             strcmp(e.name, "concat") == 0 ||
             strcmp(e.name, "unpack") == 0) {
@@ -2603,8 +2623,8 @@ bool InitPhase2(lua_State* L) {
 #endif
 
 #if TEST_DISABLE_PHASE2_NEW_DMA
-        // Disabled: hooks that directly write to Lua tables/stack via RawTValue*
-        // Proven to cause hangs in real gameplay during isolation testing
+        // Hooks that directly write to Lua tables/stack via RawTValue*
+        // Cause hangs in real gameplay
         if (strcmp(e.name, "type") == 0 ||
             strcmp(e.name, "floor") == 0 ||
             strcmp(e.name, "ceil") == 0 ||
@@ -2617,21 +2637,37 @@ bool InitPhase2(lua_State* L) {
             strcmp(e.name, "tonumber") == 0 ||
             strcmp(e.name, "select") == 0 ||
             strcmp(e.name, "rawequal") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe вЂ” proven to cause hangs)",
+            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe вЂ" causes hangs)",
                 e.table ? e.table : "_G", e.name);
             continue;
         }
 #endif
 
         __try {
-            if (IsWine()) {
+            // Rosetta with cache disabled can use MinHook (like native Windows)
+            bool useMinHook = !IsWine() && (!IsRosetta() || g_rosettaCacheDisabled);
+            
+            if (!useMinHook) {
                 // ============================================================
                 // Rosetta-safe path: replace lua_CFunction pointer via Lua API
                 // This is a DATA write to Lua heap - no x86 code modification,
                 // completely invisible to rosettax87 JIT translator.
+                // Also used on Wine where system call hooking is safer.
                 // ============================================================
                 typedef void (__cdecl *fn_lua_setfield)(lua_State*, int, const char*);
                 static fn_lua_setfield lua_setfield_ = (fn_lua_setfield)0x0084E900;
+
+                // Validate Lua API function pointers before use
+                if (!IsExecutable((uintptr_t)lua_getfield_) ||
+                    !IsExecutable((uintptr_t)lua_type_) ||
+                    !IsExecutable((uintptr_t)lua_settop_) ||
+                    !IsExecutable((uintptr_t)lua_pushcclosure_) ||
+                    !IsExecutable((uintptr_t)lua_setfield_) ||
+                    !IsExecutable((uintptr_t)lua_pushvalue_)) {
+                    Log("[FastPath]   %-8s.%-8s  SKIP (Lua API addresses invalid on Rosetta)",
+                        e.table ? e.table : "_G", e.name);
+                    continue;
+                }
 
                 // Get the table containing the function
                 if (e.table) {
@@ -2671,7 +2707,7 @@ bool InitPhase2(lua_State* L) {
                 Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ] (Rosetta-safe)",
                     e.table ? e.table : "_G", e.name, (unsigned)e.address);
             } else {
-                // Native Windows path: inline hook via MinHook
+                // Native Windows path (or Rosetta with cache disabled): inline hook via MinHook
                 MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
                 if (s != MH_OK) {
                     Log("[FastPath]   %-8s.%-8s  MH_CreateHook failed (%d)",
@@ -2688,8 +2724,9 @@ bool InitPhase2(lua_State* L) {
                 e.hooked = true;
                 hookedNow++;
                 hookedTotal++;
-                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]",
-                    e.table ? e.table : "_G", e.name, (unsigned)e.address);
+                Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]%s",
+                    e.table ? e.table : "_G", e.name, (unsigned)e.address,
+                    (IsRosetta() && g_rosettaCacheDisabled) ? " (Rosetta, JIT cache disabled)" : "");
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {

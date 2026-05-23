@@ -77,8 +77,7 @@
 #include "version.h"
 
 // ================================================================
-// CRASH ISOLATION TOGGLES
-// Each toggle disables a specific optimization for binary search
+// TOGGLES// Each toggle disables a specific optimization for binary search
 // during crash investigation. Set to 1 to DISABLE the feature.
 // These are compile-time flags for debugging builds.
 // ================================================================
@@ -94,28 +93,28 @@
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
-#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc - DISABLED: causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
+#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc - causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED - 0 hits)
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED - 0 hits)
 
-// Crash isolation toggles for hooks
+// Feature toggles for hooks
 #define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache - ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED - tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
-#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (ABANDONED - freezes on char select)
+#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (freezes on char select)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - DISABLED: ERROR #134 - mimalloc reuses table addresses within session, generation counter insufficient
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - ERROR #134: mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
-#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - DISABLED: SSE2 page-boundary crash (0x5D917D10)
+#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - SSE2 page-boundary crash (0x5D917D10)
 #define CRASH_TEST_DISABLE_RTTI_CACHE           1   // sub_4D4DB0 object type check cache (1905 callers)
-#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 - DISABLED: heap corruption, ERROR #132 at 0x7745A1C6
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 - heap corruption, ERROR #132 at 0x7745A1C6
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
@@ -188,7 +187,7 @@ static void InitHardwareCursor() {
         // Remove window clipping to prevent cursor trapping/lag
         ClipCursor(NULL);
 
-        // Hardware cursor byte patches DISABLED - crash isolation.
+        // Hardware cursor byte patches disabled.
         // byte_CABCDD/CABCDE force gxCursor=0 + gxFixLag=1 which on
         // private servers (Circle/Warmane) activates an uninitialized
         // cursor rendering path → NULL deref at [edi]+0 → [0x0+18].
@@ -5059,6 +5058,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  wow_optimize.dll v%s BY %s", WOW_OPTIMIZE_VERSION_STR, WOW_OPTIMIZE_AUTHOR);
     Log("  PID: %lu", GetCurrentProcessId());
     Log("========================================");
+    
+    if (IsRosetta()) {
+        Log("[Rosetta] Detected x86 on ARM64 (macOS Rosetta 2)");
+        char val[2] = {0};
+        if (GetEnvironmentVariableA("ROSETTA_X87_DISABLE_CACHE", val, sizeof(val)) && val[0] == '1') {
+            Log("[Rosetta] x87 JIT cache DISABLED - hooks safe to install");
+        } else {
+            Log("[Rosetta] WARNING: x87 JIT cache still enabled - hooks may fail");
+        }
+    }
 
     if (MH_Initialize() != MH_OK) { Log("FATAL: MinHook initialization failed"); LogClose(); return 1; }
     Log("MinHook initialized");
@@ -5176,7 +5185,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool batch20Ok = InstallBatchOpt20();
     bool batch30Ok = InstallBatchOpt30();
     bool batch35Ok = InstallBatchOpt35();
-    bool batch38Ok = false;  // DISABLED: crash isolation
+    bool batch38Ok = false;
     Log("--- GetProcAddress Cache ---");
     bool gpaOk = InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
@@ -5209,7 +5218,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool frameThrottleOk = InstallFrameThrottling();
 
     Log("--- Tooltip String Caching ---");
-    bool tooltipCacheOk = false;  // DISABLED: placeholder - tracks hits but never caches results
+    bool tooltipCacheOk = false;  // Placeholder - tracks hits but never caches results
 
     Log("--- Spell Data Caching ---");
     bool spellCacheOk = SpellCache::Init();
@@ -5221,7 +5230,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // bool uiFrameBatchOk = InstallUIFrameBatching();
 
     Log("--- Table Concat Fast Path ---");
-    // DISABLED: table.concat fast path causes 0xC0000005 crashes
+    // table.concat fast path causes 0xC0000005 crashes
     // when addons use string concatenation heavily (ElvUI, WeakAuras, etc.).
     // The hook performs direct Lua stack writes via TValue* which conflicts
     // with addon execution flow during world load.
@@ -6414,7 +6423,7 @@ static bool InstallMBWCHooks() {
 }
 
 // ================================================================
-// GetProcAddress - 4-way set-associative cache (v3.6.5: strcmp-verified,
+// GetProcAddress - 4-way set-associative cache (strcmp-verified,
 // Wine security-module bypass)
 //
 // ================================================================
@@ -7104,6 +7113,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
+            
+            // Rosetta: disable x87 JIT cache to force re-translation after hooks
+            // This MUST happen before any hooks install, so rosettax87 doesn't
+            // serve stale ARM64 translations for patched x86 code.
+            if (IsRosetta()) {
+                SetEnvironmentVariableA("ROSETTA_X87_DISABLE_CACHE", "1");
+                // Signal to lua_fastpath that MinHook inline hooks are now safe
+                extern bool g_rosettaCacheDisabled;
+                g_rosettaCacheDisabled = true;
+            }
+            
             // Wine/Rosetta: neutralize SetThreadIdealProcessor BEFORE
             // spawning MainThread. WoW's sub_8D2110 and external injectors
             // (WoWsilicon) may call it on background threads before our
