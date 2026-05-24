@@ -1,8 +1,6 @@
 // ================================================================
 // Lua VM Optimizer - GC, allocator, string table, addon interface
 //
-// Comprehensive optimization of WoW's Lua 5.1 virtual machine.
-//
 // COMPONENTS:
 //   1. Lua Allocator Replacement - mimalloc for Lua VM memory
 //      Replaces WoW's default allocator (0x008558E0, SMemAlloc-based)

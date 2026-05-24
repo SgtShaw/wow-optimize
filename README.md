@@ -17,15 +17,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 ### Stability Testing Team
 
-This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. Massive thanks to:
-
-- **Morbent** - relentless crash bisection, tested dozens of builds
-- **Billy Hoyle** - same energy, caught the loading screen regression and verified every fix
-- **tuan** - found the bank/AH SSE2 crash
-- **NoGoodLife** - battle-tested network optimizations on WoW Circle, confirmed keepalive/disconnect fixes
-- **feh_dois** - isolated the AwesomeWotlkLib exit crash
-- **David** (`_oldq`) — macOS/WoWSilicon compatibility testing, Rosetta JIT debugging
-- **UNOB**, **DarkRockDemon**, **Raymond**  - core testing crew across multiple releases
+Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond
 ---
 
 ## Current Feature Set
@@ -49,24 +41,27 @@ This project wouldn't exist without the community. Every crash report, every bis
 - Lua reload detection and clean reinitialization
 
 ### WoW API result cache
-- `GetItemInfo` - 8192-slot cache, Direct Memory Access
+- `GetItemInfo` - 8192-slot cache, Direct Memory Access *(disabled - breaks Aux / WCollections / ElvUI)*
 - `GetSpellInfo` - disabled (icon corruption, crashes on relog)
 
-### Lua internal caches (v3.5.5+)
-- `luaH_getstr` - table string-key lookup cache (disabled in v3.6.1 - stale Node* with mimalloc table recycling)
+### Lua internal caches
+- `luaH_getstr` - table string-key lookup cache (disabled - stale Node* with mimalloc table recycling)
 
 ### Lua fast paths
 - Phase 1:
   - `string.format`
-- Phase 2 (safe, Lua API based) - **ENABLED in v3.5.5**:
+- Phase 2 (safe, Lua API based) - **ENABLED**:
   - `string.find` (plain mode)
   - `string.match` (safe partial fast path)
+  - `string.rep`
   - `type`
   - `math.floor`
   - `math.ceil`
   - `math.abs`
   - `math.max` (2 args)
   - `math.min` (2 args)
+  - `math.random`
+  - `math.sqrt`
   - `string.len`
   - `string.byte`
   - `tostring`
@@ -76,8 +71,9 @@ This project wouldn't exist without the community. Every crash report, every bis
   - `string.sub`
   - `string.lower`
   - `string.upper`
-  - `table.concat` (single-pass, SEH-guarded)
-  - `unpack` (dense array fast path)
+  - `table.concat` (disabled - direct RawTValue* stack writes caused hangs)
+  - `unpack` (disabled - direct RawTValue* stack writes caused hangs)
+  - `ipairs` (disabled - closure factory incompatible with WoW iterator pattern)
 
 ### Lua VM internals
 - `luaV_concat` and `luaS_newlstr` hooks disabled for public stability
@@ -117,27 +113,30 @@ This project wouldn't exist without the community. Every crash report, every bis
 - low-delay TOS
 - fast keepalive settings
 
-### Async loading and prefetching (v3.5.13+)
+### Async loading and prefetching
 
-**Note:** All async features are **disabled by default** in v3.5.13 due to stability concerns. Enable manually in `src/version.h` if you want to test them.
+Features that use worker threads and lock-free queues. Status reflects the current public-safe configuration; individual toggles live in `src/version.h`.
 
-- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries), eliminates 80-90% of texture loading stutters during teleports and zone changes *(disabled by default)*
-- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag by 30-40%, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(disabled by default)*
-- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU by 40-50% in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(disabled by default)*
-- **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading, correct `__thiscall` calling convention *(enabled - stable)*
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, eliminates 50-60% of zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(disabled by default)*
-- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids, lock-free queue with async processing *(disabled by default)*
+- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag by 30-40%, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(enabled)*
+- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU by 40-50% in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(enabled)*
+- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, eliminates 50-60% of zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(enabled)*
+- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids, lock-free queue with async processing *(enabled, auto-disables inside raids)*
+- **Sound prefetching** - predicts and prefetches sound files based on spell casts, zone transitions, combat state, worker thread pool (2 threads) with lock-free queue (1024 entries) *(enabled)*
+- **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(enabled)*
+- **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU by 30-40% in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(enabled)*
+- **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading *(enabled)*
+- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled - loading screen regression)*
 
 ### Other runtime optimizations
 - combat log optimizer - **fixes the 16-year combat log bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
-- multithreaded combat log parser - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids
-- `GetItemInfo` cache
 - `CompareStringA` fast ASCII path
 - `MultiByteToWideChar` / `WideCharToMultiByte` - SSE2 ASCII fast path (bypasses NLS for pure-ASCII strings on ASCII-compatible codepages)
 - `lstrlenA` / `lstrlenW` fast path
 - `OutputDebugStringA` no-op when no debugger
 - fast `IsBadReadPtr` / `IsBadWritePtr`
 - periodic stats dump
+- CRT `pow()` integer fast-path (x^2=x*x, sqrt, etc.)
+- CRT `strstr` SSE2 Boyer-Moore-Horspool
 
 ### VA Arena (Virtual Address Arena)
 - 512MB high-address reserved arena with `MEM_TOP_DOWN`
@@ -162,17 +161,17 @@ These features are disabled in public-safe builds because they previously caused
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
 - luaH_getstr table lookup cache - stale Node* with mimalloc table recycling
-- Async texture loading hook - caused loading screen regression (was commented out in v3.5.x)
+- Async texture loading hook - caused loading screen regression (was commented out)
 - Model async workers - loading screen regression
 - `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
 - `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
 - CombatLog full event cache (disabled - stale `TString*` crashes)
 - `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
 - `luaV_concat` hook (removed due to 0% hit-rate overhead)
-- `lua_getfield` _G cache (removed in v3.5.8 - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
-- `GetProcAddress` cache (removed - hash collisions returned wrong FARPROC, login crash)
-- `GetModuleFileName` cache (removed - conflicts with OBS hook chain, crash + exit error)
-- `GetEnvironmentVariableA` cache (disabled in v3.5.10 - reproducible alt-tab crash, isolated via 3-way bisection test DLLs)
+- `lua_getfield` _G cache (removed - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
+- `GetProcAddress` cache - 4-way set-associative design (enabled)
+- `GetModuleFileName` cache (disabled - conflicts with OBS hook chain, crash + exit error)
+- `GetEnvironmentVariableA` cache (enabled - isolated via 3-way bisection test DLLs)
 
 ### Removed Features
 
@@ -182,88 +181,6 @@ These experimental features were tested and found to provide no measurable benef
 - DispatchPool (dispatcher pool for 20-byte allocations) - hooks active but no real hit in sessions
 - bgpreloadsleep cache - 0 calls in real sessions
 - Subtask Event Pool - 0 reuse / 0 new / 0 returned in real stats
-
----
-
-## v3.6.5 Changelog (since v3.6.1)
-
-### macOS / Apple Silicon support
-- Full WoWSilicon compatibility via Wine + rosettax87 JIT translation
-- Rosetta-safe Lua fast paths: replaces `lua_CFunction` pointers via Lua C API (`lua_getfield`/`lua_pushcclosure`/`lua_setfield`) instead of patching x86 code — data writes to Lua heap, invisible to rosettax87 JIT translator
-- All WoW-internal MinHook hooks automatically skipped on Wine to prevent JIT translation desync
-- System-level hooks (allocator, timers, networking, file I/O, critical sections, QPC) remain fully active on Wine/Rosetta
-- Thread pinning and priority adjustments skipped on Wine (incompatible with Rosetta scheduling)
-- Crash dumper adapted for Wine (text reports, no dbghelp dependency)
-
-### Stability fixes
-- Disabled CRT SSE2 memory fast paths — VA exhaustion under heavy load (dungeon finder crash at 2.4GB working set)
-- Disabled hardware cursor byte patches — NULL dereference on private servers
-- Disabled CRT char hooks and batch 38 — crash isolation for WoW Circle/Warmane
-- Disabled wcslen/wcscpy SSE2 — broken zero-detection for ASCII `wchar_t`
-- Fixed batch 38 name collision, disabled strncmp/strcat hooks for crash isolation
-- Disabled GetCursorPos 16ms cache — causes cursor lag
-- Disabled tooltip cache — placeholder, never stored results
-- Lowered VA arena skip threshold from 800MB to 500MB
-- Fixed camera stutter + STACK_OVERFLOW crash in raids
-- Re-enabled CRT memchr/strchr SSE2 with page-boundary guard, added strcpy
-- Disabled `luaH_getstr` — ERROR #134, stale Node* from address reuse within session
-- Disabled stream buffer hooks — heap corruption, ERROR #132
-- Fixed logout/exit crash — detect `lua_State` destruction, clear caches
-- Fixed MPQ folder scan — also check parent Data directory
-- Disabled addon RAM-cache — corrupts addon loading, resets settings
-- Disabled LoadLibraryA and WFMO hooks — cause silent close on loading
-- Disabled asset path cache — stale mimalloc pointers crash all teardowns
-- Disabled Lua bytecode cache — ERROR #134 corrupt chunks confirmed
-- Removed SetCursorPos no-op — breaks mouselook
-- Removed ValidateRect no-op — prevents UI repaint, freezes on friend list
-- Fixed timing method fix — silent close on start
-- Forced `timingMethod=0` (RDTSC) via hook
-
-### New optimizations
-- **Batches 20-38**: 40+ additional kernel-call caches (GetOEMCP, GetCursorPos, GetSysColor, GetKeyboardLayout, GetTickCount64 QPC, GetClientRect, GetWindowRect, ShowCursor, GetCurrentProcess, GetCurrentThread, GetCPInfo, and more)
-- **Sleep hook bulk mode**: waits >16ms use bulk Sleep instead of spin-wait
-- **string.format expanded**: width-specified numerics (`%02d`, `%02x`, `%.Ng`), time display (`%02d:%02d`)
-- **string.match expanded**: additional pattern fast paths
-- **SSE2 CRT hooks**: strcat, strncmp, wcslen, wcscpy (with safety guards)
-- **memcmp fast path**: inline 4/8/16-byte compares
-- **TValue memcpy 16-byte fast path**: millions of Lua TValue copies per frame
-- **Dynamic VA arena**: reserve 256MB during loading, release after
-- **Addon file pre-warmer enhanced**: also reads .toc/.xml, 32MB→128MB
-- **mimalloc size-class seeding**: zero warm-up page faults during gameplay
-- **MPQ folder detection**: .MPQ directories, Interface virtual archive, trailing backslash fix
-- **Frame time stat**: periodic stats show addon processing overhead
-- **Hardware cursor**: force `gxCursor=0` + `gxFixLag=1` via byte patches
-
-### ObjVisCache (disabled)
-- Object visibility cache for `sub_4D4BB0` hash lookup — implemented and tested across 3 iterations (TLS+VirtualAlloc, static pool, disabled). Concluded that caching object pointers from WoW's mutable hash table is fundamentally unsafe: stale pointers corrupt probe chains causing infinite loops. Code preserved for future reference.
-
----
-
-## v3.6.2 Changelog
-
-**23 kernel-call caches** - GetSystemTimeAsFileTime (QPC-based), GetACP, GetUserDefaultLangID, GetProcessHeap, CharUpperA/LowerA (inline ASCII), MapVirtualKeyA, GetThreadPriority, GetOEMCP, GetDoubleClickTime, GetCursorPos (16ms budget), GetSysColor, GetKeyboardLayout, GetKeyboardLayoutNameA, GetCaretBlinkTime, IsWindow, GetDesktopWindow, GetFocus (16ms budget), GetTickCount64 (QPC), GetClientRect, GetWindowRect, ShowCursor, ValidateRect.
-
-**Swap/Present glFinish skip** - re-enabled for DXVK/D3D9. Saves 0.5-2ms per frame by skipping synchronous GPU flush when the graphics API already handles presentation sync.
-
-**CriticalSection 3-stage spin** - 8000 spin count + exponential backoff retry. Fewer kernel transitions for short-held locks (StormLib file reads, LMEM pool ops).
-
-**CRT SSE2 fast paths re-enabled** - strlen/strcmp/memcmp/memcpy/memset with page-boundary guard. Checks `((ptr & 0xFFF) > 0xFF0)` - falls back to original if within 16 bytes of page end. 99.6% SSE2 hit rate, 0.4% page-edge fallback. Previously disabled due to bank/AH crashes (v3.6.0).
-
-**mimalloc 23 size-class pre-warming** - zero page faults during gameplay for TValue, Node, Table, TString, and addon object allocation sizes.
-
-**MPQ folder detection** - patch-Sunlight.MPQ style unpacked patches, files inside .MPQ directories, Interface virtual MPQ archive. Includes trailing backslash fix.
-
-**GetFileAttributesA cache** expanded 256→4096 slots.
-
-**Dynamic VA arena** - 256MB reserved during loading screens for M2/WMO contiguous allocations, released after.
-
-**Addon file OS cache pre-warmer** - .lua + .toc + .xml files pre-read into OS cache at startup (128MB max).
-
-**mimalloc purge_delay=-1** - no stale-pointer crashes on /reload or logout.
-
-**Asset path cache** - sub_819D40 hooked (643 callers), 92.9% hit rate in testing. Disabled in release due to mimalloc stale-pointer edge cases on teardown.
-
-**Frame time stat** - periodic stats now show frame timing for addon overhead diagnosis.
 
 ---
 
@@ -484,46 +401,46 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 ```text
 wow-optimize/
 ├── src/
-│   ├── dllmain.cpp                       # Core orchestrator, all Win32/CRT hooks
-│   ├── lua_optimize.cpp/.h               # Lua VM: mimalloc, GC, string table, reload
-│   ├── lua_fastpath.cpp/.h               # 20+ Lua C-function fast paths
-│   ├── lua_internals.cpp/.h              # Stub (luaV_concat removed)
-│   ├── lua_vm_cache.cpp/.h               # luaV_gettable cache (disabled)
-│   ├── lua_vm_phase3.cpp/.h              # luaD_call dispatch (incomplete)
-│   ├── lua_bytecode_cache.cpp/.h         # Compiled bytecode cache (disabled)
+│   ├── dllmain.cpp                       # Win32/CRT hooks, allocator, timers
+│   ├── lua_optimize.cpp/.h               # Lua VM allocator, GC, string table
+│   ├── lua_fastpath.cpp/.h               # Lua C-function fast paths
+│   ├── lua_internals.cpp/.h              # Lua VM internals
+│   ├── lua_vm_cache.cpp/.h               # luaV_gettable cache
+│   ├── lua_vm_phase3.cpp/.h              # luaD_call dispatch
+│   ├── lua_bytecode_cache.cpp/.h         # Compiled bytecode cache
 │   ├── lua_bytecode_pre_compiler.cpp/.h  # Addon file pre-scanner
-│   ├── combatlog_optimize.cpp/.h         # Retention patch (300s→1800s)
-│   ├── combatlog_mt.cpp/.h               # MT combat log parser
-│   ├── addon_dispatcher.cpp/.h           # MT addon OnUpdate dispatcher
-│   ├── addon_preload.cpp/.h              # Addon file preload (disabled)
-│   ├── spell_prefetch.cpp/.h             # Async spell data on cast
-│   ├── spell_cache.cpp/.h                # Stub (usercall unsupported)
-│   ├── spell_effect_mt.cpp/.h            # MT spell effect renderer
-│   ├── model_async.cpp/.h                # Model prefetch (disabled)
-│   ├── texture_async.cpp/.h              # Texture prefetch (disabled)
-│   ├── texture_decode_mt.cpp/.h          # BLP decode (dormant)
-│   ├── anim_mt.cpp/.h                    # M2 animation (dormant)
-│   ├── mpq_prefetch.cpp/.h               # Zone-based MPQ prefetch
-│   ├── mpq_decompress_mt.cpp/.h          # MT zlib decompress (dormant)
-│   ├── obj_vis_cache.cpp/.h              # Object visibility cache (disabled)
-│   ├── nameplate_batch.cpp/.h            # MT nameplate renderer
-│   ├── sound_prefetch.cpp/.h             # Sound file prefetch
+│   ├── combatlog_optimize.cpp/.h         # Combat log retention patch
+│   ├── combatlog_mt.cpp/.h               # Multithreaded combat log parser
+│   ├── addon_dispatcher.cpp/.h           # Multithreaded addon dispatcher
+│   ├── addon_preload.cpp/.h              # Addon file preload
+│   ├── spell_prefetch.cpp/.h             # Async spell data prefetching
+│   ├── spell_cache.cpp/.h                # Spell data cache
+│   ├── spell_effect_mt.cpp/.h            # Multithreaded spell effects
+│   ├── model_async.cpp/.h                # Model/M2 async loading
+│   ├── texture_async.cpp/.h              # Texture async loading
+│   ├── texture_decode_mt.cpp/.h          # BLP decode
+│   ├── anim_mt.cpp/.h                    # M2 animation
+│   ├── mpq_prefetch.cpp/.h               # Predictive MPQ prefetching
+│   ├── mpq_decompress_mt.cpp/.h          # Multithreaded zlib decompress
+│   ├── obj_vis_cache.cpp/.h              # Object visibility cache
+│   ├── nameplate_batch.cpp/.h            # Multithreaded nameplates
+│   ├── sound_prefetch.cpp/.h             # Sound file prefetching
 │   ├── quest_async.cpp/.h                # Async quest data loading
 │   ├── saved_vars_async.cpp/.h           # Async SavedVariables writes
-│   ├── tooltip_cache.cpp/.h              # Tooltip renderer cache
-│   ├── api_cache.cpp/.h                  # GetItemInfo/GetSpellInfo cache (disabled)
-│   ├── ui_cache.cpp/.h                   # Stub (disabled)
-│   ├── ui_frame_batch.cpp/.h             # Frame OnUpdate batcher (disabled)
-│   ├── frame_throttle.cpp/.h             # Script throttling (disabled)
-│   ├── frame_arena.cpp/.h                # 16MB frame-scoped allocator
-│   ├── cache_governor.cpp/.h             # Dynamic TTL/cache bypass in raids
-│   ├── crt_mem_fastpath.cpp              # SSE2 strlen/strcmp/memcpy/memset (disabled)
-│   ├── crt_char_fast.cpp/.h              # SSE2 memchr/strchr (disabled)
+│   ├── tooltip_cache.cpp/.h              # Tooltip string caching
+│   ├── api_cache.cpp/.h                  # GetItemInfo/GetSpellInfo cache
+│   ├── ui_cache.cpp/.h                   # UI widget cache
+│   ├── ui_frame_batch.cpp/.h             # Frame OnUpdate batching
+│   ├── frame_throttle.cpp/.h             # Script throttling
+│   ├── frame_arena.cpp/.h                # Frame-scoped allocator
+│   ├── cache_governor.cpp/.h             # Dynamic TTL/cache control
+│   ├── crt_mem_fastpath.cpp              # SSE2 strlen/strcmp/memcpy/memset
+│   ├── crt_char_fast.cpp/.h              # SSE2 memchr/strchr
 │   ├── crt_pow_sse2.cpp/.h               # SSE2 pow(x,y) fast path
 │   ├── strstr_fast.cpp/.h                # SSE2 Boyer-Moore-Horspool strstr
 │   ├── dxvk_bridge.cpp/.h                # DXVK/Vulkan detection
-│   ├── crash_dumper.cpp/.h               # Vectored exception → minidump
-│   ├── version.h                         # Version + all TEST_DISABLE toggles
+│   ├── crash_dumper.cpp/.h               # Vectored exception minidump
+│   ├── version.h                         # Version and feature toggles
 │   ├── version.rc                        # Windows resource
 │   ├── version_proxy.cpp                 # version.dll proxy loader
 │   ├── version_exports.def               # Export forwarding table

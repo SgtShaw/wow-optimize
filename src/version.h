@@ -282,14 +282,24 @@ static inline bool IsRosetta() {
 #ifndef WOWOPT_WINESAFE_HOOK_DEFINED
 #define WOWOPT_WINESAFE_HOOK_DEFINED
 
-#define ALLOW_WOW_INTERNAL_HOOKS_ON_WINE 1
+#define ALLOW_WOW_INTERNAL_HOOKS_ON_WINE 0
 
 static inline MH_STATUS WineSafe_CreateHook(void* target, void* detour, void** original) {
 #if ALLOW_WOW_INTERNAL_HOOKS_ON_WINE == 0
-    if (IsWine()) {
+    // Block WoW .text hooks on Wine/Rosetta unless ROSETTA_X87_DISABLE_CACHE=1 is set
+    bool isWine = IsWine();
+    bool isRosetta = IsRosetta();
+    
+    if (isWine || isRosetta) {
         uintptr_t addr = (uintptr_t)target;
         if (addr >= 0x00400000 && addr <= 0x00FFFFFF) {
-            return MH_ERROR_UNSUPPORTED_FUNCTION;
+            // Check if ROSETTA_X87_DISABLE_CACHE=1 is set
+            char val[2] = {0};
+            DWORD len = GetEnvironmentVariableA("ROSETTA_X87_DISABLE_CACHE", val, sizeof(val));
+            if (len == 0 || val[0] != '1') {
+                // JIT cache still active - hooks will crash
+                return MH_ERROR_UNSUPPORTED_FUNCTION;
+            }
         }
     }
 #endif

@@ -84,7 +84,9 @@
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
 #define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc mimalloc (ALREADY DISABLED - risky)
-#define CRASH_TEST_DISABLE_CS_ENTER        0   // CriticalSection TryEnter spin
+#define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
+#define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
+#define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
 #define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path
@@ -1692,7 +1694,11 @@ static EnterCS_fn orig_EnterCS = nullptr;
 static long g_csSpinHits = 0;
 
 static void WINAPI hooked_InitCS(LPCRITICAL_SECTION lpCS) {
+#if CRASH_TEST_DISABLE_CS_SPIN
+    InitializeCriticalSection(lpCS);
+#else
     InitializeCriticalSectionAndSpinCount(lpCS, 8000);
+#endif
 }
 
 #if !CRASH_TEST_DISABLE_CS_ENTER
@@ -1723,12 +1729,14 @@ static bool InstallCriticalSectionHook() {
 
     int ok = 0;
 
+#if !CRASH_TEST_DISABLE_CS_INIT
     void* pInit = (void*)GetProcAddress(hK32, "InitializeCriticalSection");
     if (pInit && MH_CreateHook(pInit, (void*)hooked_InitCS, (void**)&orig_InitCS) == MH_OK)
         if (MH_EnableHook(pInit) == MH_OK) ok++;
+#endif
 
 #if CRASH_TEST_DISABLE_CS_ENTER
-    Log("CriticalSection hook: ACTIVE (%d/1, spin count only, crash isolation)", ok);
+    Log("CriticalSection hook: ACTIVE (%d/1, init only, crash isolation)", ok);
     return ok > 0;
 #else
     void* pEnter = (void*)GetProcAddress(hK32, "EnterCriticalSection");
