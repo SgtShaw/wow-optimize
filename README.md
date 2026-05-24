@@ -346,6 +346,8 @@ On Wine, WoW-internal hooks (Lua fast paths, combat log MT, spell prefetch, swap
 
 This is detected at runtime — no configuration needed. On native Windows, all hooks work as normal.
 
+**`GetSystemMetrics` and display scaling:** Screen-dimension metrics (`SM_CXSCREEN`, `SM_CYSCREEN`, `SM_CXFULLSCREEN`, `SM_CYFULLSCREEN`, `SM_CXVIRTUALSCREEN`, `SM_CYVIRTUALSCREEN`) are intentionally NOT cached — they always pass through to the real Win32 call. These values can change at runtime on display-mode switch, DPI change, or maximize toggle. On macOS with display scaling (e.g. 6K rendered → 4K native → "looks like 3K"), caching the first value would lock WoW to the scaled logical resolution and collapse maximized windows. Other stable metrics (`SM_SWAPBUTTON`, `SM_CXBORDER`, etc.) remain cached for performance.
+
 ### Testing credits
 
 macOS/WoWSilicon compatibility was tested by **David** (`_oldq`).
