@@ -282,11 +282,11 @@ static inline bool IsRosetta() {
 
 static inline MH_STATUS WineSafe_CreateHook(void* target, void* detour, void** original) {
 #if ALLOW_WOW_INTERNAL_HOOKS_ON_WINE == 0
-    // Block WoW .text hooks on Wine/Rosetta unless ROSETTA_X87_DISABLE_CACHE=1 is set
-    bool isWine = IsWine();
+    // Block WoW .text hooks on Rosetta (WoWSilicon) unless ROSETTA_X87_DISABLE_CACHE=1 is set
+    // Regular Wine (Linux) works fine with inline hooks
     bool isRosetta = IsRosetta();
-    
-    if (isWine || isRosetta) {
+
+    if (isRosetta) {
         uintptr_t addr = (uintptr_t)target;
         if (addr >= 0x00400000 && addr <= 0x00FFFFFF) {
             // Check if ROSETTA_X87_DISABLE_CACHE=1 is set
