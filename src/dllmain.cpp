@@ -107,7 +107,7 @@
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (Vulkan/D3D9, safe on DXVK)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (with SEH guard for alt-tab)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - ERROR #134: mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
@@ -3348,6 +3348,15 @@ static uint64_t g_glFinishSkips = 0;
 static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     char* T = (char*)This;
 
+    // Validate device state before any swap operations
+    void* vtable = *(void**)T;
+    if (IsBadReadPtr(vtable, 0x14)) {
+        // Device lost or invalid - call original to handle reset properly
+        if (orig_SwapPresent)
+            orig_SwapPresent(This, unused);
+        return;
+    }
+
     // sub_682E50()
     orig_sub_682E50();
 
@@ -3357,10 +3366,17 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
         orig_sub_6841D0(This, nullptr);
 
     // Virtual call: eax = [esi]; edx = [eax+10h]; edx(This)
-    void* vtable = *(void**)T;
     void* renderFn = *(void**)((char*)vtable + 0x10);
-    if (renderFn)
-       ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
+    if (renderFn) {
+        __try {
+            ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Device lost during render - fall back to original swap with glFinish
+            if (orig_SwapPresent)
+                orig_SwapPresent(This, unused);
+            return;
+        }
+    }
 
     // Check [esi+275Ch] & 0x40 → wglSwapLayerBuffers, else glFinish
     if (T[0x275C] & 0x40) {
