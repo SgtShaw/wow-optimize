@@ -143,6 +143,27 @@ Features that use worker threads and lock-free queues. Status reflects the curre
 - CRT `pow()` integer fast-path (x^2=x*x, sqrt, etc.)
 - CRT `strstr` SSE2 Boyer-Moore-Horspool
 
+### CRT SSE2 fast paths
+All page-boundary guarded and SEH-protected:
+- `strlen` / `strcmp` / `memcmp` / `memcpy` / `memset` - SSE2 memory operations
+- `memchr` / `strchr` - byte and character search
+- `strcpy` - string copy
+- `wcslen` / `wcscpy` - wide-char UTF-16 strings
+
+### Kernel-call caches (38 hooks)
+Batch 1-8: `GetSystemTimeAsFileTime` (QPC-based 1ms refresh), `GetACP`, `GetUserDefaultLangID`, `GetProcessHeap`, `CharUpperA/W`, `CharLowerA/W`, `MapVirtualKeyA`, `GetThreadPriority`
+
+Batch 11-20: `GetOEMCP`, `GetDoubleClickTime`, `GetCursorPos`, `GetSysColor`, `GetCaretBlinkTime`, `IsWindow`, `GetDesktopWindow`, `GetFocus`
+
+Batch 21-26: `GetTickCount64` (QPC-backed), `ShowCursor`, `GetVersionExA`, `GetSystemMetrics`, `IsDebuggerPresent` (no-op), `GetSystemInfo`, `RegQueryValueExA`
+
+Batch 31-38: `GetCurrentProcess`, `GetCurrentThread`, `GetCPInfo` and related kernel caches
+
+### Loading screen optimization
+- Skips UR arena reserve on HD clients (>500MB working set)
+- Dynamic VA arena: reserves 256MB during loading, releases after
+- Sleep hook: bulk Sleep for waits >16ms (less CPU during idle)
+
 ### VA Arena (Virtual Address Arena)
 - 512MB high-address reserved arena with `MEM_TOP_DOWN`
 - Wow.exe caller filtering - only services allocations from WoW executable code
@@ -156,17 +177,15 @@ Features that use worker threads and lock-free queues. Status reflects the curre
 
 These features are disabled in public-safe builds because they previously caused regressions or crashes:
 
-- CRT SSE2 memory/string fast paths - cross page boundaries on mimalloc heap (bank/AH crash)
-- CRT SSE2 memchr/strchr - same page-boundary bug (exit crash)
-- WoW-internal SSE2 strlen at `sub_76EE30` - same page-boundary bug (exit crash)
+- WoW-internal SSE2 strlen at `sub_76EE30` - page-boundary bug (exit crash)
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
-- GetSpellInfo cache (disabled)
+- GetSpellInfo cache (disabled - icon corruption, crashes on relog)
 - ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
 - GlobalAlloc fast path (disabled)
-- luaH_getstr table lookup cache - stale Node* with mimalloc table recycling
-- Async texture loading hook - caused loading screen regression (was commented out)
+- luaH_getstr table lookup cache - ERROR #134, stale Node* from address reuse
+- Async texture loading hook - caused loading screen regression
 - Model async workers - loading screen regression
 - `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
 - `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
@@ -174,9 +193,32 @@ These features are disabled in public-safe builds because they previously caused
 - `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
 - `luaV_concat` hook (removed due to 0% hit-rate overhead)
 - `lua_getfield` _G cache (removed - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
-- `GetProcAddress` cache - 4-way set-associative design (enabled)
 - `GetModuleFileName` cache (disabled - conflicts with OBS hook chain, crash + exit error)
+- Hardware cursor byte patches (`gxCursor=0` / `gxFixLag=1`) - NULL deref on private servers
+- CRT `strncmp` / `strcat` SSE2 - crash isolation for Circle/Warmane
+- CRT `wcslen` / `wcscpy` SSE2 - broken zero-detection for ASCII wchar_t
+- `SetCursorPos` no-op - breaks mouselook
+- `ValidateRect` no-op - prevents UI repaint, freezes on friend list
+- `LoadLibraryA` / `WaitForMultipleObjects` hooks - cause silent close on loading
+- Timing method fix (`sub_86AD50` -> return 0) - causes silent close on start
+- Lua bytecode cache - ERROR #134 corrupt chunks
+- Addon RAM-cache - corrupts addon loading, resets settings
+- Asset path cache - stale mimalloc pointers crash all teardowns
+- Raw allocator hooks - mimalloc internal corruption
+- Stream buffer hooks - heap corruption, ERROR #132
+- Tooltip cache - placeholder, never stored results
+- `GetCursorPos` 16ms cache - causes cursor lag
+- CriticalSection 3-stage spin hooks - caused login crashes / freezes
+- `GetKeyboardLayout` / `GetKeyboardLayoutNameA` hooks - cached keyboard state, broke language switching
+- `GetClientRect` / `GetWindowRect` hooks - cached window dimensions, broke window resize
+
+### Enabled features
+
+- `GetProcAddress` cache - 4-way set-associative design (enabled)
 - `GetEnvironmentVariableA` cache (enabled - isolated via 3-way bisection test DLLs)
+- CRT SSE2 memory/string fast paths - re-enabled with page-boundary guards and SEH protection
+- CRT SSE2 memchr/strchr/strcpy - re-enabled with page-boundary guards
+- `lstrlenA` / `lstrlenW` fast paths - re-enabled after duplicate-hook fix
 
 ### Removed Features
 

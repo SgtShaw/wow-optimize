@@ -4884,7 +4884,7 @@ static bool InstallBatchOpt20() {
     #define H(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
     H(hK32, GetOEMCP, orig_GetOEMCP); H(hU32, GetDoubleClickTime, orig_GetDoubleClickTime);
     H(hU32, GetCursorPos, orig_GetCursorPos); H(hU32, GetSysColor, orig_GetSysColor);
-    H(hU32, GetKeyboardLayout, orig_GetKeyboardLayout); H(hU32, GetKeyboardLayoutNameA, orig_GetKeyboardLayoutNameA);
+    // H(hU32, GetKeyboardLayout, orig_GetKeyboardLayout); H(hU32, GetKeyboardLayoutNameA, orig_GetKeyboardLayoutNameA); // DISABLED - breaks language switching
     H(hU32, GetCaretBlinkTime, orig_GetCaretBlinkTime); H(hU32, IsWindow, orig_IsWindow);
     H(hU32, GetDesktopWindow, orig_GetDesktopWindow); H(hU32, GetFocus, orig_GetFocus);
     #undef H
