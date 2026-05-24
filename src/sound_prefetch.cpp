@@ -206,7 +206,7 @@ static DWORD WINAPI WorkerThread(LPVOID) {
         }
         
         // Build full path (assume WoW directory)
-        // In production, we'd get the actual WoW path
+        // TODO: Get the actual WoW path
         snprintf(fullpath, sizeof(fullpath), "%s", req.filepath);
         
         // Prefetch file into OS cache via ReadFile

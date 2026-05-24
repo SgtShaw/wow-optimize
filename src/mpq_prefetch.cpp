@@ -39,7 +39,7 @@ struct ZoneFiles {
     std::vector<std::string> files;
 };
 
-// Common zone file patterns (simplified - in production this would be data-driven)
+// Common zone file patterns
 static std::unordered_map<int, std::vector<std::string>> g_zoneFileMap;
 
 // ================================================================
@@ -150,8 +150,7 @@ static void InitializeZoneFileMap() {
 // ================================================================
 static int PredictNextZone(int currentZone) {
     // Simple prediction based on common patterns
-    // In production, this would use machine learning or statistical analysis
-    
+
     // Dalaran → ICC (common raid teleport)
     if (currentZone == 4395) return 4812;
     
@@ -408,18 +407,16 @@ void OnFrame(DWORD mainThreadId) {
     if (GetCurrentThreadId() != mainThreadId) return;
 
     // TODO: Hook into WoW's zone/area change detection
-    // For now, this is a placeholder - in production we would hook
-    // GetZoneText or similar functions to detect zone changes
-    
-    // Simulated zone change detection (would be replaced with actual hook)
+    // Hook GetZoneText or similar functions to detect zone changes
+
+    // Zone change detection (requires actual hook implementation)
     static DWORD lastCheckTick = 0;
     DWORD nowTick = GetTickCount();
-    
+
     if ((nowTick - lastCheckTick) >= 1000) {  // Check every second
         lastCheckTick = nowTick;
-        
-        // In production, read current zone from WoW memory
-        // For now, this is a no-op
+
+        // Read current zone from WoW memory (requires implementation)
     }
 }
 

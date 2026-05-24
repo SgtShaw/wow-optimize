@@ -17,7 +17,12 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 ### Stability Testing Team
 
+
+This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
+
+Massive thanks to:
 Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond
+
 ---
 
 ## Current Feature Set

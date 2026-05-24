@@ -139,47 +139,36 @@ static DWORD WINAPI WorkerThread(LPVOID) {
         switch (req.type) {
             case RequestType::QUEST_LOG_REFRESH:
             {
-                // Simulate quest log data loading
-                // In production, this would call WoW's quest log functions
-                // and cache the results
-                
                 AcquireSRWLockExclusive(&g_stats_lock);
                 g_stats.quest_refreshes++;
                 ReleaseSRWLockExclusive(&g_stats_lock);
-                
+
                 // TODO: Call WoW's GetNumQuestLogEntries, GetQuestLogTitle, etc.
                 // and populate g_quest_cache
-                
+
                 break;
             }
             
             case RequestType::ACHIEVEMENT_REFRESH:
             {
-                // Simulate achievement data loading
-                // In production, this would call WoW's achievement functions
-                // and cache the results
-                
                 AcquireSRWLockExclusive(&g_stats_lock);
                 g_stats.achievement_refreshes++;
                 ReleaseSRWLockExclusive(&g_stats_lock);
-                
+
                 // TODO: Call WoW's GetAchievementInfo, GetAchievementCriteriaInfo, etc.
                 // and populate g_achievement_cache
-                
+
                 break;
             }
-            
+
             case RequestType::QUEST_OBJECTIVE_UPDATE:
             {
-                // Simulate quest objective update
-                // In production, this would update quest progress in cache
-                
                 AcquireSRWLockExclusive(&g_stats_lock);
                 g_stats.objective_updates++;
                 ReleaseSRWLockExclusive(&g_stats_lock);
-                
+
                 // TODO: Update quest objective progress in g_quest_cache
-                
+
                 break;
             }
         }

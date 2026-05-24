@@ -89,10 +89,8 @@ static void ProcessCallback(const AddonCallback* callback) {
     }
 
     // Call the addon callback
-    // For now, this is a placeholder - in production this would
-    // call the actual Lua callback function
     // TODO: Implement actual Lua callback execution
-    
+
     InterlockedIncrement(&g_callbacksProcessed);
 }
 

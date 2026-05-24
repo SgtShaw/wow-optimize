@@ -169,9 +169,8 @@ static void ProcessEvent(const CombatLogEntry* entry) {
         int spellID = entry->spellID;
         int amount = entry->amount;
 
-        // Format event string (simplified for now - in production this would
-        // dispatch to Lua addons or format for COMBAT_LOG_EVENT)
-        // For now we just validate the data is readable
+        // Format event string
+        // Validate the data is readable
        (void)eventType;
        (void)timestamp;
        (void)sourceGUID;

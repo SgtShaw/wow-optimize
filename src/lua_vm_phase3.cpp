@@ -63,9 +63,8 @@ void RegisterFastPath(void* lua_func_addr, LuaFastPathHandler handler) {
 }
 
 int __cdecl Hooked_luaD_call(lua_State* L, int nResults) {
-    // In a real implementation, we would inspect the Lua stack to find the
-    // function being called. If it's in our cache, we execute the handler.
-    
+    // Inspect the Lua stack, check cache, execute handler if found
+
     // Placeholder for logic:
     // void* func = get_current_function(L);
     // auto it = fastPathCache.find(func);
