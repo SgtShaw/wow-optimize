@@ -4483,11 +4483,18 @@ static GetSystemMetrics_fn orig_GetSystemMetrics = nullptr;
 static int g_smCache[128] = {};
 static bool g_smInited = false;
 
+// Screen-dimension metrics change on display-mode / DPI / maximize, must NOT be cached.
+// 0 = SM_CXSCREEN, 1 = SM_CYSCREEN, 16 = SM_CXFULLSCREEN, 17 = SM_CYFULLSCREEN,
+// 78 = SM_CXVIRTUALSCREEN, 79 = SM_CYVIRTUALSCREEN
+static inline bool IsScreenDimMetric(int idx) {
+    return idx == 0 || idx == 1 || idx == 16 || idx == 17 || idx == 78 || idx == 79;
+}
+
 static int WINAPI hooked_GetSystemMetrics(int nIndex) {
-    if (nIndex >= 0 && nIndex < 128 && g_smInited)
+    if (nIndex >= 0 && nIndex < 128 && g_smInited && !IsScreenDimMetric(nIndex))
         return g_smCache[nIndex];
     int result = orig_GetSystemMetrics(nIndex);
-    if (nIndex >= 0 && nIndex < 128) {
+    if (nIndex >= 0 && nIndex < 128 && !IsScreenDimMetric(nIndex)) {
         g_smCache[nIndex] = result;
         g_smInited = true;
     }
