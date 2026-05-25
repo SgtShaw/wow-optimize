@@ -107,7 +107,7 @@
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (with SEH guard for alt-tab)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (Vulkan/D3D9, safe on DXVK)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - ERROR #134: mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
@@ -3348,50 +3348,45 @@ static uint64_t g_glFinishSkips = 0;
 static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     char* T = (char*)This;
 
-    // Validate device state before any swap operations
-    void* vtable = *(void**)T;
-    if (IsBadReadPtr(vtable, 0x14)) {
-        // Device lost or invalid - call original to handle reset properly
-        if (orig_SwapPresent)
-            orig_SwapPresent(This, unused);
+    // Wrap entire swap in SEH to handle device lost / alt-tab safely.
+    // NO IsBadReadPtr - it breaks guard pages and causes mouse-triggered crashes
+    // when cursor/UI redraw happens during device state transitions.
+    __try {
+        // sub_682E50()
+        orig_sub_682E50();
+
+        // if ([esi+2934h]) sub_6841D0(this)
+        void* edi = *(void**)(T + 0x2934);
+        if (edi)
+            orig_sub_6841D0(This, nullptr);
+
+        // Virtual call: eax = [esi]; edx = [eax+10h]; edx(This)
+        void* vtable = *(void**)T;
+        void* renderFn = *(void**)((char*)vtable + 0x10);
+        if (renderFn) {
+            ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
+        }
+
+        // Check [esi+275Ch] & 0x40 → wglSwapLayerBuffers, else glFinish
+        if (T[0x275C] & 0x40) {
+            HDC hdc = *(HDC*)(T + 0x3AF8);
+            if (orig_wglSwapLayerBuffers && hdc)
+                orig_wglSwapLayerBuffers(hdc, 1);
+        } else {
+            // SKIP glFinish - Vulkan/D3D9 handles presentation sync
+            g_glFinishSkips++;
+        }
+
+        // Post-swap cleanup
+        orig_sub_6836D0(This, nullptr);
+        orig_sub_6833A0(This, nullptr);
+        // nullsub_3 (0x005EEB70) is a 1-byte no-op - skipped
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Device lost / alt-tab / cursor redraw race - silently skip this frame.
+        // Do NOT call orig_SwapPresent here: it would re-enter the same broken state
+        // and crash harder (recursive swap on lost device).
         return;
     }
-
-    // sub_682E50()
-    orig_sub_682E50();
-
-    // if ([esi+2934h]) sub_6841D0(this)
-    void* edi = *(void**)(T + 0x2934);
-    if (edi)
-        orig_sub_6841D0(This, nullptr);
-
-    // Virtual call: eax = [esi]; edx = [eax+10h]; edx(This)
-    void* renderFn = *(void**)((char*)vtable + 0x10);
-    if (renderFn) {
-        __try {
-            ((void(__fastcall*)(void*, void*))renderFn)(This, nullptr);
-        } __except(EXCEPTION_EXECUTE_HANDLER) {
-            // Device lost during render - fall back to original swap with glFinish
-            if (orig_SwapPresent)
-                orig_SwapPresent(This, unused);
-            return;
-        }
-    }
-
-    // Check [esi+275Ch] & 0x40 → wglSwapLayerBuffers, else glFinish
-    if (T[0x275C] & 0x40) {
-        HDC hdc = *(HDC*)(T + 0x3AF8);
-        if (orig_wglSwapLayerBuffers && hdc)
-            orig_wglSwapLayerBuffers(hdc, 1);
-    } else {
-        // SKIP glFinish - Vulkan/D3D9 handles presentation sync
-        g_glFinishSkips++;
-    }
-
-    // Post-swap cleanup
-    orig_sub_6836D0(This, nullptr);
-    orig_sub_6833A0(This, nullptr);
-    // nullsub_3 (0x005EEB70) is a 1-byte no-op - skipped
 }
 
 static bool InstallSwapPresentHook() {

@@ -2277,11 +2277,11 @@ static fn_ResolveUnit     orig_ResolveUnit     = (fn_ResolveUnit)0x004D4DB0;
 
 static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
 
-// IDA-verified: m_values[0x124] for UnitHealth (index 73, not 18)
+// m_values[0x124] for UnitHealth (index 73, not 18)
 static constexpr int UNIT_FIELD_HEALTH      = 73; // 0x124/4
-static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // TODO: verify via IDA
-static constexpr int UNIT_FIELD_POWER1      = 19; // TODO: verify via IDA
-static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // TODO: verify via IDA
+static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // TODO: verify
+static constexpr int UNIT_FIELD_POWER1      = 19; // TODO: verify
+static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // TODO: verify
 
 static long g_unitHealthHits = 0;
 static long g_unitHealthFallbacks = 0;

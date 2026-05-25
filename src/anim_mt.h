@@ -2,7 +2,7 @@
 
 // Worker pool reserved for parallel M2 bone-matrix interpolation.
 // Pool spins up at Init() and stays idle until SubmitBones() is
-// invoked from a verified animation hook (pending IDA pass).
+// invoked from a verified animation hook (pending analysis).
 
 #include <windows.h>
 #include <cstdint>

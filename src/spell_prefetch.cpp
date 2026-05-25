@@ -14,7 +14,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
-// Spell Data Structure (680 bytes from IDA analysis)
+// Spell Data Structure (680 bytes)
 // ================================================================
 struct SpellData {
     char data[680];  // 0x2A8 bytes

@@ -149,7 +149,7 @@ bool InstallFrameThrottling() {
     // Initialize QPC frequency
     QueryPerformanceFrequency(&g_qpcFreq);
 
-    // Hook FrameScript_Execute at 0x00819210 (verified address from IDA)
+    // Hook FrameScript_Execute at 0x00819210 (verified address)
     void* targetAddr = (void*)0x00819210;
     
     if (MH_CreateHook(targetAddr, (void*)Hooked_FrameScript_Execute, (void**)&orig_FrameScript_Execute) != MH_OK) {

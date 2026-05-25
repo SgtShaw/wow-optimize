@@ -107,7 +107,8 @@
 #define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
-#define TEST_DISABLE_HARDWARE_CURSOR    0
+// DISABLED - mouse movement triggers 0xC0000005 crash (diag)
+#define TEST_DISABLE_HARDWARE_CURSOR    1
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE        1

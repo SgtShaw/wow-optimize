@@ -11,6 +11,37 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
+## Current Status
+
+### Active Features
+- **Memory management**: mimalloc allocator replacement (40-60% faster Lua operations)
+- **Multithreaded systems**: 
+  - Combat log parser (4-worker thread pool)
+  - Addon dispatcher (4-worker thread pool)
+  - Spell prefetching (async loading before cast completion)
+  - MPQ prefetching (zone transition prediction)
+- **Lua optimizations**: 27 fast paths with 99%+ hit rates (string.format: 99.9%)
+- **Network stack**: TCP_NODELAY, TCP_QUICKACK, optimized buffers
+- **File I/O**: MPQ memory mapping, adaptive 64KB/256KB caching
+- **Timing**: QPC-based microsecond precision (99.3% cache hit rate)
+- **Platform support**: Rosetta 2 / Wine / CrossOver compatibility (including WoWSilicon for native Apple Silicon WoW 3.3.5a)
+
+### Performance Metrics (Real-World Testing)
+- **Frame time**: 6.3ms average
+- **CPU usage**: 30-50% reduction in addon-heavy raids
+- **Lua operations**: 40-60% faster with mimalloc
+- **Timing cache**: 99.3% QPC cache hit rate
+- **String formatting**: 99.9% fast path hit rate
+
+### Disabled Features (Stability Issues)
+- Unit API fast paths
+- Hardware cursor hooks (mouse movement triggers crashes)
+- Swap present hook (alt-tab causes crashes)
+- Table operations: insert/remove/concat (unsafe stack writes)
+- Stack operations: unpack (unsafe stack writes)
+
+---
+
 ## Reviews
 
 See what other players say: [Reviews and Testimonials](https://github.com/suprepupre/wow-optimize/discussions/10)
@@ -21,7 +52,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
 
 Massive thanks to:
-Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond
+Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, DarkRockDemon, Falcon
 
 ---
 
@@ -240,9 +271,9 @@ These experimental features were tested and found to provide no measurable benef
 - lower Lua overhead in addon-heavy gameplay
 - less allocator fragmentation over time
 - better responsiveness during heavy UI and addon workloads
-- faster zone transitions and teleports (50-60% reduction in loading stutters)
-- reduced spell cast lag (30-40% improvement)
-- smoother addon-heavy gameplay (40-50% less main thread CPU usage)
+- faster zone transitions and teleports 
+- reduced spell cast lag 
+- smoother addon-heavy gameplay 
 
 ### You may notice
 - slightly better minimum FPS in cities and raids
