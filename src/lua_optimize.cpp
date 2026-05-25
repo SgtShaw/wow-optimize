@@ -184,6 +184,57 @@ static lua_State* g_pendingLuaState = nullptr;
 static DWORD g_pendingLuaStateTick = 0;
 static int g_pendingLuaStateFrames = 0;
 static bool g_vmInitializedOnce = false;
+static int g_luaInterfaceCheckCounter = 0;
+static bool g_luaInterfaceFailed = false;
+static int g_luaInterfaceRetryCount = 0;
+static DWORD g_luaInterfaceLastRetry = 0;
+
+// Forward declaration
+static void SetupLuaInterface(lua_State* L);
+
+// Check if Lua interface globals are present, re-setup if missing
+static bool CheckAndRestoreLuaInterface(lua_State* L) {
+    if (!Api.lua_getfield || !Api.lua_type || !Api.lua_settop) {
+        return true;  // Can't check, assume OK
+    }
+
+    // Retry failed interface setup after 3 seconds (max 5 attempts)
+    if (g_luaInterfaceFailed && g_luaInterfaceRetryCount < 5) {
+        DWORD now = GetTickCount();
+        if ((DWORD)(now - g_luaInterfaceLastRetry) >= 3000) {
+            Log("[LuaOpt] Retrying Lua interface setup (attempt %d)", g_luaInterfaceRetryCount + 1);
+            g_luaInterfaceLastRetry = now;
+            g_luaInterfaceRetryCount++;
+            g_luaInterfaceFailed = false;
+            SetupLuaInterface(L);
+            return false;
+        }
+    }
+
+    __try {
+        // Check both LUABOOST_DLL_LOADED and LuaBoostC_IsLoaded
+        Api.lua_getfield(L, -10002, "LUABOOST_DLL_LOADED");  // LUA_GLOBALSINDEX
+        bool loadedPresent = (Api.lua_type(L, -1) != 0);  // LUA_TNIL = 0
+        Api.lua_settop(L, -2);  // lua_pop(L, 1)
+
+        Api.lua_getfield(L, -10002, "LuaBoostC_IsLoaded");
+        bool funcPresent = (Api.lua_type(L, -1) != 0);
+        Api.lua_settop(L, -2);  // lua_pop(L, 1)
+
+        if (!loadedPresent || !funcPresent) {
+            Log("[LuaOpt] Lua interface globals missing (loaded=%d, func=%d), re-setting up",
+                loadedPresent, funcPresent);
+            g_luaInterfaceFailed = false;
+            SetupLuaInterface(L);
+            return false;
+        }
+        return true;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return true;
+    }
+}
+
 
 // Thread-safe state flags for worker threads (atomic, no lock needed)
 static std::atomic<bool> g_isReloading{false};
@@ -1025,6 +1076,9 @@ static void SetupLuaInterface(lua_State* L) {
     __except (EXCEPTION_EXECUTE_HANDLER) {
         Log("[LuaOpt] EXCEPTION in FrameScript_Execute");
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
+        // Mark interface as failed so CheckAndRestoreLuaInterface will retry
+        g_luaInterfaceFailed = true;
+        g_luaInterfaceLastRetry = GetTickCount();
     }
 }
 
@@ -1347,6 +1401,12 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
 
     if ((++g_addonReadCounter & addonPollMask) == 0) {
         ReadAddonStateFromLua(Api.L);
+    }
+
+    // Check Lua interface every ~4 seconds (256 frames at 60fps)
+    // Detects /reload or character swap when lua_State pointer is reused
+    if ((++g_luaInterfaceCheckCounter & 255) == 0) {
+        CheckAndRestoreLuaInterface(Api.L);
     }
 
     if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
