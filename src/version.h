@@ -139,7 +139,7 @@
 #define TEST_DISABLE_COMBATLOG_PARSER   1
 
 // Force high-precision timing & block timingtesterror fallback
-#define TEST_DISABLE_TIMING_FIX         0
+#define TEST_DISABLE_TIMING_FIX         1
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
