@@ -154,6 +154,11 @@ static DWORD    g_vaArenaSpan[VA_ARENA_MAX_PAGES] = {0};  // span length in page
 static bool InstallVAArena();
 static void ShutdownVAArena();
 
+// Priority watchdog forward declarations
+static void StartPriorityWatchdog();
+static void StopPriorityWatchdog();
+static volatile LONG g_priorityWatchdogRestores = 0;
+
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
@@ -2885,6 +2890,51 @@ static void OptimizeProcess() {
     }
 }
 
+// Priority watchdog thread - monitors and restores process priority
+static HANDLE g_priorityWatchdogThread = NULL;
+static volatile bool g_priorityWatchdogActive = true;
+
+static DWORD WINAPI PriorityWatchdogProc(LPVOID param) {
+    while (g_priorityWatchdogActive) {
+        Sleep(2000);  // Check every 2 seconds
+        
+        if (!g_priorityWatchdogActive) break;
+        
+        DWORD currentPriority = GetPriorityClass(GetCurrentProcess());
+        
+        // If priority dropped below ABOVE_NORMAL, restore it
+        if (currentPriority < ABOVE_NORMAL_PRIORITY_CLASS) {
+            if (SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
+                InterlockedIncrement(&g_priorityWatchdogRestores);
+                Log("[Priority] Watchdog restored Above Normal priority (was %lu)", currentPriority);
+            }
+        }
+    }
+    
+    return 0;
+}
+
+static void StartPriorityWatchdog() {
+    g_priorityWatchdogActive = true;
+    g_priorityWatchdogThread = CreateThread(NULL, 0, PriorityWatchdogProc, NULL, CREATE_SUSPENDED, NULL);
+    if (g_priorityWatchdogThread) {
+        SetThreadPriority(g_priorityWatchdogThread, THREAD_PRIORITY_LOWEST);
+        ResumeThread(g_priorityWatchdogThread);
+        Log("Process: Priority watchdog started (2s interval)");
+    } else {
+        Log("WARNING: Failed to start priority watchdog");
+    }
+}
+
+static void StopPriorityWatchdog() {
+    g_priorityWatchdogActive = false;
+    if (g_priorityWatchdogThread) {
+        WaitForSingleObject(g_priorityWatchdogThread, 3000);
+        CloseHandle(g_priorityWatchdogThread);
+        g_priorityWatchdogThread = NULL;
+    }
+}
+
 // 14. Working set.
 //
 static void OptimizeWorkingSet() {
@@ -3332,6 +3382,9 @@ static void DumpPeriodicStats() {
 
     if (fpStats.tableSortHits > 0 || fpStats.tableSortFallbacks > 0)
         Log("[Stats] TableSort: %ld fast, %ld fallback", fpStats.tableSortHits, fpStats.tableSortFallbacks);
+
+    if (g_priorityWatchdogRestores > 0)
+        Log("[Stats] Priority watchdog: %ld restorations", (long)g_priorityWatchdogRestores);
 
     Log("[Stats] ====================================");
 
@@ -5253,6 +5306,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     }
     
     OptimizeProcess();
+    StartPriorityWatchdog();
     OptimizeWorkingSet();
     Log("--- FPS Cap ---");
     TryRemoveFPSCap();
