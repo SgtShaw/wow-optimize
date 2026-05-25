@@ -427,11 +427,28 @@ static DWORD WINAPI LogThreadProc(LPVOID) {
 
 static void LogOpen() {
     CreateDirectoryA("Logs", NULL);
-    g_log = fopen("Logs\\wow_optimize.log", "w");
+    
+    // Try shared access first (allows multiple WoW clients or other processes to access the file)
+    g_log = _fsopen("Logs\\wow_optimize.log", "w", _SH_DENYNO);
+    
+    // Fallback: if main log fails, try PID-specific log
+    if (!g_log) {
+        char fallbackPath[64];
+        _snprintf(fallbackPath, sizeof(fallbackPath), "Logs\\wow_optimize_%lu.log", GetCurrentProcessId());
+        fallbackPath[sizeof(fallbackPath) - 1] = '\0';
+        g_log = _fsopen(fallbackPath, "w", _SH_DENYNO);
+    }
+    
+    // Final fallback: use CRT fopen if _fsopen failed
+    if (!g_log) {
+        g_log = fopen("Logs\\wow_optimize.log", "w");
+    }
+    
     if (g_log) {
         // Write UTF-8 BOM so editors interpret em-dashes and other UTF-8 correctly
         static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
         fwrite(bom, 1, 3, g_log);
+        fflush(g_log);  // Ensure BOM is written immediately
     }
     g_logShutdown = false;
     g_logEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
@@ -2801,10 +2818,71 @@ static void OptimizeThreads() {
 
 // 13. Process priority.
 //
+// Hook SetPriorityClass to prevent WoW from downgrading priority after we set it
+typedef BOOL (WINAPI* SetPriorityClass_fn)(HANDLE, DWORD);
+static SetPriorityClass_fn orig_SetPriorityClass = nullptr;
+static volatile LONG g_priorityDowngradesBlocked = 0;
+
+static BOOL WINAPI hooked_SetPriorityClass(HANDLE hProcess, DWORD dwPriorityClass) {
+    // Allow our initial setup and upgrades (ABOVE_NORMAL, HIGH, REALTIME)
+    if (dwPriorityClass >= ABOVE_NORMAL_PRIORITY_CLASS) {
+        return orig_SetPriorityClass(hProcess, dwPriorityClass);
+    }
+    
+    // Block downgrade attempts (NORMAL, BELOW_NORMAL, IDLE)
+    if (hProcess == GetCurrentProcess() || hProcess == (HANDLE)-1) {
+        InterlockedIncrement(&g_priorityDowngradesBlocked);
+        return TRUE;  // Fake success to avoid breaking WoW logic
+    }
+    
+    // Allow other processes (shouldn't happen, but be safe)
+    return orig_SetPriorityClass(hProcess, dwPriorityClass);
+}
+
+// Helper: try to enable SE_INC_BASE_PRIORITY_NAME privilege (allows setting process priority above normal)
+static bool TryEnablePriorityPrivilege() {
+    HANDLE hToken;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+        return false;
+
+    LUID luid;
+    if (!LookupPrivilegeValueA(NULL, "SeIncreaseBasePriorityPrivilege", &luid)) {
+        CloseHandle(hToken);
+        return false;
+    }
+
+    TOKEN_PRIVILEGES tp;
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+
+    BOOL ok = AdjustTokenPrivileges(hToken, FALSE, &tp, 0, NULL, NULL);
+    DWORD err = GetLastError();
+    CloseHandle(hToken);
+    return ok && err == ERROR_SUCCESS;
+}
+
 static void OptimizeProcess() {
-    SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
-    SetProcessPriorityBoost(GetCurrentProcess(), TRUE);
-    Log("Process: Above Normal priority, priority boost disabled");
+    // Try to obtain the privilege needed for above-normal/high priority
+    TryEnablePriorityPrivilege();
+    
+    // Try ABOVE_NORMAL first (requires admin rights)
+    if (SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
+        // FALSE = enable priority boost (Windows dynamic boost still active on top of our priority)
+        // Note: SetProcessPriorityBoost(hProcess, TRUE) would DISABLE the boost
+        SetProcessPriorityBoost(GetCurrentProcess(), FALSE);
+        Log("Process: Above Normal priority set successfully");
+    } else {
+        // Fallback: try HIGH_PRIORITY_CLASS (may work without full admin in some cases)
+        DWORD err = GetLastError();
+        if (SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS)) {
+            SetProcessPriorityBoost(GetCurrentProcess(), FALSE);
+            Log("Process: High priority set (Above Normal requires admin, error %lu)", err);
+        } else {
+            err = GetLastError();
+            Log("Process: Failed to set priority (error %lu) - run WoW as administrator for Above Normal/High priority", err);
+        }
+    }
 }
 
 // 14. Working set.
@@ -4969,8 +5047,8 @@ static bool InstallBatchOpt30() {
     void* p;
     #define H31(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
     H31(hK32, GetTickCount64, orig_GetTickCount64);
-    H31(hU32, GetClientRect, orig_GetClientRect);
-    H31(hU32, GetWindowRect, orig_GetWindowRect);
+    // H31(hU32, GetClientRect, orig_GetClientRect); // DISABLED - cached window dimensions break window resize (clicks miss UI elements)
+    // H31(hU32, GetWindowRect, orig_GetWindowRect); // DISABLED - cached window dimensions break window resize (clicks miss UI elements)
     // H31(hU32, ShowCursor, orig_ShowCursor); // DISABLED - breaks hardware cursor with RTSSHooks.dll
     // H31(hU32, ValidateRect, orig_ValidateRect); // REMOVED - prevents UI repaint, freezes on friend list
     #undef H31
@@ -5160,6 +5238,20 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Threads ---");
     OptimizeThreads();
     Log("--- Process ---");
+    
+    // Install SetPriorityClass hook BEFORE setting priority to block downgrade attempts
+    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+    if (hKernel32) {
+        void* pSetPriorityClass = (void*)GetProcAddress(hKernel32, "SetPriorityClass");
+        if (pSetPriorityClass && 
+            MH_CreateHook(pSetPriorityClass, (void*)hooked_SetPriorityClass, (void**)&orig_SetPriorityClass) == MH_OK &&
+            MH_EnableHook(pSetPriorityClass) == MH_OK) {
+            Log("SetPriorityClass hook: ACTIVE (blocks priority downgrades)");
+        } else {
+            Log("WARNING: SetPriorityClass hook failed");
+        }
+    }
+    
     OptimizeProcess();
     OptimizeWorkingSet();
     Log("--- FPS Cap ---");
