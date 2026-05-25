@@ -14,31 +14,53 @@ The current public build is focused on real frametime stability, long-session sm
 ## Current Status
 
 ### Active Features
-- **Memory management**: mimalloc allocator replacement (40-60% faster Lua operations)
-- **Multithreaded systems**: 
-  - Combat log parser (4-worker thread pool)
+- **Memory management**: mimalloc allocator replacement for faster Lua operations
+- **Multithreaded systems**:
+  - Combat log parser (4-worker thread pool, auto-disables in raids)
   - Addon dispatcher (4-worker thread pool)
   - Spell prefetching (async loading before cast completion)
   - MPQ prefetching (zone transition prediction)
-- **Lua optimizations**: 27 fast paths with 99%+ hit rates (string.format: 99.9%)
-- **Network stack**: TCP_NODELAY, TCP_QUICKACK, optimized buffers
-- **File I/O**: MPQ memory mapping, adaptive 64KB/256KB caching
-- **Timing**: QPC-based microsecond precision (99.3% cache hit rate)
+  - Sound prefetching (predicts sounds based on spells/zones/combat)
+  - Quest/achievement loading (async data loading)
+  - Nameplate renderer (multithreaded rendering for 25-man raids)
+- **Lua optimizations**: 27 fast paths for common operations (string.format, math, string functions)
+- **Network stack**: TCP_NODELAY, TCP_QUICKACK, optimized buffers, low-delay TOS
+- **File I/O**: MPQ memory mapping, adaptive caching, sequential-scan hints
+- **Timing**: QPC-based microsecond precision with adaptive resolution, FPS cap raised to 999
+- **System calls**: 38 kernel-call caches, IsBadPtr/Thread affinity/Swap RC1 (re-enabled)
+- **CRT SSE2**: strlen/strcmp/memcpy/memset with page-boundary guards
 - **Platform support**: Rosetta 2 / Wine / CrossOver compatibility (including WoWSilicon for native Apple Silicon WoW 3.3.5a)
 
 ### Performance Metrics (Real-World Testing)
-- **Frame time**: 6.3ms average
-- **CPU usage**: 30-50% reduction in addon-heavy raids
-- **Lua operations**: 40-60% faster with mimalloc
-- **Timing cache**: 99.3% QPC cache hit rate
-- **String formatting**: 99.9% fast path hit rate
+- **Frame time**: Smoother frametimes in addon-heavy raids
+- **CPU usage**: Noticeable reduction in addon-heavy gameplay
+- **Lua operations**: Faster with mimalloc allocator
+- **Timing cache**: High QPC cache hit rate
+- **String formatting**: High fast path hit rate
 
 ### Disabled Features (Stability Issues)
-- Unit API fast paths
-- Hardware cursor hooks (mouse movement triggers crashes)
-- Swap present hook (alt-tab causes crashes)
-- Table operations: insert/remove/concat (unsafe stack writes)
-- Stack operations: unpack (unsafe stack writes)
+These features are disabled in public builds due to stability issues found via bisection testing:
+
+**Found via bisection:**
+- GetSystemMetrics cache - breaks hardware cursor with RTSSHooks.dll
+- Asset path cache - stale mimalloc pointers crash teardown/logout
+
+**Architecture limitations:**
+- Unit API fast paths - returns 0 HP
+- GetSpellInfo cache - icon corruption + relog crash
+- Phase 2 writes (rawset/insert/remove/next) - direct RawTValue* hangs
+- Phase 2 reads (rawget/concat/unpack) - direct RawTValue* hangs
+- ipairs factory hook - closure creation crashes (architectural mismatch)
+- Deferred field updates - UI/texture flickering (immediate-mode rendering)
+- GetModuleFileName cache - conflicts with OBS hook chain
+- CRT mem fastpaths - VA exhaustion (dungeon finder crash at 2.4GB)
+- Object visibility cache - stale object pointers, no synchronization
+- table.sort fast path - Lua table corruption (0x851E01 AV)
+- string.gsub fast path - Lua string corruption
+- Lua bytecode cache - WoW modified bytecode incompatible
+- Frame throttle - MoveAnything position corruption (race conditions)
+- Async texture loading - loading screen regression
+- Model async workers - loading screen regression
 
 ---
 
@@ -52,7 +74,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
 
 Massive thanks to:
-Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, DarkRockDemon, Falcon
+Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus
 
 ---
 
@@ -153,13 +175,13 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 
 Features that use worker threads and lock-free queues. Status reflects the current public-safe configuration; individual toggles live in `src/version.h`.
 
-- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag by 30-40%, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(enabled)*
-- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU by 40-50% in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(enabled)*
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, eliminates 50-60% of zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(enabled)*
-- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU by 40-60% in raids, lock-free queue with async processing *(enabled, auto-disables inside raids)*
+- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(enabled)*
+- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(enabled)*
+- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, reduces zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(enabled)*
+- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU in raids, lock-free queue with async processing *(enabled, auto-disables inside raids)*
 - **Sound prefetching** - predicts and prefetches sound files based on spell casts, zone transitions, combat state, worker thread pool (2 threads) with lock-free queue (1024 entries) *(enabled)*
 - **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(enabled)*
-- **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU by 30-40% in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(enabled)*
+- **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(enabled)*
 - **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading *(enabled)*
 - **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled - loading screen regression)*
 
@@ -357,7 +379,7 @@ This reduces CPU pressure compared to forcing aggressive single-client timing on
 
 ## macOS / Apple Silicon (WoWSilicon)
 
-wow_optimize works on macOS via [WoWSilicon](https://github.com/WoWSilicon/WoWSilicon), which runs WoW 3.3.5a natively on Apple Silicon using Wine + [rosettax87](https://github.com/Lifeisawful/rosettax87_jit) translation.
+wow_optimize works on macOS via [WoWSilicon](https://github.com/WoWSilicon/WoWSilicon), which runs WoW 3.3.5a natively on Apple Silicon using Wine + [rosettax87](https://github.com/athei/x87sidecar) translation.
 
 ### DLL load order
 
@@ -370,14 +392,6 @@ mods/wow_optimize.dll
 ```
 
 Swapping the first two causes a rosetta error. Without wow_optimize the order does not matter, but with it loaded the translation layer must initialize before any hooks are installed.
-
-### Known limitations on Wine/Rosetta
-
-On Wine, WoW-internal hooks (Lua fast paths, combat log MT, spell prefetch, swap/present, asset path cache, etc.) are automatically skipped to prevent rosettax87 JIT translation desync. System-level hooks (allocator, timers, networking, file I/O, critical sections, QPC) remain fully active and provide meaningful performance benefits.
-
-This is detected at runtime — no configuration needed. On native Windows, all hooks work as normal.
-
-**`GetSystemMetrics` and display scaling:** Screen-dimension metrics (`SM_CXSCREEN`, `SM_CYSCREEN`, `SM_CXFULLSCREEN`, `SM_CYFULLSCREEN`, `SM_CXVIRTUALSCREEN`, `SM_CYVIRTUALSCREEN`) are intentionally NOT cached — they always pass through to the real Win32 call. These values can change at runtime on display-mode switch, DPI change, or maximize toggle. On macOS with display scaling (e.g. 6K rendered → 4K native → "looks like 3K"), caching the first value would lock WoW to the scaled logical resolution and collapse maximized windows. Other stable metrics (`SM_SWAPBUTTON`, `SM_CXBORDER`, etc.) remain cached for performance.
 
 ### Testing credits
 

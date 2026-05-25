@@ -89,11 +89,11 @@
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
 #define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache
-#define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path
+#define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_QPC_CACHE       0   // QPC coalescing cache
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
-#define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning
+#define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
 #define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc - causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
@@ -107,7 +107,7 @@
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (freezes on char select)
-#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (Vulkan/D3D9, safe on DXVK)
+#define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - ERROR #134: mimalloc reuses table addresses within session, generation counter insufficient
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
@@ -4850,11 +4850,11 @@ typedef UINT (WINAPI* GetDoubleClickTime_fn)();
 static GetDoubleClickTime_fn orig_GetDoubleClickTime = nullptr; static UINT g_dct = 0;
 static UINT WINAPI hooked_GetDoubleClickTime() { if (!g_dct) g_dct = orig_GetDoubleClickTime(); return g_dct; }
 
-// #13: GetCursorPos - 16ms cache
+// #13: GetCursorPos - DISABLED (breaks hardware cursor with RTSSHooks.dll)
 typedef BOOL (WINAPI* GetCursorPos_fn)(LPPOINT);
 static GetCursorPos_fn orig_GetCursorPos = nullptr;
 static BOOL WINAPI hooked_GetCursorPos(LPPOINT lp) {
-    return orig_GetCursorPos(lp);  // pass-through - 16ms cache causes cursor lag on high-refresh displays
+    return orig_GetCursorPos(lp);
 }
 
 // #14: GetSysColor
@@ -4890,10 +4890,10 @@ typedef HWND (WINAPI* GetDesktopWindow_fn)();
 static GetDesktopWindow_fn orig_GetDesktopWindow = nullptr; static HWND g_desktop = NULL;
 static HWND WINAPI hooked_GetDesktopWindow() { if (!g_desktop) g_desktop = orig_GetDesktopWindow(); return g_desktop; }
 
-// #20: GetFocus - 16ms cache
+// #20: GetFocus - DISABLED (breaks hardware cursor with RTSSHooks.dll)
 typedef HWND (WINAPI* GetFocus_fn)();
 static GetFocus_fn orig_GetFocus = nullptr; static HWND g_lastFocus = NULL; static DWORD g_lastFocusTick = 0;
-static HWND WINAPI hooked_GetFocus() { DWORD now = GetTickCount(); if (now - g_lastFocusTick < 16) return g_lastFocus; g_lastFocus = orig_GetFocus(); g_lastFocusTick = now; return g_lastFocus; }
+static HWND WINAPI hooked_GetFocus() { return orig_GetFocus(); }
 
 static bool InstallBatchOpt20() {
     int ok = 0;
@@ -4901,7 +4901,8 @@ static bool InstallBatchOpt20() {
     void* p;
     #define H(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
     H(hK32, GetOEMCP, orig_GetOEMCP); H(hU32, GetDoubleClickTime, orig_GetDoubleClickTime);
-    H(hU32, GetCursorPos, orig_GetCursorPos); H(hU32, GetSysColor, orig_GetSysColor);
+    // H(hU32, GetCursorPos, orig_GetCursorPos); // DISABLED - breaks hardware cursor with RTSSHooks.dll
+    H(hU32, GetSysColor, orig_GetSysColor);
     // H(hU32, GetKeyboardLayout, orig_GetKeyboardLayout); H(hU32, GetKeyboardLayoutNameA, orig_GetKeyboardLayoutNameA); // DISABLED - breaks language switching
     H(hU32, GetCaretBlinkTime, orig_GetCaretBlinkTime); H(hU32, IsWindow, orig_IsWindow);
     H(hU32, GetDesktopWindow, orig_GetDesktopWindow); H(hU32, GetFocus, orig_GetFocus);
@@ -4970,7 +4971,7 @@ static bool InstallBatchOpt30() {
     H31(hK32, GetTickCount64, orig_GetTickCount64);
     H31(hU32, GetClientRect, orig_GetClientRect);
     H31(hU32, GetWindowRect, orig_GetWindowRect);
-    H31(hU32, ShowCursor, orig_ShowCursor);
+    // H31(hU32, ShowCursor, orig_ShowCursor); // DISABLED - breaks hardware cursor with RTSSHooks.dll
     // H31(hU32, ValidateRect, orig_ValidateRect); // REMOVED - prevents UI repaint, freezes on friend list
     #undef H31
     Log("Batch opt #21-24: %d/4 active", ok);
@@ -5204,7 +5205,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool crtOk = InstallCrtMemFastPaths();
     bool sysInfoOk = InstallSysInfoCache();
     bool regCacheOk = InstallRegCache();
-    bool smCacheOk = InstallSysMetricsCache();
+    bool smCacheOk = false; // DISABLED: breaks hardware cursor (found via bisect 4732e69)
     bool noDebugOk = InstallNoDebuggerPresent();
     bool verCacheOk = InstallVerCache();
     bool batch10Ok = InstallBatchOpt10();
@@ -5229,7 +5230,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Lua Table Rehash ---");
     bool tableReshapeOk = InstallLuaHResizeHook();
-    bool assetPathOk = InstallAssetPathCache();
+    bool assetPathOk = false; // DISABLED: breaks logout/teardown (found via bisect c99bd7b)
 
     Log("--- Lua Table Lookup ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
