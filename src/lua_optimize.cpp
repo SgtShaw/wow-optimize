@@ -183,6 +183,7 @@ static int g_lastSyncNormal = -1;
 static int g_lastSyncCombat = -1;
 static int g_lastSyncIdle = -1;
 static int g_lastSyncLoading = -1;
+static DWORD g_lastLuaSwapTick = 0;
 static lua_State* g_pendingLuaState = nullptr;
 static DWORD g_pendingLuaStateTick = 0;
 static int g_pendingLuaStateFrames = 0;
@@ -204,9 +205,10 @@ static bool CheckAndRestoreLuaInterface(lua_State* L) {
     // Retry failed interface setup after 500ms (max 10 attempts)
     // CRITICAL: Must be fast because LuaBoost checks hasDLL() immediately on load
     // 3 seconds was too long - caused "NOT DETECTED" after /reload
+    // Reduced from 500ms to 100ms for faster recovery after FrameScript failures
     if (g_luaInterfaceFailed && g_luaInterfaceRetryCount < 10) {
         DWORD now = GetTickCount();
-        if ((DWORD)(now - g_luaInterfaceLastRetry) >= 500) {
+        if ((DWORD)(now - g_luaInterfaceLastRetry) >= 100) {
             Log("[LuaOpt] Retrying Lua interface setup (attempt %d)", g_luaInterfaceRetryCount + 1);
             g_luaInterfaceLastRetry = now;
             g_luaInterfaceRetryCount++;
@@ -1067,7 +1069,6 @@ static int __cdecl LuaBoostC_GetFastPathStats_cb(lua_State* L) {
     return 3;
 }
 
-// Helper to register a C function as Lua global
 static void RegisterLuaFunction(lua_State* L, const char* name, void* fn) {
     if (!Api.lua_pushcclosure || !Api.lua_setfield) return;
     __try {
@@ -1078,111 +1079,40 @@ static void RegisterLuaFunction(lua_State* L, const char* name, void* fn) {
 }
 
 static void SetupLuaInterface(lua_State* L) {
-    if (!Api.FrameScript_Execute) {
-        if (Api.lua_pushboolean && Api.lua_setfield) {
-            WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_LOADED",    true);
-            WriteLuaGlobal_String(L, "LUABOOST_DLL_VERSION",   WOW_OPTIMIZE_VERSION_STR);
-            WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_GC_ACTIVE", State.gcOptimized);
-            WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
-            
-            // Create all LuaBoost functions via C API
-            if (Api.lua_pushcclosure) {
-                RegisterLuaFunction(L, "LuaBoostC_IsLoaded",          (void*)LuaBoostC_IsLoaded_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GetStats",          (void*)LuaBoostC_GetStats_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GCMemory",          (void*)LuaBoostC_GCMemory_cb);
-                RegisterLuaFunction(L, "LuaBoostC_SetCombat",         (void*)LuaBoostC_SetCombat_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GCStep",            (void*)LuaBoostC_GCStep_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GCCollect",         (void*)LuaBoostC_GCCollect_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GetUIStats",        (void*)LuaBoostC_GetUIStats_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GetApiStats",       (void*)LuaBoostC_GetApiStats_cb);
-                RegisterLuaFunction(L, "LuaBoostC_GetFastPathStats",  (void*)LuaBoostC_GetFastPathStats_cb);
-                Log("[LuaOpt] Set DLL globals + functions via Lua C API (no FrameScript)");
-            } else {
-                Log("[LuaOpt] Set DLL globals via Lua API (no FrameScript, no pushcclosure)");
-            }
-        }
+    // ALWAYS use Lua C API - never FrameScript_Execute
+    // FrameScript uses WoW's internal lua_State which may differ from the one
+    // at 0x00D3F78C, causing globals to be written to wrong state.
+    if (!Api.lua_pushboolean || !Api.lua_setfield || !Api.lua_pushcclosure) {
+        Log("[LuaOpt] SetupLuaInterface: missing C API functions");
         return;
     }
-
+    
     __try {
-        char luaCode[2048];
-        _snprintf(luaCode, sizeof(luaCode) - 1,
-            "LUABOOST_DLL_LOADED = true "
-            "LUABOOST_DLL_VERSION = '%s' "
-
-            "if LUABOOST_ADDON_COMBAT  == nil then LUABOOST_ADDON_COMBAT  = false end "
-            "if LUABOOST_ADDON_IDLE    == nil then LUABOOST_ADDON_IDLE    = false end "
-            "if LUABOOST_ADDON_LOADING == nil then LUABOOST_ADDON_LOADING = false end "
-
-            "function LuaBoostC_IsLoaded() return true end "
-
-            "function LuaBoostC_GetStats() "
-            "  return "
-            "    LUABOOST_DLL_MEM_KB or 0, "
-            "    LUABOOST_DLL_GC_STEPS or 0, "
-            "    LUABOOST_DLL_GC_FULLS or 0, "
-            "    LUABOOST_DLL_GC_PAUSE or 0, "
-            "    LUABOOST_DLL_GC_STEPMUL or 0, "
-            "    LUABOOST_DLL_COMBAT or false, "
-            "    LUABOOST_DLL_GC_MODE or 'unknown', "
-            "    LUABOOST_DLL_IDLE or false, "
-            "    LUABOOST_DLL_LOADING or false, "
-            "    LUABOOST_DLL_LUA_ALLOC or false "
-            "end "
-
-            "function LuaBoostC_GCMemory() "
-            "  return LUABOOST_DLL_MEM_KB or 0 "
-            "end "
-
-            "function LuaBoostC_SetCombat(v) "
-            "  LUABOOST_ADDON_COMBAT = v and true or false "
-            "end "
-
-            "LUABOOST_DLL_GC_REQUEST = nil "
-            "function LuaBoostC_GCStep(kb) "
-            "  LUABOOST_DLL_GC_REQUEST = kb or 100 "
-            "end "
-
-            "function LuaBoostC_GCCollect() "
-            "  LUABOOST_DLL_GC_REQUEST = -1 "
-            "end "
-
-            "function LuaBoostC_GetUIStats() "
-            "  return "
-            "    LUABOOST_DLL_UICACHE_SKIPPED or 0, "
-            "    LUABOOST_DLL_UICACHE_PASSED or 0, "
-            "    LUABOOST_DLL_UICACHE_ACTIVE or false "
-            "end "
-
-            "function LuaBoostC_GetApiStats() "
-            "  return "
-            "    LUABOOST_DLL_APICACHE_ITEM_HITS or 0, "
-            "    LUABOOST_DLL_APICACHE_ITEM_MISSES or 0, "
-            "    LUABOOST_DLL_APICACHE_SPELL_HITS or 0, "
-            "    LUABOOST_DLL_APICACHE_SPELL_MISSES or 0, "
-            "    LUABOOST_DLL_APICACHE_ACTIVE or false "
-            "end "
-
-            "function LuaBoostC_GetFastPathStats() "
-            "  return "
-            "    LUABOOST_DLL_FASTPATH_HITS or 0, "
-            "    LUABOOST_DLL_FASTPATH_FALLBACKS or 0, "
-            "    LUABOOST_DLL_FASTPATH_ACTIVE or false "
-            "end ",
-            WOW_OPTIMIZE_VERSION_STR
-        );
-        luaCode[sizeof(luaCode) - 1] = '\0';
-
-        Api.FrameScript_Execute(luaCode, "LuaOpt", 0);
-
-        Log("[LuaOpt] Lua interface created via FrameScript");
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        Log("[LuaOpt] EXCEPTION in FrameScript_Execute");
+        // Write boolean globals
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
-        // Mark interface as failed so CheckAndRestoreLuaInterface will retry
-        g_luaInterfaceFailed = true;
-        g_luaInterfaceLastRetry = GetTickCount();
+        WriteLuaGlobal_Bool(L, "LUABOOST_DLL_GC_ACTIVE", State.gcOptimized);
+        WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
+        
+        // Initialize addon communication globals
+        WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_COMBAT", false);
+        WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_IDLE", false);
+        WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_LOADING", false);
+        
+        // Register C functions
+        RegisterLuaFunction(L, "LuaBoostC_IsLoaded", (void*)LuaBoostC_IsLoaded_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GetStats", (void*)LuaBoostC_GetStats_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GCMemory", (void*)LuaBoostC_GCMemory_cb);
+        RegisterLuaFunction(L, "LuaBoostC_SetCombat", (void*)LuaBoostC_SetCombat_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GCStep", (void*)LuaBoostC_GCStep_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GCCollect", (void*)LuaBoostC_GCCollect_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GetUIStats", (void*)LuaBoostC_GetUIStats_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GetApiStats", (void*)LuaBoostC_GetApiStats_cb);
+        RegisterLuaFunction(L, "LuaBoostC_GetFastPathStats", (void*)LuaBoostC_GetFastPathStats_cb);
+        
+        Log("[LuaOpt] SetupLuaInterface: registered 6 globals + 9 functions on L=0x%08X", 
+            (unsigned)(uintptr_t)L);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        Log("[LuaOpt] SetupLuaInterface: exception during registration");
     }
 }
 
@@ -1287,7 +1217,8 @@ static void DoMainThreadInit() {
     if (!Api.L) {
         Log("[LuaOpt] lua_State* is NULL - Lua VM not ready");
         Log("[LuaOpt] Will retry on next frame");
-        InterlockedExchange(&g_luaInitState, 1);
+        // Reset to 0 so OnMainThreadSleep retries init on next call
+        InterlockedExchange(&g_luaInitState, 0);
         State.initialized = false;
         return;
     }
@@ -1418,6 +1349,9 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaState = nullptr;
         g_pendingLuaStateTick = 0;
         g_pendingLuaStateFrames = 0;
+        // Reset retry counter on every lua_State swap so subsequent /reload
+        // gets a fresh 10 attempts (was never reset, exhausting retries permanently)
+        g_luaInterfaceRetryCount = 0;
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
     } else if (g_pendingLuaState) {
         g_pendingLuaState = nullptr;
@@ -1511,6 +1445,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_lastSyncCombat = -1;
         g_lastSyncIdle = -1;
         g_lastSyncLoading = -1;
+        g_lastLuaSwapTick = GetTickCount();
         g_smoothedGcMs = 0.5;
         return;
     }
@@ -1525,10 +1460,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         ReadAddonStateFromLua(Api.L);
     }
 
-    // Check Lua interface every ~0.5 seconds (32 frames at 60fps)
-    // Detects /reload or character swap when lua_State pointer is reused
-    // Must be fast because LuaBoost addon checks hasDLL() immediately on load
-    if ((++g_luaInterfaceCheckCounter & 31) == 0) {
+    // Check Lua interface every 2 frames (~33ms at 60fps)
+    // Detects /reload even when mimalloc reuses the same lua_State* pointer
+    // Cost is 2 lua_getfield + 2 lua_type + 2 lua_settop = negligible
+    if ((++g_luaInterfaceCheckCounter & 1) == 0) {
         CheckAndRestoreLuaInterface(Api.L);
     }
 
