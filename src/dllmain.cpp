@@ -73,6 +73,7 @@
 #include "crt_char_fast.h"
 #include "crt_pow_sse2.h"
 #include "crt_wchar_fast.h"
+#include "tls_cache.h"
 
 #include "version.h"
 
@@ -5345,6 +5346,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool powOk = false;
 #endif
     bool wcharOk = InstallCrtWcharSSE2();
+    
+    // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
+    bool tlsCacheOk = InstallTlsCache();
+    
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");

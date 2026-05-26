@@ -198,49 +198,8 @@ static void SetupLuaInterface(lua_State* L);
 
 // Check if Lua interface globals are present, re-setup if missing
 static bool CheckAndRestoreLuaInterface(lua_State* L) {
-    if (!Api.lua_getfield || !Api.lua_type || !Api.lua_settop) {
-        return true;  // Can't check, assume OK
-    }
-
-    // Retry failed interface setup after 500ms (max 10 attempts)
-    // CRITICAL: Must be fast because LuaBoost checks hasDLL() immediately on load
-    // 3 seconds was too long - caused "NOT DETECTED" after /reload
-    // Reduced from 500ms to 100ms for faster recovery after FrameScript failures
-    if (g_luaInterfaceFailed && g_luaInterfaceRetryCount < 10) {
-        DWORD now = GetTickCount();
-        if ((DWORD)(now - g_luaInterfaceLastRetry) >= 100) {
-            Log("[LuaOpt] Retrying Lua interface setup (attempt %d)", g_luaInterfaceRetryCount + 1);
-            g_luaInterfaceLastRetry = now;
-            g_luaInterfaceRetryCount++;
-            g_luaInterfaceFailed = false;
-            SetupLuaInterface(L);
-            return false;
-        }
-    }
-
-    __try {
-        // Check both LUABOOST_DLL_LOADED and LuaBoostC_IsLoaded
-        Api.lua_getfield(L, -10002, "LUABOOST_DLL_LOADED");  // LUA_GLOBALSINDEX
-        bool loadedPresent = (Api.lua_type(L, -1) != 0);  // LUA_TNIL = 0
-        Api.lua_settop(L, -2);  // lua_pop(L, 1)
-
-        Api.lua_getfield(L, -10002, "LuaBoostC_IsLoaded");
-        bool funcPresent = (Api.lua_type(L, -1) != 0);
-        Api.lua_settop(L, -2);  // lua_pop(L, 1)
-
-        if (!loadedPresent || !funcPresent) {
-            Log("[LuaOpt] Lua interface globals missing (loaded=%d, func=%d), re-setting up",
-                loadedPresent, funcPresent);
-            g_luaInterfaceFailed = true;  // Mark for retry
-            g_luaInterfaceLastRetry = GetTickCount();
-            SetupLuaInterface(L);
-            return false;
-        }
-        return true;
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        return true;
-    }
+    // Lua interface registration disabled - addon uses stubs regardless
+    return true;
 }
 
 
