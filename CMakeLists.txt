@@ -85,6 +85,36 @@ add_library(wow_optimize SHARED
     src/crt_wchar_fast.h
     src/tls_cache.cpp
     src/tls_cache.h
+    src/stream_cache.cpp
+    src/stream_cache.h
+    src/lua_this_cache.cpp
+    src/lua_this_cache.h
+    src/io_cache.cpp
+    src/io_cache.h
+    src/lua_global_cache.cpp
+    src/lua_global_cache.h
+    src/hot_functions.cpp
+    src/hot_functions.h
+    src/fast_strncmp.cpp
+    src/fast_strncmp.h
+    src/crt_free_hook.cpp
+    src/crt_free_hook.h
+    src/aligned_alloc_cache.cpp
+    src/aligned_alloc_cache.h
+    src/datastore_fastpath.cpp
+    src/datastore_fastpath.h
+    src/string_ops_fast.cpp
+    src/string_ops_fast.h
+    src/lua_tonumber_cache.cpp
+    src/lua_tonumber_cache.h
+    src/lua_checknumber_cache.cpp
+    src/lua_checknumber_cache.h
+    src/lua_pushstring_cache.cpp
+    src/lua_pushstring_cache.h
+    src/object_accessor_cache.cpp
+    src/object_accessor_cache.h
+    src/format_validator_cache.cpp
+    src/format_validator_cache.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

@@ -23,4 +23,7 @@ CMakeSettings.json
 _deps/
 .DS_Store
 Thumbs.db
-desktop.ini
+desktop.ini 
+tools/*.py
+tools/
+src/disabled_features/

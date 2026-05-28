@@ -234,7 +234,7 @@ fallback:
 // ================================================================
 bool InstallCrtMemFastPaths() {
 #if TEST_DISABLE_CRT_MEM_FASTPATHS
-    Log("[CRT] Fast paths: DISABLED (bisection toggle)");
+    Log("[CRT] Fast paths: DISABLED");
     return false;
 #else
     HMODULE hCRT = GetModuleHandleA("msvcrt.dll");

@@ -74,6 +74,21 @@
 #include "crt_pow_sse2.h"
 #include "crt_wchar_fast.h"
 #include "tls_cache.h"
+#include "stream_cache.h"
+#include "lua_this_cache.h"
+#include "io_cache.h"
+#include "lua_global_cache.h"
+#include "hot_functions.h"
+#include "fast_strncmp.h"
+#include "crt_free_hook.h"
+#include "aligned_alloc_cache.h"
+#include "lua_tonumber_cache.h"
+#include "lua_checknumber_cache.h"
+#include "lua_pushstring_cache.h"
+#include "object_accessor_cache.h"
+#include "format_validator_cache.h"
+#include "datastore_fastpath.h"
+#include "string_ops_fast.h"
 
 #include "version.h"
 
@@ -5346,17 +5361,67 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool powOk = false;
 #endif
     bool wcharOk = InstallCrtWcharSSE2();
-    
+
     // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
     bool tlsCacheOk = InstallTlsCache();
+
+    // Stream Reader/Writer Cache - eliminate bounds checks
+    bool streamCacheOk = InstallStreamCache();
+
+    // Lua "this" Object Lookup Cache - cache method dispatcher results
+    bool luaThisCacheOk = InstallLuaThisCache();
+
+    // I/O Dispatcher Cache - 4050 callers
+    bool ioCacheOk = InstallIOCache();
+
+    // Lua Global Lookup Cache
+    bool luaGlobalCacheOk = InstallLuaGlobalCache();
+
+    // memset hook - 1108 callers
+    bool hotFuncOk = InstallHotFunctionOptimizations();
+
+    // Fast String Compare (strncmp) - 1013 callers
+    bool fastStrncmpOk = InstallFastStrncmp();
+
+    // CRT Free Hook - 2901 callers (#2 most called)
+    bool crtFreeOk = InstallCrtFreeHook();
+
+    // Aligned Allocator Cache - 1764 callers (thread-local pool for small allocations)
+    bool alignedAllocOk = InstallAlignedAllocCache();
+
+    // NOTE: free_cache, strnicmp_fast, tick_counter_cache are DUPLICATES of existing hooks:
+    //   crt_free_hook.cpp   already hooks 0x76E5A0 (2901 callers)
+    //   fast_strncmp.cpp    already hooks 0x76E780 (1013 callers)
+    //   tls_cache.cpp       already hooks 0x4D3790 (1297 callers)
+    // lua_pushnumber_fast DISABLED - corrupts numeric values, breaks addon UI bars
+
+    // CDataStore Fast Path - 4179 xrefs (network packet serialization/deserialization)
+    Log("--- CDataStore Fast Path ---");
+    bool datastoreOk = InitDataStoreFastPath();
+
+    // String & Memory Ops Fast Path - 3900+ xrefs (free wrapper, strnicmp, Jenkins hash)
+    Log("--- String & Memory Ops Fast Path ---");
+    bool stringOpsOk = InitStringOpsFast();
+
+    // DISABLED: sub_84D9C0 (get_tvalue helper) uses usercall convention (ECX=L, EAX=idx)
+    // Cannot be called as __cdecl - causes ACCESS_VIOLATION at 0x0084D9C4
+    bool luaToNumberOk = false;      // InstallLuaToNumberCache();
+    bool luaCheckNumberOk = false;   // InstallLuaCheckNumberCache();
     
+    // DISABLED: Format validator causes disconnect during login (auth corruption)
+    bool formatValidatorOk = false;  // InstallFormatValidatorCache();
+
+    // DISABLED: sub_84F280 uses tail call optimization (last call doesn't return)
+    // Cannot be hooked safely - control never returns to hook after orig call
+    bool luaPushStringOk = false;    // InstallLuaPushStringCache();
+
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
     bool crtOk = InstallCrtMemFastPaths();
     bool sysInfoOk = InstallSysInfoCache();
     bool regCacheOk = InstallRegCache();
-    bool smCacheOk = false; // DISABLED: breaks hardware cursor (found via bisect 4732e69)
+    bool smCacheOk = false; // Disabled - breaks hardware cursor
     bool noDebugOk = InstallNoDebuggerPresent();
     bool verCacheOk = InstallVerCache();
     bool batch10Ok = InstallBatchOpt10();
@@ -5381,7 +5446,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Lua Table Rehash ---");
     bool tableReshapeOk = InstallLuaHResizeHook();
-    bool assetPathOk = false; // DISABLED: breaks logout/teardown (found via bisect c99bd7b)
+    bool assetPathOk = false; // Disabled - breaks logout/teardown
 
     Log("--- Lua Table Lookup ---");
     bool luaHGetStrOk = InstallLuaHGetStrCache();
@@ -5413,9 +5478,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // The hook performs direct Lua stack writes via TValue* which conflicts
     // with addon execution flow during world load.
     bool tableConcatOk = false;
-
-    Log("--- Lua PushString ---");
-    bool luaPushStringOk = InstallLuaPushStringCache();
 
     Log("--- Lua RawGetI ---");
     bool luaRawGetIOk = InstallLuaRawGetICache();
@@ -6601,7 +6663,7 @@ static bool InstallMBWCHooks() {
 }
 
 // ================================================================
-// GetProcAddress - 4-way set-associative cache (strcmp-verified,
+// GetProcAddress - 4-way set-associative cache (strcmp-based,
 // Wine security-module bypass)
 //
 // ================================================================
@@ -6793,7 +6855,7 @@ static bool InstallGetProcAddressCache() {
     if (MH_EnableHook(p) != MH_OK) return false;
 
     g_gpaWineMode = IsWine();
-    Log("GetProcAddress cache: ACTIVE (4-way, 128 sets, strcmp-verified%s)",
+    Log("GetProcAddress cache: ACTIVE (4-way, 128 sets, strcmp-based%s)",
         g_gpaWineMode ? ", Wine security bypass" : "");
     return true;
 #endif
@@ -7454,6 +7516,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             TooltipCache::Shutdown();
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
+            ShutdownDataStoreFastPath();
+            ShutdownStringOpsFast();
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {

@@ -85,7 +85,6 @@
 #define TEST_DISABLE_MODULEFILENAME     1
 
 // GetEnvironmentVariableA cache
-// crash via lpBuffer validation (isolated via bisection)
 #define TEST_DISABLE_ENVVARIABLE        0
 
 // MultiByteToWideChar / WideCharToMultiByte SSE2 ASCII fast path
@@ -128,6 +127,17 @@
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
 #define TEST_DISABLE_UNIT_API_FASTPATH 1
+
+// CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
+// TLS-cached buffer pointer eliminates repeated base arithmetic
+// Total: ~4179 xrefs across network packet processing hot paths
+#define TEST_DISABLE_DATASTORE_FASTPATH 0
+
+// String & Memory Ops Fast Path (sub_76E780/76F420)
+// DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
+// Likely bug in scalar fallback after SSE2 chunk processing
+// Keep disabled until rewritten with more careful null-terminator handling
+#define TEST_DISABLE_STRING_OPS_FAST 1
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0

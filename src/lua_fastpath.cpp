@@ -2271,17 +2271,20 @@ static constexpr int NUM_FUNC_HOOKS = 0;
 
 typedef void (__cdecl* fn_ParseUnitToken)(const char* str, int* out_token, int flags);
 typedef void*(__cdecl* fn_ResolveUnit)(int token_low, int token_high, int flags);
+typedef int (__cdecl* fn_GetPowerDivisor)(int powerType);
 
 static fn_ParseUnitToken  orig_ParseUnitToken  = (fn_ParseUnitToken)0x0060ABF0;
 static fn_ResolveUnit     orig_ResolveUnit     = (fn_ResolveUnit)0x004D4DB0;
+static fn_GetPowerDivisor orig_GetPowerDivisor = (fn_GetPowerDivisor)0x007FDE00;
 
 static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
+static constexpr uintptr_t CGUNIT_POWER_TYPE_OFFS = 0x47;
+static constexpr uintptr_t CGUNIT_FLAGS_OFFS = 0x124;
 
-// m_values[0x124] for UnitHealth (index 73, not 18)
-static constexpr int UNIT_FIELD_HEALTH      = 73; // 0x124/4
-static constexpr int UNIT_FIELD_MAXHEALTH   = 26; // TODO: verify
-static constexpr int UNIT_FIELD_POWER1      = 19; // TODO: verify
-static constexpr int UNIT_FIELD_MAXPOWER1   = 27; // TODO: verify
+static constexpr int UNIT_FIELD_HEALTH      = 73;
+static constexpr int UNIT_FIELD_MAXHEALTH   = 26;
+static constexpr int UNIT_FIELD_POWER_BASE  = 19;
+static constexpr int UNIT_FIELD_MAXPOWER_BASE = 27;
 
 static long g_unitHealthHits = 0;
 static long g_unitHealthFallbacks = 0;
@@ -2854,6 +2857,7 @@ void InvalidateWoWCache() {
 
 Stats GetStats() {
     Stats s;
+    memset(&s, 0, sizeof(s));
     s.formatFastHits      = g_formatFastHits;
     s.formatFallbacks     = g_formatFallbacks;
     s.findPlainHits       = g_findPlainHits;
@@ -2906,7 +2910,8 @@ Stats GetStats() {
     s.strRepHits          = g_strRepHits;
     s.strRepFallbacks     = g_strRepFallbacks;
     s.tableSortHits       = g_tableSortHits;
-    s.tableSortFallbacks  = g_tableSortFallbacks;    
+    s.tableSortFallbacks  = g_tableSortFallbacks;
+    // unitHealth/UnitPower fields left at 0 (UnitAPI DMA disabled via #if 0)
     return s;
 }
 

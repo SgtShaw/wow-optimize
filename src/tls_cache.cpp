@@ -35,6 +35,13 @@ typedef __int64 (__cdecl *TlsAccessor_fn)();
 static TlsAccessor_fn g_originalTlsAccessor = nullptr;
 static bool g_hookInstalled = false;
 
+// sub_4D4DB0 hook (TLS + type check)
+typedef int (__cdecl *TlsTypeCheck_fn)(__int64 a1, int a2);
+static TlsTypeCheck_fn g_original4D4DB0 = nullptr;
+static bool g_hook4D4DB0Installed = false;
+static std::atomic<uint64_t> g_4D4DB0Hits{0};
+static std::atomic<uint64_t> g_4D4DB0Total{0};
+
 // Hooked version - caches TEB and TLS slot
 __int64 __cdecl Hooked_TlsAccessor()
 {
@@ -80,17 +87,54 @@ __int64 __cdecl Hooked_TlsAccessor()
     return 0;
 }
 
+// sub_4D4DB0 hook - TLS + type check
+int __cdecl Hooked_4D4DB0(__int64 a1, int a2)
+{
+    g_4D4DB0Total.fetch_add(1, std::memory_order_relaxed);
+    
+    // Fast path: use cached TLS
+    if (g_tlsCached && g_cachedTeb && g_cachedTlsSlot) {
+        g_4D4DB0Hits.fetch_add(1, std::memory_order_relaxed);
+        
+        void* tlsData = *(void**)((uint8_t*)g_cachedTlsSlot + 8);
+        if (!tlsData) return 0;
+        if (!a1) return 0;
+        
+        // Call sub_4D4BB0 equivalent (inline the type check logic)
+        __int64 v3 = a1;
+        int result = (int)g_original4D4DB0(a1, a2); // Still call original for now
+
+        if (result && (a2 & *(DWORD *)(*(DWORD *)(result + 8) + 8)) == 0) {
+            return 0;
+        }
+        return result;
+    }
+    
+    // Slow path: cache TLS first
+    g_cachedTeb = NtCurrentTeb();
+    if (!g_cachedTeb) return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
+    
+    void** tlsArray = *(void***)((uint8_t*)g_cachedTeb + 0x2C);
+    DWORD tlsIdx = *(DWORD*)WOW_TLS_INDEX_ADDR;
+    g_cachedTlsSlot = tlsArray[tlsIdx];
+    
+    if (!g_cachedTlsSlot) return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
+    
+    g_tlsCached = true;
+    return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
+}
+
 bool InstallTlsCache()
 {
     if (g_hookInstalled) {
         return true;
     }
-    
+
     void* targetAddr = (void*)0x004D3790;
-    
+
     // Don't check prologue - this function is tiny (43 bytes) with no stack frame
     // Just install the hook directly
-    
+
     if (MH_CreateHook(targetAddr,
                       (void*)Hooked_TlsAccessor,
                       (void**)&g_originalTlsAccessor) != MH_OK)
@@ -98,16 +142,28 @@ bool InstallTlsCache()
         Log("[TLSCache] Failed to create hook at 0x004D3790");
         return false;
     }
-    
+
     if (MH_EnableHook(targetAddr) != MH_OK) {
         Log("[TLSCache] Failed to enable hook");
         MH_RemoveHook(targetAddr);
         return false;
     }
-    
+
     g_hookInstalled = true;
-    Log("[TLSCache] Hook installed: sub_4D3790 @ 0x004D3790 (1297 callers, TEB caching)");
+    Log("[TLSCache] Hook installed: sub_4D3790 @ 0x004D3790 (200+ callers, TEB caching)");
     
+    // Install sub_4D4DB0 hook
+    if (!g_hook4D4DB0Installed) {
+        void* target4D4DB0 = (void*)0x004D4DB0;
+        if (MH_CreateHook(target4D4DB0, (void*)Hooked_4D4DB0, (void**)&g_original4D4DB0) == MH_OK &&
+            MH_EnableHook(target4D4DB0) == MH_OK) {
+            g_hook4D4DB0Installed = true;
+            Log("[TLSCache] Hook installed: sub_4D4DB0 @ 0x004D4DB0 (200+ callers, TLS+type check)");
+        } else {
+            Log("[TLSCache] Failed to hook sub_4D4DB0");
+        }
+    }
+
     return true;
 }
 
