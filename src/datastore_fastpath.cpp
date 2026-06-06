@@ -194,7 +194,7 @@ static CDataStore* __fastcall HookPutQword(CDataStore* self, void*, uint32_t lo,
 
 // ================================================================
 // sub_47B400: CDataStore::GetQword (read 8 bytes, 284 xrefs)
-// Output param: uint32_t* out (IDA: _DWORD* a2, writes 8 bytes)
+// Output param: uint32_t* out (_DWORD* a2, writes 8 bytes)
 // ================================================================
 static CDataStore* __fastcall HookGetQword(CDataStore* self, void*, uint32_t* out) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH

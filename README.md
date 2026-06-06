@@ -103,7 +103,9 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 - `GetSpellInfo` - disabled (icon corruption, crashes on relog)
 
 ### Lua internal caches
-- `luaH_getstr` - table string-key lookup cache (disabled - stale Node* with mimalloc table recycling)
+- `luaH_getstr` - generation-guarded table string-key lookup cache (8192-slot, SEH-protected)
+- `luaH_getstr` inline v2 - safe bucket-index cache with SSE2 prefetch (16384 entries)
+- `lua_rawgeti` inline v2 - safe array direct + bucket-index cache (8192 entries)
 
 ### Lua fast paths
 - Phase 1:

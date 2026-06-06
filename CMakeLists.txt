@@ -31,6 +31,8 @@ add_library(wow_optimize SHARED
     src/lua_optimize.h
     src/combatlog_optimize.cpp
     src/combatlog_optimize.h
+    src/combatlog_buffer.cpp
+    src/combatlog_buffer.h
     src/combatlog_mt.cpp
     src/combatlog_mt.h
     src/texture_async.cpp
@@ -115,6 +117,55 @@ add_library(wow_optimize SHARED
     src/object_accessor_cache.h
     src/format_validator_cache.cpp
     src/format_validator_cache.h
+    src/heap_compactor.cpp
+    src/heap_compactor.h
+    src/lua_tonumber_fast.cpp
+    src/lua_tonumber_fast.h
+    src/strcat_fast.cpp
+    src/strcat_fast.h
+    src/script_handler_cache.cpp
+    src/script_handler_cache.h
+    src/dbc_lookup_cache.cpp
+    src/dbc_lookup_cache.h
+    src/event_dispatch_cache.cpp
+    src/event_dispatch_cache.h
+    src/lua_getstr_inline.cpp
+    src/lua_rawgeti_inline.cpp
+    src/lua_getstr_inline.h
+    src/lua_gettable_cache.cpp
+    src/lua_gettable_cache.h
+    src/saved_vars_async.cpp
+    src/saved_vars_async.h
+    src/texture_decode_mt.cpp
+    src/texture_decode_mt.h
+    src/mpq_decompress_mt.cpp
+    src/mpq_decompress_mt.h
+    src/spell_effect_mt.cpp
+    src/spell_effect_mt.h
+    src/lua_bytecode_pre_compiler.cpp
+    src/lua_bytecode_pre_compiler.h
+    src/anim_mt.cpp
+    src/anim_mt.h
+    src/hook_prefetch.cpp
+    src/hook_prefetch.h
+    src/hot_patch.cpp
+    src/hot_patch.h
+    src/infra_patch.cpp
+    src/infra_patch.h
+    src/wow_opt_hooks.cpp
+    src/wow_opt_hooks.h
+    src/wow_perf_hooks.cpp
+    src/wow_perf_hooks.h
+    src/wow_extended_hooks.cpp
+    src/wow_extended_hooks.h
+    src/wow_subsystem_hooks.cpp
+    src/wow_subsystem_hooks.h
+    src/wow_memory_opt.cpp
+    src/wow_memory_opt.h
+    src/wow_source_opt.cpp
+    src/wow_source_opt.h
+    src/tls_object_cache.cpp
+    src/tls_object_cache.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

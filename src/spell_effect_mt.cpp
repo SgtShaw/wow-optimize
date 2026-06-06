@@ -5,8 +5,9 @@
 
 #include "spell_effect_mt.h"
 #include "lua_optimize.h"
-#include "version.h"
 #include "MinHook.h"
+#include "version.h"
+#include "crash_dumper.h"
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
@@ -612,6 +613,33 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
 namespace SpellEffectMT {
 
 bool Init() {
+    // DISABLED: Worker threads call orig_UpdateEffectAttachment which accesses
+    // D3D device state. WoW rendering is NOT thread-safe - causes instant freeze
+    // on world entry when effects start rendering from worker threads.
+    Log("[SpellEffectMT] DISABLED (rendering not thread-safe - freezes on world entry)");
+    CrashDumper::RegisterFeature("SpellEffectMT");
+    CrashDumper::FeatureSetActive("SpellEffectMT", false);
+    return false;
+}
+
+void Shutdown() {
+    // No-op: feature is disabled, nothing to clean up
+}
+
+void OnFrame(DWORD mainThreadId) {
+    // No-op: feature is disabled
+    (void)mainThreadId;
+}
+
+Stats GetStats() {
+    Stats s = {};
+    return s;
+}
+
+} // namespace SpellEffectMT
+
+// Dead code below - kept for reference
+#if 0
     // Emergency disable check
     #if TEST_DISABLE_SPELL_EFFECT_MT
     Log("[SpellEffectMT] Disabled via TEST_DISABLE_SPELL_EFFECT_MT flag");
@@ -840,4 +868,4 @@ Stats GetStats() {
     return s;
 }
 
-} // namespace SpellEffectMT
+#endif // #if 0 dead code

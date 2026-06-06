@@ -1,233 +1,232 @@
-#include "saved_vars_async.h"
+﻿// SavedVariables Async Writer
+// Hooks the SV write path to offload file I/O to a background thread.
+// WoW's SaveAccountData/SaveCharacterData blocks the main thread while
+// serializing large addon tables (ElvUI, WeakAuras can be 10+ MB).
+
 #include "version.h"
 #include "MinHook.h"
-#include <unordered_map>
-#include <mutex>
-#include <cstdint>
+#include "crash_dumper.h"
+#include <windows.h>
+#include <cstdio>
 #include <cstring>
 
 extern "C" void Log(const char* fmt, ...);
 
-namespace SavedVarsAsync {
+// Background writer state
+static HANDLE s_writerThread = NULL;
+static volatile bool s_shutdown = false;
+static CRITICAL_SECTION s_writeLock;
+static volatile LONG s_pendingWrites = 0;
+static volatile LONG64 s_totalBytesWritten = 0;
+static volatile LONG s_writeCount = 0;
 
+// WriteFile hook - intercept SV writes and offload to background
 typedef BOOL (WINAPI* WriteFile_fn)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
-typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
+static WriteFile_fn orig_WriteFile_SV = nullptr;
 
-static WriteFile_fn   orig_WriteFile   = nullptr;
-static CloseHandle_fn orig_CloseHandle = nullptr;
+// Track which handles are SV files (WTF/Account/*.lua or WTF/SavedVariables/*.lua)
+static HANDLE s_svHandles[32] = {};
+static int s_svHandleCount = 0;
+static SRWLOCK s_svHandleLock = SRWLOCK_INIT;
 
-static volatile LONG g_active        = 0;
-static HANDLE        g_workerThread  = nullptr;
-static HANDLE        g_wakeupEvent   = nullptr;
-static HANDLE        g_drainEvent    = nullptr;
-static volatile LONG g_stopRequested = 0;
-
-// Per-handle classification: 0=unknown, 1=savedvars, 2=other (skip).
-static std::unordered_map<HANDLE, uint8_t> g_handleClass;
-static std::mutex                          g_handleMutex;
-
-struct Entry {
-    HANDLE        hFile;
-    void*         buffer;
-    DWORD         bytes;
-    volatile LONG ready;
-};
-static const size_t  QUEUE_SIZE = 256;
-static const size_t  QUEUE_MASK = QUEUE_SIZE - 1;
-static Entry         g_queue[QUEUE_SIZE] = {};
-static volatile LONG g_queueHead = 0;
-static volatile LONG g_queueTail = 0;
-
-static volatile LONG64 g_writesAsync   = 0;
-static volatile LONG64 g_writesSync    = 0;
-static volatile LONG64 g_bytesAsync    = 0;
-static volatile LONG64 g_writeFailures = 0;
-
-static bool PathLooksLikeSV(const wchar_t* p, size_t n) {
-    if (n < 16) return false;
-    for (size_t i = 0; i + 15 <= n; i++) {
-        const wchar_t* q = p + i;
-        if ((q[0]==L'S'||q[0]==L's') && (q[1]==L'a'||q[1]==L'A') &&
-           (q[2]==L'v'||q[2]==L'V') && (q[3]==L'e'||q[3]==L'E') &&
-           (q[4]==L'd'||q[4]==L'D') &&
-           (q[5]==L'V'||q[5]==L'v') && (q[6]==L'a'||q[6]==L'A') &&
-           (q[7]==L'r'||q[7]==L'R') && (q[8]==L'i'||q[8]==L'I') &&
-           (q[9]==L'a'||q[9]==L'A') && (q[10]==L'b'||q[10]==L'B') &&
-           (q[11]==L'l'||q[11]==L'L') && (q[12]==L'e'||q[12]==L'E') &&
-           (q[13]==L's'||q[13]==L'S') &&
-           (q[14]==L'\\'||q[14]==L'/'))
-        {
+static bool IsSVHandle(HANDLE h) {
+    AcquireSRWLockShared(&s_svHandleLock);
+    for (int i = 0; i < s_svHandleCount; i++) {
+        if (s_svHandles[i] == h) {
+            ReleaseSRWLockShared(&s_svHandleLock);
             return true;
         }
     }
+    ReleaseSRWLockShared(&s_svHandleLock);
     return false;
 }
 
-// Lazy classification: GetFinalPathNameByHandleW on first write. Result cached.
-static uint8_t ClassifyHandle(HANDLE h) {
-    {
-        std::lock_guard<std::mutex> g(g_handleMutex);
-        auto it = g_handleClass.find(h);
-        if (it != g_handleClass.end()) return it->second;
-    }
-    wchar_t buf[MAX_PATH * 2];
-    DWORD n = GetFinalPathNameByHandleW(h, buf, _countof(buf), FILE_NAME_NORMALIZED);
-    uint8_t cls = (n > 0 && n < _countof(buf) && PathLooksLikeSV(buf, n)) ? 1 : 2;
-    {
-        std::lock_guard<std::mutex> g(g_handleMutex);
-        g_handleClass[h] = cls;
-    }
-    return cls;
-}
-
-static bool TryEnqueue(HANDLE h, LPCVOID buf, DWORD n) {
-    LONG head = g_queueHead;
-    LONG nextHead = (head + 1) & (LONG)QUEUE_MASK;
-    if (nextHead == g_queueTail) return false;
-
-    void* copy = HeapAlloc(GetProcessHeap(), 0, n);
-    if (!copy) return false;
-    memcpy(copy, buf, n);
-
-    g_queue[head].hFile  = h;
-    g_queue[head].buffer = copy;
-    g_queue[head].bytes  = n;
-    InterlockedExchange(&g_queue[head].ready, 1);
-    InterlockedExchange(&g_queueHead, nextHead);
-    SetEvent(g_wakeupEvent);
-    return true;
-}
-
-static BOOL WINAPI Hook_WriteFile(HANDLE h, LPCVOID buf, DWORD n,
-                                  LPDWORD pWritten, LPOVERLAPPED ov) {
-    if (!g_active || ov || n == 0) {
-        return orig_WriteFile(h, buf, n, pWritten, ov);
-    }
-    if (ClassifyHandle(h) != 1) {
-        return orig_WriteFile(h, buf, n, pWritten, ov);
-    }
-    if (TryEnqueue(h, buf, n)) {
-        if (pWritten) *pWritten = n;
-        InterlockedIncrement64(&g_writesAsync);
-        InterlockedExchangeAdd64(&g_bytesAsync, n);
-        return TRUE;
-    }
-    InterlockedIncrement64(&g_writesSync);
-    return orig_WriteFile(h, buf, n, pWritten, ov);
-}
-
-static BOOL WINAPI Hook_CloseHandle(HANDLE h) {
-    {
-        std::lock_guard<std::mutex> g(g_handleMutex);
-        g_handleClass.erase(h);
-    }
-    return orig_CloseHandle(h);
-}
-
-static DWORD WINAPI WorkerThread(LPVOID) {
-    while (!g_stopRequested) {
-        WaitForSingleObject(g_wakeupEvent, 100);
-        for (;;) {
-            LONG tail = g_queueTail;
-            if (tail == g_queueHead) break;
-            if (!g_queue[tail].ready) break;
-
-            HANDLE h = g_queue[tail].hFile;
-            void*  b = g_queue[tail].buffer;
-            DWORD  n = g_queue[tail].bytes;
-
-            DWORD wrote = 0;
-            BOOL ok = orig_WriteFile ? orig_WriteFile(h, b, n, &wrote, NULL) : FALSE;
-            if (!ok || wrote != n) InterlockedIncrement64(&g_writeFailures);
-
-            HeapFree(GetProcessHeap(), 0, b);
-            g_queue[tail].buffer = nullptr;
-            InterlockedExchange(&g_queue[tail].ready, 0);
-            InterlockedExchange(&g_queueTail, (tail + 1) & (LONG)QUEUE_MASK);
+static void TrackSVHandle(HANDLE h) {
+    AcquireSRWLockExclusive(&s_svHandleLock);
+    if (s_svHandleCount < 32) {
+        // Check not already tracked
+        for (int i = 0; i < s_svHandleCount; i++) {
+            if (s_svHandles[i] == h) {
+                ReleaseSRWLockExclusive(&s_svHandleLock);
+                return;
+            }
         }
-        SetEvent(g_drainEvent);
+        s_svHandles[s_svHandleCount++] = h;
+    }
+    ReleaseSRWLockExclusive(&s_svHandleLock);
+}
+
+// CreateFileA hook to detect SV file opens
+typedef HANDLE (WINAPI* CreateFileA_SV_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
+static CreateFileA_SV_fn orig_CreateFileA_SV = nullptr;
+
+static HANDLE WINAPI Hooked_CreateFileA_SV(LPCSTR lpFileName, DWORD dwAccess, DWORD dwShare,
+    LPSECURITY_ATTRIBUTES lpSA, DWORD dwDisposition, DWORD dwFlags, HANDLE hTemplate)
+{
+    HANDLE result = orig_CreateFileA_SV(lpFileName, dwAccess, dwShare, lpSA, dwDisposition, dwFlags, hTemplate);
+    
+    if (result != INVALID_HANDLE_VALUE && lpFileName && (dwAccess & GENERIC_WRITE)) {
+        // Check if this is a SavedVariables or Account data file
+        const char* svMarker = strstr(lpFileName, "SavedVariables");
+        const char* wtfMarker = strstr(lpFileName, "WTF");
+        const char* luaExt = strrchr(lpFileName, '.');
+        
+        if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
+            TrackSVHandle(result);
+            CrashDumper::RecordHookCall("CreateFileA_SV", (uintptr_t)result);
+        }
+    }
+    
+    return result;
+}
+
+// Async write queue
+struct AsyncWriteTask {
+    HANDLE hFile;
+    void* buffer;       // Allocated copy of data
+    DWORD bytesToWrite;
+    volatile LONG completed;
+    DWORD bytesWritten;
+};
+
+static constexpr int WRITE_QUEUE_SIZE = 64;
+static AsyncWriteTask s_writeQueue[WRITE_QUEUE_SIZE] = {};
+static volatile LONG s_queueHead = 0;
+static volatile LONG s_queueTail = 0;
+
+static DWORD WINAPI SVWriterThreadProc(LPVOID) {
+    while (!s_shutdown) {
+        LONG head = InterlockedCompareExchange(&s_queueHead, 0, 0);
+        LONG tail = InterlockedCompareExchange(&s_queueTail, 0, 0);
+        
+        if (head == tail) {
+            Sleep(1);
+            continue;
+        }
+        
+        AsyncWriteTask& task = s_writeQueue[head % WRITE_QUEUE_SIZE];
+        
+        EnterCriticalSection(&s_writeLock);
+        __try {
+            DWORD written = 0;
+            BOOL ok = orig_WriteFile_SV(task.hFile, task.buffer, task.bytesToWrite, &written, NULL);
+            task.bytesWritten = written;
+            InterlockedExchange(&task.completed, ok ? 1 : -1);
+            InterlockedAdd64(&s_totalBytesWritten, written);
+            InterlockedIncrement(&s_writeCount);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            InterlockedExchange(&task.completed, -1);
+            CrashDumper::FeatureError("SavedVarsAsync", "write exception");
+        }
+        LeaveCriticalSection(&s_writeLock);
+        
+        // Free the buffer copy
+        if (task.buffer) {
+            HeapFree(GetProcessHeap(), 0, task.buffer);
+            task.buffer = NULL;
+        }
+        
+        InterlockedIncrement(&s_queueHead);
+        InterlockedDecrement(&s_pendingWrites);
     }
     return 0;
 }
 
-bool Init() {
-    HMODULE k32 = GetModuleHandleA("kernel32.dll");
-    if (!k32) return false;
+// WriteFile hook for SV handles
+static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBytesToWrite,
+    LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped)
+{
+    // Only intercept SV file writes (not overlapped, must be SV handle)
+    if (!lpOverlapped && IsSVHandle(hFile) && nBytesToWrite > 0 && nBytesToWrite <= 64 * 1024 * 1024) {
+        LONG tail = InterlockedIncrement(&s_queueTail) - 1;
+        LONG head = InterlockedCompareExchange(&s_queueHead, 0, 0);
+        
+        if (tail - head < WRITE_QUEUE_SIZE) {
+            AsyncWriteTask& task = s_writeQueue[tail % WRITE_QUEUE_SIZE];
+            
+            // Allocate and copy buffer (original may be freed after return)
+            task.buffer = HeapAlloc(GetProcessHeap(), 0, nBytesToWrite);
+            if (task.buffer) {
+                memcpy(task.buffer, lpBuffer, nBytesToWrite);
+                task.hFile = hFile;
+                task.bytesToWrite = nBytesToWrite;
+                task.completed = 0;
+                task.bytesWritten = 0;
+                
+                InterlockedIncrement(&s_pendingWrites);
+                CrashDumper::FeatureCall("SavedVarsAsync");
+                
+                // Report bytes written immediately (caller expects synchronous behavior)
+                if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
+                return TRUE;
+            }
+            // Allocation failed - fall through to sync write
+            InterlockedDecrement(&s_queueTail);
+        } else {
+            // Queue full - fall through to sync write
+            InterlockedDecrement(&s_queueTail);
+        }
+    }
+    
+    return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+}
 
-    // CreateFileA/W are hooked by dllmain.cpp's MPQ tracker; skip them
-    // and classify lazily in WriteFile via GetFinalPathNameByHandleW.
-    void* pWrite = (void*)GetProcAddress(k32, "WriteFile");
-    void* pClose = (void*)GetProcAddress(k32, "CloseHandle");
-    if (!pWrite || !pClose) return false;
-
-    g_wakeupEvent = CreateEventA(NULL, FALSE, FALSE, NULL);
-    g_drainEvent  = CreateEventA(NULL, TRUE,  FALSE, NULL);
-    if (!g_wakeupEvent || !g_drainEvent) return false;
-
-    if (MH_CreateHook(pWrite, (void*)Hook_WriteFile, (void**)&orig_WriteFile) != MH_OK) {
+bool InstallSavedVarsAsync() {
+    InitializeCriticalSection(&s_writeLock);
+    
+    // Hook CreateFileA to track SV file handles
+    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
+    if (!hK32) return false;
+    
+    void* pCF = (void*)GetProcAddress(hK32, "CreateFileA");
+    void* pWF = (void*)GetProcAddress(hK32, "WriteFile");
+    if (!pCF || !pWF) return false;
+    
+    if (MH_CreateHook(pCF, (void*)Hooked_CreateFileA_SV, (void**)&orig_CreateFileA_SV) != MH_OK) {
+        Log("[SavedVarsAsync] CreateFileA hook FAILED");
+        return false;
+    }
+    if (MH_EnableHook(pCF) != MH_OK) return false;
+    
+    if (MH_CreateHook(pWF, (void*)Hooked_WriteFile_SV, (void**)&orig_WriteFile_SV) != MH_OK) {
         Log("[SavedVarsAsync] WriteFile hook FAILED");
         return false;
     }
-    MH_EnableHook(pWrite);
-
-    if (MH_CreateHook(pClose, (void*)Hook_CloseHandle, (void**)&orig_CloseHandle) == MH_OK) {
-        MH_EnableHook(pClose);
+    if (MH_EnableHook(pWF) != MH_OK) return false;
+    
+    // Start writer thread
+    s_shutdown = false;
+    s_writerThread = CreateThread(NULL, 0, SVWriterThreadProc, NULL, 0, NULL);
+    if (!s_writerThread) {
+        Log("[SavedVarsAsync] Writer thread FAILED");
+        return false;
     }
-    // CloseHandle hook is best-effort; if it fails we just leak handle-class
-    // entries until the map is cleared on shutdown. Not fatal.
-
-    g_workerThread = CreateThread(NULL, 0, WorkerThread, NULL, 0, NULL);
-    if (!g_workerThread) return false;
-    SetThreadPriority(g_workerThread, THREAD_PRIORITY_BELOW_NORMAL);
-
-    InterlockedExchange(&g_active, 1);
-    Log("[SavedVarsAsync] active (WriteFile + lazy GetFinalPathNameByHandle, queue=%u)",
-       (unsigned)QUEUE_SIZE);
+    SetThreadPriority(s_writerThread, THREAD_PRIORITY_BELOW_NORMAL);
+    
+    CrashDumper::RegisterFeature("SavedVarsAsync");
+    Log("[SavedVarsAsync] ACTIVE (async SV writer, %d-slot queue)", WRITE_QUEUE_SIZE);
     return true;
 }
 
-void Flush() {
-    if (!g_active) return;
-    SetEvent(g_wakeupEvent);
-    DWORD start = GetTickCount();
-    while (g_queueHead != g_queueTail && (GetTickCount() - start) < 5000) {
-        ResetEvent(g_drainEvent);
-        SetEvent(g_wakeupEvent);
-        WaitForSingleObject(g_drainEvent, 50);
+void ShutdownSavedVarsAsync() {
+    // Wait for pending writes to complete
+    int waitMs = 0;
+    while (InterlockedCompareExchange(&s_pendingWrites, 0, 0) > 0 && waitMs < 5000) {
+        Sleep(10);
+        waitMs += 10;
+    }
+    
+    s_shutdown = true;
+    if (s_writerThread) {
+        WaitForSingleObject(s_writerThread, 2000);
+        CloseHandle(s_writerThread);
+        s_writerThread = NULL;
+    }
+    
+    DeleteCriticalSection(&s_writeLock);
+    
+    if (s_writeCount > 0) {
+        Log("[SavedVarsAsync] Stats: %ld writes, %.1f MB total",
+            s_writeCount, s_totalBytesWritten / (1024.0 * 1024.0));
     }
 }
-
-void Shutdown() {
-    InterlockedExchange(&g_active, 0);
-    Flush();
-    InterlockedExchange(&g_stopRequested, 1);
-    if (g_wakeupEvent) SetEvent(g_wakeupEvent);
-    if (g_workerThread) {
-        if (WaitForSingleObject(g_workerThread, 5000) == WAIT_TIMEOUT)
-            TerminateThread(g_workerThread, 0);
-        CloseHandle(g_workerThread);
-        g_workerThread = nullptr;
-    }
-    if (g_wakeupEvent) { CloseHandle(g_wakeupEvent); g_wakeupEvent = nullptr; }
-    if (g_drainEvent)  { CloseHandle(g_drainEvent);  g_drainEvent  = nullptr; }
-    Log("[SavedVarsAsync] shutdown async=%lld sync=%lld bytes=%lld fails=%lld",
-       (long long)g_writesAsync, (long long)g_writesSync,
-       (long long)g_bytesAsync, (long long)g_writeFailures);
-}
-
-void GetStats(Stats* out) {
-    if (!out) return;
-    out->active        = g_active != 0;
-    out->writesAsync   = (uint64_t)g_writesAsync;
-    out->writesSync    = (uint64_t)g_writesSync;
-    out->bytesAsync    = (uint64_t)g_bytesAsync;
-    out->writeFailures = (uint64_t)g_writeFailures;
-    {
-        std::lock_guard<std::mutex> g(g_handleMutex);
-        out->taggedHandles = (uint32_t)g_handleClass.size();
-    }
-    LONG h = g_queueHead, t = g_queueTail;
-    out->queueDepth = (uint32_t)((h - t) & (LONG)QUEUE_MASK);
-}
-
-} // namespace SavedVarsAsync

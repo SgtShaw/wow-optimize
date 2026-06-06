@@ -40,6 +40,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
+#include <io.h>
 #include <intrin.h>
 #include <emmintrin.h>
 #include "ui_cache.h"
@@ -48,6 +49,73 @@
 #include "lua_internals.h"
 #include "lua_vm_cache.h"
 #include "crash_dumper.h"
+
+// Forward declaration - Log() defined later in this file
+extern "C" void Log(const char* fmt, ...);
+
+// ================================================================
+// Freeze Detection Watchdog
+// Detects when main thread stops responding (no Sleep calls for N seconds)
+// Dumps feature states + hook trace to log so we know what was active
+// ================================================================
+static volatile DWORD g_lastMainThreadTick = 0;
+static volatile bool  g_freezeWatchdogActive = false;
+static HANDLE         g_freezeWatchdogThread = NULL;
+
+static void UpdateMainThreadActivity() {
+    g_lastMainThreadTick = GetTickCount();
+}
+
+static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
+    while (g_freezeWatchdogActive) {
+        Sleep(5000);
+        if (!g_freezeWatchdogActive) break;
+
+        DWORD lastTick = g_lastMainThreadTick;
+        if (lastTick == 0) continue;
+
+        DWORD elapsed = GetTickCount() - lastTick;
+        if (elapsed > 10000) {
+            Log("!!! FREEZE DETECTED !!! Main thread silent for %u ms", elapsed);
+            Log("!!! Last main thread tick: %u, current: %u", lastTick, GetTickCount());
+
+            FeatureState states[MAX_TRACKED_FEATURES];
+            int count = CrashDumper::GetFeatureStates(states, MAX_TRACKED_FEATURES);
+            Log("!!! FEATURE STATES (%d registered):", count);
+            for (int i = 0; i < count; i++) {
+                if (states[i].active) {
+                    DWORD age = (states[i].lastCallTick > 0) ? (GetTickCount() - states[i].lastCallTick) : 999999;
+                    Log("!!!   %-28s calls=%lld errors=%lld lastCall=%ums ago",
+                        states[i].name ? states[i].name : "?",
+                        states[i].callCount, states[i].errorCount, age);
+                }
+            }
+            Log("!!! END FREEZE REPORT !!!");
+
+            while (g_freezeWatchdogActive && (GetTickCount() - g_lastMainThreadTick) > 10000) {
+                Sleep(2000);
+            }
+        }
+    }
+    return 0;
+}
+
+static void StartFreezeWatchdog() {
+    g_lastMainThreadTick = GetTickCount();
+    g_freezeWatchdogActive = true;
+    g_freezeWatchdogThread = CreateThread(NULL, 0, FreezeWatchdogProc, NULL, 0, NULL);
+    Log("[FreezeWatchdog] Started (10s threshold, 5s check interval)");
+}
+
+static void StopFreezeWatchdog() {
+    g_freezeWatchdogActive = false;
+    if (g_freezeWatchdogThread) {
+        WaitForSingleObject(g_freezeWatchdogThread, 6000);
+        CloseHandle(g_freezeWatchdogThread);
+        g_freezeWatchdogThread = NULL;
+    }
+}
+
 #include "frame_throttle.h"
 #include "tooltip_cache.h"
 #include "spell_cache.h"
@@ -57,6 +125,7 @@
 #include <mimalloc.h>
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
+#include "combatlog_buffer.h"
 #include "combatlog_mt.h"
 #include "texture_async.h"
 #include "spell_prefetch.h"
@@ -89,6 +158,31 @@
 #include "format_validator_cache.h"
 #include "datastore_fastpath.h"
 #include "string_ops_fast.h"
+#include "heap_compactor.h"
+#include "lua_tonumber_fast.h"
+#include "strcat_fast.h"
+#include "script_handler_cache.h"
+#include "dbc_lookup_cache.h"
+#include "event_dispatch_cache.h"
+#include "lua_getstr_inline.h"
+#include "lua_rawgeti_inline.h"
+#include "lua_gettable_cache.h"
+#include "saved_vars_async.h"
+#include "texture_decode_mt.h"
+#include "mpq_decompress_mt.h"
+#include "spell_effect_mt.h"
+#include "lua_bytecode_pre_compiler.h"
+#include "anim_mt.h"
+#include "hook_prefetch.h"
+#include "hot_patch.h"
+#include "infra_patch.h"
+#include "wow_opt_hooks.h"
+#include "wow_perf_hooks.h"
+#include "wow_extended_hooks.h"
+#include "wow_subsystem_hooks.h"
+#include "wow_memory_opt.h"
+#include "wow_source_opt.h"
+#include "tls_object_cache.h"
 
 #include "version.h"
 
@@ -122,17 +216,18 @@
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
-#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (freezes on char select)
+#define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
-#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr - ERROR #134: mimalloc reuses table addresses within session, generation counter insufficient
+#define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr OLD pointer cache DISABLED - replaced by safe v2 in lua_getstr_inline.cpp
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
-#define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti int-key cache (TValue replay corruption)
+#define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
+#define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 - RE-ENABLED (safe bucket-index cache)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
-#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - SSE2 page-boundary crash (0x5D917D10)
-#define CRASH_TEST_DISABLE_RTTI_CACHE           1   // sub_4D4DB0 object type check cache (1905 callers)
-#define CRASH_TEST_DISABLE_STREAM_FASTPATH      1   // sub_47B3C0/sub_47B0A0 - heap corruption, ERROR #132 at 0x7745A1C6
+#define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
+#define CRASH_TEST_DISABLE_RTTI_CACHE           0   // sub_4D4DB0 object type check cache - RE-ENABLED (1905 callers)
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
@@ -488,6 +583,40 @@ static void LogClose() {
     if (g_log) { fclose(g_log); g_log = nullptr; }
 }
 
+// ================================================================
+// LogFlushImmediate - Synchronous flush for crash context
+// Called from unhandled exception filter BEFORE writing crash dump.
+// Bypasses the background thread and writes directly to file.
+// Must be async-signal-safe: no locks, no allocations, no CRT.
+// ================================================================
+void LogFlushImmediate() {
+    if (!g_log) return;
+
+    // Drain all pending ring buffer entries synchronously
+    // Use InterlockedCompareExchange to avoid racing with LogThreadProc
+    int maxDrain = LOG_RING_SIZE;  // Safety limit
+    while (maxDrain-- > 0) {
+        int slot = g_logReadPos & LOG_RING_MASK;
+        LONG ready = InterlockedCompareExchange(&g_logRing[slot].ready, 0, 1);
+        if (ready != 1) break;  // No more pending entries
+
+        // Write directly using Win32 API (avoid CRT in crash context)
+        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
+        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+            DWORD len = (DWORD)strlen(g_logRing[slot].text);
+            DWORD written = 0;
+            WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
+        }
+        g_logReadPos++;
+    }
+
+    // Force OS-level flush
+    HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
+    if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+        FlushFileBuffers(hFile);
+    }
+}
+
 extern "C" void Log(const char* fmt, ...) {
     if (!g_logEvent) return;
 
@@ -669,11 +798,14 @@ static void RunPeriodicMaintenanceOnMainThread() {
     }
 
     if (g_isMultiClient) {
+        // HD multi-client: aggressive mimalloc collection every 5 seconds
+        // Prevents VA space fragmentation during boss fights (40+ MPQ clients)
+        // Previous 60s interval allowed fragmentation to reach critical levels
         if (g_nextMiCollectTick == 0) {
-            g_nextMiCollectTick = nowTick + 60000;
+            g_nextMiCollectTick = nowTick + 5000;
         } else if ((LONG)(nowTick - g_nextMiCollectTick) >= 0) {
             mi_collect(true);
-            g_nextMiCollectTick = nowTick + 60000;
+            g_nextMiCollectTick = nowTick + 5000;
         }
     }
 }
@@ -682,6 +814,7 @@ static double g_lastFrameMs = 0.0;
 
 static void WINAPI hooked_Sleep(DWORD ms) {
     if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
+        UpdateMainThreadActivity();
         RunPeriodicMaintenanceOnMainThread();
     }
 
@@ -708,6 +841,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
+        CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_COMBATLOG_MT
         CombatLogMT::OnFrame(g_mainThreadId);
 #endif
@@ -3006,11 +3140,13 @@ static void ConfigureMimalloc() {
 
 static void AdjustMimallocForMultiClient() {
     if (g_isMultiClient) {
-        // In multi-client mode: allow mimalloc to return pages to OS
+        // In multi-client mode: aggressively return pages to OS
         // This prevents 32-bit address space exhaustion on HD clients
-        mi_option_set(mi_option_purge_delay, 100);  // 100ms delay before returning pages
+        // HD clients with 40+ MPQs can hit 2GB VA limit during boss fights
+        mi_option_set(mi_option_purge_delay, 10);   // 10ms delay (was 100ms) - faster page return
+        mi_option_set(mi_option_reset_delay, 0);    // Reset pages immediately on free
         mi_collect(true);  // force immediate purge of any unused pages
-        Log("mimalloc: multi-client purge mode (100ms delay, aggressive collect)");
+        Log("mimalloc: multi-client HD purge mode (10ms delay, immediate reset)");
     }
 }
 
@@ -5248,14 +5384,112 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     CrashDumper::Init();
 
+    // Register ALL features for crash/freeze diagnostics
+    CrashDumper::RegisterFeature("SleepHook");
+    CrashDumper::RegisterFeature("GetTickCount");
+    CrashDumper::RegisterFeature("HeapOptimization");
+    CrashDumper::RegisterFeature("ThreadIdCache");
+    CrashDumper::RegisterFeature("QPCCache");
+    CrashDumper::RegisterFeature("BadPtrCheck");
+    CrashDumper::RegisterFeature("CompareStringA");
+    CrashDumper::RegisterFeature("CriticalSection");
+    CrashDumper::RegisterFeature("NetworkHooks");
+    CrashDumper::RegisterFeature("ReadFileCache");
+    CrashDumper::RegisterFeature("CloseHandle");
+    CrashDumper::RegisterFeature("FlushFileBuffers");
+    CrashDumper::RegisterFeature("MPQScan");
+    CrashDumper::RegisterFeature("FileAttributes");
+    CrashDumper::RegisterFeature("SetFilePointer");
+    CrashDumper::RegisterFeature("GlobalAlloc");
+    CrashDumper::RegisterFeature("FileSizeCache");
+    CrashDumper::RegisterFeature("WFSSpin");
+    CrashDumper::RegisterFeature("ModuleHandleCache");
+    CrashDumper::RegisterFeature("Lstrcmp");
+    CrashDumper::RegisterFeature("Lstrlen");
+    CrashDumper::RegisterFeature("WowStrlen");
+    CrashDumper::RegisterFeature("StrstrSSE2");
+    CrashDumper::RegisterFeature("CrtCharSSE2");
+    CrashDumper::RegisterFeature("CrtPowSSE2");
+    CrashDumper::RegisterFeature("TlsCache");
+    CrashDumper::RegisterFeature("StreamCache");
+    CrashDumper::RegisterFeature("LuaThisCache");
+    CrashDumper::RegisterFeature("IOCache");
+    CrashDumper::RegisterFeature("LuaGlobalCache");
+    CrashDumper::RegisterFeature("HotFunctions");
+    CrashDumper::RegisterFeature("FastStrncmp");
+    CrashDumper::RegisterFeature("CrtFreeHook");
+    CrashDumper::RegisterFeature("AlignedAllocCache");
+    CrashDumper::RegisterFeature("DataStoreFastPath");
+    CrashDumper::RegisterFeature("StringOpsFast");
+    CrashDumper::RegisterFeature("MBWCHooks");
+    CrashDumper::RegisterFeature("CrtMemFastPaths");
+    CrashDumper::RegisterFeature("MsgPump");
+    CrashDumper::RegisterFeature("SwapPresent");
+    CrashDumper::RegisterFeature("LuaHResize");
+    CrashDumper::RegisterFeature("LuaHGetStr");
+    CrashDumper::RegisterFeature("FieldUpdates");
+    CrashDumper::RegisterFeature("LuaToNumberFast");
+    CrashDumper::RegisterFeature("StrcatFast");
+    CrashDumper::RegisterFeature("ScriptHandlerCache");
+    CrashDumper::RegisterFeature("DbcLookupCache");
+    CrashDumper::RegisterFeature("EventDispatchCache");
+    CrashDumper::RegisterFeature("LuaGetStrInline");
+    CrashDumper::RegisterFeature("RawGetIInline");
+    CrashDumper::RegisterFeature("HardwareCursor");
+    CrashDumper::RegisterFeature("FrameThrottle");
+    CrashDumper::RegisterFeature("SpellCache");
+    CrashDumper::RegisterFeature("LuaRawGetICache");
+    CrashDumper::RegisterFeature("CombatLogFullCache");
+    CrashDumper::RegisterFeature("ThreadAffinity");
+    CrashDumper::RegisterFeature("VAArena");
+    CrashDumper::RegisterFeature("RTTICache");
+    CrashDumper::RegisterFeature("StreamBufFastPath");
+    CrashDumper::RegisterFeature("LuaOptimizer");
+    CrashDumper::RegisterFeature("CombatLogOpt");
+    CrashDumper::RegisterFeature("CombatLogBuffer");
+    CrashDumper::RegisterFeature("CombatLogMT");
+    CrashDumper::RegisterFeature("TextureAsync");
+    CrashDumper::RegisterFeature("SpellPrefetch");
+    CrashDumper::RegisterFeature("ModelAsync");
+    CrashDumper::RegisterFeature("ObjVisCache");
+    CrashDumper::RegisterFeature("SoundPrefetch");
+    CrashDumper::RegisterFeature("QuestAsync");
+    CrashDumper::RegisterFeature("UICache");
+    CrashDumper::RegisterFeature("ApiCache");
+    CrashDumper::RegisterFeature("LuaFastPath");
+    CrashDumper::RegisterFeature("AddonPreload");
+    CrashDumper::RegisterFeature("BytecodeCache");
+    CrashDumper::RegisterFeature("LuaVMCache");
+    CrashDumper::RegisterFeature("LuaGetTableCache");
+    CrashDumper::RegisterFeature("SavedVarsAsync");
+    CrashDumper::RegisterFeature("HookPrefetch");
+    CrashDumper::RegisterFeature("HotPatch");
+    CrashDumper::RegisterFeature("InfraPatch");
+    CrashDumper::RegisterFeature("MemoryOpt");
+    CrashDumper::RegisterFeature("SourceOpt");
+    CrashDumper::RegisterFeature("TlsObjectCache");
+    CrashDumper::RegisterFeature("GetProcAddressCache");
+    CrashDumper::RegisterFeature("ModuleFileNameCache");
+    CrashDumper::RegisterFeature("EnvVarCache");
+    CrashDumper::RegisterFeature("ProfileCache");
+    CrashDumper::RegisterFeature("BatchOpt10");
+    CrashDumper::RegisterFeature("BatchOpt20");
+    CrashDumper::RegisterFeature("BatchOpt30");
+    CrashDumper::RegisterFeature("BatchOpt35");
+    Log("[CrashDumper] Registered %d features for tracking", MAX_TRACKED_FEATURES);
+
     ConfigureMimalloc();
     TryEnableLargePages();
     g_nextStatsDumpTick = 0;
     g_nextMiCollectTick = 0;
 
     Log("--- Memory Allocator ---");
-    bool allocOk = InstallAllocatorHooks();
-    Log(allocOk ? ">>> ALLOCATOR: mimalloc ACTIVE <<<" : ">>> ALLOCATOR: FAILED <<<");
+    // DISABLED: mimalloc allocator hooks cause corrupted function pointers
+    // during login initialization. WoW expects CRT heap layout with specific
+    // internal structure; mimalloc returns differently-layouted memory causing
+    // ACCESS_VIOLATION at unknown addresses (e.g. 0x1618D830)
+    bool allocOk = false; // InstallAllocatorHooks();
+    Log("[Allocator] DISABLED: mimalloc causes corrupted pointers during login");
 
     Log("--- Frame Pacing ---");
     bool sleepOk = InstallSleepHook();
@@ -5453,6 +5687,33 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
+    HeapCompactor_Init();
+
+    Log("--- Lua tonumber Fast Path ---");
+    bool luaToNumberFastOk = InstallLuaToNumberFast();
+
+    Log("--- SSE2 Strcpy Optimization ---");
+    bool strcpyOk = InstallStrcatFast();
+
+    Log("--- Script Handler Cache ---");
+    bool scriptHandlerOk = InstallScriptHandlerCache();
+
+    Log("--- DBC Lookup Cache ---");
+    bool dbcLookupOk = InstallDbcLookupCache();
+
+    Log("--- Event Dispatch Cache ---");
+    bool eventDispatchOk = InstallEventDispatchCache();
+
+    Log("--- luaH_getstr Inline Optimization ---");
+    bool getStrInlineOk = InstallLuaGetStrInline();
+
+    Log("--- lua_rawgeti Inline Optimization ---");
+#if TEST_DISABLE_RAWGETI_INLINE
+    bool rawGetIInlineOk = false;
+    Log("[RawGetIInline] DISABLED (suspected loading screen crash at 0x84E9DE)");
+#else
+    bool rawGetIInlineOk = InstallLuaRawGetIInline();
+#endif
 
     Log("--- Hardware Cursor ---");
     bool cursorOk = InstallHardwareCursorHooks();
@@ -5520,6 +5781,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool combatLogOk = CombatLogOpt::Init();
 
     Log("");
+    Log("--- Combat Log Buffer Governor ---");
+    bool combatLogBufOk = CombatLogBuffer::Init();
+
+    Log("");
     Log("--- Multithreaded Combat Log Parser ---");
 #if TEST_DISABLE_COMBATLOG_MT
     Log("[CombatLogMT] DISABLED (feature flag)");
@@ -5548,12 +5813,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Multithreaded Addon Update Dispatcher ---");
-#if TEST_DISABLE_ADDON_DISPATCHER
-    Log("[AddonDispatcher] DISABLED (feature flag)");
+    // DISABLED: worker threads write to WoW game state without synchronization
+    // causing ACCESS_VIOLATION at 0x009E4F24 from background thread
+    Log("[AddonDispatcher] DISABLED: unsynchronized writes to WoW game state");
     bool addonDispatcherOk = false;
-#else
-    bool addonDispatcherOk = AddonDispatcher::Init();
-#endif
 
     Log("");
     Log("--- Async Model/M2 Loading ---");
@@ -5566,12 +5829,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
-#if TEST_DISABLE_MPQ_PREFETCH
-    Log("[MPQPrefetch] DISABLED (feature flag)");
+    // DISABLED: worker threads call hooked SFile2 which touches WoW globals
+    // causing ACCESS_VIOLATION at 0x009E4F24 from MPQPrefetch worker thread
+    Log("[MPQPrefetch] DISABLED: workers touch WoW globals via hooked SFile2");
     bool mpqPrefetchOk = false;
-#else
-    bool mpqPrefetchOk = MPQPrefetch::Init();
-#endif
 
     Log("");
     Log("--- Object Visibility Cache ---");
@@ -5676,12 +5937,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Multithreaded Nameplate Renderer ---");
-#if TEST_DISABLE_NAMEPLATE_MT
-    Log("[NameplateMT] DISABLED (feature flag)");
+    // DISABLED: worker threads write to WoW rendering globals without synchronization
+    Log("[NameplateMT] DISABLED: unsynchronized writes to WoW game state");
     bool nameplateMTOk = false;
-#else
-    bool nameplateMTOk = NameplateMT::Init();
-#endif
 
     Log("");
     Log("--- UI Cache ---");
@@ -5734,6 +5992,74 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // Lua VM table lookup cache (luaV_gettable hook)
     Log("--- Lua VM Table Cache ---");
     bool vmCacheOk = InstallLuaVMCache();
+
+    Log("--- luaV_gettable Cache ---");
+    bool getTableCacheOk = InstallLuaGetTableCache();
+
+    Log("--- SavedVariables Async Writer ---");
+    bool savedVarsAsyncOk = InstallSavedVarsAsync();
+
+    Log("--- Texture Decode MT ---");
+    bool textureDecodeMTOk = TextureDecodeMT::Init();
+    CrashDumper::RegisterFeature("TextureDecodeMT");
+
+    Log("--- MPQ Decompress MT ---");
+    bool mpqDecompressMTOk = MPQDecompressMT::Init();
+    CrashDumper::RegisterFeature("MPQDecompressMT");
+
+    Log("--- Spell Effect MT ---");
+    bool spellEffectMTOk = SpellEffectMT::Init();
+    CrashDumper::RegisterFeature("SpellEffectMT");
+
+    Log("--- Lua Bytecode Pre-Compiler ---");
+    bool bytecodePreCompilerOk = LuaBytecodePreCompiler::Init();
+    CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
+
+    Log("--- Animation MT ---");
+    bool animMTOk = AnimMT::Init();
+    CrashDumper::RegisterFeature("AnimMT");
+
+    Log("--- Hook Prefetch (9 hooks) ---");
+    bool hookPrefetchOk = HookPrefetch::InstallAll();
+
+    Log("--- Hot Patch (20 features) ---");
+    bool hotPatchOk = HotPatch::InstallAll();
+
+    Log("--- Mega Patch (50 features) ---");
+    bool infraPatchOk = InfraPatch::InstallAll();
+
+    // ALL WoW.exe internal hooks DISABLED for crash isolation.
+    // Crash at 0x009E4F24 shows ASCII strings executed as code = corrupted vtable/fnptr.
+    // These hooks patch WoW's internal functions and may corrupt adjacent memory.
+    Log("--- WoW.exe Optimization Hooks (20 hooks) ---");
+    Log("[WowOpt] DISABLED: crash isolation (corrupts WoW fnptrs at 0x009E4F24)");
+    bool wowOptOk = false; // WowOptHooks::InstallAll();
+
+    Log("--- WoW.exe Performance Hooks (20 hooks) ---");
+    Log("[WowPerf] DISABLED: crash isolation");
+    bool wowPerfOk = false; // WowPerfHooks::InstallAll();
+
+    Log("--- WoW.exe Extended Hooks (40 features) ---");
+    Log("[Extended] DISABLED: crash isolation");
+    bool wowExtendedOk = false; // WowExtendedHooks::InstallAll();
+
+    Log("--- WoW.exe Subsystem Hooks (100 features) ---");
+    Log("[Subsystem] DISABLED: crash isolation");
+    bool wowSubsystemOk = false; // WowSubsystemHooks::InstallAll();
+
+    Log("--- Memory Optimizations: LAA + Async + MemOpt ---");
+    bool memoryOptLAA = WowMemoryOpt::EnableLargeAddressAware();
+    // Async worker pool DISABLED: background threads writing to WoW globals
+    // caused ACCESS_VIOLATION at 0x009E4F24 (write to .data section from worker thread)
+    bool memoryOptAsync = false; // WowMemoryOpt::InitAsyncWorkerPool();
+    Log("[MemOpt] Async worker pool DISABLED: unsynchronized writes to WoW game state");
+    bool memoryOptMem = WowMemoryOpt::ApplyMemoryOptimizations();
+
+    Log("--- Source-Level Optimizations ---");
+    bool sourceOptOk = WowSourceOpt::InstallAll();
+
+    Log("--- TLS Object Cache ---");
+    bool tlsObjCacheOk = TlsObjectCache::Install();
 
     Log("");
     Log("========================================");
@@ -5814,6 +6140,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
     Log("  [%s] RTTI type check cache",       rttiCacheOk   ? " OK " : "SKIP");
     Log("  [%s] Stream buffer fast path",     streamBufOk    ? " OK " : "SKIP");
+
+    // Start freeze detection watchdog AFTER all features initialized
+    StartFreezeWatchdog();
 
     return 0;
 }
@@ -6097,7 +6426,7 @@ static bool InstallWaitForSingleObjectHook() {
 //
 // ================================================================
 
-static constexpr int MOD_CACHE_SIZE = 512;
+static constexpr int MOD_CACHE_SIZE = 1024;
 static constexpr int MOD_CACHE_MASK = MOD_CACHE_SIZE - 1;
 
 struct ModCacheEntry {
@@ -7426,6 +7755,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ApiCache::Shutdown();
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
+            CombatLogBuffer::Shutdown();
 #if !TEST_DISABLE_COMBATLOG_MT
             CombatLogMT::Shutdown();
 #endif
@@ -7484,6 +7814,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                    (g_vaArenaHits + g_vaArenaFallbacks) > 0 ? (double)g_vaArenaHits / (g_vaArenaHits + g_vaArenaFallbacks) * 100.0 : 0.0);
                 ShutdownVAArena();
             }
+            HeapCompactor_Shutdown();
             if (g_globalAllocFast > 0)
                 Log("GlobalAlloc: %ld GMEM_FIXED via mimalloc", g_globalAllocFast);
             #if !CRASH_TEST_DISABLE_MPQ_MMAP
@@ -7511,11 +7842,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 g_asyncIoWorker = NULL;
             }            
 
+            StopFreezeWatchdog();
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
             TooltipCache::Shutdown();
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
+            AnimMT::Shutdown();
+            LuaBytecodePreCompiler::Shutdown();
+            SpellEffectMT::Shutdown();
+            MPQDecompressMT::Shutdown();
+            TextureDecodeMT::Shutdown();
+            ShutdownSavedVarsAsync();
+            ShutdownLuaGetTableCache();
             ShutdownDataStoreFastPath();
             ShutdownStringOpsFast();
             MH_DisableHook(MH_ALL_HOOKS);

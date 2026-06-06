@@ -260,79 +260,14 @@ static int __cdecl Hooked_DispatchEvents() {
     // Increment open-world enable counter (we're NOT in a raid)
     InterlockedIncrement(&g_openWorldEnableCount);
     
-    // Call original function first - let WoW dispatch events normally
+    // Call original function - let WoW dispatch events normally.
+    // NOTE: We do NOT walk the combat log linked list after calling orig.
+    // The original function processes and frees entries from the list.
+    // Walking freed entries causes use-after-free → corrupted Lua events → crashes.
+    // This was the root cause of Naxx25 trash pull crashes (Lua errors → hang).
     int result = orig_DispatchEvents();
 
     InterlockedIncrement(&g_totalDispatches);
-
-    __try {
-        // Read from the combat log linked list (0x00ADB97C = ActiveListHead)
-        uintptr_t listHead = 0x00ADB97C;
-        if (!IsReadable(listHead)) {
-            return result;
-        }
-
-        // Start from cursor (last processed entry) or list head if cursor invalid
-        uintptr_t current = g_lastProcessedEntry;
-        if (!current || !IsReadable(current)) {
-            current = *(uintptr_t*)listHead;
-            g_lastProcessedEntry = 0;  // Reset cursor
-        }
-        
-        uint32_t entriesProcessed = 0;
-        LARGE_INTEGER startTime;
-        QueryPerformanceCounter(&startTime);
-        
-        // Process entries with frame budget limits (CRITICAL FIX for raid stutters)
-        while (current && IsReadable(current) && entriesProcessed < g_maxEntriesPerFrame) {
-            // Check time budget (max 1ms per dispatch)
-            LARGE_INTEGER currentTime;
-            QueryPerformanceCounter(&currentTime);
-            uint32_t elapsedUs = (uint32_t)((currentTime.QuadPart - startTime.QuadPart) * 1000000 / g_qpcFreq.QuadPart);
-            if (elapsedUs > g_maxScanTimeUs) {
-                InterlockedIncrement(&g_entriesDroppedDueToBudget);
-                break;  // Time budget exceeded - continue next frame
-            }
-            
-            // Check if this is a valid entry (not a sentinel)
-            if ((current & 1) != 0) break;
-            
-            CombatLogEntry* entry = (CombatLogEntry*)current;
-            
-            // Copy entry data to queue
-            LONG tail = InterlockedIncrement(&g_queueTail) - 1;
-            int slot = tail & QUEUE_MASK;
-
-            QueueEntry* queueEntry = &g_queue[slot];
-
-            // Check if slot is still being processed (queue overflow)
-            if (queueEntry->ready) {
-                InterlockedIncrement(&g_eventsDropped);
-                break;  // Queue full - skip remaining entries this frame
-            }
-
-            // Copy combat log entry data (only the fields we need)
-            memcpy(&queueEntry->data, entry, sizeof(CombatLogEntry));
-            InterlockedExchange(&queueEntry->ready, 1);
-            InterlockedIncrement(&g_eventsQueued);
-
-            // Signal worker thread
-            SetEvent(g_workerEvent);
-
-            // Move to next entry
-            entriesProcessed++;
-            current = *(uintptr_t*)(current + 4); // next pointer at offset +0x04
-        }
-        
-        // Update cursor and stats
-        g_lastProcessedEntry = current;
-        InterlockedExchange(&g_entriesScannedThisFrame, entriesProcessed);
-        
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        InterlockedIncrement(&g_eventsInvalid);
-        g_lastProcessedEntry = 0;  // Reset cursor on exception
-    }
 
     return result;
 }

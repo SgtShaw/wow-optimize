@@ -1,22 +1,35 @@
 // ================================================================
-// crash_dumper.cpp - Top-level exception filter crash reporter
+// crash_dumper.cpp - Enhanced crash reporter with feature tracking
 //
 // Uses SetUnhandledExceptionFilter instead of first-chance VEH.
 // The unhandled filter runs only on genuine unhandled crashes,
 // chains to WoW's WowError filter, and uses platform-aware dump:
 //   - Wine:    plain-text report (registers + EBP-chain stack +
-//              module map). No dbghelp.
-//   - Windows: minidump (MiniDumpNormal, no ScanMemory).
+//              module map + feature states + hook trace). No dbghelp.
+//   - Windows: minidump (MiniDumpWithIndirectlyReferencedMemory).
+//
+// FEATURE TRACKING: Every optimization registers itself at init.
+// On crash, the dump includes which features were active, their
+// call counts, error counts, and last call timestamps. This makes
+// it possible to identify WHICH feature caused a crash/freeze.
+//
+// HOOK CALL TRACE: Last 256 hook invocations are recorded in a
+// lock-free ring buffer. On crash, the trace shows exactly what
+// code path was executing when the crash occurred.
 // ================================================================
 
 #include <windows.h>
+#include <psapi.h>
 #include <tlhelp32.h>
 #include <cstdio>
 #include <ctime>
+#include <cstring>
 #include "version.h"
+#include "crash_dumper.h"
 
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
+#pragma comment(lib, "psapi.lib")
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -25,6 +38,40 @@ static LPTOP_LEVEL_EXCEPTION_FILTER s_prevFilter = nullptr;
 
 // One-shot: only dump the first crash
 static volatile LONG s_dumped = 0;
+
+// ================================================================
+// Feature Registry - tracks all active optimizations
+// ================================================================
+static FeatureState s_features[MAX_TRACKED_FEATURES] = {};
+static volatile LONG s_featureCount = 0;
+static SRWLOCK s_featureLock = SRWLOCK_INIT;
+
+// ================================================================
+// Hook Call Trace - lock-free ring buffer for crash diagnosis
+// Records last 256 hook calls so we know WHAT was running at crash
+// ================================================================
+#define HOOK_TRACE_SIZE 256
+#define HOOK_TRACE_MASK (HOOK_TRACE_SIZE - 1)
+
+struct HookTraceEntry {
+    const char* hookName;   // Static string - safe in crash context
+    uintptr_t   addr;       // Address being hooked or accessed
+    DWORD       tick;       // GetTickCount when called
+    DWORD       threadId;   // Thread that made the call
+};
+
+static HookTraceEntry s_hookTrace[HOOK_TRACE_SIZE] = {};
+static volatile LONG s_hookTracePos = 0;  // Monotonic write position
+
+// ================================================================
+// Crash-time log flush - force ring buffer to disk before dump
+// ================================================================
+extern void LogFlushImmediate();  // Defined in dllmain.cpp
+
+// Forward declarations for crash report sections
+static void WriteFeatureStates(HANDLE hFile);
+static void WriteHookTrace(HANDLE hFile);
+static void WriteMemoryInfo(HANDLE hFile);
 
 // ================================================================
 // Exception code → human-readable name
@@ -176,6 +223,9 @@ static void WriteTextReport(EXCEPTION_POINTERS* ep) {
 
     WriteRegisters(hFile, ep->ContextRecord);
     WriteStackWalk(hFile, ep->ContextRecord);
+    WriteFeatureStates(hFile);
+    WriteHookTrace(hFile);
+    WriteMemoryInfo(hFile);
     WriteModuleMap(hFile);
 
     CloseHandle(hFile);
@@ -218,6 +268,127 @@ static void WriteMinidump(EXCEPTION_POINTERS* ep) {
 }
 
 // ================================================================
+// Write Feature States to crash report
+// ================================================================
+static void WriteFeatureStates(HANDLE hFile) {
+    char buf[512];
+    DWORD written;
+
+    const char* hdr = "\n=== ACTIVE FEATURES (wow_optimize) ===\n";
+    WriteFile(hFile, hdr, (DWORD)strlen(hdr), &written, NULL);
+
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    if (count == 0) {
+        const char* none = "  (no features registered)\n";
+        WriteFile(hFile, none, (DWORD)strlen(none), &written, NULL);
+        return;
+    }
+
+    DWORD nowTick = GetTickCount();
+    for (int i = 0; i < count && i < MAX_TRACKED_FEATURES; i++) {
+        FeatureState& f = s_features[i];
+        DWORD ageMs = nowTick - f.lastCallTick;
+        int len = sprintf_s(buf, sizeof(buf),
+            "  %-28s active=%d calls=%lld errors=%lld lastCall=%ums ago%s%s\n",
+            f.name ? f.name : "(null)",
+            f.active ? 1 : 0,
+            f.callCount,
+            f.errorCount,
+            f.lastCallTick > 0 ? ageMs : 0,
+            f.lastError ? " err=\"" : "",
+            f.lastError ? f.lastError : "");
+        if (f.lastError) {
+            // Append closing quote
+            int elen = strlen(buf);
+            if (elen < (int)sizeof(buf) - 2) {
+                buf[elen] = '"'; buf[elen+1] = '\n'; buf[elen+2] = '\0';
+            }
+        }
+        if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+    }
+}
+
+// ================================================================
+// Write Hook Call Trace to crash report
+// ================================================================
+static void WriteHookTrace(HANDLE hFile) {
+    char buf[256];
+    DWORD written;
+
+    const char* hdr = "\n=== HOOK CALL TRACE (last 256 calls) ===\n";
+    WriteFile(hFile, hdr, (DWORD)strlen(hdr), &written, NULL);
+
+    LONG pos = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+    if (pos == 0) {
+        const char* none = "  (no hook calls recorded)\n";
+        WriteFile(hFile, none, (DWORD)strlen(none), &written, NULL);
+        return;
+    }
+
+    // Show last 64 entries (most recent first)
+    int showCount = (pos < 64) ? pos : 64;
+    for (int i = 0; i < showCount; i++) {
+        int idx = (pos - 1 - i) & HOOK_TRACE_MASK;
+        HookTraceEntry& e = s_hookTrace[idx];
+        if (!e.hookName) continue;
+        int len = sprintf_s(buf, sizeof(buf),
+            "  [%02d] TID=%5lu tick=%10lu addr=0x%08X %s\n",
+            i, e.threadId, e.tick, (unsigned)e.addr, e.hookName);
+        if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+    }
+}
+
+// ================================================================
+// Write Process Memory Info to crash report
+// ================================================================
+static void WriteMemoryInfo(HANDLE hFile) {
+    char buf[512];
+    DWORD written;
+
+    const char* hdr = "\n=== MEMORY STATE ===\n";
+    WriteFile(hFile, hdr, (DWORD)strlen(hdr), &written, NULL);
+
+    PROCESS_MEMORY_COUNTERS pmc = {};
+    pmc.cb = sizeof(pmc);
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        int len = sprintf_s(buf, sizeof(buf),
+            "  WorkingSet:    %.1f MB\n"
+            "  PeakWS:        %.1f MB\n"
+            "  PrivateBytes:  %.1f MB\n"
+            "  PageFaults:    %lu\n",
+            pmc.WorkingSetSize / (1024.0 * 1024.0),
+            pmc.PeakWorkingSetSize / (1024.0 * 1024.0),
+            pmc.PagefileUsage / (1024.0 * 1024.0),
+            pmc.PageFaultCount);
+        if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+    }
+
+    // VA space fragmentation check
+    MEMORY_BASIC_INFORMATION mbi;
+    uintptr_t addr = 0x10000;
+    SIZE_T largestFree = 0, totalFree = 0;
+    while (addr < 0x7FFF0000) {
+        if (VirtualQuery((void*)addr, &mbi, sizeof(mbi))) {
+            if (mbi.State == MEM_FREE) {
+                if (mbi.RegionSize > largestFree) largestFree = mbi.RegionSize;
+                totalFree += mbi.RegionSize;
+            }
+            addr += mbi.RegionSize;
+            if (mbi.RegionSize == 0) addr += 0x10000;
+        } else {
+            addr += 0x10000;
+        }
+    }
+    int len = sprintf_s(buf, sizeof(buf),
+        "  VA Free:       %.1f MB\n"
+        "  VA LargestBlk: %.1f MB%s\n",
+        totalFree / (1024.0 * 1024.0),
+        largestFree / (1024.0 * 1024.0),
+        (largestFree < 64 * 1024 * 1024) ? " WARNING: FRAGMENTED" : "");
+    if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+}
+
+// ================================================================
 // Top-level unhandled exception filter
 // ================================================================
 static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
@@ -226,9 +397,46 @@ static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
         return s_prevFilter ? s_prevFilter(ep) : EXCEPTION_EXECUTE_HANDLER;
 
     DWORD code = ep->ExceptionRecord->ExceptionCode;
-    Log("CRASH DUMPER: unhandled 0x%08X (%s) at 0x%08X",
-        code, ExceptionName(code),
-        (uintptr_t)ep->ExceptionRecord->ExceptionAddress);
+    uintptr_t crashAddr = (uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+
+    // CRITICAL: Flush log ring buffer BEFORE writing crash report
+    // Without this, the last N log entries (including the cause) are lost
+    LogFlushImmediate();
+
+    Log("!!! CRASH !!! 0x%08X (%s) at 0x%08X TID=%lu",
+        code, ExceptionName(code), crashAddr, GetCurrentThreadId());
+
+    // Identify which module the crash address belongs to
+    HMODULE hCrashMod = NULL;
+    char modName[MAX_PATH] = "unknown";
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)crashAddr, &hCrashMod)) {
+        GetModuleFileNameA(hCrashMod, modName, MAX_PATH);
+    }
+    Log("!!! CRASH MODULE: %s (base=0x%08X offset=0x%08X)",
+        modName, (uintptr_t)hCrashMod,
+        hCrashMod ? (unsigned)(crashAddr - (uintptr_t)hCrashMod) : 0);
+
+    // Log active features summary
+    LONG fcount = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    int activeFeatures = 0;
+    for (int i = 0; i < fcount && i < MAX_TRACKED_FEATURES; i++) {
+        if (s_features[i].active) activeFeatures++;
+    }
+    Log("!!! ACTIVE FEATURES: %d/%ld registered", activeFeatures, fcount);
+
+    // Log last few hook calls
+    LONG hpos = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+    for (int i = 0; i < 5 && i < hpos; i++) {
+        int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
+        HookTraceEntry& e = s_hookTrace[idx];
+        if (e.hookName) {
+            Log("!!! LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+                i, e.hookName, (unsigned)e.addr, e.threadId,
+                GetTickCount() - e.tick);
+        }
+    }
 
     if (IsWine()) {
         WriteTextReport(ep);
@@ -252,19 +460,96 @@ bool Init() {
 #if TEST_DISABLE_CRASH_DUMPER
     return false;
 #else
+    memset(s_features, 0, sizeof(s_features));
+    memset(s_hookTrace, 0, sizeof(s_hookTrace));
+    InterlockedExchange(&s_featureCount, 0);
+    InterlockedExchange(&s_hookTracePos, 0);
+
     s_prevFilter = SetUnhandledExceptionFilter(WowOpt_UnhandledExceptionFilter);
-    Log("[CrashDumper] Top-level exception filter registered%s",
-        IsWine() ? " (Wine: text reports, no dbghelp)" : "");
+    Log("[CrashDumper] Enhanced crash reporter active%s",
+        IsWine() ? " (Wine: text reports)" : " (Windows: minidump)");
+    Log("[CrashDumper] Feature tracking: %d slots, Hook trace: %d entries",
+        MAX_TRACKED_FEATURES, HOOK_TRACE_SIZE);
     return true;
 #endif
 }
 
 void Shutdown() {
 #if !TEST_DISABLE_CRASH_DUMPER
-    // Restore previous filter on clean shutdown
     SetUnhandledExceptionFilter(s_prevFilter);
     s_prevFilter = nullptr;
 #endif
+}
+
+void RegisterFeature(const char* name) {
+    AcquireSRWLockExclusive(&s_featureLock);
+    LONG idx = InterlockedIncrement(&s_featureCount) - 1;
+    if (idx < MAX_TRACKED_FEATURES) {
+        s_features[idx].name = name;
+        s_features[idx].active = true;
+        s_features[idx].callCount = 0;
+        s_features[idx].errorCount = 0;
+        s_features[idx].lastCallTick = 0;
+        s_features[idx].lastError = nullptr;
+    }
+    ReleaseSRWLockExclusive(&s_featureLock);
+}
+
+void FeatureCall(const char* name) {
+    // Lock-free fast path: linear scan is fine for <64 features
+    // Called from hot paths so must be minimal overhead
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    for (int i = 0; i < count && i < MAX_TRACKED_FEATURES; i++) {
+        if (s_features[i].name == name || 
+            (s_features[i].name && name && strcmp(s_features[i].name, name) == 0)) {
+            InterlockedIncrement64((volatile LONG64*)&s_features[i].callCount);
+            s_features[i].lastCallTick = GetTickCount();
+            return;
+        }
+    }
+}
+
+void FeatureError(const char* name, const char* desc) {
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    for (int i = 0; i < count && i < MAX_TRACKED_FEATURES; i++) {
+        if (s_features[i].name == name ||
+            (s_features[i].name && name && strcmp(s_features[i].name, name) == 0)) {
+            InterlockedIncrement64((volatile LONG64*)&s_features[i].errorCount);
+            s_features[i].lastError = desc;
+            s_features[i].lastCallTick = GetTickCount();
+            return;
+        }
+    }
+}
+
+void FeatureSetActive(const char* name, bool active) {
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    for (int i = 0; i < count && i < MAX_TRACKED_FEATURES; i++) {
+        if (s_features[i].name == name ||
+            (s_features[i].name && name && strcmp(s_features[i].name, name) == 0)) {
+            s_features[i].active = active;
+            return;
+        }
+    }
+}
+
+int GetFeatureStates(FeatureState* out, int maxCount) {
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    int copied = 0;
+    for (int i = 0; i < count && i < MAX_TRACKED_FEATURES && copied < maxCount; i++) {
+        out[copied++] = s_features[i];
+    }
+    return copied;
+}
+
+void RecordHookCall(const char* hookName, uintptr_t addr) {
+    // Lock-free: atomic increment gives us a unique slot
+    LONG pos = InterlockedIncrement(&s_hookTracePos) - 1;
+    int idx = pos & HOOK_TRACE_MASK;
+    s_hookTrace[idx].hookName = hookName;
+    s_hookTrace[idx].addr = addr;
+    s_hookTrace[idx].tick = GetTickCount();
+    s_hookTrace[idx].threadId = GetCurrentThreadId();
 }
 
 } // namespace CrashDumper

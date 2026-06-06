@@ -3,6 +3,7 @@
 // ================================================================
 
 #include "addon_dispatcher.h"
+#include "hot_patch.h"
 #include "MinHook.h"
 #include <cstdio>
 #include <cstring>

@@ -321,38 +321,93 @@ static long g_luaAllocStats_realloc = 0;
 static long g_luaAllocStats_freeLegacy = 0;
 static long g_luaAllocStats_reallocMigrate = 0;
 
+// Adaptive GC: track net allocation bytes between frames.
+// This lets StepGC scale collection to match actual allocation pressure,
+// so heavy-addon users (300MB) and light users (100MB) both stay stable.
+static volatile LONG64 g_netAllocBytes = 0;   // net bytes allocated since last reset
+static volatile LONG64 g_frameAllocBytes = 0; // bytes allocated this frame (for smoothing)
+
+static void ResetAllocCounter() {
+    InterlockedExchange64(&g_netAllocBytes, 0);
+}
+
+static LONG64 GetAndResetNetAlloc() {
+    return InterlockedExchange64(&g_netAllocBytes, 0);
+}
+
 static void* __cdecl MimallocLuaAlloc(void* ud, void* ptr, size_t osize, size_t nsize) {
-    if (nsize == 0) {
-        if (ptr) {
-            if (mi_is_in_heap_region(ptr)) {
-                mi_free(ptr);
-                g_luaAllocStats_free++;
-            } else {
-                g_origLuaAlloc(g_origLuaAllocUD, ptr, osize, 0);
-                g_luaAllocStats_freeLegacy++;
+    // SEH wrapper: if any mimalloc call crashes (e.g. HD client heap layout
+    // differs, mi_is_in_heap_region false positive), fall back to original
+    // allocator to prevent ACCESS_VIOLATION.
+    __try {
+        if (nsize == 0) {
+            if (ptr) {
+                size_t freedSize = osize;
+                if (mi_is_in_heap_region(ptr)) {
+                    freedSize = mi_usable_size(ptr);
+                    mi_free(ptr);
+                    g_luaAllocStats_free++;
+                } else {
+                    g_origLuaAlloc(g_origLuaAllocUD, ptr, osize, 0);
+                    g_luaAllocStats_freeLegacy++;
+                }
+                InterlockedAdd64(&g_netAllocBytes, -(LONG64)freedSize);
+            }
+            return NULL;
+        }
+
+        if (ptr == NULL) {
+            g_luaAllocStats_malloc++;
+            void* p = mi_malloc(nsize);
+            if (p) {
+                InterlockedAdd64(&g_netAllocBytes, (LONG64)nsize);
+            }
+            return p;
+        }
+
+        if (mi_is_in_heap_region(ptr)) {
+            g_luaAllocStats_realloc++;
+            size_t oldUsable = mi_usable_size(ptr);
+            void* p = mi_realloc(ptr, nsize);
+            if (p) {
+                InterlockedAdd64(&g_netAllocBytes, (LONG64)nsize - (LONG64)oldUsable);
+            }
+            return p;
+        }
+
+        g_luaAllocStats_reallocMigrate++;
+        void* newPtr = mi_malloc(nsize);
+        if (newPtr) {
+            size_t copySize = (osize < nsize) ? osize : nsize;
+            memcpy(newPtr, ptr, copySize);
+            g_origLuaAlloc(g_origLuaAllocUD, ptr, osize, 0);
+            InterlockedAdd64(&g_netAllocBytes, (LONG64)nsize - (LONG64)osize);
+        }
+        return newPtr;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        // mimalloc crashed - disable replacement and use original allocator
+        // This prevents repeated crashes on HD/non-standard clients
+        static volatile LONG s_fallbackCount = 0;
+        LONG count = InterlockedIncrement(&s_fallbackCount);
+        if (count <= 3) {
+            Log("[LuaOpt-Alloc] EXCEPTION in MimallocLuaAlloc (0x%08X) - falling back to original allocator",
+                GetExceptionCode());
+        }
+        if (count == 1) {
+            // Restore original allocator on first exception
+            if (g_globalStateAddr && g_origLuaAlloc) {
+                DWORD oldProt;
+                VirtualProtect((void*)(g_globalStateAddr + 0x0C), 4, PAGE_READWRITE, &oldProt);
+                *(uintptr_t*)(g_globalStateAddr + 0x0C) = (uintptr_t)g_origLuaAlloc;
+                VirtualProtect((void*)(g_globalStateAddr + 0x0C), 4, oldProt, &oldProt);
+                g_luaAllocReplaced = false;
+                Log("[LuaOpt-Alloc] RESTORED original Lua allocator (HD client compatibility)");
             }
         }
-        return NULL;
+        // Route this call through original allocator
+        return g_origLuaAlloc(g_origLuaAllocUD, ptr, osize, nsize);
     }
-
-    if (ptr == NULL) {
-        g_luaAllocStats_malloc++;
-        return mi_malloc(nsize);
-    }
-
-    if (mi_is_in_heap_region(ptr)) {
-        g_luaAllocStats_realloc++;
-        return mi_realloc(ptr, nsize);
-    }
-
-    g_luaAllocStats_reallocMigrate++;
-    void* newPtr = mi_malloc(nsize);
-    if (newPtr) {
-        size_t copySize = (osize < nsize) ? osize : nsize;
-        memcpy(newPtr, ptr, copySize);
-        g_origLuaAlloc(g_origLuaAllocUD, ptr, osize, 0);
-    }
-    return newPtr;
 }
 
 static bool ReplaceLuaAllocator(lua_State* L) {
@@ -628,11 +683,15 @@ static int GetCurrentStepKB() {
 
 static int g_loadingGraceFrames = 0;
 
+// Smoothed net allocation rate (bytes/frame) for adaptive GC
+static double g_smoothedNetAlloc = 0.0;
+
 static void StepGC(lua_State* L, double frameMs) {
     if (!State.gcOptimized || !Api.lua_gc) return;
 
     // Skip GC during combat if frame is already slow to prevent compounding stutter
     if (Config.inCombat && frameMs > 14.0) {
+        ResetAllocCounter();  // Still reset counter even when skipping
         return;
     }
 
@@ -641,6 +700,7 @@ static void StepGC(lua_State* L, double frameMs) {
     if (Config.isLoading) {
         if (g_loadingGraceFrames < 30) {
             g_loadingGraceFrames++;
+            ResetAllocCounter();
             return;
         }
     } else {
@@ -651,7 +711,26 @@ static void StepGC(lua_State* L, double frameMs) {
         QueryPerformanceFrequency(&g_gcPerfFreq);
     }
 
-    int stepKB = GetCurrentStepKB();
+    // Adaptive GC: read net allocation since last frame and smooth it.
+    // This makes GC automatically scale to each user's addon workload:
+    //   - Light user (50KB/frame alloc) → collects ~50KB/frame
+    //   - Heavy user (2MB/frame alloc) → collects ~2MB/frame
+    // Fixed tier values serve as MINIMUMS to ensure baseline collection.
+    LONG64 netAlloc = GetAndResetNetAlloc();
+    if (netAlloc < 0) netAlloc = 0;  // Negative = more freed than allocated
+
+    // Exponential moving average (alpha=0.1 for stability)
+    g_smoothedNetAlloc = g_smoothedNetAlloc * 0.9 + (double)netAlloc * 0.1;
+
+    // Convert smoothed allocation to KB, add 20% headroom to stay ahead
+    int adaptiveStepKB = (int)(g_smoothedNetAlloc / 1024.0 * 1.2);
+
+    // Use the larger of adaptive or tier-based minimum
+    int tierMin = GetCurrentStepKB();
+    int stepKB = (adaptiveStepKB > tierMin) ? adaptiveStepKB : tierMin;
+
+    // Cap at 4MB per frame to prevent GC stalls
+    if (stepKB > 4096) stepKB = 4096;
 
     // Frame-time based pre-adjustment: reduce GC pressure when frames are slow
     if (frameMs > 0.0) {
@@ -662,7 +741,6 @@ static void StepGC(lua_State* L, double frameMs) {
             // Frame took < 8ms (above 120 FPS) - increase GC to catch up on garbage
             stepKB = stepKB * 3 / 2;
         }
-        // 8-16ms: normal step, no adjustment needed
     }
 
     LARGE_INTEGER before, after;
@@ -1038,16 +1116,17 @@ static void RegisterLuaFunction(lua_State* L, const char* name, void* fn) {
 }
 
 static void SetupLuaInterface(lua_State* L) {
-    // ALWAYS use Lua C API - never FrameScript_Execute
-    // FrameScript uses WoW's internal lua_State which may differ from the one
-    // at 0x00D3F78C, causing globals to be written to wrong state.
+    // Use BOTH Lua C API and FrameScript_Execute to set globals.
+    // WoW 3.3.5a may use a different internal lua_State for addon execution
+    // than the one at 0x00D3F78C. FrameScript_Execute writes to WoW's actual
+    // addon state, ensuring addons can see our markers.
     if (!Api.lua_pushboolean || !Api.lua_setfield || !Api.lua_pushcclosure) {
         Log("[LuaOpt] SetupLuaInterface: missing C API functions");
         return;
     }
     
     __try {
-        // Write boolean globals
+        // Write boolean globals via C API (for DLL-side reads)
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_GC_ACTIVE", State.gcOptimized);
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
@@ -1056,6 +1135,20 @@ static void SetupLuaInterface(lua_State* L) {
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_COMBAT", false);
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_IDLE", false);
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_LOADING", false);
+
+        // Also inject via FrameScript_Execute for addon-side visibility
+        if (Api.FrameScript_Execute) {
+            __try {
+                Api.FrameScript_Execute(
+                    "LUABOOST_DLL_LOADED=true "
+                    "LUABOOST_DLL_GC_ACTIVE=true "
+                    "LUABOOST_DLL_LUA_ALLOC=true",
+                    "wow_optimize_inject", 0);
+                Log("[LuaOpt] SetupLuaInterface: injected markers via FrameScript_Execute");
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                Log("[LuaOpt] SetupLuaInterface: FrameScript injection failed");
+            }
+        }
         
         // Register C functions
         RegisterLuaFunction(L, "LuaBoostC_IsLoaded", (void*)LuaBoostC_IsLoaded_cb);
@@ -1168,6 +1261,50 @@ void ForceTimingOverride() {
 void ForceTimingOverride() {}
 #endif
 
+// ================================================================
+// FrameScript_Execute hook - inject DLL markers before addon code runs
+// ================================================================
+static fn_FrameScript_Execute g_origFrameScript = nullptr;
+static volatile LONG g_frameScriptInjected = 0;
+static lua_State* g_pendingInjectState = nullptr;
+
+static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
+    // Inject markers before addon code on new lua_State
+    lua_State* currentL = ReadLuaState();
+    if (currentL && currentL == g_pendingInjectState &&
+        InterlockedCompareExchange(&g_frameScriptInjected, 1, 0) == 0) {
+        __try {
+            if (Api.lua_pushnil && Api.lua_setfield && Api.lua_pushboolean) {
+                Api.lua_pushnil(currentL);
+                Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_LOADED");
+                Api.lua_pushboolean(currentL, 1);
+                Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_LOADED");
+                Api.lua_pushboolean(currentL, 1);
+                Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_ACTIVE");
+                Log("[LuaOpt] FrameScript hook: injected DLL markers before addon load on L=0x%08X",
+                    (unsigned)(uintptr_t)currentL);
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            Log("[LuaOpt] FrameScript hook: injection failed");
+        }
+    }
+    g_origFrameScript(code, source, unknown);
+}
+
+static void InstallFrameScriptInjectionHook() {
+    if (!Api.FrameScript_Execute) return;
+    if (MH_CreateHook((void*)Api.FrameScript_Execute, (void*)Hooked_FrameScript_Execute,
+                      (void**)&g_origFrameScript) != MH_OK) {
+        Log("[LuaOpt] FrameScript injection hook: FAILED");
+        return;
+    }
+    if (MH_EnableHook((void*)Api.FrameScript_Execute) != MH_OK) {
+        Log("[LuaOpt] FrameScript injection hook: enable FAILED");
+        return;
+    }
+    Log("[LuaOpt] FrameScript injection hook: ACTIVE (will inject markers on next addon load)");
+}
+
 static void DoMainThreadInit() {
     Log("[LuaOpt] Main thread init");
 
@@ -1183,6 +1320,17 @@ static void DoMainThreadInit() {
     }
 
     Log("[LuaOpt] lua_State* = 0x%08X", (unsigned)(uintptr_t)Api.L);
+
+    // Set LUABOOST_DLL_LOADED early before heavy init operations
+    __try {
+        if (Api.lua_pushboolean && Api.lua_setfield) {
+            Api.lua_pushboolean(Api.L, 1);
+            Api.lua_setfield(Api.L, LUA_GLOBALSINDEX, "LUABOOST_DLL_LOADED");
+            Log("[LuaOpt] Early marker: LUABOOST_DLL_LOADED set on first init");
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        Log("[LuaOpt] Early marker: failed on first init");
+    }
 
     bool allocOk = ReplaceLuaAllocator(Api.L);
     bool gcOk = OptimizeGC(Api.L);
@@ -1215,9 +1363,10 @@ static void DoMainThreadInit() {
     g_pendingLuaStateTick = 0;
     g_pendingLuaStateFrames = 0;
     
-    // CRITICAL: Mark VM as initialized so subsequent /reload goes through
-    // "Subsequent swap" path instead of "First-time VM initialization"
     g_vmInitializedOnce = true;
+
+    // Hook FrameScript_Execute for marker injection on future /reloads
+    InstallFrameScriptInjectionHook();
 
     Log("[LuaOpt] ====================================");
     Log("[LuaOpt]  Init Complete");
@@ -1296,6 +1445,14 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaStateTick = nowTick;
             g_pendingLuaStateFrames = 1;
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
+
+            // ARM FrameScript_Execute hook for pre-addon marker injection.
+            // The hook fires BEFORE any addon top-level code runs on the new
+            // lua_State, injecting LUABOOST_DLL_LOADED=true and clearing
+            // LUABOOST_LOADED so LuaBoost re-runs its detection.
+            g_pendingInjectState = currentL;
+            InterlockedExchange(&g_frameScriptInjected, 0);
+            Log("[LuaOpt] FrameScript injection armed for L=0x%08X", (unsigned)(uintptr_t)currentL);
             return;
         }
 

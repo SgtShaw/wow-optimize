@@ -1,10 +1,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
-#define WOW_OPTIMIZE_VERSION_MINOR  7
+#define WOW_OPTIMIZE_VERSION_MINOR  8
 #define WOW_OPTIMIZE_VERSION_PATCH  0
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.7.0"
+#define WOW_OPTIMIZE_VERSION_STR    "3.8.0"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -233,6 +233,25 @@
 // Caches quest data, achievement data, quest objectives
 // Background quest progress updates
 #define TEST_DISABLE_QUEST_ASYNC        0
+
+// Heap Compactor - proactive VA defragmentation
+// Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
+// Prevents OOM crashes during M2 model loading on teleports
+// Safe: no WoW code patching, only Windows heap APIs
+#define TEST_DISABLE_HEAP_COMPACTOR     0
+
+// SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, 120 bytes)
+// PERMANENTLY DISABLED: SSE2 heap corruption with mimalloc
+// Root cause: _mm_loadu_si128 reads 16 bytes even for short strings,
+// crossing into adjacent mimalloc allocations → heap corruption
+// Risk/reward: 3-4x speedup vs. massive heap corruption risk = NOT WORTH IT
+#define TEST_DISABLE_STRCAT_FAST        1
+
+// Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
+// DISABLED: ACCESS_VIOLATION crashes - lua_State structure offsets incorrect
+// sub_84D9C0 (index2adr) has complex pseudo-index logic that cannot be safely inlined
+// Reading o->value from wrong offset caused 0xC0000005 at 0x00000209
+#define TEST_DISABLE_LUA_TONUMBER_FAST  1
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
