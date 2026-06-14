@@ -85,6 +85,10 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
         }
         size_t blocks = Size & ~(size_t)15;
         for (size_t i = 0; i < blocks; i += 16) {
+            // Prefetch the source ahead with a non-temporal hint to hide memory
+            // latency. _mm_prefetch never faults (a hint, dropped for invalid
+            // addresses), so reading past the buffer end here is harmless.
+            _mm_prefetch((const char*)(ps + i + 512), _MM_HINT_NTA);
             __m128i v = _mm_loadu_si128((const __m128i*)(ps + i));
             _mm_stream_si128((__m128i*)(pd + i), v);
         }
