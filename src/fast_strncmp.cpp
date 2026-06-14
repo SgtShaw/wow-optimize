@@ -16,8 +16,6 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-static std::atomic<uint64_t> g_calls{0};
-
 typedef int (__stdcall *strnicmp_t)(const char*, const char*, size_t);
 static strnicmp_t g_orig = nullptr;
 
@@ -27,8 +25,6 @@ static inline unsigned char to_lower_ascii(unsigned char c) {
 }
 
 int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {
-    g_calls.fetch_add(1, std::memory_order_relaxed);
-
     if (!s1 && !s2) return 0;
     if (!s1) return -1;
     if (!s2) return 1;
@@ -81,10 +77,8 @@ bool InstallFastStrncmp() {
 void UninstallFastStrncmp() {
     MH_DisableHook((void*)0x0076E780);
     MH_RemoveHook((void*)0x0076E780);
-    uint64_t calls = g_calls.load();
-    if (calls > 0) Log("[FastStrnicmp] Stats: %llu calls", calls);
 }
 
 void GetFastStrncmpStats(uint64_t* calls) {
-    if (calls) *calls = g_calls.load(std::memory_order_relaxed);
+    if (calls) *calls = 0;
 }
