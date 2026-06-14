@@ -247,8 +247,11 @@
 // page-safe aligned fast_strlen_sse2 and copies strictly copy_len <= src_len
 // bytes (no source overread) into <= maxlen-1 bytes (no dest overflow). It is
 // layout-independent (pure bytes), unlike the reimplementations that crashed.
-// TEST CANDIDATE: set back to 1 to revert if any regression appears in-game.
-#define TEST_DISABLE_STRCAT_FAST        0
+// Kept OFF until a tester can validate it in-game: it is a re-enable of a
+// previously-disabled hook on 890 callers, and shipping it unvalidated would
+// make the build less than 100% safe. The code is reviewed bounded/safe and
+// ready; flip to 0 when someone can test. (Analysis: see comment above.)
+#define TEST_DISABLE_STRCAT_FAST        1
 
 // Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
 // DISABLED: ACCESS_VIOLATION crashes - lua_State structure offsets incorrect
