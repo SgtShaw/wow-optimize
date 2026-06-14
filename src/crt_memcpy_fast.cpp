@@ -26,7 +26,14 @@ extern "C" void Log(const char* fmt, ...);
 
 static uint64_t g_total_calls = 0;
 static uint64_t g_sse2_path = 0;
+static uint64_t g_nt_path = 0;
 static uint64_t g_fallback_path = 0;
+
+// Above this size a non-overlapping copy is almost always one-shot bulk data
+// (textures, model/sound buffers, decompressed MPQ blocks). WoW's VEC memcpy
+// uses plain movdqa there; streaming (non-temporal) stores avoid evicting the
+// working set, which matters most during loading screens.
+static const size_t NT_THRESHOLD = 256 * 1024;
 
 typedef void* (__cdecl *orig_memcpy_t)(void*, const void*, size_t);
 static orig_memcpy_t g_orig_memcpy = nullptr;
@@ -56,14 +63,41 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
         return g_orig_memcpy(dest, src, Size);
     }
 
-    // >= 256B → let original handle (VEC/SSE2 path already fast there)
-    if (Size >= 256) {
+    // < 16B → original dword-scalar path is fine
+    if (Size < 16) {
         g_fallback_path++;
         return g_orig_memcpy(dest, src, Size);
     }
 
-    // < 16B → original dword-scalar path is fine
-    if (Size < 16) {
+    // Very large non-overlapping copy: stream with non-temporal stores so the
+    // bulk data does not pollute the cache (WoW's VEC path does not do this).
+    if (Size >= NT_THRESHOLD) {
+        g_nt_path++;
+        unsigned char* pd = (unsigned char*)dest;
+        const unsigned char* ps = (const unsigned char*)src;
+
+        // Align the destination so movntdq (which requires 16-byte alignment)
+        // is legal; the source stays unaligned (loadu).
+        size_t head = (0u - (uintptr_t)pd) & 15;
+        if (head) {
+            _mm_storeu_si128((__m128i*)pd, _mm_loadu_si128((const __m128i*)ps));
+            pd += head; ps += head; Size -= head;
+        }
+        size_t blocks = Size & ~(size_t)15;
+        for (size_t i = 0; i < blocks; i += 16) {
+            __m128i v = _mm_loadu_si128((const __m128i*)(ps + i));
+            _mm_stream_si128((__m128i*)(pd + i), v);
+        }
+        if (Size != blocks) {
+            _mm_storeu_si128((__m128i*)(pd + Size - 16),
+                             _mm_loadu_si128((const __m128i*)(ps + Size - 16)));
+        }
+        _mm_sfence();
+        return dest;
+    }
+
+    // 256B .. NT_THRESHOLD → let original handle (VEC/SSE2 path already fast)
+    if (Size >= 256) {
         g_fallback_path++;
         return g_orig_memcpy(dest, src, Size);
     }
@@ -141,7 +175,7 @@ void UninstallMemcpyFast()
 
     uint64_t total = g_total_calls;
     if (total > 0) {
-        Log("[FastMemcpy] Stats: %llu total, %llu SSE2, %llu fallback (%.1f%% SSE2)",
-            total, g_sse2_path, g_fallback_path, 100.0 * g_sse2_path / total);
+        Log("[FastMemcpy] Stats: %llu total, %llu SSE2, %llu NT, %llu fallback (%.1f%% SSE2)",
+            total, g_sse2_path, g_nt_path, g_fallback_path, 100.0 * g_sse2_path / total);
     }
 }
