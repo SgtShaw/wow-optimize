@@ -6723,19 +6723,39 @@ static unsigned int __stdcall hooked_strlen76(const char* str) {
     }
     InterlockedIncrement(&g_strlen76Calls);
 
-    // Inline SSE2 strlen: scan 16 bytes at a time
-    const char* p = str;
-    __m128i zero = _mm_setzero_si128();
-    while (true) {
-        __m128i chunk = _mm_loadu_si128((const __m128i*)p);
-        __m128i cmp   = _mm_cmpeq_epi8(chunk, zero);
-        int mask      = _mm_movemask_epi8(cmp);
+    // Scan must be 16-byte aligned. An unaligned _mm_loadu_si128 can straddle a
+    // page boundary; when a valid string terminates within 15 bytes of the end
+    // of a committed page and the next page is unmapped/decommitted, the load
+    // faults reading bytes past the terminator. That overrun is what crashed at
+    // RVA 0xA980 during login/logout/char-swap, when heavy string churn (300+
+    // callers) coincides with the heap committing/decommitting pages.
+    //
+    // Aligning the base down to 16 bytes guarantees every _mm_load_si128 stays
+    // inside one 4 KiB page (4096 % 16 == 0), so the scan never reads into a
+    // page that the string itself does not occupy — exactly as safe as the
+    // byte-by-byte function it replaces. The first chunk's leading bytes (those
+    // before str) are masked out so they cannot produce a false terminator.
+    const __m128i zero = _mm_setzero_si128();
+    uintptr_t   addr = (uintptr_t)str;
+    const char* base = (const char*)(addr & ~(uintptr_t)15);
+    unsigned    off  = (unsigned)(addr & 15);
+
+    int mask = _mm_movemask_epi8(
+        _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)base), zero)) >> off;
+    if (mask) {
+        unsigned long idx;
+        _BitScanForward(&idx, (unsigned long)mask);
+        return (unsigned int)idx;
+    }
+
+    for (const char* p = base + 16; ; p += 16) {
+        mask = _mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)p), zero));
         if (mask) {
             unsigned long idx;
-            _BitScanForward(&idx, mask);
-            return (unsigned int)((p + idx) - str);
+            _BitScanForward(&idx, (unsigned long)mask);
+            return (unsigned int)((size_t)(p - str) + idx);
         }
-        p += 16;
     }
 }
 
