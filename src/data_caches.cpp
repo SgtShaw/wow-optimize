@@ -272,7 +272,17 @@ static volatile LONG64 g_eventHashSlow = 0;
 uint32_t FastEventNameHash(const char* name, int len) {
     // SSE2 fast path for names <= 16 bytes (most WoW events)
     if (len > 0 && len <= 16) {
-        __m128i data = _mm_loadu_si128((const __m128i*)name);
+        // A full 16-byte load past a short name can cross into an unmapped
+        // page; when name sits within 16 bytes of a page end, assemble the
+        // chunk from a zero-padded local buffer instead (identical result).
+        __m128i data;
+        if (((uintptr_t)name & 0xFFF) <= 0xFF0) {
+            data = _mm_loadu_si128((const __m128i*)name);
+        } else {
+            __declspec(align(16)) char tmp[16] = {0};
+            for (int i = 0; i < len; i++) tmp[i] = name[i];
+            data = _mm_load_si128((const __m128i*)tmp);
+        }
         // Mask out bytes beyond length
         static const uint8_t masks[17][16] = {
             {0},{0xFF},{0xFF,0xFF},{0xFF,0xFF,0xFF},
