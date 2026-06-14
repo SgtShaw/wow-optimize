@@ -81,7 +81,7 @@ static void* __cdecl Hooked_luaV_gettable(int L, int* table, int* key, void* res
                         dst[1] = e->resultData[1];
                         dst[2] = e->resultData[2];
                         dst[3] = e->resultData[3];
-                        InterlockedIncrement64(&g_gettableHits);
+                        ++g_gettableHits;
                         return result;
                     }
 
@@ -101,7 +101,7 @@ static void* __cdecl Hooked_luaV_gettable(int L, int* table, int* key, void* res
                         e->valid = true;
                     }
 
-                    InterlockedIncrement64(&g_gettableMisses);
+                    ++g_gettableMisses;
                     return ret;
                 }
             }

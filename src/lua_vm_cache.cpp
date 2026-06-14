@@ -66,13 +66,13 @@ static void __cdecl Hooked_luaV_gettable(void* L, void* table, void* key, void* 
             *(uint32_t*)((char*)result + 8)  = tp;
             *(uint32_t*)((char*)result + 12) = 0;
             ReleaseSRWLockShared(&g_cacheLock);
-            InterlockedIncrement64(&g_hits);
+            ++g_hits;
             return;
         }
     }
     ReleaseSRWLockShared(&g_cacheLock);
 
-    InterlockedIncrement64(&g_misses);
+    ++g_misses;
     orig_luaV_gettable(L, table, key, result);
 
     // Cache only primitive results

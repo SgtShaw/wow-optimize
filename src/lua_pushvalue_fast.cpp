@@ -24,7 +24,7 @@ typedef void (__cdecl *lua_pushvalue_fn)(void* L, int idx);
 static lua_pushvalue_fn g_orig_pushvalue = nullptr;
 
 static void __cdecl Hooked_PushValue(void* L, int idx) {
-    InterlockedIncrement64(&g_pushvalue_calls);
+    ++g_pushvalue_calls;
 
     __try {
         uintptr_t L_addr = (uintptr_t)L;
@@ -62,7 +62,7 @@ static void __cdecl Hooked_PushValue(void* L, int idx) {
         // Advance top by 16 bytes
         *top_ptr = top + 16;
 
-        InterlockedIncrement64(&g_pushvalue_hits);
+        ++g_pushvalue_hits;
         return;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 

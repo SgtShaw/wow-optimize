@@ -45,7 +45,7 @@ static constexpr uintptr_t ADDR_taint_skip    = 0x00D413A4;
 // Optimized replacement
 static void __cdecl Optimized_PushNumber(void* L, double n)
 {
-    InterlockedIncrement64(&g_pushnum_calls);
+    ++g_pushnum_calls;
 
     // Bail out during lua_State swap — L->top is being torn down
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
@@ -80,7 +80,7 @@ static void __cdecl Optimized_PushNumber(void* L, double n)
         // Advance L->top
         *(DWORD**)(L_addr + 0x0C) = top + 4;
 
-        InterlockedIncrement64(&g_pushnum_hits);
+        ++g_pushnum_hits;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         g_orig_pushnumber(L, n);
     }

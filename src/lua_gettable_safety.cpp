@@ -40,7 +40,8 @@ static void* g_nil_object = (void*)0x00A46F78;
 // 7=userdata, 8=thread. Types above 15 are definitely invalid.
 static constexpr uint32_t MAX_VALID_TYPE = 15;
 
-// Statistics
+// Statistics (diagnostic only; plain increments -- Lua is single-threaded,
+// so a locked cmpxchg8b per table index was wasted on this hot path)
 static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_blocked_calls = 0;
 
@@ -49,11 +50,11 @@ static volatile LONG64 g_blocked_calls = 0;
 // ----------------------------------------------------------------
 static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
 {
-    InterlockedIncrement64(&g_total_calls);
+    ++g_total_calls;
 
     // Validate a2 pointer
     if (!a2 || (uintptr_t)a2 < 0x10000 || (uintptr_t)a2 > 0xBFFF0000) {
-        InterlockedIncrement64(&g_blocked_calls);
+        ++g_blocked_calls;
         return g_nil_object;
     }
 
@@ -65,12 +66,12 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
         
         if (typeTag > MAX_VALID_TYPE) {
             // Invalid type tag - would cause out-of-bounds access
-            InterlockedIncrement64(&g_blocked_calls);
+            ++g_blocked_calls;
             return g_nil_object;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         // Can't even read a2[2] safely
-        InterlockedIncrement64(&g_blocked_calls);
+        ++g_blocked_calls;
         return g_nil_object;
     }
 
@@ -79,7 +80,7 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
         return g_orig_sub_85BC10(a1, a2, a3);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         // Original crashed despite valid-looking type - memory corruption elsewhere
-        InterlockedIncrement64(&g_blocked_calls);
+        ++g_blocked_calls;
         return g_nil_object;
     }
 }
