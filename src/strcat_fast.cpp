@@ -66,8 +66,11 @@ static inline size_t fast_strlen_sse2(const char* s) {
         p++;
         offset += 16;
 
-        // Safety: cap at 4KB to avoid infinite loops on corrupt data
-        if (offset > 4096) break;
+        // Safety cap to bound runaway scans on non-terminated/corrupt input.
+        // Raised to 64 KB so it never truncates a real WoW string (names,
+        // paths, tooltips are all well under this); aligned loads keep every
+        // read inside a mapped page, so a valid string always finds its null.
+        if (offset > 0x10000) break;
     }
 
     // Fallback: should never reach here with valid data

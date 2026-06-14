@@ -240,12 +240,15 @@
 // Safe: no WoW code patching, only Windows heap APIs
 #define TEST_DISABLE_HEAP_COMPACTOR     0
 
-// SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, 120 bytes)
-// PERMANENTLY DISABLED: SSE2 heap corruption with mimalloc
-// Root cause: _mm_loadu_si128 reads 16 bytes even for short strings,
-// crossing into adjacent mimalloc allocations → heap corruption
-// Risk/reward: 3-4x speedup vs. massive heap corruption risk = NOT WORTH IT
-#define TEST_DISABLE_STRCAT_FAST        1
+// SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, bounded strncpy)
+// RE-ENABLED: the old corruption came from an unbounded SSE strlen that read
+// past short strings into adjacent mimalloc allocations. That cause is gone:
+// (1) the mimalloc CRT allocator is disabled, and (2) the current code uses the
+// page-safe aligned fast_strlen_sse2 and copies strictly copy_len <= src_len
+// bytes (no source overread) into <= maxlen-1 bytes (no dest overflow). It is
+// layout-independent (pure bytes), unlike the reimplementations that crashed.
+// TEST CANDIDATE: set back to 1 to revert if any regression appears in-game.
+#define TEST_DISABLE_STRCAT_FAST        0
 
 // Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
 // DISABLED: ACCESS_VIOLATION crashes - lua_State structure offsets incorrect
