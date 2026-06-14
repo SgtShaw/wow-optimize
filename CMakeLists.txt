@@ -107,6 +107,8 @@ add_library(wow_optimize SHARED
     src/lua_global_cache.h
     src/hot_functions.cpp
     src/hot_functions.h
+    src/crt_memcpy_fast.cpp
+    src/crt_memcpy_fast.h
     src/fast_strncmp.cpp
     src/fast_strncmp.h
     src/crt_free_hook.cpp
