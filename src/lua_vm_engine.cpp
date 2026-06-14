@@ -1235,10 +1235,22 @@ exit_interpreter:
 // ================================================================
 bool InstallLuaVMEngine()
 {
+    // DISABLED: this hooks luaV_execute (0x00859160), WoW's core Lua interpreter
+    // loop, and runs a custom opcode dispatch. Any mismatch with the client's
+    // exact opcode/Proto/TValue layout corrupts execution -> "attempt to compare
+    // number with nil" spam in FrameXML (UIParent.lua:2469) and hangs on world
+    // transitions (RDF queue freeze). Far too high-risk for the marginal gain;
+    // the individual fast paths (getstr/rawgeti/gettable, lua_fastpath) already
+    // cover the hot cases safely. Let WoW's own interpreter run.
+    (void)&Hooked_luaV_execute;
+    Log("[VMEngine] DISABLED (custom interpreter caused Lua corruption + world-transition freeze)");
+    return false;
+
+#if 0
     // Hook luaV_execute at 0x00859160
     // NOTE: 0x00855B33 is luaD_rawrunprotected wrapper, NOT the interpreter
     void* target = (void*)0x00859160;
-    
+
     // Verify prologue: push ebp; mov ebp, esp
     unsigned char* p = (unsigned char*)target;
     if (p[0] != 0x55 || p[1] != 0x8B) {
@@ -1274,8 +1286,9 @@ bool InstallLuaVMEngine()
     Log("[VMEngine]   - Global cache: %d entries", IC_GLOBAL_SIZE);
     Log("[VMEngine]   - SSE2 TValue operations enabled");
     Log("[VMEngine]   - Max %d opcodes per execution slice", MAX_OPCODES_PER_SLICE);
-    
+
     return true;
+#endif
 }
 
 void UninstallLuaVMEngine()

@@ -88,6 +88,18 @@ static void __cdecl Optimized_PushNumber(void* L, double n)
 
 bool InstallLuaPushNumberFast()
 {
+    // DISABLED pending isolation: lua_pushnumber writes a TValue directly to the
+    // Lua stack assuming a 16-byte value+tt+taint layout. If that layout is off
+    // by any field on this (HD/custom) client, every pushed number lands wrong
+    // -> "attempt to compare number with nil" in FrameXML. Secondary suspect to
+    // the VM engine for that symptom; disabled together so the fix can be tested
+    // cleanly. Re-enable this (return to the code below) to recover the path once
+    // the VM-engine disable is confirmed as the real fix.
+    (void)&Optimized_PushNumber;
+    Log("[PushNumFast] DISABLED (numeric-corruption suspect; see lua_pushnumber_fast.cpp)");
+    return false;
+
+#if 0
     void* target = (void*)0x0084E2A0;
 
     // Verify prologue: push ebp; mov ebp, esp
@@ -108,6 +120,7 @@ bool InstallLuaPushNumberFast()
 
     Log("[PushNumFast] ACTIVE: direct stack write for lua_pushnumber (0x%08X)", (uintptr_t)target);
     return true;
+#endif
 }
 
 void ShutdownLuaPushNumberFast()
