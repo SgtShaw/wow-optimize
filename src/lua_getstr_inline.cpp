@@ -223,6 +223,18 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
 // ----------------------------------------------------------------
 bool InstallLuaGetStrInline()
 {
+    // DISABLED: replaces luaH_getstr (string-keyed table lookup, 0x85C430).
+    // Testers without ElvUI hit "attempt to perform arithmetic on field
+    // 'startTime' (a nil value)" / "attempt to index field 'texture' (a nil
+    // value)" in SheklesLibBars/FatCooldowns -- string-keyed fields reading nil,
+    // i.e. this cache returning the nil sentinel for keys that exist (an edge
+    // case the rapidly-rebuilt cooldown tables trigger; ElvUI's paths don't).
+    // Correctness > the lookup speedup. WoW's own luaH_getstr is exact.
+    (void)&Optimized_GetStr;
+    Log("[GetStrInline] DISABLED (returned nil for live string keys -> addon lib errors without ElvUI)");
+    return false;
+
+#if 0
     void* target = (void*)0x0085C430;
 
     // Verify prologue: push ebp; mov ebp, esp
@@ -246,6 +258,7 @@ bool InstallLuaGetStrInline()
 
     Log("[GetStrInline] ACTIVE v2: safe bucket-index cache + prefetch (%d entries)", CACHE_SIZE);
     return true;
+#endif
 }
 
 void UninstallLuaGetStrInline()
