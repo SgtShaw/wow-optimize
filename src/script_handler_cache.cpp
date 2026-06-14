@@ -180,22 +180,16 @@ static int __fastcall Hooked_ScriptHandlerResolver(void* self, void* /*edx*/, ch
 // ----------------------------------------------------------------
 bool InstallScriptHandlerCache()
 {
-    void* target = reinterpret_cast<void*>(0x0048E680);
-
-    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hooked_ScriptHandlerResolver),
-                       reinterpret_cast<void**>(&g_orig_resolver)) != MH_OK) {
-        Log("[ScriptHandlerCache] Failed to create hook");
-        return false;
-    }
-
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[ScriptHandlerCache] Failed to enable hook");
-        MH_RemoveHook(target);
-        return false;
-    }
-
-    Log("[ScriptHandlerCache] Installed: O(1) script handler resolution at 0x48E680");
-    return true;
+    // Disabled: the hook never actually replaced the resolver. The original
+    // (0x0048E680) first calls sub_816830 (a custom-handler pre-check this code
+    // skips) and matches names case-insensitively via _strnicmp, whereas the
+    // hash dispatch here is case-sensitive. Unable to reproduce either, every
+    // path fell through to g_orig_resolver -- so the hook ran the full original
+    // plus an FNV-1a hash, a switch, a streq and two atomics on top. Net loss;
+    // let the original resolver run directly.
+    (void)&Hooked_ScriptHandlerResolver;
+    Log("[ScriptHandlerCache] Disabled (hook was pure overhead over the original)");
+    return false;
 }
 
 void UninstallScriptHandlerCache()
