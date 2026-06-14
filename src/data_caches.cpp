@@ -1,16 +1,16 @@
 ﻿// ================================================================
-// data_caches.cpp — 10 game-data lookup and processing caches
+// data_caches.cpp — 9 game-data lookup and processing caches
+// (DBC lookup moved to separate dbc_lookup_cache.cpp)
 // ================================================================
 // 1. Spell History Cache (sub_80E1B0) - 7,457B, 67 callees
 // 2. M2 Model Init Cache (sub_832EA0) - 5,692B, 41 callers
 // 3. FMOD Audio Config Cache (sub_8D67D0) - 8,216B
 // 4. FrameScript Opcode Cache (sub_842DA0) - 18,022B
-// 5. DBC Record Lookup Index
-// 6. Event Name SSE2 Hash
-// 7. String Interning L2 Cache
-// 8. Combat Log Bloom Dedup
-// 9. Render State Batch Coalescing
-// 10. Texture Decode Prefetch
+// 5. Event Name SSE2 Hash
+// 6. String Interning L2 Cache
+// 7. Combat Log Bloom Dedup
+// 8. Render State Batch Coalescing
+// 9. Texture Decode Prefetch
 // ================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -219,44 +219,6 @@ void FrameScriptCache_Put(uint64_t eventKey, uint32_t result) {
     e->eventKey = eventKey;
     e->result = result;
     e->lastAccess = GetTickCount();
-    e->valid = true;
-}
-
-// ================================================================
-// 5. DBC RECORD LOOKUP ACCELERATION
-// ================================================================
-// WoW's DBC (Database Client) files contain game data tables.
-// Lookups by ID are linear scans. We provide a hash-based index.
-// ================================================================
-static constexpr int DBC_INDEX_SIZE = 4096;
-static constexpr int DBC_INDEX_MASK = DBC_INDEX_SIZE - 1;
-
-struct DbcIndexEntry {
-    uint32_t recordId;
-    uintptr_t recordPtr;
-    bool     valid;
-};
-
-static DbcIndexEntry g_dbcIndex[DBC_INDEX_SIZE];
-static volatile LONG64 g_dbcHits = 0;
-static volatile LONG64 g_dbcMisses = 0;
-
-uintptr_t DbcIndex_Lookup(uint32_t recordId) {
-    uint32_t idx = recordId & DBC_INDEX_MASK;
-    DbcIndexEntry* e = &g_dbcIndex[idx];
-    if (e->valid && e->recordId == recordId) {
-        InterlockedIncrement64(&g_dbcHits);
-        return e->recordPtr;
-    }
-    InterlockedIncrement64(&g_dbcMisses);
-    return 0;
-}
-
-void DbcIndex_Store(uint32_t recordId, uintptr_t recordPtr) {
-    uint32_t idx = recordId & DBC_INDEX_MASK;
-    DbcIndexEntry* e = &g_dbcIndex[idx];
-    e->recordId = recordId;
-    e->recordPtr = recordPtr;
     e->valid = true;
 }
 
@@ -504,22 +466,20 @@ bool InitDataCaches() {
     memset(g_modelCache, 0, sizeof(g_modelCache));
     memset(g_audioCache, 0, sizeof(g_audioCache));
     memset(g_fsCache, 0, sizeof(g_fsCache));
-    memset(g_dbcIndex, 0, sizeof(g_dbcIndex));
     memset(g_strL2, 0, sizeof(g_strL2));
     memset(g_cleBloom, 0, sizeof(g_cleBloom));
     g_rsBatchCount = 0;
 
-    Log("[DataCache] 10 caches initialized:");
+    Log("[DataCache] 9 caches initialized:");
     Log("  [1] Spell History Cache (%d slots)", SPELL_CACHE_SIZE);
     Log("  [2] M2 Model Init Cache (%d slots)", MODEL_CACHE_SIZE);
     Log("  [3] FMOD Audio Config Cache (%d slots)", AUDIO_CACHE_SIZE);
     Log("  [4] FrameScript Opcode Cache (%d slots)", FS_CACHE_SIZE);
-    Log("  [5] DBC Record Index (%d slots)", DBC_INDEX_SIZE);
-    Log("  [6] Event Name SSE2 Hash (fast-path)");
-    Log("  [7] String Interning L2 Cache (%d slots)", STR_L2_SIZE);
-    Log("  [8] Combat Log Bloom Dedup (%d bits)", CLE_BLOOM_SIZE);
-    Log("  [9] Render State Batch (%d entries)", RS_BATCH_SIZE);
-    Log("  [10] Texture Decode Prefetch (L1/L2 hints)");
+    Log("  [5] Event Name SSE2 Hash (fast-path)");
+    Log("  [6] String Interning L2 Cache (%d slots)", STR_L2_SIZE);
+    Log("  [7] Combat Log Bloom Dedup (%d bits)", CLE_BLOOM_SIZE);
+    Log("  [8] Render State Batch (%d entries)", RS_BATCH_SIZE);
+    Log("  [9] Texture Decode Prefetch (L1/L2 hints)");
 
     return true;
 }
@@ -529,7 +489,6 @@ void ShutdownDataCaches() {
     LONG64 modelTotal = g_modelCacheHits + g_modelCacheMisses;
     LONG64 audioTotal = g_audioCacheHits + g_audioCacheMisses;
     LONG64 fsTotal = g_fsCacheHits + g_fsCacheMisses;
-    LONG64 dbcTotal = g_dbcHits + g_dbcMisses;
     LONG64 strTotal = g_strL2Hits + g_strL2Misses;
     LONG64 cleTotal = g_cleDedupHits + g_cleDedupPasses;
     LONG64 evtTotal = g_eventHashFast + g_eventHashSlow;
@@ -547,9 +506,6 @@ void ShutdownDataCaches() {
     if (fsTotal > 0)
         Log("  FrameScript Cache: %lld hits, %lld misses (%.1f%%)",
             g_fsCacheHits, g_fsCacheMisses, 100.0 * g_fsCacheHits / fsTotal);
-    if (dbcTotal > 0)
-        Log("  DBC Index: %lld hits, %lld misses (%.1f%%)",
-            g_dbcHits, g_dbcMisses, 100.0 * g_dbcHits / dbcTotal);
     if (strTotal > 0)
         Log("  String L2: %lld hits, %lld misses (%.1f%%)",
             g_strL2Hits, g_strL2Misses, 100.0 * g_strL2Hits / strTotal);

@@ -21,11 +21,7 @@ void AudioCache_Put(uint32_t configHash, uint32_t result);
 bool FrameScriptCache_Get(uint64_t eventKey, uint32_t* result);
 void FrameScriptCache_Put(uint64_t eventKey, uint32_t result);
 
-// 5. DBC Record Index
-uintptr_t DbcIndex_Lookup(uint32_t recordId);
-void DbcIndex_Store(uint32_t recordId, uintptr_t recordPtr);
-
-// 6. Event Name SSE2 Hash
+// 5. Event Name SSE2 Hash
 uint32_t FastEventNameHash(const char* name, int len);
 
 // 7. String Interning L2 Cache

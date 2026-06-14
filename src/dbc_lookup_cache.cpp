@@ -1,23 +1,18 @@
 // ================================================================
-// DBC / RTTI Hash Table Lookup Cache
+// DBC Row-Lookup Cache — hooks sub_4CFD20 (WoW's DBC GetRow)
 // ================================================================
-// Hooks sub_4D4DB0 (1905 callers) which wraps sub_4D4BB0 - WoW's
-// generic hash table lookup used for DBC record access, RTTI type
-// checks, and object registry queries.
+// sub_4CFD20 is the primary DBC record lookup for ALL DBC files:
+//   bool __thiscall sub_4CFD20(DBCStore* this, int recordId, void* outBuf)
+// Called by 250+ functions (GetSpellInfo, GetItemInfo, tooltips,
+// unit queries, etc.). Each call copies 0x2A8 bytes from the DBC
+// row to a caller-provided buffer.
 //
-// sub_4D4BB0 walks a chained hash table:
-//   this[9] = mask (size-1 or -1 if empty)
-//   this[7] = bucket array
-//   Each node: offset 4=next, 24=key, 48=value pair
-//   Match: node[6]==key && node[12]==*val && node[13]==val[1]
+// DBC data is immutable after load — rows are never freed or moved,
+// so a direct-mapped (storePtr, recordId) → rowPtr cache is safe
+// with no TTL and no invalidation.
 //
-// Previous attempt cached results directly but failed because the
-// function serves both immutable DBC lookups AND dynamic RTTI checks
-// where objects are created/destroyed at runtime.
-//
-// This implementation uses full-key validation (all 3 match fields)
-// plus pointer range checks on every cache hit. Stale entries from
-// freed objects fail validation and fall through to original.
+// Previous attempt hooked 0x4D4DB0 (RTTI type-check, not DBC GetRow)
+// and always lost the hook race to tls_cache.cpp. This replaces it.
 // ================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -26,151 +21,110 @@
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
-#include <atomic>
 #include "MinHook.h"
+#include "version.h"
 #include "dbc_lookup_cache.h"
 
 extern "C" void Log(const char* fmt, ...);
 
-// ----------------------------------------------------------------
-// Statistics
-// ----------------------------------------------------------------
-static std::atomic<uint64_t> g_total_calls{0};
-static std::atomic<uint64_t> g_cache_hits{0};
-static std::atomic<uint64_t> g_cache_misses{0};
-
-// ----------------------------------------------------------------
-// Cache configuration
-// ----------------------------------------------------------------
-static constexpr int CACHE_SIZE = 2048;
+static constexpr int CACHE_SIZE = 4096;
 static constexpr int CACHE_MASK = CACHE_SIZE - 1;
 
-struct CacheEntry {
-    uint64_t key_hash;     // FNV-1a of (this_ptr, a2, *a3, a3[1])
-    uintptr_t this_ptr;    // Full key for collision detection
-    int       a2;
-    int       val0;        // *a3
-    int       val1;        // a3[1]
-    void*     result;      // Cached return value
+struct DbcRowEntry {
+    uintptr_t storePtr;   // DBCStore* — identifies which DBC file
+    uint32_t  recordId;
+    void*     rowPtr;     // pointer to the raw DBC row data
     bool      valid;
 };
 
-static CacheEntry g_cache[CACHE_SIZE];
+static DbcRowEntry g_cache[CACHE_SIZE];
+static uint64_t   g_hits = 0;
+static uint64_t   g_misses = 0;
 
-// ----------------------------------------------------------------
-// Hook state
-// ----------------------------------------------------------------
-typedef int (__cdecl *orig_dbc_lookup_t)(__int64, int);
-static orig_dbc_lookup_t g_orig_lookup = nullptr;
+// __thiscall: this=ECX, recordId=[esp+4], outBuf=[esp+8]
+// Hook uses __fastcall (same register convention) to bypass MSVC restriction
+typedef bool (__thiscall *orig_dbc_getrow_t)(void* store, int recordId, void* outBuf);
+static orig_dbc_getrow_t g_orig = nullptr;
 
-// ----------------------------------------------------------------
-// Inline FNV-1a for composite key
-// ----------------------------------------------------------------
-static inline uint64_t hash_key(uint32_t lo, uint32_t hi, int a2, int v0, int v1) {
-    uint64_t h = 0xCBF29CE484222325ULL;
-    auto mix = [&](uint32_t v) {
-        h ^= v;
-        h *= 0x100000001B3ULL;
-    };
-    mix(lo);
-    mix(hi);
-    mix((uint32_t)a2);
-    mix((uint32_t)v0);
-    mix((uint32_t)v1);
-    return h;
-}
-
-// ----------------------------------------------------------------
-// Safe pointer check
-// ----------------------------------------------------------------
-static inline bool is_valid_ptr(uintptr_t p) {
-    return p >= 0x10000 && p <= 0xBFFF0000;
-}
-
-// ----------------------------------------------------------------
-// Hooked lookup
-// ----------------------------------------------------------------
-static int __cdecl Hooked_DbcLookup(__int64 guid64, int flags)
+static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int recordId, void* outBuf)
 {
-    g_total_calls.fetch_add(1, std::memory_order_relaxed);
+    uintptr_t storeKey = (uintptr_t)store;
+    uint32_t idx = ((uint32_t)(storeKey >> 2) ^ recordId) & CACHE_MASK;
+    DbcRowEntry* e = &g_cache[idx];
 
-    // The original function takes (__int64, int) but internally calls
-    // sub_4D4BB0 which does: hash table walk with (this, a2, &guid64)
-    // We cache at the wrapper level using the full input as key.
-
-    uint32_t lo = (uint32_t)guid64;
-    uint32_t hi = (uint32_t)((uint64_t)guid64 >> 32);
-    uint64_t h = hash_key(lo, hi, 0, 0, flags);
-    int slot = (int)(h & CACHE_MASK);
-    CacheEntry* e = &g_cache[slot];
-
-    if (e->valid && e->key_hash == h) {
-        g_cache_hits.fetch_add(1, std::memory_order_relaxed);
-        return (int)(uintptr_t)e->result;
+    if (e->valid && e->storePtr == storeKey && e->recordId == (uint32_t)recordId) {
+        g_hits++;
+        if (outBuf && e->rowPtr) {
+            memcpy(outBuf, e->rowPtr, 0x2A8);
+        }
+        return e->rowPtr != nullptr;
     }
 
-    int result = g_orig_lookup(guid64, flags);
+    g_misses++;
+    bool result = g_orig(store, recordId, outBuf);
 
-    // Only cache non-null results (null means "not found" - don't cache
-    // negative lookups since the table may be updated later)
-    if (result != 0) {
-        e->key_hash = h;
-        e->this_ptr = 0;
-        e->a2 = (int)(guid64 & 0xFFFFFFFF);
-        e->val0 = (int)(guid64 >> 32);
-        e->val1 = flags;
-        e->result = (void*)(uintptr_t)result;
-        e->valid = true;
+    if (result && outBuf && store) {
+        // The row pointer is at store->rows[recordId - store->minId]
+        // We can't easily get it from the output, so store the storePtr+recordId
+        // and use the DBCStore internals to resolve the row pointer on hit.
+        // Actually: the original function already did the lookup. The row pointer
+        // is in the DBCStore's internal array. We can compute it the same way.
+        uintptr_t storeBase = (uintptr_t)store;
+        uint32_t minId = *(uint32_t*)(storeBase + 0x10);
+        uint32_t maxId = *(uint32_t*)(storeBase + 0x0C);
+        uintptr_t rowsBase = *(uintptr_t*)(storeBase + 0x20);
+
+        if (recordId >= (int)minId && recordId <= (int)maxId && rowsBase > 0x10000) {
+            void* rowPtr = *(void**)(rowsBase + (recordId - minId) * 4);
+            if (rowPtr && (uintptr_t)rowPtr > 0x10000 && (uintptr_t)rowPtr < 0xBFFF0000) {
+                e->storePtr = storeKey;
+                e->recordId = (uint32_t)recordId;
+                e->rowPtr = rowPtr;
+                e->valid = true;
+            }
+        }
     }
 
-    g_cache_misses.fetch_add(1, std::memory_order_relaxed);
     return result;
 }
 
-// ----------------------------------------------------------------
-// Install / Uninstall
-// ----------------------------------------------------------------
 bool InstallDbcLookupCache()
 {
     memset(g_cache, 0, sizeof(g_cache));
+    g_hits = 0;
+    g_misses = 0;
 
-    void* target = reinterpret_cast<void*>(0x004D4DB0);
+    void* target = reinterpret_cast<void*>(0x004CFD20);
 
-    // Verify prologue: push ebp; mov ebp, esp
-    // Note: If TLSCache hook is already installed at this address, the prologue
-    // will be modified by MinHook's trampoline. Skip gracefully in that case.
     unsigned char* p = (unsigned char*)target;
-    if (p[0] != 0x55 || p[1] != 0x8B) {
-        Log("[DbcLookupCache] Skipped: 0x4D4DB0 already hooked (TLSCache)");
-        return true;  // Not an error - TLSCache handles this function
-    }
-
-    if (MH_CreateHook(target, reinterpret_cast<void*>(&Hooked_DbcLookup),
-                       reinterpret_cast<void**>(&g_orig_lookup)) != MH_OK) {
-        Log("[DbcLookupCache] Failed to create hook");
+    if (p[0] != 0x55 || p[1] != 0x8B || p[2] != 0xEC) {
+        Log("[DbcLookupCache] BAD PROLOGUE at 0x%08X (expected 55 8B EC)", (uintptr_t)target);
         return false;
     }
 
+    if (WineSafe_CreateHook(target, (void*)Hooked_DbcGetRow, (void**)&g_orig) != MH_OK) {
+        Log("[DbcLookupCache] MH_CreateHook FAILED");
+        return false;
+    }
     if (MH_EnableHook(target) != MH_OK) {
-        Log("[DbcLookupCache] Failed to enable hook");
+        Log("[DbcLookupCache] MH_EnableHook FAILED");
         MH_RemoveHook(target);
         return false;
     }
 
-    Log("[DbcLookupCache] Installed: %d-slot cache at 0x4D4DB0 (1905 callers)", CACHE_SIZE);
+    Log("[DbcLookupCache] Installed: %d-slot cache at 0x4CFD20 (250+ callers, immutable DBC rows)", CACHE_SIZE);
     return true;
 }
 
 void UninstallDbcLookupCache()
 {
-    MH_DisableHook(reinterpret_cast<void*>(0x004D4DB0));
-    MH_RemoveHook(reinterpret_cast<void*>(0x004D4DB0));
+    void* target = reinterpret_cast<void*>(0x004CFD20);
+    MH_DisableHook(target);
+    MH_RemoveHook(target);
 
-    uint64_t total = g_total_calls.load();
-    uint64_t hits = g_cache_hits.load();
-    uint64_t misses = g_cache_misses.load();
+    uint64_t total = g_hits + g_misses;
     if (total > 0) {
         Log("[DbcLookupCache] Stats: %llu calls, %llu hits, %llu misses (%.1f%% hit rate)",
-            total, hits, misses, total ? 100.0 * hits / total : 0.0);
+            total, g_hits, g_misses, 100.0 * g_hits / total);
     }
 }
