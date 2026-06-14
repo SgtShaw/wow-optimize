@@ -6715,13 +6715,10 @@ static bool InstallLStrLenHooks() {
 typedef unsigned int (__stdcall* strlen76_fn)(const char* str);
 static strlen76_fn orig_strlen76 = nullptr;
 
-static long g_strlen76Calls = 0;
-
 static unsigned int __stdcall hooked_strlen76(const char* str) {
     if (!str) {
         return orig_strlen76(str); // NULL → error handler (0x57)
     }
-    InterlockedIncrement(&g_strlen76Calls);
 
     // Scan must be 16-byte aligned. An unaligned _mm_loadu_si128 can straddle a
     // page boundary; when a valid string terminates within 15 bytes of the end
