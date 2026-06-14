@@ -4,7 +4,7 @@
 
 // Feature tracking for crash diagnosis
 // Each optimization registers itself so crash dumps show exactly what was active
-#define MAX_TRACKED_FEATURES 64
+#define MAX_TRACKED_FEATURES 128
 
 struct FeatureState {
     const char* name;        // Feature name (e.g., "AdaptiveGC", "GetStrInline")
