@@ -50,7 +50,9 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ----------------------------------------------------------------
-// Statistics
+// Statistics (diagnostic only; plain increments. The Lua VM is
+// single-threaded, so the previous InterlockedIncrement64 -- a lock
+// cmpxchg8b loop on x86 -- only added cost to this very hot path.)
 // ----------------------------------------------------------------
 static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_first_node_hits = 0;
@@ -95,7 +97,7 @@ static luaH_getstr_fn g_orig_getstr = nullptr;
 // ----------------------------------------------------------------
 static void* __cdecl Optimized_GetStr(int table, int tstring)
 {
-    InterlockedIncrement64(&g_total_calls);
+    ++g_total_calls;
 
     // Bail out during lua_State swap — table and tstring pointers become
     // garbage when WoW destroys the old Lua VM during UI reload/logout.
@@ -134,7 +136,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
     // is our target. This is the most common case.
     // ============================================================
     if (node[6] == 4 && node[4] == (uint32_t)tstring) {
-        InterlockedIncrement64(&g_first_node_hits);
+        ++g_first_node_hits;
         return node;
     }
 
@@ -160,7 +162,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
             uintptr_t cn = (uintptr_t)cached_node;
             if (cn >= 0x10000 && cn <= 0xBFFF0000 &&
                 cached_node[6] == 4 && cached_node[4] == (uint32_t)tstring) {
-                InterlockedIncrement64(&g_cache_hits);
+                ++g_cache_hits;
                 return cached_node;
             }
         }
@@ -170,7 +172,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
     // SLOW PATH: Chain walk with prefetch
     // Walk the linked list from the first node, prefetching ahead.
     // ============================================================
-    InterlockedIncrement64(&g_chain_walks);
+    ++g_chain_walks;
     int depth = 1;
 
     void* next = (void*)node[8];
@@ -203,7 +205,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
             entry->bucket_idx = bucket_idx;
             entry->lsize = lsize;
 
-            InterlockedAdd64(&g_chain_depth_total, depth);
+            g_chain_depth_total += depth;
             return n;
         }
 
@@ -212,7 +214,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
     }
 
     // Not found
-    InterlockedIncrement64(&g_nil_returns);
+    ++g_nil_returns;
     return g_nil_object;
 }
 

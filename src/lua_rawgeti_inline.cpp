@@ -45,7 +45,9 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ----------------------------------------------------------------
-// Statistics
+// Statistics (diagnostic only; plain increments. Lua is single-threaded,
+// so the previous InterlockedIncrement64 -- a lock cmpxchg8b loop on x86 --
+// only added cost to this very hot path.)
 // ----------------------------------------------------------------
 static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_array_hits = 0;
@@ -90,7 +92,7 @@ static lua_rawgeti_fn g_orig_rawgeti = nullptr;
 // ----------------------------------------------------------------
 static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 {
-    InterlockedIncrement64(&g_total_calls);
+    ++g_total_calls;
 
     // Bail out during lua_State swap — L->base and L->top become garbage
     // when WoW destroys the old Lua VM during UI reload/logout.
@@ -169,7 +171,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
                     *(DWORD*)0x00D4139C = taint;
             }
 
-            InterlockedIncrement64(&g_array_hits);
+            ++g_array_hits;
             return src[3];  // return taint value (matches original behavior)
         }
 
@@ -220,7 +222,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
                     if (taint && *(int*)0x00D413A0 && !*(int*)0x00D413A4)
                         *(DWORD*)0x00D4139C = taint;
 
-                    InterlockedIncrement64(&g_cache_hits);
+                    ++g_cache_hits;
                     return taint;
                 }
             }
@@ -260,7 +262,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
                             if (taint && *(int*)0x00D413A0 && !*(int*)0x00D413A4)
                                 *(DWORD*)0x00D4139C = taint;
 
-                            InterlockedIncrement64(&g_cache_hits);
+                            ++g_cache_hits;
                             return taint;
                         }
                     }
@@ -271,7 +273,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
         // ============================================================
         // SLOW PATH: Chain walk with prefetch
         // ============================================================
-        InterlockedIncrement64(&g_chain_walks);
+        ++g_chain_walks;
         int depth = 1;
 
         void* next = (void*)node[8];
@@ -310,7 +312,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
                         if (taint && *(int*)0x00D413A0 && !*(int*)0x00D413A4)
                             *(DWORD*)0x00D4139C = taint;
 
-                        InterlockedAdd64(&g_chain_depth_total, depth);
+                        g_chain_depth_total += depth;
                         return taint;
                     }
                 }
@@ -321,7 +323,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
         }
 
         // Not found — push nil
-        InterlockedIncrement64(&g_nil_returns);
+        ++g_nil_returns;
         DWORD* top = *(DWORD**)(L + 0x0C);
         if (top && (uintptr_t)top >= 0x10000 && (uintptr_t)top <= 0xBFFF0000) {
             // Push nil TValue: value=0, tt=0, taint=0
