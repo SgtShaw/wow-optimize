@@ -24,7 +24,10 @@ struct DataStoreTLS {
 static __declspec(thread) DataStoreTLS t_cache = {};
 
 // ================================================================
-// Statistics
+// Statistics (diagnostic hit-rate only; incremented non-atomically on
+// purpose -- these run on the hottest path in the binary and a locked
+// increment costs several times the actual work. Lost counts under
+// thread contention don't affect the ratio we log.)
 // ================================================================
 static volatile long g_getdword_calls = 0, g_getdword_hits = 0;
 static volatile long g_putdword_calls = 0, g_putdword_hits = 0;
@@ -71,12 +74,12 @@ __forceinline bool TLSCacheValid(CDataStore* s) {
 // ================================================================
 static CDataStore* __fastcall HookGetDword(CDataStore* self, void*, uint32_t* out) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_getdword_calls);
+    ++g_getdword_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t rp = self->read_pos;
         if ((rp + 4) <= self->write_pos) {
-            InterlockedIncrement(&g_getdword_hits);
+            ++g_getdword_hits;
             *out = *reinterpret_cast<uint32_t*>(t_cache.effective_base + rp);
             self->read_pos = rp + 4;
             return self;
@@ -95,13 +98,13 @@ static CDataStore* __fastcall HookGetDword(CDataStore* self, void*, uint32_t* ou
 // ================================================================
 static CDataStore* __fastcall HookPutDword(CDataStore* self, void*, uint32_t value) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_putdword_calls);
+    ++g_putdword_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t wp = self->write_pos;
         uint32_t end = self->base_offset + t_cache.allocated_size;
         if ((wp + 4) <= end) {
-            InterlockedIncrement(&g_putdword_hits);
+            ++g_putdword_hits;
             *reinterpret_cast<uint32_t*>(t_cache.effective_base + wp) = value;
             self->write_pos = wp + 4;
             return self;
@@ -120,12 +123,12 @@ static CDataStore* __fastcall HookPutDword(CDataStore* self, void*, uint32_t val
 // ================================================================
 static CDataStore* __fastcall HookGetByte(CDataStore* self, void*, uint8_t* out) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_getbyte_calls);
+    ++g_getbyte_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t rp = self->read_pos;
         if ((rp + 1) <= self->write_pos) {
-            InterlockedIncrement(&g_getbyte_hits);
+            ++g_getbyte_hits;
             *out = t_cache.effective_base[rp];
             self->read_pos = rp + 1;
             return self;
@@ -144,13 +147,13 @@ static CDataStore* __fastcall HookGetByte(CDataStore* self, void*, uint8_t* out)
 // ================================================================
 static CDataStore* __fastcall HookPutByte(CDataStore* self, void*, uint8_t value) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_putbyte_calls);
+    ++g_putbyte_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t wp = self->write_pos;
         uint32_t end = self->base_offset + t_cache.allocated_size;
         if ((wp + 1) <= end) {
-            InterlockedIncrement(&g_putbyte_hits);
+            ++g_putbyte_hits;
             t_cache.effective_base[wp] = value;
             self->write_pos = wp + 1;
             return self;
@@ -170,13 +173,13 @@ static CDataStore* __fastcall HookPutByte(CDataStore* self, void*, uint8_t value
 // ================================================================
 static CDataStore* __fastcall HookPutQword(CDataStore* self, void*, uint32_t lo, uint32_t hi) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_putqword_calls);
+    ++g_putqword_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t wp = self->write_pos;
         uint32_t end = self->base_offset + t_cache.allocated_size;
         if ((wp + 8) <= end) {
-            InterlockedIncrement(&g_putqword_hits);
+            ++g_putqword_hits;
             uint8_t* p = t_cache.effective_base + wp;
             *reinterpret_cast<uint32_t*>(p)     = lo;
             *reinterpret_cast<uint32_t*>(p + 4) = hi;
@@ -198,12 +201,12 @@ static CDataStore* __fastcall HookPutQword(CDataStore* self, void*, uint32_t lo,
 // ================================================================
 static CDataStore* __fastcall HookGetQword(CDataStore* self, void*, uint32_t* out) {
 #if !TEST_DISABLE_DATASTORE_FASTPATH
-    InterlockedIncrement(&g_getqword_calls);
+    ++g_getqword_calls;
 
     if (TLSCacheValid(self)) {
         uint32_t rp = self->read_pos;
         if ((rp + 8) <= self->write_pos) {
-            InterlockedIncrement(&g_getqword_hits);
+            ++g_getqword_hits;
             uint8_t* p = t_cache.effective_base + rp;
             out[0] = *reinterpret_cast<uint32_t*>(p);
             out[1] = *reinterpret_cast<uint32_t*>(p + 4);
