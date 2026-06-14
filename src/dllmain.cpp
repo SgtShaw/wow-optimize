@@ -6167,7 +6167,7 @@ static int __cdecl hooked_RTTICheck(__int64 guid64, int flags) {
     RTTICacheEntry* e = &g_rttiCache[slot];
 
     if (e->valid && e->guid64 == guid64 && e->flags == flags) {
-        InterlockedIncrement(&g_rttiHits);
+        ++g_rttiHits;   // diagnostic only; plain increment avoids a lock on every hit
         return e->result;
     }
 
@@ -6176,7 +6176,7 @@ static int __cdecl hooked_RTTICheck(__int64 guid64, int flags) {
     e->flags  = flags;
     e->result = result;
     e->valid  = true;
-    InterlockedIncrement(&g_rttiMisses);
+    ++g_rttiMisses;
     return result;
 #endif
 }
