@@ -250,7 +250,6 @@ static void StopFreezeWatchdog() {
 #define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 - RE-ENABLED (safe bucket-index cache)
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
-#define CRASH_TEST_DISABLE_RTTI_CACHE           0   // sub_4D4DB0 object type check cache - RE-ENABLED (1905 callers)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
  
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
@@ -456,7 +455,6 @@ static void ClearLuaHGetStrCache();
 static bool InstallLuaPushStringCache();
 static void ClearLuaPushStringCache();
 static bool InstallLuaRawGetICache();
-static bool InstallRTTICache();
 static bool InstallStreamBufferFastPath();
 
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
@@ -3269,8 +3267,6 @@ static void DumpPeriodicStats() {
     extern long g_sysInfoHits;
     extern long g_regCacheHits;
     extern long g_regCacheMisses;
-    extern long g_rttiHits;
-    extern long g_rttiMisses;
     extern long g_streamReadHits;
     extern long g_streamReadFallbacks;
     extern long g_streamWriteHits;
@@ -3509,10 +3505,6 @@ static void DumpPeriodicStats() {
             g_vaArenaHits, g_vaArenaFallbacks, g_vaArenaFailures,
             arenaPct, usedMB);
     }
-    if (g_rttiHits + g_rttiMisses > 0)
-        Log("[Stats] RTTI type check: %ld hits, %ld misses (%.1f%% hit rate)",
-            g_rttiHits, g_rttiMisses,
-           (double)g_rttiHits / (g_rttiHits + g_rttiMisses) * 100.0);
     if (g_streamReadHits + g_streamReadFallbacks > 0)
         Log("[Stats] Stream read: %ld fast, %ld fallback (%.1f%%)",
             g_streamReadHits, g_streamReadFallbacks,
@@ -5352,7 +5344,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("CombatLogFullCache");
     CrashDumper::RegisterFeature("ThreadAffinity");
     CrashDumper::RegisterFeature("VAArena");
-    CrashDumper::RegisterFeature("RTTICache");
     CrashDumper::RegisterFeature("StreamBufFastPath");
     CrashDumper::RegisterFeature("LuaOptimizer");
     CrashDumper::RegisterFeature("CombatLogOpt");
@@ -5716,7 +5707,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     vaOk = InstallVAArena();
 
     Log("--- RTTI Type Check Cache ---");
-    bool rttiCacheOk = InstallRTTICache();
+    // DISABLED: tls_cache.cpp hooks 0x4D4DB0 first (install order), making
+    // InstallRTTICache always fail the prologue check. Even if we resolved
+    // the hook conflict, caching (guid64,flags)->result has a stale-pointer
+    // risk: objects are destroyed at runtime, cached result pointers become
+    // dangling. The TLS cache's 0x4D4DB0 hook (caches TEB+TlsSlot only)
+    // is safe and runs instead.
+    bool rttiCacheOk = false;
 
     Log("--- Stream Buffer Fast Path ---");
     bool streamBufOk = InstallStreamBufferFastPath();
@@ -6117,7 +6114,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
     Log("  [%s] Tooltip string cache (LRU)",  tooltipCacheOk ? " OK " : "SKIP");
     Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
-    Log("  [%s] RTTI type check cache",       rttiCacheOk   ? " OK " : "SKIP");
     Log("  [%s] Stream buffer fast path",     streamBufOk    ? " OK " : "SKIP");
     Log("  [%s] D3D9 State Manager (15 hooks)",   d3d9StateOk ? " OK " : "SKIP");
     Log("  [%s] Render Hooks (anim+backbuffer)",    renderHooksOk ? " OK " : "SKIP");
@@ -6132,79 +6128,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     return 0;
 }
 
-// ================================================================
-// 16a. sub_4D4DB0 - Object Type Check Cache (1905 callers)
-//
-// This is WoW's RTTI/dynamic_cast equivalent. Called on every object
-// type check - UI widget validation, spell target filtering, combat
-// log event type dispatch, frame script type guards.  Every call
-// walks a hash table via sub_4D4BB0 with GUID + flags comparison.
-//
-// Cache the successful lookup result.  The (this, mask, guid64)
-// tuple is stable for the lifetime of the object type registration.
-// Direct-mapped 1024-entry cache with full-key validation.
-// ================================================================
-
-typedef int (__cdecl* RTTICheck_fn)(__int64, int);
-static RTTICheck_fn orig_RTTICheck = nullptr;
-
-static constexpr int RTTI_CACHE_SIZE = 1024;
-static constexpr int RTTI_CACHE_MASK = RTTI_CACHE_SIZE - 1;
-
-struct RTTICacheEntry {
-    __int64 guid64;
-    int     flags;
-    int     result;
-    bool    valid;
-};
-
-static RTTICacheEntry g_rttiCache[RTTI_CACHE_SIZE] = {};
-long g_rttiHits = 0, g_rttiMisses = 0;
-
-static int __cdecl hooked_RTTICheck(__int64 guid64, int flags) {
-#if CRASH_TEST_DISABLE_RTTI_CACHE
-    return orig_RTTICheck(guid64, flags);
-#else
-    if (!guid64) return 0;
-
-    uint32_t hash = (uint32_t)(guid64 ^ (guid64 >> 32) ^ flags);
-    int slot = hash & RTTI_CACHE_MASK;
-    RTTICacheEntry* e = &g_rttiCache[slot];
-
-    if (e->valid && e->guid64 == guid64 && e->flags == flags) {
-        ++g_rttiHits;   // diagnostic only; plain increment avoids a lock on every hit
-        return e->result;
-    }
-
-    int result = orig_RTTICheck(guid64, flags);
-    e->guid64 = guid64;
-    e->flags  = flags;
-    e->result = result;
-    e->valid  = true;
-    ++g_rttiMisses;
-    return result;
-#endif
-}
-
-static bool InstallRTTICache() {
-#if CRASH_TEST_DISABLE_RTTI_CACHE
-    Log("RTTI type check cache: DISABLED (crash isolation)");
-    return false;
-#else
-    void* target = (void*)0x004D4DB0;
-    unsigned char* p = (unsigned char*)target;
-    if (p[0] != 0x55 || p[1] != 0x8B) {
-        Log("RTTI cache: BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
-        return false;
-    }
-    if (WineSafe_CreateHook(target, (void*)hooked_RTTICheck, (void**)&orig_RTTICheck) != MH_OK)
-        return false;
-    if (MH_EnableHook(target) != MH_OK)
-        return false;
-    Log("RTTI type check cache: ACTIVE (sub_4D4DB0 @ 0x004D4DB0 - %d-slot direct-map, 1905 callers)", RTTI_CACHE_SIZE);
-    return true;
-#endif
-}
+// 16a. sub_4D4DB0 - Object Type Check Cache — REMOVED
+// tls_cache.cpp hooks 0x4D4DB0 first (wins the MinHook race).
+// The RTTI cache has a stale-pointer risk anyway: objects are
+// destroyed at runtime, cached result pointers become dangling.
+// The TLS cache's 0x4D4DB0 hook (caches TEB+TlsSlot only) is
+// safe and runs instead.
 
 // ================================================================
 // 16b. sub_47B3C0 / sub_47B0A0 - Stream Buffer Read/Write Fast Path
