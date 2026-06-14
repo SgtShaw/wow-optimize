@@ -15,23 +15,20 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-static std::atomic<uint64_t> g_calls{0};
-static std::atomic<uint64_t> g_null_skips{0};
-static std::atomic<uint64_t> g_frees{0};
-
-typedef int (__stdcall *crt_free_t)(void* block, int, int, int);
+typedef int  (__stdcall *crt_free_t)(void* block, int, int, int);
 static crt_free_t g_orig = nullptr;
 
-int __stdcall Hooked_CrtFree(void* block, int a2, int a3, int a4) {
-    g_calls.fetch_add(1, std::memory_order_relaxed);
+// WoW's own CRT free. The wrapper at 0x0076E5A0 does `if (b){ _msize(b); free(b); }`
+// -- the _msize result is computed and discarded on every call, a wasted heap
+// lock + metadata read on the second-hottest function in the binary. Call free
+// directly to drop it. Must use WoW's allocator (this DLL links a separate
+// static CRT, so freeing a WoW-heap block with our own free would corrupt).
+typedef void (__cdecl *wow_free_t)(void*);
+static const wow_free_t g_wow_free = (wow_free_t)0x00412FC7;
 
-    if (!block) {
-        g_null_skips.fetch_add(1, std::memory_order_relaxed);
-        return 1;
-    }
-
-    g_frees.fetch_add(1, std::memory_order_relaxed);
-    return g_orig(block, a2, a3, a4);
+int __stdcall Hooked_CrtFree(void* block, int, int, int) {
+    if (block) g_wow_free(block);
+    return 1;
 }
 
 bool InstallCrtFreeHook() {
@@ -48,25 +45,16 @@ bool InstallCrtFreeHook() {
         return false;
     }
 
-    Log("[CrtFree] Installed: free wrapper (2901 callers)");
+    Log("[CrtFree] Installed: free wrapper (2901 callers, _msize elided)");
     return true;
 }
 
 void UninstallCrtFreeHook() {
     MH_DisableHook((void*)0x0076E5A0);
     MH_RemoveHook((void*)0x0076E5A0);
-
-    uint64_t calls = g_calls.load();
-    uint64_t nulls = g_null_skips.load();
-    uint64_t frees = g_frees.load();
-
-    if (calls > 0) {
-        Log("[CrtFree] Stats: %llu calls, %llu null skips, %llu actual frees",
-            calls, nulls, frees);
-    }
 }
 
 void GetCrtFreeStats(uint64_t* hits, uint64_t* total) {
-    if (hits) *hits = g_frees.load(std::memory_order_relaxed);
-    if (total) *total = g_calls.load(std::memory_order_relaxed);
+    if (hits) *hits = 0;
+    if (total) *total = 0;
 }
