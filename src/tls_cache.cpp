@@ -26,9 +26,10 @@ static __declspec(thread) void* g_cachedTeb = nullptr;
 static __declspec(thread) void* g_cachedTlsSlot = nullptr;
 static __declspec(thread) bool g_tlsCached = false;
 
-// Statistics
-static std::atomic<uint64_t> g_tlsCacheHits{0};
-static std::atomic<uint64_t> g_tlsCacheTotal{0};
+// Statistics (diagnostic only; plain increments -- this runs ~77k times/sec,
+// a locked RMW per call would cost far more than the cached TLS read itself)
+static volatile uint64_t g_tlsCacheHits = 0;
+static volatile uint64_t g_tlsCacheTotal = 0;
 
 // Original function
 typedef __int64 (__cdecl *TlsAccessor_fn)();
@@ -39,17 +40,15 @@ static bool g_hookInstalled = false;
 typedef int (__cdecl *TlsTypeCheck_fn)(__int64 a1, int a2);
 static TlsTypeCheck_fn g_original4D4DB0 = nullptr;
 static bool g_hook4D4DB0Installed = false;
-static std::atomic<uint64_t> g_4D4DB0Hits{0};
-static std::atomic<uint64_t> g_4D4DB0Total{0};
 
 // Hooked version - caches TEB and TLS slot
 __int64 __cdecl Hooked_TlsAccessor()
 {
-    g_tlsCacheTotal.fetch_add(1, std::memory_order_relaxed);
-    
+    ++g_tlsCacheTotal;
+
     // Fast path: use cached TEB and TLS slot
     if (g_tlsCached && g_cachedTeb && g_cachedTlsSlot) {
-        g_tlsCacheHits.fetch_add(1, std::memory_order_relaxed);
+        ++g_tlsCacheHits;
         
         // Read current value (might change)
         void* tlsData = *(void**)((uint8_t*)g_cachedTlsSlot + 8);
@@ -90,12 +89,8 @@ __int64 __cdecl Hooked_TlsAccessor()
 // sub_4D4DB0 hook - TLS + type check
 int __cdecl Hooked_4D4DB0(__int64 a1, int a2)
 {
-    g_4D4DB0Total.fetch_add(1, std::memory_order_relaxed);
-    
     // Fast path: use cached TLS
     if (g_tlsCached && g_cachedTeb && g_cachedTlsSlot) {
-        g_4D4DB0Hits.fetch_add(1, std::memory_order_relaxed);
-        
         void* tlsData = *(void**)((uint8_t*)g_cachedTlsSlot + 8);
         if (!tlsData) return 0;
         if (!a1) return 0;
@@ -176,9 +171,9 @@ void UninstallTlsCache()
     MH_DisableHook((void*)0x004D3790);
     MH_RemoveHook((void*)0x004D3790);
     
-    uint64_t hits = g_tlsCacheHits.load();
-    uint64_t total = g_tlsCacheTotal.load();
-    
+    uint64_t hits = g_tlsCacheHits;
+    uint64_t total = g_tlsCacheTotal;
+
     if (total > 0) {
         double hitRate = (double)hits / total * 100.0;
         Log("[TLSCache] Stats: %llu/%llu cache hits (%.1f%%)",
@@ -190,6 +185,6 @@ void UninstallTlsCache()
 
 void GetTlsCacheStats(uint64_t* hits, uint64_t* total)
 {
-    if (hits) *hits = g_tlsCacheHits.load(std::memory_order_relaxed);
-    if (total) *total = g_tlsCacheTotal.load(std::memory_order_relaxed);
+    if (hits) *hits = g_tlsCacheHits;
+    if (total) *total = g_tlsCacheTotal;
 }
