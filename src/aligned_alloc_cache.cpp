@@ -92,44 +92,19 @@ static void* __stdcall HookedAlignedAlloc(size_t size, int param2, int exitCode,
 // For safety, we'll just skip recycling - the pool is pre-warmed per thread.
 
 bool InstallAlignedAllocCache() {
-    // Target: 0x0076E540
-    void* target = (void*)0x0076E540;
-
-    // Verify first bytes match expected pattern
-    unsigned char* p = (unsigned char*)target;
-    if (p[0] != 0x55 || p[1] != 0x8B || p[2] != 0xEC) {
-        Log("[AlignedAllocCache] Unexpected prologue, skipping");
-        return false;
-    }
-
-    if (MH_CreateHook(target, (void*)HookedAlignedAlloc, (void**)&pOrigAlignedAlloc) != MH_OK) {
-        Log("[AlignedAllocCache] MH_CreateHook failed");
-        return false;
-    }
-
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[AlignedAllocCache] MH_EnableHook failed");
-        return false;
-    }
-
-    // Pre-warm cache for current thread
-    ThreadCache* tc = GetThreadCache();
-    if (tc) {
-        for (int b = 0; b < kNumBuckets; b++) {
-            size_t sz = kBucketSizes[b];
-            for (int i = 0; i < kMaxPerBucket; i++) {
-                void* block = malloc(sz);
-                if (!block) break;
-                *(void**)block = tc->free_lists[b];
-                tc->free_lists[b] = block;
-                tc->counts[b]++;
-            }
-        }
-    }
-
-    Log("[AlignedAllocCache] Installed at 0x76E540 (%d callers, %d buckets pre-warmed)",
-        1764, kNumBuckets);
-    return true;
+    // Disabled: the pool was pre-warmed with this DLL's static-CRT malloc and
+    // handed to WoW, which frees those blocks through its own CRT (free at
+    // 0x00412FC7) -> cross-heap free -> heap corruption. It also never refilled
+    // (no safe way to recognize our blocks at free time) and was pre-warmed on
+    // a single thread only, so after the first 64 allocations it added bucket
+    // dispatch + TLS overhead to all 1764 callers for no benefit. Net-negative
+    // and unsafe; let WoW's original aligned allocator run untouched.
+    (void)&HookedAlignedAlloc;
+    (void)&GetBucket;
+    (void)kBucketSizes;
+    (void)kMaxPerBucket;
+    Log("[AlignedAllocCache] Disabled (cross-heap free hazard, no net benefit)");
+    return false;
 }
 
 void UninstallAlignedAllocCache() {
