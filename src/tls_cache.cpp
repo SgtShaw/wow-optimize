@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <atomic>
 #include "MinHook.h"
+#include "lua_optimize.h"   // LuaOpt::IsReloading / IsSwapping
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -36,10 +37,27 @@ typedef __int64 (__cdecl *TlsAccessor_fn)();
 static TlsAccessor_fn g_originalTlsAccessor = nullptr;
 static bool g_hookInstalled = false;
 
-// sub_4D4DB0 hook (TLS + type check)
+// sub_4D4DB0 = ClntObjMgrObjectPtr (GUID + type mask -> object pointer)
 typedef int (__cdecl *TlsTypeCheck_fn)(__int64 a1, int a2);
 static TlsTypeCheck_fn g_original4D4DB0 = nullptr;
 static bool g_hook4D4DB0Installed = false;
+
+// Object GUID -> pointer cache.
+// ClntObjMgrObjectPtr resolves a 64-bit GUID (+ type mask) to an object pointer
+// via a hash walk (sub_4D4BB0). Addons hammer it thousands of times per frame
+// (UnitHealth/UnitName/UnitGUID/...). We cache positive results and, on every
+// hit, content-validate by re-reading the object's own stored GUID -- the exact
+// dwords sub_4D4BB0 matches on (result[12]==guidLo, result[13]==guidHi, i.e.
+// byte offsets +48/+52). A freed or recycled object therefore never matches, so
+// a stale pointer can never be returned. The read is SEH-guarded in case the
+// cached object's memory was unmapped, and we bypass the cache entirely during
+// VM reload/teardown when the object manager is unstable.
+static const int OBJ_CACHE_SIZE = 8192;
+static const int OBJ_CACHE_MASK = OBJ_CACHE_SIZE - 1;
+struct ObjGuidEntry { uint32_t lo; uint32_t hi; int mask; int result; };
+static ObjGuidEntry g_objCache[OBJ_CACHE_SIZE] = {};
+static volatile uint64_t g_objCacheHits = 0;
+static volatile uint64_t g_objCacheMisses = 0;
 
 // Hooked version - caches TEB and TLS slot
 __int64 __cdecl Hooked_TlsAccessor()
@@ -86,37 +104,38 @@ __int64 __cdecl Hooked_TlsAccessor()
     return 0;
 }
 
-// sub_4D4DB0 hook - TLS + type check
+// sub_4D4DB0 hook - object GUID -> pointer cache (content-validated)
 int __cdecl Hooked_4D4DB0(__int64 a1, int a2)
 {
-    // Fast path: use cached TLS
-    if (g_tlsCached && g_cachedTeb && g_cachedTlsSlot) {
-        void* tlsData = *(void**)((uint8_t*)g_cachedTlsSlot + 8);
-        if (!tlsData) return 0;
-        if (!a1) return 0;
-        
-        // Call sub_4D4BB0 equivalent (inline the type check logic)
-        __int64 v3 = a1;
-        int result = (int)g_original4D4DB0(a1, a2); // Still call original for now
+    if (!a1 || !g_original4D4DB0) return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
 
-        if (result && (a2 & *(DWORD *)(*(DWORD *)(result + 8) + 8)) == 0) {
-            return 0;
+    // Object manager is unstable while the VM is being swapped/reloaded.
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping())
+        return g_original4D4DB0(a1, a2);
+
+    uint32_t lo = (uint32_t)a1;
+    uint32_t hi = (uint32_t)((uint64_t)a1 >> 32);
+    ObjGuidEntry* e = &g_objCache[(lo ^ hi ^ (uint32_t)a2) & OBJ_CACHE_MASK];
+
+    if (e->result && e->lo == lo && e->hi == hi && e->mask == a2) {
+        uintptr_t r = (uintptr_t)(unsigned)e->result;
+        if (r > 0x10000 && r < 0xBFFF0000) {
+            __try {
+                // Same compare sub_4D4BB0 uses to identify the row: the object's
+                // own GUID dwords. If it still matches, the object is alive.
+                if (*(uint32_t*)(r + 48) == lo && *(uint32_t*)(r + 52) == hi) {
+                    ++g_objCacheHits;
+                    return e->result;
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
         }
-        return result;
+        // Stale/freed/recycled -> fall through and re-resolve.
     }
-    
-    // Slow path: cache TLS first
-    g_cachedTeb = NtCurrentTeb();
-    if (!g_cachedTeb) return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
-    
-    void** tlsArray = *(void***)((uint8_t*)g_cachedTeb + 0x2C);
-    DWORD tlsIdx = *(DWORD*)WOW_TLS_INDEX_ADDR;
-    g_cachedTlsSlot = tlsArray[tlsIdx];
-    
-    if (!g_cachedTlsSlot) return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
-    
-    g_tlsCached = true;
-    return g_original4D4DB0 ? g_original4D4DB0(a1, a2) : 0;
+
+    ++g_objCacheMisses;
+    int result = (int)g_original4D4DB0(a1, a2);
+    if (result) { e->lo = lo; e->hi = hi; e->mask = a2; e->result = result; }
+    return result;
 }
 
 bool InstallTlsCache()
@@ -153,7 +172,7 @@ bool InstallTlsCache()
         if (MH_CreateHook(target4D4DB0, (void*)Hooked_4D4DB0, (void**)&g_original4D4DB0) == MH_OK &&
             MH_EnableHook(target4D4DB0) == MH_OK) {
             g_hook4D4DB0Installed = true;
-            Log("[TLSCache] Hook installed: sub_4D4DB0 @ 0x004D4DB0 (200+ callers, TLS+type check)");
+            Log("[ObjGuidCache] Hook installed: ClntObjMgrObjectPtr @ 0x004D4DB0 (GUID->ptr cache, content-validated, %d slots)", OBJ_CACHE_SIZE);
         } else {
             Log("[TLSCache] Failed to hook sub_4D4DB0");
         }
@@ -179,7 +198,13 @@ void UninstallTlsCache()
         Log("[TLSCache] Stats: %llu/%llu cache hits (%.1f%%)",
             hits, total, hitRate);
     }
-    
+
+    uint64_t objHits = g_objCacheHits, objMiss = g_objCacheMisses, objTot = objHits + objMiss;
+    if (objTot > 0) {
+        Log("[ObjGuidCache] Stats: %llu/%llu hits (%.1f%%)",
+            objHits, objTot, 100.0 * objHits / objTot);
+    }
+
     g_hookInstalled = false;
 }
 
