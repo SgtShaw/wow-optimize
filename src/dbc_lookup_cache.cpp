@@ -90,6 +90,18 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
 
 bool InstallDbcLookupCache()
 {
+    // DISABLED: net-negative + a correctness hole. The original sub_4CFD20 is
+    // already O(1): a bounds check + array index + qmemcpy(0x2A8). This cache
+    // does the SAME 0x2A8 memcpy on a hit plus hash/compare overhead, so it is
+    // slower, not faster. Worse, the original has a branch
+    //   if (byte_C5DEA0) sub_4CFBB0(row, 680, out); else qmemcpy(out, row, 0x2A8);
+    // and the cache hit path always does the plain qmemcpy, returning wrong
+    // (untransformed) data whenever byte_C5DEA0 is set. Let the original run.
+    (void)&Hooked_DbcGetRow;
+    Log("[DbcLookupCache] DISABLED (original GetRow already O(1); cache was net-negative + skipped sub_4CFBB0 transform)");
+    return false;
+
+#if 0
     memset(g_cache, 0, sizeof(g_cache));
     g_hits = 0;
     g_misses = 0;
@@ -114,6 +126,7 @@ bool InstallDbcLookupCache()
 
     Log("[DbcLookupCache] Installed: %d-slot cache at 0x4CFD20 (250+ callers, immutable DBC rows)", CACHE_SIZE);
     return true;
+#endif
 }
 
 void UninstallDbcLookupCache()

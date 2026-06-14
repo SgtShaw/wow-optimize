@@ -148,6 +148,18 @@ static int __fastcall Hooked_Resolve(void* thisp, void* /* edx */, char* name, u
 
 bool InstallFrameScriptDispatch()
 {
+    // DISABLED: this reimplements sub_48E680 with reverse-engineered handler
+    // offsets (308, 316, ...) and return semantics (return this+offset, *a3=fmt).
+    // Those are wrong for this client, so the caller dereferences a handler-name
+    // string as a pointer -> ACCESS_VIOLATION 0xC0000005 at 0x0048FF9F on login
+    // (faulting addr 0x6C436E4F == ASCII "OnCl"). Handler name->handler resolution
+    // only runs at SetScript registration, not per-frame, so the original linear
+    // strnicmp chain is fine. Revert to WoW's own resolver.
+    (void)&Hooked_Resolve;
+    Log("[FrameScriptDispatch] DISABLED (RE'd offsets caused login ACCESS_VIOLATION at 0x48FF9F)");
+    return false;
+
+#if 0
     void* target = reinterpret_cast<void*>(0x0048E680);
 
     unsigned char* p = (unsigned char*)target;
@@ -171,6 +183,7 @@ bool InstallFrameScriptDispatch()
 
     Log("[FrameScriptDispatch] Installed: FNV-1a hash dispatch at 0x48E680 (18 handlers, O(1) lookup)");
     return true;
+#endif
 }
 
 void UninstallFrameScriptDispatch()
