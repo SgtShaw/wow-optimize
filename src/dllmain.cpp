@@ -173,6 +173,7 @@ static void StopFreezeWatchdog() {
 #include "event_name_hash.h"
 #include "cdatastore_batch.h"
 #include "crt_memcpy_fast.h"
+#include "frame_script_dispatch.h"
 #include "strcat_fast.h"
 #include "script_handler_cache.h"
 #include "dbc_lookup_cache.h"
@@ -5318,6 +5319,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaGlobalCache");
     CrashDumper::RegisterFeature("HotFunctions");
     CrashDumper::RegisterFeature("FastMemcpy");
+    CrashDumper::RegisterFeature("FrameScriptDispatch");
     CrashDumper::RegisterFeature("FastStrncmp");
     CrashDumper::RegisterFeature("CrtFreeHook");
     CrashDumper::RegisterFeature("AlignedAllocCache");
@@ -5509,6 +5511,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // SSE2 memcpy hook - 719 callers, 16-255B non-overlapping range
     bool memcpyFastOk = InstallMemcpyFast();
+
+    // FrameScript hash dispatch - 18 handlers, O(1) vs O(n)
+    bool fsDispatchOk = InstallFrameScriptDispatch();
 
     // Fast String Compare (strncmp) - 1013 callers
     bool fastStrncmpOk = InstallFastStrncmp();
@@ -7798,6 +7803,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownCDataStoreBatch();
             UninstallMemcpyFast();
             UninstallDbcLookupCache();
+            UninstallFrameScriptDispatch();
             ShutdownD3D9StateManager();
             ShutdownRenderHooks();
             ShutdownSimdHooks();
