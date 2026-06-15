@@ -1517,6 +1517,13 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             // Mark GC as not optimized to prevent StepGC from running with stale state
             State.gcOptimized = false;
 
+            // Return mimalloc's freed arenas to the OS now, while the old VM/UI
+            // has just been torn down and before the new state reloads. On 32-bit
+            // (HD client + heavy addons) the relog VA spike is what exhausts the
+            // address space; reclaiming here gives WoW maximum headroom for the
+            // incoming state. mi_collect only touches already-freed memory.
+            mi_collect(true);
+
             // ARM FrameScript_Execute hook for pre-addon marker injection.
             // The hook fires BEFORE any addon top-level code runs on the new
             // lua_State, injecting LUABOOST_DLL_LOADED=true and clearing
