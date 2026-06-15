@@ -11,15 +11,30 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in v3.9.0
+## What's New in v3.10.0
 
-### Lua VM — Direct-Threaded Interpreter
-Replaces WoW's switch-based opcode dispatch with a direct-threaded interpreter: 8192-site x 4-way polymorphic inline cache, 4096-entry global variable cache, SSE2 TValue operations, 100K opcode execution slices before yielding to WoW's frame scheduler.
+This release is a stability-and-correctness pass over the v3.9 feature set, plus new optimizations that are **layout-independent** (they operate on raw bytes / verified-stock offsets and cannot corrupt game structures). Several aggressive v3.9 features that reimplemented WoW internals were found to crash or corrupt on real raids and have been reverted to WoW's own correct paths.
 
-### Lua VM — Safe Inline Caches
+### New optimizations
+- **Object GUID → pointer cache** on `ClntObjMgrObjectPtr` (0x4D4DB0). Addons resolve GUID→object thousands of times per frame (UnitHealth/UnitName/…). Positive results are cached and **content-validated on every hit** by re-reading the object's own GUID dwords, so a freed/recycled object can never be returned stale; SEH-guarded and bypassed during VM reload.
+- **SSE2 memcpy** for the 16–255 B range (WoW's path is dword-scalar there), plus **non-temporal streaming stores + source prefetch for copies ≥256 KB** so bulk asset moves don't evict the working-set cache during loading. Overlap-safe (memmove semantics preserved), bounded.
+- **Non-temporal SSE2 memset** for large clears (≥2 MB), full SSE2 across all sizes.
+- **free-wrapper fast path**: calls WoW's own `free` directly, eliminating a redundant `_msize` heap-walk on the second-hottest function in the binary (2901 callers).
+- **`luaH_getstr` inline cache** restored — verified line-by-line against the stock `luaH_getstr` decompile (offsets, node fields, chain walk, nil sentinel all match).
+
+### Stability fix — mid-raid freeze
+The combat garbage collector previously collected only ~50% of the allocation rate and skipped GC entirely on slow frames. In sustained heavy raids this starved the collector until Lua forced a full collection of the entire multi-hundred-MB state — a multi-second freeze. It now sizes each per-frame step to ~110% of the measured allocation rate, so the heap stays flat with steady tiny steps instead of one giant stall.
+
+### Reverted for stability (now use WoW's correct paths)
+- **Direct-threaded Lua interpreter** — custom `luaV_execute` dispatch caused `compare number with nil` corruption and world-transition freezes.
+- **`lua_pushnumber` direct stack write** — numeric-corruption suspect.
+- **FrameScript handler hash-dispatch** — reverse-engineered offsets caused an ACCESS_VIOLATION on login.
+- **DBC row cache** — the original GetRow is already O(1); the cache was net-negative and skipped a localization transform.
+- **Aligned-alloc pool** — cross-heap free hazard.
+
+### Lua VM — Safe Inline Caches (active)
 - `luaH_getstr`: bucket-index cache (16384 entries) with content validation — safe across GC rehash
 - `lua_rawgeti`: array-direct O(1) path + bucket-index hash-part cache (8192 entries)
-- `lua_pushnumber`: direct stack TValue write, skipping full API call overhead
 - `luaV_gettable` safety patch: validates TValue type field before using as array index
 
 ### 6 CPU-Side Optimization Modules
@@ -47,14 +62,14 @@ Replaces WoW's switch-based opcode dispatch with a direct-threaded interpreter: 
 - Tooltip LRU (512 slots, 30s TTL), regex compiled-pattern (256 slots, 120s TTL)
 - SSE2 trig lookup tables (4096-entry sin/cos, 1024-entry atan)
 - Render state dedup (256 slots), event name lookup/hash caches
-- O(1) script handler resolver at 0x48E680
+- event name lookup/hash caches
 
 ## Current Status
 
 ### Performance Metrics (Real-World Testing)
 - **Frame time**: Smoother frametimes in addon-heavy raids
 - **CPU usage**: Noticeable reduction in addon-heavy gameplay
-- **Lua operations**: Faster with mimalloc allocator
+- **Lua operations**: Faster table lookups (getstr/rawgeti caches) and library fast paths
 - **Timing cache**: High QPC cache hit rate
 - **String formatting**: High fast path hit rate
 
@@ -77,11 +92,11 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 ## Current Feature Set
 
 ### Memory and allocator
-- mimalloc CRT replacement for `malloc/free/realloc/calloc/_msize`
-- Lua VM allocator replacement with mimalloc
+- mimalloc CRT/Lua allocator replacement *(disabled — corrupted pointers during login; mimalloc still backs internal pools)*
+- WoW `free`-wrapper fast path (calls WoW's own `free`, skips a redundant `_msize` heap-walk)
 - Lua string table pre-sizing to reduce hash resize spikes
 - Low Fragmentation Heap (LFH) enabled for process heap and new heaps
-- periodic mimalloc purge for long-session memory stability
+- background heap compactor (deferred VA scans to loading screens)
 
 ### Lua runtime
 - adaptive manual Lua GC
@@ -174,12 +189,12 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 Features that use worker threads and lock-free queues. Status reflects the current public-safe configuration; individual toggles live in `src/version.h`.
 
 - **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(enabled)*
-- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(enabled)*
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, reduces zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(enabled)*
+- **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(disabled - unsynchronized writes to WoW game state)*
+- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, reduces zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(disabled - workers touch WoW globals)*
 - **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU in raids, lock-free queue with async processing *(enabled, auto-disables inside raids)*
 - **Sound prefetching** - predicts and prefetches sound files based on spell casts, zone transitions, combat state, worker thread pool (2 threads) with lock-free queue (1024 entries) *(enabled)*
 - **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(enabled)*
-- **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(enabled)*
+- **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(disabled - unsynchronized writes to WoW game state)*
 - **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading *(enabled)*
 - **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled - loading screen regression)*
 
@@ -194,12 +209,16 @@ Features that use worker threads and lock-free queues. Status reflects the curre
 - CRT `pow()` integer fast-path (x^2=x*x, sqrt, etc.)
 - CRT `strstr` SSE2 Boyer-Moore-Horspool
 
-### CRT SSE2 fast paths
-All page-boundary guarded and SEH-protected:
-- `strlen` / `strcmp` / `memcmp` / `memcpy` / `memset` - SSE2 memory operations
-- `memchr` / `strchr` - byte and character search
-- `strcpy` - string copy
-- `wcslen` / `wcscpy` - wide-char UTF-16 strings
+### SSE2 string/memory fast paths (WoW-internal, active)
+Replacements for WoW's own statically-linked CRT routines at verified addresses:
+- WoW `strlen` (sub_76EE30) - 16-byte-aligned SSE2 scan, page-safe
+- WoW `memset` (0x40BB80, 1108 callers) - full SSE2 + non-temporal ≥2 MB
+- WoW `memcpy` (0x40CB10, 719 callers) - SSE2 16–255 B + non-temporal ≥256 KB, overlap-safe
+- WoW `_strnicmp` (0x76E780, 1013 callers) - SSE2 ASCII case-insensitive compare
+- `strstr` - SSE2 Boyer–Moore–Horspool
+- `MultiByteToWideChar` / `WideCharToMultiByte` - SSE2 ASCII fast path
+
+> The generic msvcrt CRT mem/char SSE2 paths (`crt_mem_fastpath`, `crt_char_fast`) are **disabled** — WoW links its CRT statically, so hooking msvcrt exports had little effect and risked VA exhaustion.
 
 ### Kernel-call caches (38 hooks)
 Batch 1-8: `GetSystemTimeAsFileTime` (QPC-based 1ms refresh), `GetACP`, `GetUserDefaultLangID`, `GetProcessHeap`, `CharUpperA/W`, `CharLowerA/W`, `MapVirtualKeyA`, `GetThreadPriority`
