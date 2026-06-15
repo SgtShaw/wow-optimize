@@ -3155,10 +3155,16 @@ static void ConfigureMimalloc() {
     // Commits entire arena at once instead of page-by-page
     mi_option_set(mi_option_arena_eager_commit, 1);
 
-    // Purge delay: -1 = never purge (keeps freed pages mapped to prevent
-    // stale Lua string reads during reload from ACCESS_VIOLATION).
-    // Multi-client overrides to aggressive purging in AdjustMimallocForMultiClient.
-    mi_option_set(mi_option_purge_delay, -1);
+    // Return freed arenas to the OS after a short idle delay. This was -1
+    // (never purge) to keep freed pages mapped so the mimalloc-backed Lua
+    // allocator could not hand back a reused address for a cached Node*/TString*.
+    // That allocator is now DISABLED -- Lua objects live in WoW's own pool, so
+    // mimalloc never holds game data -- and never-purging only let mimalloc's
+    // reserved VA grow without bound across a session, which on 32-bit (HD
+    // clients + heavy addons) contributed to VA exhaustion and NULL-alloc
+    // crashes on relog. 100ms keeps a comfortable window for any transient
+    // reuse while still handing memory back. Multi-client tightens this further.
+    mi_option_set(mi_option_purge_delay, 100);
 
     // v3.3.x: use decommit (MEM_DECOMMIT) rather than reset (MEM_RESET)
     // Decommit releases physical memory immediately, reducing RSS pressure
