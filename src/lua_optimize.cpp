@@ -706,31 +706,35 @@ static void StepGC(lua_State* L, double frameMs) {
         return;
     }
 
-    // Skip GC during combat if frame is already slow to prevent compounding stutter
-    // Raised threshold from 14ms to 18ms — at 60fps (16.6ms) this was triggering
-    // too aggressively, causing GC starvation and memory growth during raids
-    if (Config.inCombat && frameMs > 18.0) {
-        ResetAllocCounter();  // Still reset counter even when skipping
-        return;
-    }
-
-    // During combat: use micro-steps spread across frames instead of large bursts.
-    // This prevents GC spikes that cause visible stutter during boss mechanics.
-    // Instead of 64KB every frame, do 16KB every frame = same throughput, smoother.
+    // During combat: spread collection across frames as small steps, sized to
+    // ~110% of the measured allocation rate so the heap trends FLAT.
+    //
+    // The previous logic collected only ~50% of the alloc rate (capped at 32KB)
+    // and skipped GC entirely on any frame >18ms. During a sustained heavy raid
+    // (frames are routinely >18ms) that starved the collector: garbage grew until
+    // Lua forced a full collection of the entire multi-hundred-MB state, which is
+    // the multi-second mid-fight freeze testers reported. Matching the alloc rate
+    // keeps memory stable with steady tiny steps instead of one giant stall.
     if (Config.inCombat && !Config.isLoading) {
-        int microStepKB = 16;
         LONG64 netAlloc = GetAndResetNetAlloc();
         if (netAlloc < 0) netAlloc = 0;
         g_smoothedNetAlloc = g_smoothedNetAlloc * 0.9 + (double)netAlloc * 0.1;
-        int adaptiveMicro = (int)(g_smoothedNetAlloc / 1024.0 * 0.5);
-        if (adaptiveMicro > microStepKB) microStepKB = adaptiveMicro;
-        if (microStepKB > 32) microStepKB = 32;
+
+        int stepKB = (int)(g_smoothedNetAlloc / 1024.0 * 1.1);  // stay just ahead
+        if (stepKB < 16) stepKB = 16;
+
+        // On an already-slow frame, halve the step to avoid compounding the
+        // stutter -- but never skip, or garbage runs away over a long fight.
+        if (frameMs > 18.0) stepKB = (stepKB > 32) ? stepKB / 2 : 16;
+
+        // Bound a single step; bursts above this catch up over the next frames.
+        if (stepKB > 1024) stepKB = 1024;
 
         if (g_gcPerfFreq.QuadPart == 0) QueryPerformanceFrequency(&g_gcPerfFreq);
         LARGE_INTEGER before, after;
         QueryPerformanceCounter(&before);
         __try {
-            Api.lua_gc(L, LUA_GCSTEP, microStepKB);
+            Api.lua_gc(L, LUA_GCSTEP, stepKB);
             State.gcStepsTotal++;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
             State.gcOptimized = false;
