@@ -1548,6 +1548,23 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingInjectState = currentL;
             InterlockedExchange(&g_frameScriptInjected, 0);
             Log("[LuaOpt] FrameScript injection armed for L=0x%08X", (unsigned)(uintptr_t)currentL);
+
+            // IMMEDIATE detection globals on the new lua_State.
+            // LuaBoost runs on the new VM before the settle period completes,
+            // so waiting for SetupLuaInterface left /lb showing "not detected".
+            // Writing now via C API is safe: we just read currentL successfully.
+            __try {
+                WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_LOADED", true);
+                WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_GC_ACTIVE", false);
+                WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
+                WriteLuaGlobal_String(currentL, "LUABOOST_DLL_VERSION", WOW_OPTIMIZE_VERSION_STR);
+                char latest[32] = {};
+                if (VersionChecker_GetLatestVersion(latest, sizeof(latest))) {
+                    WriteLuaGlobal_String(currentL, "LUABOOST_DLL_LATEST_VERSION", latest);
+                } else {
+                    WriteLuaGlobal_String(currentL, "LUABOOST_DLL_LATEST_VERSION", "unknown");
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
             return;
         }
 
