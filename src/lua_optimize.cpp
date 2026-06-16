@@ -149,7 +149,7 @@ static struct {
     int  gcStepMul      = 300;
     int  normalStepKB   = 128;   // was 64 - heavy sessions need faster collection
     int  combatStepKB   = 64;    // Raised from 32 → 64 to prevent memory ballooning during combat logs
-    int  idleStepKB     = 256;   // was 128 - aggressive cleanup while AFK
+    int  idleStepKB     = 64;    // was 256 → 128 → 64: idle atomic-phase stutter fix
     int  loadingStepKB  = 512;   // was 256 - rapid cleanup during zone transitions
     bool manualGCMode   = true;
 
@@ -686,7 +686,7 @@ static const char* GetGCModeName() {
 static int GetCurrentStepKB() {
     if (Config.isLoading) return Config.loadingStepKB;
     if (Config.inCombat)  return Config.combatStepKB;
-    if (Config.isIdle)    return Config.idleStepKB;
+    if (Config.isIdle)    return (Config.idleStepKB > 128) ? 128 : Config.idleStepKB;
     return Config.normalStepKB;
 }
 
@@ -773,6 +773,13 @@ static void StepGC(lua_State* L, double frameMs) {
     // Exponential moving average (alpha=0.1 for stability)
     g_smoothedNetAlloc = g_smoothedNetAlloc * 0.9 + (double)netAlloc * 0.1;
 
+    // Idle mode with negligible allocation: skip manual GC stepping.
+    // Lua 5.1's internal luaC_checkGC on the rare allocation will still collect.
+    // Prevents periodic atomic-phase stutter on large idle heaps (~80ms spikes).
+    if (Config.isIdle && !Config.isLoading && g_smoothedNetAlloc < 1024.0) {
+        return;
+    }
+
     // Convert smoothed allocation to KB, add 20% headroom to stay ahead
     int adaptiveStepKB = (int)(g_smoothedNetAlloc / 1024.0 * 1.2);
 
@@ -835,7 +842,7 @@ static void StepGC(lua_State* L, double frameMs) {
         } else if (Config.inCombat) {
             if (Config.combatStepKB < 48) Config.combatStepKB += 2;
         } else if (Config.isIdle) {
-            if (Config.idleStepKB < 512) Config.idleStepKB += 8;
+            if (Config.idleStepKB < 128) Config.idleStepKB += 8;
         } else {
             if (Config.normalStepKB < 256) Config.normalStepKB += 4;
         }
