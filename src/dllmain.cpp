@@ -160,6 +160,7 @@ static void StopFreezeWatchdog() {
 #include "datastore_fastpath.h"
 #include "string_ops_fast.h"
 #include "heap_compactor.h"
+#include "version_checker.h"
 #include "lua_tonumber_fast.h"
 #include "lua_pushnumber_fast.h"
 #include "gettime_fast.h"
@@ -5595,6 +5596,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
     HeapCompactor_Init();
+    VersionChecker_Init();
 
     Log("--- Lua tonumber Fast Path ---");
     bool luaToNumberFastOk = InstallLuaToNumberFast();
@@ -7757,34 +7759,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 ShutdownVAArena();
             }
             HeapCompactor_Shutdown();
-            if (g_globalAllocFast > 0)
-                Log("GlobalAlloc: %ld GMEM_FIXED via mimalloc", g_globalAllocFast);
-            #if !CRASH_TEST_DISABLE_MPQ_MMAP
-            if (g_mpqMapHits + g_mpqMapMisses > 0)
-                Log("MPQ mmap: %ld reads served, %ld faults, %d files mapped, %.1f MB total",
-                    g_mpqMapHits, g_mpqMapMisses, g_mpqMapCount,
-                    g_mpqMapTotalBytes / (1024.0 * 1024.0));
-            #endif
-            if (g_instanceMutex) {
-                CloseHandle(g_instanceMutex);
-                g_instanceMutex = NULL;
-            }            
-            #if !CRASH_TEST_DISABLE_MPQ_MMAP
-                        for (int i = 0; i < MAX_MPQ_MAPPINGS; i++) {
-                            if (g_mpqMappings[i].active) {
-                                UnmapViewOfFile(g_mpqMappings[i].baseAddress);
-                                g_mpqMappings[i].active = false;
-                            }
-                        }
-            #endif
-            g_asyncIoShutdown = true;
-            if (g_asyncIoWorker) {
-                WaitForSingleObject(g_asyncIoWorker, 2000);
-                CloseHandle(g_asyncIoWorker);
-                g_asyncIoWorker = NULL;
-            }            
+            VersionChecker_Shutdown();
 
-            StopFreezeWatchdog();
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
             TooltipCache::Shutdown();

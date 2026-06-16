@@ -206,6 +206,8 @@ add_library(wow_optimize SHARED
     src/hooks_async.h
     src/d3d9_state_manager.cpp
     src/d3d9_state_manager.h
+    src/version_checker.cpp
+    src/version_checker.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
@@ -214,6 +216,7 @@ target_link_libraries(wow_optimize PRIVATE
     psapi
     ws2_32
     version
+    winhttp
 )
 
 target_include_directories(wow_optimize PRIVATE

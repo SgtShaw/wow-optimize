@@ -55,6 +55,7 @@ extern "C" void ReleaseLoadingArena();
 #include "MinHook.h"
 
 #include "version.h"
+#include "version_checker.h"
 
 extern bool g_isMultiClient;
 extern "C" void Log(const char* fmt, ...);
@@ -1188,7 +1189,16 @@ static void SetupLuaInterface(lua_State* L) {
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", true);
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_GC_ACTIVE", State.gcOptimized);
         WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
-        
+
+        // Version info so the addon can warn when DLL is outdated.
+        WriteLuaGlobal_String(L, "LUABOOST_DLL_VERSION", WOW_OPTIMIZE_VERSION_STR);
+        char latest[32] = {};
+        if (VersionChecker_GetLatestVersion(latest, sizeof(latest))) {
+            WriteLuaGlobal_String(L, "LUABOOST_DLL_LATEST_VERSION", latest);
+        } else {
+            WriteLuaGlobal_String(L, "LUABOOST_DLL_LATEST_VERSION", "unknown");
+        }
+
         // Initialize addon communication globals
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_COMBAT", false);
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_IDLE", false);
