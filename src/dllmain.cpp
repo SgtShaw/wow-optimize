@@ -3195,12 +3195,18 @@ static void ConfigureMimalloc() {
 
 static void AdjustMimallocForMultiClient() {
     if (g_isMultiClient) {
-        // HD multi-client: aggressive memory return to prevent 32-bit VA exhaustion
-        // 40+ MPQ clients can hit 2GB VA limit during boss fights
-        mi_option_set(mi_option_purge_delay, 10);   // 10ms purge delay
-        mi_option_set(mi_option_purge_decommits, 1); // MEM_DECOMMIT for immediate RSS reduction
+        // The mimalloc-backed Lua/CRT allocator is DISABLED, so mimalloc only
+        // manages this DLL's own footprint (worker queues, caches) -- it never
+        // holds WoW's MPQ/Lua memory and cannot free WoW's VA. A 10ms decommit
+        // delay therefore did not relieve the 32-bit exhaustion it claimed to;
+        // it only thrashed our own pages (decommit -> immediate re-fault).
+        // Match the single-client 100ms delay and just run one collection to
+        // hand back the startup pre-warm. The real multi-client VA fix is
+        // user-side: bcdedit /set increaseuserva 3072.
+        mi_option_set(mi_option_purge_delay, 100);
+        mi_option_set(mi_option_purge_decommits, 1);
         mi_collect(true);
-        Log("mimalloc: multi-client HD mode (10ms purge, decommit, immediate collect)");
+        Log("mimalloc: multi-client mode (100ms purge, decommit, one-time collect)");
     }
 }
 

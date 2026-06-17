@@ -9,6 +9,11 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Set in dllmain by DetectMultiClient(). When two+ clients share the machine,
+// telling each it may hold a 3GB working set multiplies physical-RAM pressure
+// across clients and triggers a page-fault storm; keep the reservation modest.
+extern bool g_isMultiClient;
+
 // ================================================================
 // MEMORY_OPT OPTIMIZATIONS FOR WOW 3.3.5a
 // 
@@ -361,13 +366,20 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
     // 4. Set working set to maximum allowed
     SIZE_T minWS = 256 * 1024 * 1024;  // 256MB minimum
     SIZE_T maxWS = 2048ULL * 1024 * 1024; // 2GB maximum (or 3GB with LAA)
-    
-    // Check if LAA is active - if so, allow 3GB
-    if (g_laaEnabled) {
+
+    if (g_isMultiClient) {
+        // Multiple clients on one box: a generous per-client working set just
+        // multiplies RAM pressure and paging. Stay conservative so the earlier
+        // multi-client reduction in dllmain is not clobbered.
+        minWS = 64 * 1024 * 1024;
+        maxWS = 1024ULL * 1024 * 1024;
+        Log("[MEMORY_OPT] MemOpt: multi-client, keeping working set conservative");
+    } else if (g_laaEnabled) {
+        // Check if LAA is active - if so, allow 3GB
         maxWS = 3072ULL * 1024 * 1024; // 3GB with LAA
         Log("[MEMORY_OPT] MemOpt: LAA active, setting max working set to 3GB");
     }
-    
+
     if (SetProcessWorkingSetSize(GetCurrentProcess(), minWS, maxWS)) {
         applied++;
         Log("[MEMORY_OPT] MemOpt: Working set %uMB - %uMB", 
