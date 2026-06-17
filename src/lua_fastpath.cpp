@@ -756,9 +756,6 @@ static int __cdecl Hooked_StrFind(lua_State* L) {
     int nargs = lua_gettop_(L);
     if (nargs < 2) return orig_str_find(L);
 
-    if (nargs < 4 || !lua_toboolean_(L, 4))
-        return orig_str_find(L);
-
     if (lua_type_(L, 1) != LUA_TSTRING || lua_type_(L, 2) != LUA_TSTRING)
         return orig_str_find(L);
 
@@ -766,6 +763,17 @@ static int __cdecl Hooked_StrFind(lua_State* L) {
     const char* s = lua_tolstring_(L, 1, &sLen);
     const char* p = lua_tolstring_(L, 2, &pLen);
     if (!s || !p) return orig_str_find(L);
+
+    // Fast path applies when the caller passed plain=true, OR the pattern has no
+    // Lua magic characters. A magic-free pattern matches exactly the same span as
+    // a plain substring search and produces no captures, so find returns the
+    // identical (start,end) pair without running the pattern matcher. This catches
+    // the very common string.find(s, "literal") call that omits the plain flag.
+    bool plainMode = (nargs >= 4 && lua_toboolean_(L, 4));
+    if (!plainMode && !IsPlainLiteralPattern(p, pLen)) {
+        g_findFallbacks++;
+        return orig_str_find(L);
+    }
 
     int init = 1;
     if (nargs >= 3 && lua_type_(L, 3) == LUA_TNUMBER)
