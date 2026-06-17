@@ -822,14 +822,17 @@ static void RunPeriodicMaintenanceOnMainThread() {
     }
 
     if (g_isMultiClient) {
-        // HD multi-client: aggressive mimalloc collection every 5 seconds
-        // Prevents VA space fragmentation during boss fights (40+ MPQ clients)
-        // Previous 60s interval allowed fragmentation to reach critical levels
+        // Periodic mimalloc trim in multi-client. mi_collect(true) is a forced
+        // global heap walk + decommit -- a visible hitch -- and the mimalloc Lua/
+        // CRT allocator is disabled, so it only reclaims this DLL's own small
+        // footprint, never WoW's MPQ/Lua VA. At a 5s cadence that hitch landed
+        // mid-boss-fight for no real VA benefit. mimalloc's 100ms background purge
+        // already hands freed memory back, so a 60s safety trim is plenty.
         if (g_nextMiCollectTick == 0) {
-            g_nextMiCollectTick = nowTick + 5000;
+            g_nextMiCollectTick = nowTick + 60000;
         } else if ((LONG)(nowTick - g_nextMiCollectTick) >= 0) {
             mi_collect(true);
-            g_nextMiCollectTick = nowTick + 5000;
+            g_nextMiCollectTick = nowTick + 60000;
         }
     }
 }
