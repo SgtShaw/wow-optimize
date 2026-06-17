@@ -339,38 +339,17 @@ namespace HookPrefetch {
     bool InstallAll() {
         int installed = 0;
 
-        // F1: Cleanup Block Prefetch
-        {
-            void* target = (void*)0x00422910;
-            if (WineSafe_CreateHook(target, (void*)Hooked_CleanupBlock, (void**)&orig_CleanupBlock) == MH_OK) {
-                if (MH_EnableHook(target) == MH_OK) {
-                    Log("[HookPrefetch] F1 cleanup prefetch: ACTIVE (513 xrefs)");
-                    installed++;
-                }
-            }
-        }
-
-        // F2: Delete Wrapper Prefetch
-        {
-            void* target = (void*)0x0047CC90;
-            if (WineSafe_CreateHook(target, (void*)Hooked_DeleteWrapper, (void**)&orig_DeleteWrapper) == MH_OK) {
-                if (MH_EnableHook(target) == MH_OK) {
-                    Log("[HookPrefetch] F2 delete prefetch: ACTIVE (501 xrefs)");
-                    installed++;
-                }
-            }
-        }
-
-        // F3: CDataStore Reset Prefetch
-        {
-            void* target = (void*)0x0047AE50;
-            if (WineSafe_CreateHook(target, (void*)Hooked_DataStoreReset, (void**)&orig_DataStoreReset) == MH_OK) {
-                if (MH_EnableHook(target) == MH_OK) {
-                    Log("[HookPrefetch] F3 datastore reset prefetch: ACTIVE (439 xrefs)");
-                    installed++;
-                }
-            }
-        }
+        // F1/F2/F3 (cleanup/delete/datastore-reset prefetch hooks) are intentionally
+        // NOT installed. Each wrapped a hot function (513/501/439 xrefs) to do a
+        // locked InterlockedIncrement plus an _mm_prefetch issued one instruction
+        // before calling the original -- which immediately dereferences the same
+        // pointer. A prefetch needs hundreds of cycles of lead time to hide latency,
+        // so issued right before the use it does nothing, while the trampoline and
+        // the locked atomic are real per-call cost. Net-negative on ~1450 call sites.
+        (void)&Hooked_CleanupBlock;
+        (void)&Hooked_DeleteWrapper;
+        (void)&Hooked_DataStoreReset;
+        Log("[HookPrefetch] F1/F2/F3 hooks disabled (prefetch-before-use is a no-op; trampoline+atomic were net-negative)");
 
         // F5: Memory prefetch utility - always available
         // F6: Lock-free counter read - always available
