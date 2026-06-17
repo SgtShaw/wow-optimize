@@ -14,11 +14,22 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Set by DetectMultiClient() in dllmain.
+extern bool g_isMultiClient;
+
 #if !TEST_DISABLE_ADDON_PRELOAD
 
 static std::unordered_map<std::string, std::vector<uint8_t>> g_cache;
 static SRWLOCK g_cacheLock = SRWLOCK_INIT;
 static volatile LONG g_ready = 0;
+
+// Total bytes held in the in-memory cache, and a hard ceiling. Without a budget
+// this RAM-disk grows to the full size of every addon file, which on the
+// VA-constrained 32-bit client (especially with several clients each holding their
+// own copy) feeds 32-bit address-space exhaustion. Stop caching past the ceiling;
+// files beyond it simply fall through to normal disk/MPQ reads.
+static volatile LONG64 g_cacheBytes = 0;
+static constexpr LONG64 CACHE_BUDGET_BYTES = 192LL * 1024 * 1024;
 
 // Track handles opened for addon files
 static constexpr int MAX_HANDLES = 1024;
@@ -58,13 +69,15 @@ static DWORD WINAPI WorkerProc(LPVOID) {
         if (h == INVALID_HANDLE_VALUE) continue;
 
         DWORD size = GetFileSize(h, NULL);
-        if (size > 0 && size < 16 * 1024 * 1024) {
+        if (size > 0 && size < 16 * 1024 * 1024 &&
+            g_cacheBytes + (LONG64)size <= CACHE_BUDGET_BYTES) {
             std::vector<uint8_t> data(size);
             DWORD read = 0;
             if (ReadFile(h, data.data(), size, &read, NULL) && read == size) {
                 AcquireSRWLockExclusive(&g_cacheLock);
                 g_cache[path] = std::move(data);
                 ReleaseSRWLockExclusive(&g_cacheLock);
+                InterlockedAdd64(&g_cacheBytes, (LONG64)size);
                 InterlockedIncrement(&g_filesLoaded);
             }
         }
@@ -180,6 +193,17 @@ static void ScanAddonDir(const std::string& base, int depth) {
 }
 
 bool InitAddonPreload() {
+    // Skip the RAM-disk entirely when several clients share the machine: each
+    // client would hold its own full copy of every addon file, multiplying memory
+    // and 32-bit VA pressure on exactly the configuration that hits OutOfMemory.
+    // The ReadFile/CreateFile hooks tolerate an empty cache and fall through to
+    // normal I/O, so single-client keeps the load-time win and multi-client trades
+    // it for headroom.
+    if (g_isMultiClient) {
+        Log("[AddonPreload] Disabled in multi-client mode (memory/VA headroom)");
+        return true;
+    }
+
     // Find WoW AddOns directory
     char exePath[MAX_PATH];
     GetModuleFileNameA(NULL, exePath, MAX_PATH);
