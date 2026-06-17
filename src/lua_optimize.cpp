@@ -1496,8 +1496,14 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         return;
     }
 
-    if (state != 2 || !State.initialized || !State.gcOptimized || !Api.L) return;
+    if (state != 2 || !State.initialized || !Api.L) return;
 
+    // Detect lua_State swap BEFORE the gcOptimized guard.
+    // On Isengard the lua_State pointer changes on /reload, triggering the
+    // first-encounter branch which sets gcOptimized=false. Without this
+    // reorder, every subsequent frame hits !gcOptimized and returns early,
+    // never advancing the settle timer (line 1571). On Warmane/Chromiecraft
+    // where the pointer is reused, currentL==Api.L and this path is skipped.
     lua_State* currentL = ReadLuaState();
     if (!currentL) return;
 
@@ -1514,14 +1520,9 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaStateFrames = 1;
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
 
-            // CRITICAL FIX: Invalidate ALL caches IMMEDIATELY when lua_State changes.
-            // Previously, caches were only cleared AFTER the settle period, leaving
-            // fast-path hooks active with stale pointers to the OLD lua_State's objects.
-            // This caused memory corruption, freezes, and ACCESS_VIOLATION crashes
-            // when hooks tried to access freed/reallocated Lua internals.
             Log("[LuaOpt] Invalidating all caches immediately (old L=0x%08X, new L=0x%08X)",
                 (unsigned)(uintptr_t)Api.L, (unsigned)(uintptr_t)currentL);
-            
+
             UICache::ClearCache();
             ApiCache::ClearCache();
             ClearLuaOptCaches();
@@ -1530,29 +1531,14 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             ClearTableCache();
             LuaBytecodeCache::OnLuaStateSwap();
             ClearAddonPreload();
-            
-            // Mark GC as not optimized to prevent StepGC from running with stale state
-            State.gcOptimized = false;
 
-            // Return mimalloc's freed arenas to the OS now, while the old VM/UI
-            // has just been torn down and before the new state reloads. On 32-bit
-            // (HD client + heavy addons) the relog VA spike is what exhausts the
-            // address space; reclaiming here gives WoW maximum headroom for the
-            // incoming state. mi_collect only touches already-freed memory.
+            State.gcOptimized = false;
             mi_collect(true);
 
-            // ARM FrameScript_Execute hook for pre-addon marker injection.
-            // The hook fires BEFORE any addon top-level code runs on the new
-            // lua_State, injecting LUABOOST_DLL_LOADED=true and clearing
-            // LUABOOST_LOADED so LuaBoost re-runs its detection.
             g_pendingInjectState = currentL;
             InterlockedExchange(&g_frameScriptInjected, 0);
             Log("[LuaOpt] FrameScript injection armed for L=0x%08X", (unsigned)(uintptr_t)currentL);
 
-            // IMMEDIATE detection globals on the new lua_State.
-            // LuaBoost runs on the new VM before the settle period completes,
-            // so waiting for SetupLuaInterface left /lb showing "not detected".
-            // Writing now via C API is safe: we just read currentL successfully.
             __try {
                 WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_LOADED", true);
                 WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_GC_ACTIVE", false);
@@ -1577,8 +1563,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaState = nullptr;
         g_pendingLuaStateTick = 0;
         g_pendingLuaStateFrames = 0;
-        // Reset retry counter on every lua_State swap so subsequent /reload
-        // gets a fresh 10 attempts (was never reset, exhausting retries permanently)
         g_luaInterfaceRetryCount = 0;
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
     } else if (g_pendingLuaState) {
@@ -1587,22 +1571,14 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateFrames = 0;
     }
 
-    // Debounce removed: causes ACCESS_VIOLATION with overlay hooks
-    // that expect immediate lua_State availability during UI transitions.
     if (currentL != Api.L) {
         Log("[LuaOpt] lua_State changed (UI reload) - updating pointer");
 
-        // Full init only once. Re-initializing on every UI reload
-        // causes heap corruption and #132 crashes from stale pointers in hooks.
         if (!g_vmInitializedOnce) {
             Log("[LuaOpt] First-time VM initialization");
             g_vmInitializedOnce = true;
-
-            if (g_luaAllocReplaced) {
-                LogLuaAllocStats();
-            }
+            if (g_luaAllocReplaced) { LogLuaAllocStats(); }
             ResetAllocStats();
-
             Api.L = currentL;
             State.gcOptimized = false;
             State.gcStepsTotal = 0;
@@ -1613,13 +1589,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             Config.isIdle = false;
             Config.isLoading = false;
             g_loadingGraceFrames = 0;
-
             UICache::ClearCache();
             ApiCache::ClearCache();
             ClearLuaOptCaches();
-            if (g_isMultiClient) {
-                mi_collect(true);
-            }
+            if (g_isMultiClient) { mi_collect(true); }
             ReplaceLuaAllocator(Api.L);
             OptimizeGC(Api.L);
             PreSizeStringTable(Api.L);
@@ -1629,16 +1602,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             LuaBytecodeCache::OnLuaStateSwap();
             ClearAddonPreload();
             SetupLuaInterface(Api.L);
-            
-            // CRITICAL: Verify interface immediately - if SetupLuaInterface failed,
-            // mark for retry so CheckAndRestoreLuaInterface will fix it within 500ms
             if (!CheckAndRestoreLuaInterface(Api.L)) {
                 Log("[LuaOpt] First-time init: interface verification failed, will retry");
             }
         } else {
-            // Subsequent swap: clear caches + re-setup interface only.
-            // Skip ReplaceLuaAllocator/OptimizeGC/PreSizeStringTable - they
-            // caused heap corruption on re-init in earlier versions.
             Api.L = currentL;
             State.gcOptimized = false;
             State.gcStepsTotal = 0;
@@ -1647,7 +1614,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             Config.isIdle = false;
             Config.isLoading = false;
             g_loadingGraceFrames = 0;
-
             UICache::ClearCache();
             ApiCache::ClearCache();
             ClearLuaOptCaches();
@@ -1657,10 +1623,6 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             LuaBytecodeCache::OnLuaStateSwap();
             ClearAddonPreload();
             SetupLuaInterface(Api.L);
-            
-            // CRITICAL: Verify interface immediately after /reload
-            // If FrameScript_Execute threw exception or LuaBoost loaded before us,
-            // we need to retry within 500ms (not 3 seconds)
             if (!CheckAndRestoreLuaInterface(Api.L)) {
                 Log("[LuaOpt] Subsequent swap: interface verification failed, will retry");
             } else {
@@ -1677,6 +1639,8 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_smoothedGcMs = 0.5;
         return;
     }
+
+    if (!State.gcOptimized) return;
 
     // Read addon state more aggressively on slow/high-memory frames so
     // loading-mode protections engage before zone-transition allocations spike.
