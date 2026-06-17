@@ -104,6 +104,10 @@ static DWORD WINAPI Worker(LPVOID) {
 }
 
 bool Init() {
+#if TEST_DISABLE_MPQ_DECOMPRESS_MT
+    Log("[MPQDecompressMT] DISABLED (dormant: no producer ever submits inflate work)");
+    return false;
+#endif
     g_wakeup = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (!g_wakeup) return false;
     for (int i = 0; i < WORKER_COUNT; i++) {

@@ -202,10 +202,13 @@
 // Worker thread pool (2 threads), lock-free queue (8192 entries), cache (2048 entries)
 #define TEST_DISABLE_TEXTURE_ASYNC      1
 
-// Async Spell Data Prefetching - prefetch spell data before cast completes
-// Hook sub_80CCE0 (spell cast), queue prefetch, load async with LRU cache
-// Worker thread (1 thread), lock-free queue (4096 entries), cache (4096 entries)
-#define TEST_DISABLE_SPELL_PREFETCH     0
+// Async Spell Data Prefetching - DISABLED.
+// The worker never loads anything (PrefetchSpellData just memsets a zeroed
+// SpellData into the cache -- the real WoW loader call is an unfinished TODO),
+// so the "cache" holds only zeros nobody reads. Meanwhile every spell cast pays
+// an SRW-locked map lookup + a worker wakeup on the main thread, plus a 1ms-
+// spinning worker and up to ~2.7MB of useless cached zeros. Pure overhead.
+#define TEST_DISABLE_SPELL_PREFETCH     1
 
 // Multithreaded Addon Update Dispatcher - parallelize addon OnUpdate callbacks
 // Reduces main thread CPU by 40-50% in addon-heavy setups
@@ -226,17 +229,24 @@
 // Loads files into OS cache before zone transition occurs
 #define TEST_DISABLE_MPQ_PREFETCH       0
 
-// Async Sound/Audio Prefetching - predict and prefetch sound files
-// Tracks spell casts, zone transitions, combat state
-// Worker thread pool (2 threads), lock-free queue (1024 entries)
-// Prefetches spell sounds, zone music, ambient sounds, combat sounds
-#define TEST_DISABLE_SOUND_PREFETCH     0
+// Async Sound/Audio Prefetching - DISABLED.
+// Placeholder: the worker loads nothing (TODOs only), so it just spins 2 idle
+// threads. No prefetch ever happens. Pure thread/VA overhead.
+#define TEST_DISABLE_SOUND_PREFETCH     1
 
-// Async Quest/Achievement Data Loading - async quest log and achievement data loading
-// Worker thread (1 thread), lock-free queue (512 entries)
-// Caches quest data, achievement data, quest objectives
-// Background quest progress updates
-#define TEST_DISABLE_QUEST_ASYNC        0
+// Async Quest/Achievement Data Loading - DISABLED.
+// Placeholder: the worker's request handlers only bump stats (the WoW quest/
+// achievement calls are unfinished TODOs), so it never populates any cache.
+// One idle spinning thread for nothing.
+#define TEST_DISABLE_QUEST_ASYNC        1
+
+// Dormant pure-compute worker pools. Each spins idle worker threads (Sleep(1)/
+// event-wait) but NOTHING ever submits work to them (no external caller feeds the
+// decode/inflate/bone queues). On a 32-bit VA-constrained client each thread also
+// reserves ~1MB of stack address space. Disabled until a real producer wires them.
+#define TEST_DISABLE_TEXTURE_DECODE_MT  1   // 2 workers, BLP decode path never wired
+#define TEST_DISABLE_MPQ_DECOMPRESS_MT  1   // 3 workers, inflate path never wired
+#define TEST_DISABLE_ANIM_MT            1   // 2 workers, M2 bone path never wired
 
 // Heap Compactor - proactive VA defragmentation
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB

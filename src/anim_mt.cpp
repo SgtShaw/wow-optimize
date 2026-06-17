@@ -73,6 +73,10 @@ static DWORD WINAPI Worker(LPVOID) {
 }
 
 bool Init() {
+#if TEST_DISABLE_ANIM_MT
+    Log("[AnimMT] DISABLED (dormant: no producer ever submits bone work)");
+    return false;
+#endif
     g_wakeup = CreateEventA(NULL, FALSE, FALSE, NULL);
     if (!g_wakeup) return false;
     for (int i = 0; i < WORKER_COUNT; i++) {
