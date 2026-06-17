@@ -188,10 +188,14 @@
 // Hooking requires naked function with inline assembly
 #define TEST_DISABLE_SPELL_CACHE        1
 
-// Multithreaded Combat Log Parser - offload combat log parsing to worker thread
-// Hook sub_74F910 (event dispatcher), observe events, process in worker thread
-// Raid detection automatically disables in raids (0x00B6AA38)
-#define TEST_DISABLE_COMBATLOG_MT       0
+// Multithreaded Combat Log Parser - DISABLED.
+// The worker actually parses nothing: the queue (g_queueTail / entry->ready) is
+// never filled, so the worker thread just spins on a 1ms wait forever while the
+// hook on sub_74F910 only calls the original and does a per-dispatch VirtualQuery
+// (IsInRaid). It was gutted to stop a use-after-free (walking freed entries) and
+// left as pure overhead + an idle background thread. Disable it so the combat log
+// runs WoW's native path with no added cost (this is also what ran in raids).
+#define TEST_DISABLE_COMBATLOG_MT       1
 
 // Async Texture/Model Loading - offload texture loading to worker thread pool
 // Hook sub_619330 (texture loader), queue requests, load async with LRU cache
