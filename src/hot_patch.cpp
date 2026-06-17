@@ -229,12 +229,16 @@ static int __cdecl Hooked_LuaType(int L, int idx) {
             int* slot = base + (idx - 1) * 4; // TValue = 4 DWORDs
             if (slot < top && slot >= base) {
                 int tt = slot[2]; // type tag at offset +8 (DWORD index 2)
-                _InterlockedIncrement(&g_n8Hits);
+                // Plain increment: lua_type runs on the single Lua thread and this
+                // path fires tens of millions of times/session (every fast-path
+                // type check). A locked atomic here costs more than the index2adr
+                // call the fast path saves, which made the hook net-negative.
+                ++g_n8Hits;
                 return tt;
             }
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
-    _InterlockedIncrement(&g_n8Misses);
+    ++g_n8Misses;
     return orig_LuaType(L, idx);
 }
 
@@ -734,27 +738,19 @@ namespace HotPatch {
     bool InstallAll() {
         int installed = 0;
 
-        // N1: Data Store Lookup Cache (sub_4CFD20, 345 xrefs)
-        {
-            void* target = (void*)0x004CFD20;
-            if (WineSafe_CreateHook(target, (void*)Hooked_DsLookup, (void**)&orig_DsLookup) == MH_OK) {
-                if (MH_EnableHook(target) == MH_OK) {
-                    Log("[HotPatch] N1 datastore lookup cache: ACTIVE (345 xrefs)");
-                    installed++;
-                }
-            }
-        }
+        // N1 (datastore lookup cache, sub_4CFD20) is NOT installed. The original
+        // is already O(1) and copies the 680-byte row to the caller's buffer; the
+        // single-entry cache copied those same 680 bytes AGAIN into its store on
+        // every miss (double memcpy) while a hit only skipped a cheap range check.
+        // It needs a >95% hit rate just to break even -- implausible for a 1-entry
+        // cache across 345 varied call sites -- so it was a net loss.
+        (void)&Hooked_DsLookup;
 
-        // N2: MemoryStorm Delete Prefetch (sub_42E3B0)
-        {
-            void* target = (void*)0x0042E3B0;
-            if (WineSafe_CreateHook(target, (void*)Hooked_MemStormDel, (void**)&orig_MemStormDel) == MH_OK) {
-                if (MH_EnableHook(target) == MH_OK) {
-                    Log("[HotPatch] N2 memorystorm delete prefetch: ACTIVE");
-                    installed++;
-                }
-            }
-        }
+        // N2 (memorystorm delete prefetch, sub_42E3B0) is NOT installed: it issued
+        // an _mm_prefetch one instruction before calling the original that
+        // dereferences the same pointer, which is too late to hide any latency,
+        // plus a locked atomic -- net-negative like the F1/F2/F3 prefetch hooks.
+        (void)&Hooked_MemStormDel;
 
         // N3: DeleteCriticalSection Wrapper (sub_4283D0)
         {
