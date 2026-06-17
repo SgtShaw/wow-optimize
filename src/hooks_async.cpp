@@ -404,6 +404,20 @@ bool InstallAsyncHooks(void) {
     g_tasksQueued = g_tasksProcessed = g_tasksDropped = 0;
     ::memset((void*)g_tasksByType, 0, sizeof(g_tasksByType));
 
+    // The async task pool only has producers if at least one of the offload
+    // hooks below is wired to a real address. They are all still 0x0 placeholders,
+    // so EnqueueTask is never called -- spawning the worker pool would just leave
+    // idle threads spinning on the event wait. Skip it until a hook is filled in.
+    const bool anyAsyncHook =
+        (ADDR_PARTICLE_EMITTER_UPDATE | ADDR_ADT_CHUNK_LOAD |
+         ADDR_DBC_LOAD_DISPATCH | ADDR_CDATASTORE_PROCESS) != 0;
+    if (!anyAsyncHook) {
+        g_asyncInit = true;          // allow Shutdown()/stats to run as no-ops
+        memset(g_adtCache, 0, sizeof(g_adtCache));
+        Log("[AsyncHooks] Worker pool: not started (no offload hooks wired)");
+        return true;
+    }
+
     g_workerEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (!g_workerEvent) {
         Log("[AsyncHooks] ERROR: Failed to create worker event");
