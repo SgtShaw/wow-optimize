@@ -23,8 +23,13 @@ static volatile long g_matident_calls = 0;
 typedef float* (__fastcall* MatCopy_t)(float* self, void* edx, float* src);
 typedef float* (__fastcall* MatIdentity_t)(float* self, void* edx);
 
+// sub_4C1F00: result = A * B, all three are float[16] passed by stack (__cdecl).
+typedef float* (__cdecl* MatMul_t)(float* result, float* a, float* b);
+
 static MatCopy_t     pOrigMatCopy     = nullptr;
 static MatIdentity_t pOrigMatIdentity = nullptr;
+static MatMul_t      pOrigMatMul      = nullptr;
+static volatile long g_matmul_calls   = 0;
 
 // ================================================================
 // Precomputed identity matrix rows for the SSE2 store path
@@ -85,6 +90,44 @@ static float* __fastcall HookMatrixIdentity(float* self, void* /*edx*/) {
 }
 
 // ================================================================
+// sub_4C1F00: 4x4 matrix multiply  result = A * B  (53+ xrefs)
+// ================================================================
+// IDA-verified convention: result[r*4+c] = sum_k A[r*4+k] * B[k*4+c]
+// (row-major C = A*B). The SSE2 form below broadcasts each element of an
+// A row across a full B row and accumulates, producing the identical
+// products; only the summation order differs, a sub-ULP delta that is
+// invisible for transform matrices. It loads all of B and a full A row
+// before storing, so it is also safe when result aliases A or B (the
+// scalar original is not, but no caller passes aliasing pointers).
+static float* __cdecl HookMatrixMultiply(float* result, float* a, float* b) {
+    ++g_matmul_calls;
+
+    uintptr_t r = (uintptr_t)result, pa = (uintptr_t)a, pb = (uintptr_t)b;
+    if (r > 0x10000 && r < 0xBFFF0000 &&
+        pa > 0x10000 && pa < 0xBFFF0000 &&
+        pb > 0x10000 && pb < 0xBFFF0000) {
+        __try {
+            __m128 b0 = _mm_loadu_ps(b);
+            __m128 b1 = _mm_loadu_ps(b + 4);
+            __m128 b2 = _mm_loadu_ps(b + 8);
+            __m128 b3 = _mm_loadu_ps(b + 12);
+            for (int row = 0; row < 4; ++row) {
+                __m128 ar = _mm_loadu_ps(a + row * 4);
+                __m128 acc = _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(0,0,0,0)), b0);
+                acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(1,1,1,1)), b1));
+                acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(2,2,2,2)), b2));
+                acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(3,3,3,3)), b3));
+                _mm_storeu_ps(result + row * 4, acc);
+            }
+            return result;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Unmapped page mid-op — fall through to the original.
+        }
+    }
+    return pOrigMatMul(result, a, b);
+}
+
+// ================================================================
 // Install hooks
 // ================================================================
 bool InstallMatrixCopySSE2() {
@@ -114,6 +157,19 @@ bool InstallMatrixCopySSE2() {
     Log("[MatrixSSE2] Installed %d/%d hooks (total %d xrefs)",
         installed, (int)(sizeof(hooks) / sizeof(hooks[0])),
         247 + 53);
+
+#if !TEST_DISABLE_MATRIX_MULTIPLY
+    if (WineSafe_CreateHook((void*)0x004C1F00, (void*)HookMatrixMultiply,
+                            (void**)&pOrigMatMul) == MH_OK &&
+        MH_EnableHook((void*)0x004C1F00) == MH_OK) {
+        Log("[MatrixSSE2] Hooked MatrixMultiply at 0x004C1F00 (SSE2, IDA-verified A*B)");
+    } else {
+        Log("[MatrixSSE2] MatrixMultiply hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] MatrixMultiply DISABLED via feature flag");
+#endif
+
     return installed == (int)(sizeof(hooks) / sizeof(hooks[0]));
 }
 
@@ -123,7 +179,10 @@ bool InstallMatrixCopySSE2() {
 void ShutdownMatrixCopySSE2() {
     MH_DisableHook((void*)0x00407F80);
     MH_DisableHook((void*)0x00407F40);
+#if !TEST_DISABLE_MATRIX_MULTIPLY
+    MH_DisableHook((void*)0x004C1F00);
+#endif
 
-    Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld",
-        g_matcopy_calls, g_matident_calls);
+    Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld",
+        g_matcopy_calls, g_matident_calls, g_matmul_calls);
 }

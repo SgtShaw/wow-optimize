@@ -184,6 +184,11 @@
 // CRT pow() integer fast-path - x^2=x*x, sqrt, etc.
 #define TEST_DISABLE_CRT_POW_SSE2        0
 
+// SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
+// convention identical to the scalar original; pointer-validated + SEH-guarded.
+// Set to 1 if any rendering/transform artifact is observed.
+#define TEST_DISABLE_MATRIX_MULTIPLY     0
+
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
 
