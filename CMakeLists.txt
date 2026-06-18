@@ -115,6 +115,7 @@ add_library(wow_optimize SHARED
     src/fast_strncmp.h
     src/crt_free_hook.cpp
     src/lock_tuning.cpp
+    src/texcache_tuning.cpp
     src/crt_free_hook.h
     src/aligned_alloc_cache.cpp
     src/aligned_alloc_cache.h

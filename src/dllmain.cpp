@@ -152,6 +152,7 @@ static void StopFreezeWatchdog() {
 #include "fast_strncmp.h"
 #include "crt_free_hook.h"
 #include "lock_tuning.h"
+#include "texcache_tuning.h"
 #include "aligned_alloc_cache.h"
 #include "lua_tonumber_cache.h"
 #include "lua_checknumber_cache.h"
@@ -821,6 +822,10 @@ static void RunPeriodicMaintenanceOnMainThread() {
         DumpPeriodicStats();
         g_nextStatsDumpTick = nowTick + 300000;
     }
+
+    // Re-assert the raised texture-cache budget; WoW resets it to the stock 64MB on
+    // device/settings resets, and this runs on the main thread where the cache lives.
+    TexCacheTuning_Tick();
 
     if (g_isMultiClient) {
         // Periodic mimalloc trim in multi-client. mi_collect(true) is a forced
@@ -5431,6 +5436,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool heapOk = InstallHeapOptimization();
     Log("--- Lock Contention Tuning ---");
     InstallLockTuning();   // self-logs; spin counts are best-effort
+    Log("--- Texture Cache Budget ---");
+    InitTexCacheTuning();  // self-logs; single-client only
     Log("--- Thread ID Cache ---");
     bool tidOk = InstallThreadIdCacheHook();
     Log("--- QPC Cache ---");
