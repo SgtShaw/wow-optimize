@@ -208,6 +208,10 @@ add_library(wow_optimize SHARED
     src/hooks_async.h
     src/d3d9_state_manager.cpp
     src/d3d9_state_manager.h
+    src/event_coalescer.cpp
+    src/event_coalescer.h
+    src/luaS_newlstr_sse2.cpp
+    src/luaS_newlstr_sse2.h
     src/version_checker.cpp
     src/version_checker.h
 )

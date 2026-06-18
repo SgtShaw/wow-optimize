@@ -189,6 +189,8 @@ static void StopFreezeWatchdog() {
 #include "lua_vm_phase3.h"
 #include "lua_gettable_cache.h"
 #include "saved_vars_async.h"
+#include "event_coalescer.h"
+#include "luaS_newlstr_sse2.h"
 #include "texture_decode_mt.h"
 #include "mpq_decompress_mt.h"
 #include "spell_effect_mt.h"
@@ -904,6 +906,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
         NameplateMT::OnFrame(g_mainThreadId);
+#endif
+#if !TEST_DISABLE_EVENT_COALESCER
+        EventCoalescer_NextFrame();
 #endif
 
         // D3D9 disabled (DXVK vtable mismatch), other 4 enabled
@@ -5403,6 +5408,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaFastPath");
     CrashDumper::RegisterFeature("AddonPreload");
     CrashDumper::RegisterFeature("BytecodeCache");
+
+    Log("--- Colossal Optimizations ---");
+#if !TEST_DISABLE_EVENT_COALESCER
+    EventCoalescer::Init();
+#endif
+#if !TEST_DISABLE_LUAS_NEWLSTR_SSE2
+    LuaSNewlstr::Init();
+#endif
     CrashDumper::RegisterFeature("LuaVMCache");
     CrashDumper::RegisterFeature("LuaGetTableCache");
     CrashDumper::RegisterFeature("SavedVarsAsync");
@@ -7767,6 +7780,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::Shutdown();
+#endif
+#if !TEST_DISABLE_EVENT_COALESCER
+            EventCoalescer::Shutdown();
+#endif
+#if !TEST_DISABLE_LUAS_NEWLSTR_SSE2
+            LuaSNewlstr::Shutdown();
 #endif
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)

@@ -281,6 +281,14 @@
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
 #define TEST_DISABLE_NAMEPLATE_MT       0
 
+// Frame-Scoped Event Coalescing (Synchronous Deduplication)
+// Deduplicates redundant events within a single frame to save Lua CPU time
+#define TEST_DISABLE_EVENT_COALESCER    0
+
+// SSE2 Vectorized luaS_newlstr Fast Path
+// O(1) string creation/lookup for alive strings
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
+
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.
 // Used by crash_dumper (text vs minidump), GetProcAddress cache
