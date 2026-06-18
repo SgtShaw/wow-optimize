@@ -1159,6 +1159,72 @@ static int __cdecl Hooked_MathMin(lua_State* L) {
     return orig_math_min(L);
 }
 
+static lua_CFunction_t orig_math_sin = nullptr;
+static int __cdecl Hooked_MathSin(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, sin(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_sin(L);
+}
+
+static lua_CFunction_t orig_math_cos = nullptr;
+static int __cdecl Hooked_MathCos(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, cos(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_cos(L);
+}
+
+static lua_CFunction_t orig_math_tan = nullptr;
+static int __cdecl Hooked_MathTan(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, tan(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_tan(L);
+}
+
+static lua_CFunction_t orig_math_rad = nullptr;
+static int __cdecl Hooked_MathRad(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, lua_tonumber_(L, 1) * (3.14159265358979323846 / 180.0));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_rad(L);
+}
+
+static lua_CFunction_t orig_math_deg = nullptr;
+static int __cdecl Hooked_MathDeg(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, lua_tonumber_(L, 1) * (180.0 / 3.14159265358979323846));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_deg(L);
+}
+
+static lua_CFunction_t orig_math_exp = nullptr;
+static int __cdecl Hooked_MathExp(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, exp(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_exp(L);
+}
+
 static lua_CFunction_t orig_str_len = nullptr;
 
 static int __cdecl Hooked_StrLen(lua_State* L) {
@@ -1352,6 +1418,28 @@ static int __cdecl Hooked_StrUpper(lua_State* L) {
 
     lua_pushstring_(L, buf);
     g_strupperHits++;
+    return 1;
+}
+
+static lua_CFunction_t orig_str_reverse = nullptr;
+
+static int __cdecl Hooked_StrReverse(lua_State* L) {
+    if (lua_type_(L, 1) != LUA_TSTRING) return orig_str_reverse(L);
+
+    size_t sLen = 0;
+    const char* s = lua_tolstring_(L, 1, &sLen);
+    if (!s || sLen == 0 || sLen > 4096) return orig_str_reverse(L);
+
+    char buf[4097];
+    for (size_t i = 0; i < sLen; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c == 0) return orig_str_reverse(L);
+        buf[sLen - 1 - i] = (char)c;
+    }
+    buf[sLen] = '\0';
+
+    lua_pushstring_(L, buf);
+    g_strlowerHits++; // reuse lower hits stat
     return 1;
 }
 
@@ -2680,6 +2768,12 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "char",     (void*)Hooked_StrChar,          &orig_str_char,         0, false},
     {"math",   "max",      (void*)Hooked_MathMax,          &orig_math_max,         0, false},
     {"math",   "min",      (void*)Hooked_MathMin,          &orig_math_min,         0, false},
+    {"math",   "sin",      (void*)Hooked_MathSin,          &orig_math_sin,         0, false},
+    {"math",   "cos",      (void*)Hooked_MathCos,          &orig_math_cos,         0, false},
+    {"math",   "tan",      (void*)Hooked_MathTan,          &orig_math_tan,         0, false},
+    {"math",   "rad",      (void*)Hooked_MathRad,          &orig_math_rad,         0, false},
+    {"math",   "deg",      (void*)Hooked_MathDeg,          &orig_math_deg,         0, false},
+    {"math",   "exp",      (void*)Hooked_MathExp,          &orig_math_exp,         0, false},
     {"string", "len",      (void*)Hooked_StrLen,           &orig_str_len,          0, false},
     {"string", "byte",     (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
     {nullptr,  "tostring", (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
@@ -2699,6 +2793,7 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "sub",      (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
     {"string", "lower",    (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
     {"string", "upper",    (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
+    {"string", "reverse",  (void*)Hooked_StrReverse,       &orig_str_reverse,      0, false},
 #if !TEST_DISABLE_HOOK_STR_GSUB
     {"string", "gsub",     (void*)Hooked_StrGsub,          &orig_str_gsub,         0, false},
 #endif
