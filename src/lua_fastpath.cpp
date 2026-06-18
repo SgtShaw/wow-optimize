@@ -1097,6 +1097,39 @@ static int __cdecl Hooked_MathAbs(lua_State* L) {
     return orig_math_abs(L);
 }
 
+// math.fmod(a, b) — C fmod (matches Lua 5.1 math_fmod). Common in time math
+// (fmod(t, 60)). fmod(x, 0) yields NaN exactly like the original, so no special
+// case is needed; we only require both args to already be numbers.
+static lua_CFunction_t orig_math_fmod = nullptr;
+
+static int __cdecl Hooked_MathFmod(lua_State* L) {
+    if (lua_gettop_(L) >= 2 &&
+        lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        lua_pushnumber_(L, fmod(lua_tonumber_(L, 1), lua_tonumber_(L, 2)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_fmod(L);
+}
+
+// math.modf(x) — split integral/fractional part (matches Lua 5.1 math_modf,
+// returns intpart then fracpart). Used in number/coordinate formatting.
+static lua_CFunction_t orig_math_modf = nullptr;
+
+static int __cdecl Hooked_MathModf(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        double ip;
+        double fp = modf(lua_tonumber_(L, 1), &ip);
+        lua_pushnumber_(L, ip);
+        lua_pushnumber_(L, fp);
+        g_mathHits++;
+        return 2;
+    }
+    g_mathFallbacks++;
+    return orig_math_modf(L);
+}
+
 static lua_CFunction_t orig_math_max = nullptr;
 
 static int __cdecl Hooked_MathMax(lua_State* L) {
@@ -1413,6 +1446,36 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
     return 2;
 }
 #endif // !TEST_DISABLE_HOOK_STR_GSUB
+
+// ----------------------------------------------------------------
+// string.char(...) — build a string from byte codes (color escapes,
+// texture markup). We emit a NUL-terminated result, so we only take
+// the fast path when every code is an exact integer in [1,255]; a code
+// of 0 (embedded NUL) or a fractional/out-of-range value defers to the
+// engine, which raises the same error or handles the NUL itself.
+// ----------------------------------------------------------------
+static long g_strCharHits = 0;
+static long g_strCharFallbacks = 0;
+static lua_CFunction_t orig_str_char = nullptr;
+
+static int __cdecl Hooked_StrChar(lua_State* L) {
+    int n = lua_gettop_(L);
+    if (n < 1 || n > 4096) { g_strCharFallbacks++; return orig_str_char(L); }
+
+    char buf[4097];
+    for (int i = 1; i <= n; i++) {
+        if (lua_type_(L, i) != LUA_TNUMBER) { g_strCharFallbacks++; return orig_str_char(L); }
+        double d = lua_tonumber_(L, i);
+        int c = (int)d;
+        if ((double)c != d || c < 1 || c > 255) { g_strCharFallbacks++; return orig_str_char(L); }
+        buf[i - 1] = (char)(unsigned char)c;
+    }
+    buf[n] = '\0';
+
+    lua_pushstring_(L, buf);
+    g_strCharHits++;
+    return 1;
+}
 
 static lua_CFunction_t orig_luaB_rawget = nullptr;
 
@@ -2561,6 +2624,9 @@ static FuncHookEntry g_funcHooks[] = {
     {"math",   "floor",    (void*)Hooked_MathFloor,        &orig_math_floor,       0, false},
     {"math",   "ceil",     (void*)Hooked_MathCeil,         &orig_math_ceil,        0, false},
     {"math",   "abs",      (void*)Hooked_MathAbs,          &orig_math_abs,         0, false},
+    {"math",   "fmod",     (void*)Hooked_MathFmod,         &orig_math_fmod,        0, false},
+    {"math",   "modf",     (void*)Hooked_MathModf,         &orig_math_modf,        0, false},
+    {"string", "char",     (void*)Hooked_StrChar,          &orig_str_char,         0, false},
     {"math",   "max",      (void*)Hooked_MathMax,          &orig_math_max,         0, false},
     {"math",   "min",      (void*)Hooked_MathMin,          &orig_math_min,         0, false},
     {"string", "len",      (void*)Hooked_StrLen,           &orig_str_len,          0, false},
@@ -3179,6 +3245,8 @@ void Shutdown() {
     if (g_gsubHits > 0 || g_gsubFallbacks > 0)
         Log("[FastPath] StrGsub(plain): %ld fast, %ld fallback", g_gsubHits, g_gsubFallbacks);
 #endif
+    if (g_strCharHits > 0 || g_strCharFallbacks > 0)
+        Log("[FastPath] StrChar: %ld fast, %ld fallback", g_strCharHits, g_strCharFallbacks);
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
         Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
     if (g_ipairsFactoryHits > 0 || g_ipairsFactoryFalls > 0)
