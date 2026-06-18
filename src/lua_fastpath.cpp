@@ -1225,6 +1225,85 @@ static int __cdecl Hooked_MathExp(lua_State* L) {
     return orig_math_exp(L);
 }
 
+static lua_CFunction_t orig_math_log = nullptr;
+static int __cdecl Hooked_MathLog(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, log(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_log(L);
+}
+
+static lua_CFunction_t orig_math_log10 = nullptr;
+static int __cdecl Hooked_MathLog10(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, log10(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_log10(L);
+}
+
+static lua_CFunction_t orig_math_acos = nullptr;
+static int __cdecl Hooked_MathAcos(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, acos(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_acos(L);
+}
+
+static lua_CFunction_t orig_math_asin = nullptr;
+static int __cdecl Hooked_MathAsin(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, asin(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_asin(L);
+}
+
+static lua_CFunction_t orig_math_atan = nullptr;
+static int __cdecl Hooked_MathAtan(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, atan(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_atan(L);
+}
+
+static lua_CFunction_t orig_math_pow = nullptr;
+static int __cdecl Hooked_MathPow(lua_State* L) {
+    int n = lua_gettop_(L);
+    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        lua_pushnumber_(L, pow(lua_tonumber_(L, 1), lua_tonumber_(L, 2)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_pow(L);
+}
+
+static lua_CFunction_t orig_math_atan2 = nullptr;
+static int __cdecl Hooked_MathAtan2(lua_State* L) {
+    int n = lua_gettop_(L);
+    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        lua_pushnumber_(L, atan2(lua_tonumber_(L, 1), lua_tonumber_(L, 2)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_atan2(L);
+}
+
 static lua_CFunction_t orig_str_len = nullptr;
 
 static int __cdecl Hooked_StrLen(lua_State* L) {
@@ -2774,6 +2853,13 @@ static FuncHookEntry g_funcHooks[] = {
     {"math",   "rad",      (void*)Hooked_MathRad,          &orig_math_rad,         0, false},
     {"math",   "deg",      (void*)Hooked_MathDeg,          &orig_math_deg,         0, false},
     {"math",   "exp",      (void*)Hooked_MathExp,          &orig_math_exp,         0, false},
+    {"math",   "log",      (void*)Hooked_MathLog,          &orig_math_log,         0, false},
+    {"math",   "log10",    (void*)Hooked_MathLog10,        &orig_math_log10,       0, false},
+    {"math",   "acos",     (void*)Hooked_MathAcos,         &orig_math_acos,        0, false},
+    {"math",   "asin",     (void*)Hooked_MathAsin,         &orig_math_asin,        0, false},
+    {"math",   "atan",     (void*)Hooked_MathAtan,         &orig_math_atan,        0, false},
+    {"math",   "pow",      (void*)Hooked_MathPow,          &orig_math_pow,         0, false},
+    {"math",   "atan2",    (void*)Hooked_MathAtan2,        &orig_math_atan2,       0, false},
     {"string", "len",      (void*)Hooked_StrLen,           &orig_str_len,          0, false},
     {"string", "byte",     (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
     {nullptr,  "tostring", (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
