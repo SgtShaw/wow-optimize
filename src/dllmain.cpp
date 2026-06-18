@@ -151,6 +151,7 @@ static void StopFreezeWatchdog() {
 #include "hot_functions.h"
 #include "fast_strncmp.h"
 #include "crt_free_hook.h"
+#include "lock_tuning.h"
 #include "aligned_alloc_cache.h"
 #include "lua_tonumber_cache.h"
 #include "lua_checknumber_cache.h"
@@ -1986,6 +1987,25 @@ static bool InstallHeapOptimization() {
     if (processHeap) {
         EnableLFH(processHeap);
         g_heapsOptimized++;
+    }
+
+    // WoW's CRT heap (_crtheap) is created during CRT startup -- long before our
+    // HeapCreate hook below installs -- so the "future heaps" path misses it. It is
+    // a distinct heap from the process default heap and backs every malloc above the
+    // small-block threshold (~1KB): asset chunks, string/buffer allocations, model
+    // and texture staging. Without the low-fragmentation front-end those churn into
+    // VA fragmentation on the 32-bit client. The handle lives at 0x00B31684 (free()
+    // does HeapFree(hHeap=0x00B31684, ...)). HeapSetInformation safely no-ops on a
+    // bad handle, and the read is SEH-guarded.
+    __try {
+        HANDLE crtHeap = *(HANDLE*)0x00B31684;
+        if (crtHeap && crtHeap != processHeap) {
+            EnableLFH(crtHeap);
+            g_heapsOptimized++;
+            Log("Heap optimization: LFH enabled on WoW CRT heap (_crtheap @ 0x00B31684)");
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("Heap optimization: CRT-heap LFH skipped (handle read faulted)");
     }
 
     // Hook HeapCreate to enable LFH on all future heaps
@@ -5409,6 +5429,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tgtOk  = InstallTimeGetTimeHook();
     Log("--- Heap Optimization ---");
     bool heapOk = InstallHeapOptimization();
+    Log("--- Lock Contention Tuning ---");
+    InstallLockTuning();   // self-logs; spin counts are best-effort
     Log("--- Thread ID Cache ---");
     bool tidOk = InstallThreadIdCacheHook();
     Log("--- QPC Cache ---");
