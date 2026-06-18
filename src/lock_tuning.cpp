@@ -34,6 +34,17 @@ static const DWORD SPIN_COUNT = 4000;
 static const uintptr_t CRT_LOCKTABLE = 0x00AB6AB0;
 static const int       CRT_LOCK_SPAN = 32;
 
+// WoW's own engine critical sections, initialized at startup via direct
+// InitializeCriticalSection(offset stru_Bxxxxx) calls (sub_44CCE0 and siblings).
+// These are created long before our InitializeCriticalSection hook installs at
+// +5s, so the hook never sees them -- they are the cross-thread engine locks
+// (file system / asset / sound / network) that the main thread can stall behind.
+// Unlike the CRT table, these globals ARE the CRITICAL_SECTION objects (the
+// address is the struct), so they are tuned directly with no dereference.
+static const uintptr_t ENGINE_LOCKS[] = {
+    0x00B332B0, 0x00B33718, 0x00B33930, 0x00B33C5C,
+};
+
 static unsigned g_retrofitted  = 0;
 static unsigned g_runtimeTuned = 0;
 
@@ -87,7 +98,14 @@ bool InstallLockTuning() {
         Log("[LockTuning] CRT lock-table sweep faulted (skipped)");
     }
 
-    // 2. Blanket future critical sections via the kernel32 export.
+    // 2. Retrofit WoW's startup engine locks (missed by the hook below).
+    unsigned engineTuned = 0;
+    for (uintptr_t addr : ENGINE_LOCKS) {
+        if (TuneCS((LPCRITICAL_SECTION)addr)) ++engineTuned;
+    }
+    g_retrofitted += engineTuned;
+
+    // 3. Blanket future critical sections via the kernel32 export.
     bool hookOk = false;
     if (MH_CreateHook((void*)&InitializeCriticalSection,
                       (void*)Hooked_InitializeCriticalSection,
@@ -96,8 +114,8 @@ bool InstallLockTuning() {
         hookOk = true;
     }
 
-    Log("[LockTuning] ACTIVE: spin=%u, CRT locks retrofitted=%u (heap lock #4 incl.), InitCS hook=%s",
-        SPIN_COUNT, g_retrofitted, hookOk ? "ON" : "FAILED");
+    Log("[LockTuning] ACTIVE: spin=%u, locks retrofitted=%u (CRT heap #4 + %u engine), InitCS hook=%s",
+        SPIN_COUNT, g_retrofitted, engineTuned, hookOk ? "ON" : "FAILED");
     return g_retrofitted > 0 || hookOk;
 }
 

@@ -39,12 +39,25 @@ static int* const TEXCACHE_BUDGET = (int*)0x00B49C9C;
 // fight a deliberately-smaller budget or stomp the 0 (null-device) case.
 static const int STOCK_MAX_BYTES = 0x04000000;   // 64 MB
 
-// Target resident budget. 128 MB is a conservative 2x of stock -- a large cut in
-// eviction churn with a bounded VA cost. Tunable: raise for more residency (needs
-// /3GB headroom for heavy HD sets), lower if VA is tight.
-static const int TARGET_BYTES = 0x08000000;      // 128 MB
+// Target resident budget, chosen at init from available 32-bit VA. A larger
+// resident set keeps an area's textures from being evicted/reloaded, which cuts
+// both stutter and the large-block-heap fragmentation that churn causes -- but it
+// holds that much VA. With /3GB (bcdedit /set increaseuserva 3072) there is room
+// for 256MB; on a stock 2GB user-VA layout we keep it to 192MB.
+static const int TARGET_3GB_BYTES = 0x10000000;  // 256 MB (increaseuserva active)
+static const int TARGET_2GB_BYTES = 0x0C000000;  // 192 MB (stock 2GB user VA)
+static int g_targetBytes = TARGET_2GB_BYTES;
 
 static bool g_logged = false;
+
+// True when the OS hands this 32-bit process >2GB of user address space, i.e.
+// /3GB / increaseuserva is in effect. lpMaximumApplicationAddress is ~0x7FFEFFFF
+// at 2GB and ~0xBFFEFFFF at 3GB.
+static bool Has3GBUserVA() {
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return (uintptr_t)si.lpMaximumApplicationAddress > 0x80000000;
+}
 
 static void RaiseBudget() {
     __try {
@@ -53,10 +66,10 @@ static void RaiseBudget() {
         // After we raise it to TARGET (> STOCK_MAX) this test is false, so we stay
         // quiet until a device reset puts the stock 64 MB back -- self-throttling.
         if (cur > 0 && cur <= STOCK_MAX_BYTES) {
-            *TEXCACHE_BUDGET = TARGET_BYTES;
+            *TEXCACHE_BUDGET = g_targetBytes;
             if (!g_logged) {
                 Log("[TexCache] Resident-texture budget %dMB -> %dMB (single-client; eviction logic unchanged)",
-                    cur >> 20, TARGET_BYTES >> 20);
+                    cur >> 20, g_targetBytes >> 20);
                 g_logged = true;
             }
         }
@@ -68,8 +81,10 @@ void InitTexCacheTuning() {
         Log("[TexCache] Budget tuning OFF (multi-client: preserve stock budget for VA headroom)");
         return;
     }
-    Log("[TexCache] Resident-texture budget tuning armed (target %dMB, re-asserted after device resets)",
-        TARGET_BYTES >> 20);
+    bool va3 = Has3GBUserVA();
+    g_targetBytes = va3 ? TARGET_3GB_BYTES : TARGET_2GB_BYTES;
+    Log("[TexCache] Resident-texture budget tuning armed (target %dMB, %s, re-asserted after device resets)",
+        g_targetBytes >> 20, va3 ? "/3GB user VA detected" : "stock 2GB user VA");
     RaiseBudget();   // apply now if the cache is already initialized
 }
 
