@@ -203,6 +203,7 @@ static long g_mathSqrtFallbacks  = 0;
 static lua_CFunction_t orig_str_rep = nullptr;
 static lua_CFunction_t orig_str_trim = nullptr;
 static lua_CFunction_t orig_str_split = nullptr;
+static lua_CFunction_t orig_str_join = nullptr;
 static long g_strRepHits       = 0;
 static long g_strRepFallbacks  = 0;
 
@@ -2330,6 +2331,56 @@ static int __cdecl Hooked_StrSplit(lua_State* L) {
     return pieces;
 }
 
+// ================================================================
+// Hooked_StrJoin — strjoin fast path (WoW global)
+// ================================================================
+// strjoin(delimiter, s1, s2, ...) -> delimiter-joined string. The
+// inverse of strsplit; common in addon serialization/UI code. We build
+// the result directly when the delimiter and every piece are NUL-free
+// strings and the total fits the scratch buffer; anything else defers.
+static volatile LONG64 g_strJoinHits = 0;
+static volatile LONG64 g_strJoinFallbacks = 0;
+
+static int __cdecl Hooked_StrJoin(lua_State* L) {
+    int n = lua_gettop_(L);
+    if (n < 1 || lua_type_(L, 1) != LUA_TSTRING) {
+        g_strJoinFallbacks++;
+        return orig_str_join(L);
+    }
+
+    size_t dLen = 0;
+    const char* delim = lua_tolstring_(L, 1, &dLen);
+    if (!delim) { g_strJoinFallbacks++; return orig_str_join(L); }
+
+    char buf[4096];
+    size_t outLen = 0;
+    for (int i = 2; i <= n; i++) {
+        if (lua_type_(L, i) != LUA_TSTRING) { g_strJoinFallbacks++; return orig_str_join(L); }
+        size_t pLen = 0;
+        const char* piece = lua_tolstring_(L, i, &pLen);
+        if (!piece) { g_strJoinFallbacks++; return orig_str_join(L); }
+
+        if (i > 2) {  // delimiter before every piece except the first
+            if (outLen + dLen > sizeof(buf) - 1) { g_strJoinFallbacks++; return orig_str_join(L); }
+            memcpy(buf + outLen, delim, dLen);
+            outLen += dLen;
+        }
+        if (outLen + pLen > sizeof(buf) - 1) { g_strJoinFallbacks++; return orig_str_join(L); }
+        memcpy(buf + outLen, piece, pLen);
+        outLen += pLen;
+    }
+
+    // NUL-free check (we push a NUL-terminated result)
+    for (size_t i = 0; i < outLen; i++) {
+        if (buf[i] == '\0') { g_strJoinFallbacks++; return orig_str_join(L); }
+    }
+    buf[outLen] = '\0';
+
+    lua_pushstring_(L, buf);
+    g_strJoinHits++;
+    return 1;
+}
+
 // Hooked_StrRep — string.rep fast path
 // Repeat string N times without Lua VM overhead.
 // ================================================================
@@ -2669,6 +2720,7 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "rep",      (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
     {nullptr,  "strsplit", (void*)Hooked_StrSplit,         &orig_str_split,        0, false},
     {nullptr,  "strtrim",  (void*)Hooked_StrTrim,          &orig_str_trim,         0, false},
+    {nullptr,  "strjoin",  (void*)Hooked_StrJoin,          &orig_str_join,         0, false},
 #if !TEST_DISABLE_HOOK_IPAIRS
     {nullptr,  "ipairs",   (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
 #endif
@@ -3247,6 +3299,8 @@ void Shutdown() {
 #endif
     if (g_strCharHits > 0 || g_strCharFallbacks > 0)
         Log("[FastPath] StrChar: %ld fast, %ld fallback", g_strCharHits, g_strCharFallbacks);
+    if (g_strJoinHits > 0 || g_strJoinFallbacks > 0)
+        Log("[FastPath] StrJoin: %lld fast, %lld fallback", g_strJoinHits, g_strJoinFallbacks);
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
         Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
     if (g_ipairsFactoryHits > 0 || g_ipairsFactoryFalls > 0)
