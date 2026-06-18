@@ -42,6 +42,9 @@
 #include "version.h"
 #include "crash_dumper.h"
 #include "lua_newkey_safety.h"
+#include <intrin.h>
+
+#pragma intrinsic(_ReturnAddress)
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -56,6 +59,7 @@ __declspec(align(16)) static uint8_t g_scratch_node[40] = {};
 
 static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_recovered   = 0;
+static volatile long g_logged        = 0;
 
 static void* __cdecl Safe_newkey(int L, int t, void* key)
 {
@@ -65,6 +69,9 @@ static void* __cdecl Safe_newkey(int L, int t, void* key)
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         // Corrupted hash chain — hand back a harmless node instead of crashing.
         ++g_recovered;
+        if (InterlockedCompareExchange(&g_logged, 1, 0) == 0) {
+            Log("[NewKeySafety] ONE-SHOT DIAGNOSTIC: Caught crash in luaH_newkey! Table=0x%08X, RetAddr=%p", t, _ReturnAddress());
+        }
         return g_scratch_node;
     }
 }

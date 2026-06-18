@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // luaV_gettable Safety Patch - Crash Fix for sub_85BC10
 // ================================================================
 // Fixes ACCESS_VIOLATION at 0x85BC2C where a2[2] (TValue type field)
@@ -22,6 +22,9 @@
 #include <cstdint>
 #include "MinHook.h"
 #include "crash_dumper.h"
+#include <intrin.h>
+
+#pragma intrinsic(_ReturnAddress)
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -44,6 +47,13 @@ static constexpr uint32_t MAX_VALID_TYPE = 15;
 // so a locked cmpxchg8b per table index was wasted on this hot path)
 static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_blocked_calls = 0;
+static volatile long g_logged = 0;
+
+static void LogCrashAverted(uint32_t* a2, void* retAddr, const char* reason) {
+    if (InterlockedCompareExchange(&g_logged, 1, 0) == 0) {
+        Log("[GetTableSafety] ONE-SHOT DIAGNOSTIC: %s! TValue=0x%08X, RetAddr=%p", reason, a2, retAddr);
+    }
+}
 
 // ----------------------------------------------------------------
 // Safe wrapper - validates TValue type before calling original
@@ -55,6 +65,7 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
     // Validate a2 pointer
     if (!a2 || (uintptr_t)a2 < 0x10000 || (uintptr_t)a2 > 0xBFFF0000) {
         ++g_blocked_calls;
+        LogCrashAverted(a2, _ReturnAddress(), "Bad pointer");
         return g_nil_object;
     }
 
@@ -67,11 +78,13 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
         if (typeTag > MAX_VALID_TYPE) {
             // Invalid type tag - would cause out-of-bounds access
             ++g_blocked_calls;
+            LogCrashAverted(a2, _ReturnAddress(), "Invalid typeTag");
             return g_nil_object;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         // Can't even read a2[2] safely
         ++g_blocked_calls;
+        LogCrashAverted(a2, _ReturnAddress(), "Exception reading typeTag");
         return g_nil_object;
     }
 
@@ -81,6 +94,7 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         // Original crashed despite valid-looking type - memory corruption elsewhere
         ++g_blocked_calls;
+        LogCrashAverted(a2, _ReturnAddress(), "Exception in original function");
         return g_nil_object;
     }
 }
