@@ -204,6 +204,8 @@ static void StopFreezeWatchdog() {
 #include "wow_extended_hooks.h"
 #include "unitaura_fastpath.h"
 #include "network_guid_sse2.h"
+#include "matrix_copy_sse2.h"
+#include "lua_numconv_fast.h"
 #include "wow_subsystem_hooks.h"
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
@@ -5651,6 +5653,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Network GUID Fast Path ---");
     InstallNetworkGuidSSE2Hooks();
+
+    Log("--- Matrix SSE2 Fast Path ---");
+    InstallMatrixCopySSE2();
+
+    Log("--- Lua Number Conversion Fast Path ---");
+    InstallLuaNumConvFast();
 
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();

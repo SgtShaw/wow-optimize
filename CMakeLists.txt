@@ -218,6 +218,10 @@ add_library(wow_optimize SHARED
     src/unitaura_fastpath.h
     src/network_guid_sse2.cpp
     src/network_guid_sse2.h
+    src/matrix_copy_sse2.cpp
+    src/matrix_copy_sse2.h
+    src/lua_numconv_fast.cpp
+    src/lua_numconv_fast.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

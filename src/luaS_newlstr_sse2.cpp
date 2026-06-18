@@ -60,33 +60,34 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     uint8_t currentwhite = *(uint8_t*)(globalState + 0x14);
     uint8_t otherwhite = currentwhite ^ 3; // 3 = WHITEBITS
     
-    // Traverse collision chain
-    while (tstring) {
-        if (tstring < 0x10000) break;
-        
-        // tstring+16 is length
-        if (*(uint32_t*)(tstring + 16) == l) {
-            // tstring+20 is string data
-            const char* ts_data = (const char*)(tstring + 20);
+    // Traverse collision chain — wrapped in SEH because a GC sweep
+    // can modify the chain concurrently with FrameScript execution
+    __try {
+        while (tstring) {
+            if (tstring < 0x10000 || tstring > 0xBFFF0000) break;
             
-            // Check if string matches using memcmp 
-            // (we rely on SSE2-optimized memcmp hooked elsewhere, or standard memcmp)
-            if (memcmp(ts_data, str, l) == 0) {
-                // Found string! Check if it's dead
-                uint8_t marked = *(uint8_t*)(tstring + 5);
-                if ((marked & otherwhite) == 0) {
-                    // Alive! Return it directly without hitting orig allocator or stack setup
-                    g_newlstr_fast_hits++;
-                    return (void*)tstring;
-                } else {
-                    // It is dead. Let the original function resurrect it properly.
-                    g_newlstr_dead++;
-                    break;
+            // tstring+16 is length
+            if (*(uint32_t*)(tstring + 16) == l) {
+                // tstring+20 is string data
+                const char* ts_data = (const char*)(tstring + 20);
+                
+                if (memcmp(ts_data, str, l) == 0) {
+                    // Check if it's dead
+                    uint8_t marked = *(uint8_t*)(tstring + 5);
+                    if ((marked & otherwhite) == 0) {
+                        g_newlstr_fast_hits++;
+                        return (void*)tstring;
+                    } else {
+                        g_newlstr_dead++;
+                        break;
+                    }
                 }
             }
+            // next pointer
+            tstring = *(uint32_t*)(tstring + 0);
         }
-        // next pointer
-        tstring = *(uint32_t*)(tstring + 0);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Corrupted chain pointer — fall through to original
     }
     
     return orig_luaS_newlstr(L, str, l);
