@@ -101,7 +101,8 @@ static constexpr int NUM_HANDLERS = sizeof(g_handlers) / sizeof(g_handlers[0]);
 
 // sub_816830 — the script registration check the original calls first.
 // Must preserve its side effects. Returns nonzero to short-circuit.
-typedef int (__cdecl *fn_816830_t)(const char*, int);
+// It is a __thiscall, so we use __fastcall to pass 'this' in ECX.
+typedef int (__fastcall *fn_816830_t)(void* thisp, void* edx, const char* name, uint32_t* a3);
 static fn_816830_t g_fn_816830 = nullptr;
 
 // __thiscall: this=ECX, name=[esp+4], a3=[esp+8]
@@ -118,7 +119,7 @@ static int __fastcall Hooked_Resolve(void* thisp, void* /* edx */, char* name, u
     // Call sub_816830 first — preserves original side effects
     // and short-circuits if it returns nonzero.
     if (g_fn_816830) {
-        int early = g_fn_816830(name, (int)a3);
+        int early = g_fn_816830(thisp, nullptr, name, a3);
         if (early) return early;
     }
 
@@ -148,18 +149,6 @@ static int __fastcall Hooked_Resolve(void* thisp, void* /* edx */, char* name, u
 
 bool InstallFrameScriptDispatch()
 {
-    // DISABLED: this reimplements sub_48E680 with reverse-engineered handler
-    // offsets (308, 316, ...) and return semantics (return this+offset, *a3=fmt).
-    // Those are wrong for this client, so the caller dereferences a handler-name
-    // string as a pointer -> ACCESS_VIOLATION 0xC0000005 at 0x0048FF9F on login
-    // (faulting addr 0x6C436E4F == ASCII "OnCl"). Handler name->handler resolution
-    // only runs at SetScript registration, not per-frame, so the original linear
-    // strnicmp chain is fine. Revert to WoW's own resolver.
-    (void)&Hooked_Resolve;
-    Log("[FrameScriptDispatch] DISABLED (RE'd offsets caused login ACCESS_VIOLATION at 0x48FF9F)");
-    return false;
-
-#if 0
     void* target = reinterpret_cast<void*>(0x0048E680);
 
     unsigned char* p = (unsigned char*)target;
@@ -183,7 +172,6 @@ bool InstallFrameScriptDispatch()
 
     Log("[FrameScriptDispatch] Installed: FNV-1a hash dispatch at 0x48E680 (18 handlers, O(1) lookup)");
     return true;
-#endif
 }
 
 void UninstallFrameScriptDispatch()
