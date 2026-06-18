@@ -214,6 +214,10 @@ add_library(wow_optimize SHARED
     src/luaS_newlstr_sse2.h
     src/version_checker.cpp
     src/version_checker.h
+    src/unitaura_fastpath.cpp
+    src/unitaura_fastpath.h
+    src/network_guid_sse2.cpp
+    src/network_guid_sse2.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
