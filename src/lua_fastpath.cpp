@@ -1319,6 +1319,99 @@ static int __cdecl Hooked_StrUpper(lua_State* L) {
     return 1;
 }
 
+// ----------------------------------------------------------------
+// string.gsub(s, pattern, repl [, n]) — plain-literal fast path
+// ----------------------------------------------------------------
+// gsub is one of the hottest string functions under ElvUI/WeakAuras
+// (number formatting, name/realm stripping, colour-code rewriting),
+// and the overwhelmingly common call is a magic-free pattern with a
+// plain string replacement. For that shape gsub is just a non-
+// overlapping literal substring replace, which we do directly and
+// return (result, count). Everything else — magic patterns, capture
+// references (% in repl), function/table repl, embedded NULs, or an
+// oversized result — defers to the engine, so behaviour is identical.
+#if !TEST_DISABLE_HOOK_STR_GSUB
+static long g_gsubHits = 0;
+static long g_gsubFallbacks = 0;
+static lua_CFunction_t orig_str_gsub = nullptr;
+
+static int __cdecl Hooked_StrGsub(lua_State* L) {
+    int nargs = lua_gettop_(L);
+    if (nargs < 3) return orig_str_gsub(L);
+
+    // s, pattern and a *string* replacement only.
+    if (lua_type_(L, 1) != LUA_TSTRING ||
+        lua_type_(L, 2) != LUA_TSTRING ||
+        lua_type_(L, 3) != LUA_TSTRING) {
+        g_gsubFallbacks++;
+        return orig_str_gsub(L);
+    }
+
+    size_t sLen = 0, pLen = 0, rLen = 0;
+    const char* s = lua_tolstring_(L, 1, &sLen);
+    const char* p = lua_tolstring_(L, 2, &pLen);
+    const char* r = lua_tolstring_(L, 3, &rLen);
+    if (!s || !p || !r) { g_gsubFallbacks++; return orig_str_gsub(L); }
+
+    // Pattern must be a non-empty literal (empty pattern has special
+    // between-every-char semantics — leave that to the engine).
+    if (pLen == 0 || !IsPlainLiteralPattern(p, pLen)) {
+        g_gsubFallbacks++;
+        return orig_str_gsub(L);
+    }
+
+    // Replacement must be a pure literal: any '%' could be a capture
+    // reference (%0..%9) or an escape (%%), which we don't expand here.
+    for (size_t i = 0; i < rLen; i++) {
+        if (r[i] == '%') { g_gsubFallbacks++; return orig_str_gsub(L); }
+    }
+
+    // We emit a NUL-terminated result, so only handle NUL-free inputs.
+    if (HasEmbeddedNul(s, sLen) || HasEmbeddedNul(r, rLen) ||
+        HasEmbeddedNul(p, pLen)) {
+        g_gsubFallbacks++;
+        return orig_str_gsub(L);
+    }
+
+    // Optional substitution limit (4th arg). n <= 0 is a rare edge the
+    // engine handles; defer it rather than special-case it here.
+    long maxN = 0x7FFFFFFF;
+    if (nargs >= 4) {
+        if (lua_type_(L, 4) != LUA_TNUMBER) { g_gsubFallbacks++; return orig_str_gsub(L); }
+        double nd = lua_tonumber_(L, 4);
+        if (nd < 1.0) { g_gsubFallbacks++; return orig_str_gsub(L); }
+        maxN = (nd > 2147483647.0) ? 0x7FFFFFFF : (long)nd;
+    }
+
+    char out[16384];
+    size_t outLen = 0;
+    long count = 0;
+    const char first = p[0];
+
+    size_t i = 0;
+    while (i < sLen) {
+        if (count < maxN && s[i] == first && i + pLen <= sLen &&
+            (pLen == 1 || memcmp(s + i, p, pLen) == 0)) {
+            if (outLen + rLen > sizeof(out)) { g_gsubFallbacks++; return orig_str_gsub(L); }
+            memcpy(out + outLen, r, rLen);
+            outLen += rLen;
+            i += pLen;
+            count++;
+        } else {
+            if (outLen + 1 > sizeof(out)) { g_gsubFallbacks++; return orig_str_gsub(L); }
+            out[outLen++] = s[i++];
+        }
+    }
+    if (outLen >= sizeof(out)) { g_gsubFallbacks++; return orig_str_gsub(L); }
+    out[outLen] = '\0';
+
+    lua_pushstring_(L, out);
+    lua_pushnumber_(L, (double)count);
+    g_gsubHits++;
+    return 2;
+}
+#endif // !TEST_DISABLE_HOOK_STR_GSUB
+
 static lua_CFunction_t orig_luaB_rawget = nullptr;
 
 static int __cdecl Hooked_RawGet_Global(lua_State* L) {
@@ -2354,6 +2447,9 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "sub",      (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
     {"string", "lower",    (void*)Hooked_StrLower,         &orig_str_lower,        0, false},
     {"string", "upper",    (void*)Hooked_StrUpper,         &orig_str_upper,        0, false},
+#if !TEST_DISABLE_HOOK_STR_GSUB
+    {"string", "gsub",     (void*)Hooked_StrGsub,          &orig_str_gsub,         0, false},
+#endif
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
     {nullptr, "sort", (void*)Hooked_TableSort, &orig_table_sort, 0x00851E00, false},
 #endif    
@@ -2942,6 +3038,10 @@ void Shutdown() {
     if (g_strsubHits > 0) Log("[FastPath] StrSub: %ld fast", g_strsubHits);
     if (g_strlowerHits > 0) Log("[FastPath] StrLower: %ld fast", g_strlowerHits);
     if (g_strupperHits > 0) Log("[FastPath] StrUpper: %ld fast", g_strupperHits);
+#if !TEST_DISABLE_HOOK_STR_GSUB
+    if (g_gsubHits > 0 || g_gsubFallbacks > 0)
+        Log("[FastPath] StrGsub(plain): %ld fast, %ld fallback", g_gsubHits, g_gsubFallbacks);
+#endif
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
         Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
     if (g_ipairsFactoryHits > 0 || g_ipairsFactoryFalls > 0)

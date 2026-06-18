@@ -67,6 +67,10 @@
 // string.rep
 #define TEST_DISABLE_HOOK_STRING_REP    0
 
+// string.gsub plain-literal fast path (plain pattern + literal replacement only;
+// falls back to the engine for magic patterns, capture refs, function/table repl)
+#define TEST_DISABLE_HOOK_STR_GSUB      0
+
 // string.find (plain mode)
 #define TEST_DISABLE_HOOK_STRING_FIND   0
 
