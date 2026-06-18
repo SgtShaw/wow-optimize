@@ -201,6 +201,8 @@ static long g_mathSqrtHits       = 0;
 static long g_mathSqrtFallbacks  = 0;
 
 static lua_CFunction_t orig_str_rep = nullptr;
+static lua_CFunction_t orig_str_trim = nullptr;
+static lua_CFunction_t orig_str_split = nullptr;
 static long g_strRepHits       = 0;
 static long g_strRepFallbacks  = 0;
 
@@ -2132,6 +2134,139 @@ static int __cdecl Hooked_Math_Sqrt(lua_State* L) {
 }
 
 // ================================================================
+// ================================================================
+// Hooked_StrTrim — strtrim fast path
+// ================================================================
+static volatile LONG64 g_strTrimHits = 0;
+static volatile LONG64 g_strTrimFallbacks = 0;
+
+static int __cdecl Hooked_StrTrim(lua_State* L) {
+    if (lua_gettop_(L) != 1 || lua_type_(L, 1) != LUA_TSTRING) {
+        g_strTrimFallbacks++;
+        return orig_str_trim(L);
+    }
+
+    size_t len = 0;
+    const char* s = lua_tolstring_(L, 1, &len);
+    if (!s) { g_strTrimFallbacks++; return orig_str_trim(L); }
+
+    size_t start = 0;
+    while (start < len && (s[start] == ' ' || s[start] == '\t' || s[start] == '\r' || s[start] == '\n')) {
+        start++;
+    }
+
+    size_t end = len;
+    while (end > start && (s[end-1] == ' ' || s[end-1] == '\t' || s[end-1] == '\r' || s[end-1] == '\n')) {
+        end--;
+    }
+
+    // Check for NULs
+    for (size_t i = start; i < end; i++) {
+        if (s[i] == '\0') { g_strTrimFallbacks++; return orig_str_trim(L); }
+    }
+
+    if (end - start > 4096) { g_strTrimFallbacks++; return orig_str_trim(L); }
+
+    char buf[4098];
+    size_t newLen = end - start;
+    memcpy(buf, s + start, newLen);
+    buf[newLen] = '\0';
+
+    lua_pushstring_(L, buf);
+    g_strTrimHits++;
+    return 1;
+}
+
+// ================================================================
+// Hooked_StrSplit — strsplit fast path
+// ================================================================
+static volatile LONG64 g_strSplitHits = 0;
+static volatile LONG64 g_strSplitFallbacks = 0;
+
+static int __cdecl Hooked_StrSplit(lua_State* L) {
+    int top = lua_gettop_(L);
+    if (top < 2 || top > 3) {
+        g_strSplitFallbacks++;
+        return orig_str_split(L);
+    }
+    if (lua_type_(L, 1) != LUA_TSTRING || lua_type_(L, 2) != LUA_TSTRING) {
+        g_strSplitFallbacks++;
+        return orig_str_split(L);
+    }
+
+    int max_pieces = -1;
+    if (top == 3) {
+        if (lua_type_(L, 3) != LUA_TNUMBER) {
+            g_strSplitFallbacks++;
+            return orig_str_split(L);
+        }
+        max_pieces = (int)lua_tonumber_(L, 3);
+        if (max_pieces <= 0) {
+            g_strSplitFallbacks++;
+            return orig_str_split(L);
+        }
+    }
+
+    size_t delimLen = 0;
+    const char* delim = lua_tolstring_(L, 1, &delimLen);
+    if (!delim || delimLen == 0 || delimLen > 1) {
+        g_strSplitFallbacks++;
+        return orig_str_split(L);
+    }
+    char d = delim[0];
+
+    size_t sLen = 0;
+    const char* s = lua_tolstring_(L, 2, &sLen);
+    if (!s || sLen > 4096) {
+        g_strSplitFallbacks++;
+        return orig_str_split(L);
+    }
+
+    for (size_t i = 0; i < sLen; i++) {
+        if (s[i] == '\0') {
+            g_strSplitFallbacks++;
+            return orig_str_split(L);
+        }
+    }
+
+    int pieces = 0;
+    size_t current = 0;
+    char buf[4098];
+    
+    while (current <= sLen) {
+        if (max_pieces > 0 && pieces >= max_pieces - 1) {
+            size_t len = sLen - current;
+            memcpy(buf, s + current, len);
+            buf[len] = '\0';
+            lua_pushstring_(L, buf);
+            pieces++;
+            break;
+        }
+
+        size_t next = current;
+        while (next < sLen && s[next] != d) {
+            next++;
+        }
+
+        size_t len = next - current;
+        memcpy(buf, s + current, len);
+        buf[len] = '\0';
+        lua_pushstring_(L, buf);
+        pieces++;
+
+        current = next + 1;
+        
+        if (pieces > 50) {
+            lua_settop_(L, top);
+            g_strSplitFallbacks++;
+            return orig_str_split(L);
+        }
+    }
+
+    g_strSplitHits++;
+    return pieces;
+}
+
 // Hooked_StrRep — string.rep fast path
 // Repeat string N times without Lua VM overhead.
 // ================================================================
@@ -2466,6 +2601,8 @@ static FuncHookEntry g_funcHooks[] = {
     {"math",   "sqrt",     (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0x00851360, false},
 #endif
     {"string", "rep",      (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
+    {nullptr,  "strsplit", (void*)Hooked_StrSplit,         &orig_str_split,        0, false},
+    {nullptr,  "strtrim",  (void*)Hooked_StrTrim,          &orig_str_trim,         0, false},
 #if !TEST_DISABLE_HOOK_IPAIRS
     {nullptr,  "ipairs",   (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
 #endif
