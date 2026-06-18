@@ -158,6 +158,8 @@ add_library(wow_optimize SHARED
     src/lua_getstr_inline.h
     src/lua_gettable_safety.cpp
     src/lua_gettable_safety.h
+    src/lua_newkey_safety.cpp
+    src/lua_newkey_safety.h
     src/lua_vm_engine.cpp
     src/lua_vm_engine.h
     src/lua_vm_phase3.cpp

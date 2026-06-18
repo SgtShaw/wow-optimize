@@ -185,6 +185,7 @@ static void StopFreezeWatchdog() {
 #include "lua_getstr_inline.h"
 #include "lua_rawgeti_inline.h"
 #include "lua_gettable_safety.h"
+#include "lua_newkey_safety.h"
 #include "lua_vm_engine.h"
 #include "lua_vm_phase3.h"
 #include "lua_gettable_cache.h"
@@ -5729,6 +5730,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- luaV_gettable Safety Patch (crash fix) ---");
     bool getTableSafetyOk = InstallLuaGetTableSafety();
+
+    Log("--- luaH_newkey Safety Patch (0x85CB43 crash fix) ---");
+    InstallLuaNewKeySafety();
 
     Log("--- Lua VM Engine (Direct-Threaded Interpreter) ---");
     bool vmEngineOk = InstallLuaVMEngine();

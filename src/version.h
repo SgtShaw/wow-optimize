@@ -282,12 +282,21 @@
 #define TEST_DISABLE_NAMEPLATE_MT       0
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
-// Deduplicates redundant events within a single frame to save Lua CPU time
-#define TEST_DISABLE_EVENT_COALESCER    0
+// DISABLED: dropping FrameScript_SignalEvent events is unsound. The dedup key
+// (eventId ^ arg1) reads arg1 from the first vararg slot, which is garbage for
+// events with no args or non-pointer args, so unrelated events collide and get
+// dropped. Suppressing one SPELLS_CHANGED / LEARNED_SPELL_IN_TAB /
+// ACTIVE_TALENT_GROUP_CHANGED leaves the spellbook showing the previous tab's
+// icons. No event can be safely coalesced without per-event semantics.
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // SSE2 Vectorized luaS_newlstr Fast Path
 // O(1) string creation/lookup for alive strings
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
+
+// luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
+// that fires when the engine walks a desynced table hash chain on login/exit.
+#define TEST_DISABLE_LUA_NEWKEY_SAFETY  0
 
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.

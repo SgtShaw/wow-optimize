@@ -15,14 +15,14 @@ extern "C" void Log(const char* fmt, ...);
 // common positive/negative stack indices we inline the pointer
 // arithmetic directly.
 //
-// lua_State layout (3.3.5a):
-//   +0x08  TValue* base   (current call frame base)
+// lua_State layout (3.3.5a, verified vs lua_gettop/index2adr):
 //   +0x0C  TValue* top    (stack top)
+//   +0x10  TValue* base   (current call frame base)
 //
 // TValue layout (16 bytes):
 //   +0x00  double value   (8 bytes)
-//   +0x08  int    extra   (4 bytes, unused padding in number TValues)
-//   +0x0C  int    tt      (4 bytes, type tag: 3 = LUA_TNUMBER)
+//   +0x08  int    tt      (4 bytes, type tag: 3 = LUA_TNUMBER)
+//   +0x0C  int    taint   (4 bytes, WoW taint source)
 //
 // Index resolution:
 //   positive idx:  base + (idx - 1) * 16
@@ -41,9 +41,9 @@ static __forceinline bool IsValidPtr(uintptr_t p) {
 }
 
 // Read the type tag from a resolved TValue pointer.
-// TValue.tt lives at byte offset 12.
+// TValue.tt lives at byte offset 8 (offset 12 is the WoW taint field).
 static __forceinline int TValue_tt(uintptr_t tv) {
-    return *(int*)(tv + 12);
+    return *(int*)(tv + 8);
 }
 
 // Read the double value from a resolved TValue pointer.
@@ -56,7 +56,7 @@ static __forceinline double TValue_nvalue(uintptr_t tv) {
 // Returns 0 on failure (pseudo-indices, out-of-range, bad pointers).
 static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
     if (idx > 0) {
-        uintptr_t base = *(uintptr_t*)(L + 8);
+        uintptr_t base = *(uintptr_t*)(L + 16);
         if (!IsValidPtr(base))
             return 0;
         uintptr_t tv = base + (uintptr_t)(idx - 1) * 16;
@@ -72,7 +72,7 @@ static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
             return 0;
         // idx is negative, so this subtracts
         uintptr_t tv = top + (uintptr_t)idx * 16;
-        uintptr_t base = *(uintptr_t*)(L + 8);
+        uintptr_t base = *(uintptr_t*)(L + 16);
         // Negative index must resolve at or above base
         if (tv < base)
             return 0;
