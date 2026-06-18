@@ -1304,6 +1304,65 @@ static int __cdecl Hooked_MathAtan2(lua_State* L) {
     return orig_math_atan2(L);
 }
 
+static lua_CFunction_t orig_math_frexp = nullptr;
+static int __cdecl Hooked_MathFrexp(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        int e;
+        double m = frexp(lua_tonumber_(L, 1), &e);
+        lua_pushnumber_(L, m);
+        lua_pushnumber_(L, (double)e);
+        g_mathHits++;
+        return 2;
+    }
+    g_mathFallbacks++;
+    return orig_math_frexp(L);
+}
+
+static lua_CFunction_t orig_math_ldexp = nullptr;
+static int __cdecl Hooked_MathLdexp(lua_State* L) {
+    int n = lua_gettop_(L);
+    if (n == 2 && lua_type_(L, 1) == LUA_TNUMBER && lua_type_(L, 2) == LUA_TNUMBER) {
+        lua_pushnumber_(L, ldexp(lua_tonumber_(L, 1), (int)lua_tonumber_(L, 2)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_ldexp(L);
+}
+
+static lua_CFunction_t orig_math_cosh = nullptr;
+static int __cdecl Hooked_MathCosh(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, cosh(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_cosh(L);
+}
+
+static lua_CFunction_t orig_math_sinh = nullptr;
+static int __cdecl Hooked_MathSinh(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, sinh(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_sinh(L);
+}
+
+static lua_CFunction_t orig_math_tanh = nullptr;
+static int __cdecl Hooked_MathTanh(lua_State* L) {
+    if (lua_type_(L, 1) == LUA_TNUMBER) {
+        lua_pushnumber_(L, tanh(lua_tonumber_(L, 1)));
+        g_mathHits++;
+        return 1;
+    }
+    g_mathFallbacks++;
+    return orig_math_tanh(L);
+}
+
 static lua_CFunction_t orig_str_len = nullptr;
 
 static int __cdecl Hooked_StrLen(lua_State* L) {
@@ -2860,6 +2919,11 @@ static FuncHookEntry g_funcHooks[] = {
     {"math",   "atan",     (void*)Hooked_MathAtan,         &orig_math_atan,        0, false},
     {"math",   "pow",      (void*)Hooked_MathPow,          &orig_math_pow,         0, false},
     {"math",   "atan2",    (void*)Hooked_MathAtan2,        &orig_math_atan2,       0, false},
+    {"math",   "frexp",    (void*)Hooked_MathFrexp,        &orig_math_frexp,       0, false},
+    {"math",   "ldexp",    (void*)Hooked_MathLdexp,        &orig_math_ldexp,       0, false},
+    {"math",   "cosh",     (void*)Hooked_MathCosh,         &orig_math_cosh,        0, false},
+    {"math",   "sinh",     (void*)Hooked_MathSinh,         &orig_math_sinh,        0, false},
+    {"math",   "tanh",     (void*)Hooked_MathTanh,         &orig_math_tanh,        0, false},
     {"string", "len",      (void*)Hooked_StrLen,           &orig_str_len,          0, false},
     {"string", "byte",     (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
     {nullptr,  "tostring", (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
