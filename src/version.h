@@ -188,6 +188,7 @@
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY     0
+#define TEST_DISABLE_QUAT_NORMALIZE      1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1

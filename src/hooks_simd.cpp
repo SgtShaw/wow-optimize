@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // hooks_simd.cpp — SIMD Micro-Architectural Acceleration
 // ================================================================
 // SSE2/SSE4.1 vectorized replacements for WoW's legacy x87 math:
@@ -369,7 +369,7 @@ void SSE2_Vec3Cross(const float* __restrict a,
 #define ADDR_WOW_MATRIX_MULTIPLY 0x00000000  // CMatrix::Multiply or operator*
 #endif
 #ifndef ADDR_WOW_QUAT_NORMALIZE
-#define ADDR_WOW_QUAT_NORMALIZE 0x00000000  // CQuaternion::Normalize
+#define ADDR_WOW_QUAT_NORMALIZE 0x00979110  // CQuaternion::Normalize
 #endif
 #ifndef ADDR_WOW_FRUSTUM_CULL
 #define ADDR_WOW_FRUSTUM_CULL  0x00000000  // Frustum::IsAABBVisible or similar
@@ -387,6 +387,20 @@ static volatile LONG64 g_frustumCulled  = 0;
 // Public API
 // ================================================================
 
+#include "version.h"
+#include "MinHook.h"
+
+#if !TEST_DISABLE_QUAT_NORMALIZE
+typedef void (__fastcall *QuatNormalize_t)(float* ecx, void* edx);
+static QuatNormalize_t orig_QuatNormalize = nullptr;
+
+static void __fastcall Hooked_QuatNormalize(float* ecx, void* edx) {
+    _InterlockedIncrement(&g_quatNormCalls);
+    SSE2_QuatNormalize(ecx);
+}
+#endif
+
+
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
         "frustum cull, BGRA/ARGB, premultiplied alpha ready");
@@ -396,10 +410,21 @@ bool InstallSimdHooks(void) {
     else
         Log("[SimdHooks] Matrix multiply: fill ADDR_WOW_MATRIX_MULTIPLY");
 
-    if (ADDR_WOW_QUAT_NORMALIZE)
+    if (ADDR_WOW_QUAT_NORMALIZE) {
         Log("[SimdHooks] Quaternion normalize hook target: 0x%08X", ADDR_WOW_QUAT_NORMALIZE);
-    else
+#if !TEST_DISABLE_QUAT_NORMALIZE
+        if (MH_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
+            MH_EnableHook((void*)ADDR_WOW_QUAT_NORMALIZE);
+            Log("[SimdHooks] Quaternion normalize hook ACTIVE");
+        } else {
+            Log("[SimdHooks] Quaternion normalize hook FAILED");
+        }
+#else
+        Log("[SimdHooks] Quaternion normalize hook DISABLED by TEST_DISABLE_QUAT_NORMALIZE");
+#endif
+    } else {
         Log("[SimdHooks] Quaternion normalize: fill ADDR_WOW_QUAT_NORMALIZE");
+    }
 
     if (ADDR_WOW_FRUSTUM_CULL)
         Log("[SimdHooks] Frustum cull hook target: 0x%08X", ADDR_WOW_FRUSTUM_CULL);
