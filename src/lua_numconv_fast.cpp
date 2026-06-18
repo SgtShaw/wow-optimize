@@ -90,13 +90,19 @@ typedef int (__cdecl* lua_isnumber_t)(uintptr_t L, int idx);
 static lua_isnumber_t orig_lua_isnumber = nullptr;
 
 static int __cdecl hook_lua_isnumber(uintptr_t L, int idx) {
-    uintptr_t tv = ResolveIndex(L, idx);
-    if (tv) {
-        // Fast path: already a number
-        if (TValue_tt(tv) == LUA_TNUMBER)
-            return 1;
-        // String-to-number conversion is rare for isnumber;
-        // let the original handle it (it also handles LUA_TSTRING → tonumber)
+    __try {
+        uintptr_t tv = ResolveIndex(L, idx);
+        if (tv) {
+            // Fast path: already a number
+            if (TValue_tt(tv) == LUA_TNUMBER)
+                return 1;
+            // String-to-number conversion is rare for isnumber;
+            // let the original handle it
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Bad pointer or freed Lua state (e.g. during UI reload).
+        // Returning 0 gracefully survives the corruption without crashing WoW.
+        return 0;
     }
     return orig_lua_isnumber(L, idx);
 }
@@ -109,9 +115,14 @@ typedef double (__cdecl* lua_tonumber_t)(uintptr_t L, int idx);
 static lua_tonumber_t orig_lua_tonumber = nullptr;
 
 static double __cdecl hook_lua_tonumber(uintptr_t L, int idx) {
-    uintptr_t tv = ResolveIndex(L, idx);
-    if (tv && TValue_tt(tv) == LUA_TNUMBER) {
-        return TValue_nvalue(tv);
+    __try {
+        uintptr_t tv = ResolveIndex(L, idx);
+        if (tv && TValue_tt(tv) == LUA_TNUMBER) {
+            return TValue_nvalue(tv);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Bad pointer or freed Lua state. Gracefully return 0.0.
+        return 0.0;
     }
     return orig_lua_tonumber(L, idx);
 }

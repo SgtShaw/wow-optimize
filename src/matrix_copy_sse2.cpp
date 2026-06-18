@@ -46,11 +46,15 @@ static float* __fastcall HookMatrixCopy(float* self, void* /*edx*/, float* src) 
     uintptr_t p = (uintptr_t)src;
     if (s > 0x10000 && s < 0xBFFF0000 &&
         p > 0x10000 && p < 0xBFFF0000) {
-        _mm_storeu_ps(self,      _mm_loadu_ps(src));
-        _mm_storeu_ps(self + 4,  _mm_loadu_ps(src + 4));
-        _mm_storeu_ps(self + 8,  _mm_loadu_ps(src + 8));
-        _mm_storeu_ps(self + 12, _mm_loadu_ps(src + 12));
-        return self;
+        __try {
+            _mm_storeu_ps(self,      _mm_loadu_ps(src));
+            _mm_storeu_ps(self + 4,  _mm_loadu_ps(src + 4));
+            _mm_storeu_ps(self + 8,  _mm_loadu_ps(src + 8));
+            _mm_storeu_ps(self + 12, _mm_loadu_ps(src + 12));
+            return self;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Bad pointer during load/store (e.g. unmapped page)
+        }
     }
 
     return pOrigMatCopy(self, nullptr, src);
@@ -66,11 +70,15 @@ static float* __fastcall HookMatrixIdentity(float* self, void* /*edx*/) {
 
     uintptr_t s = (uintptr_t)self;
     if (s > 0x10000 && s < 0xBFFF0000) {
-        _mm_storeu_ps(self,      kIdentityRow0);
-        _mm_storeu_ps(self + 4,  kIdentityRow1);
-        _mm_storeu_ps(self + 8,  kIdentityRow2);
-        _mm_storeu_ps(self + 12, kIdentityRow3);
-        return self;
+        __try {
+            _mm_storeu_ps(self,      kIdentityRow0);
+            _mm_storeu_ps(self + 4,  kIdentityRow1);
+            _mm_storeu_ps(self + 8,  kIdentityRow2);
+            _mm_storeu_ps(self + 12, kIdentityRow3);
+            return self;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Bad pointer during store
+        }
     }
 
     return pOrigMatIdentity(self, nullptr);
