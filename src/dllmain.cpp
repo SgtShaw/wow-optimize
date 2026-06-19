@@ -5423,6 +5423,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("AddonPreload");
     CrashDumper::RegisterFeature("BytecodeCache");
     CrashDumper::RegisterFeature("FrustumCull");
+    CrashDumper::RegisterFeature("RayTriangleSSE2");
 
     Log("--- Colossal Optimizations ---");
 #if !TEST_DISABLE_EVENT_COALESCER
