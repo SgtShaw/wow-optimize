@@ -263,22 +263,10 @@ static void StopFreezeWatchdog() {
 #define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
 
-// ----------------------------------------------------------------
-// Hook-enable batching. Each MH_EnableHook freezes every process thread
-// (~20ms via a system-wide thread snapshot); ~90 serial enables at startup
-// stalled WoW's main thread for ~2s. During MainThread's install sequence we
-// queue the enables and apply them in a single MH_ApplyQueued freeze. The flag
-// is only set during that synchronous sequence, so any lazy/later install (and
-// the crash guard, which calls MH_EnableHook directly) still enables immediately.
-static volatile LONG g_hookBatchMode = 0;
-static inline MH_STATUS WO_EnableHook(void* target) {
-#if TEST_DISABLE_HOOK_BATCHING
-    return MH_EnableHook(target);
-#else
-    if (g_hookBatchMode) return MH_QueueEnableHook(target);
-    return MH_EnableHook(target);
-#endif
-}
+// Definition for the WO_EnableHook batching wrapper declared in version.h.
+// While this is 1 (set across MainThread's install sequence), module enables
+// routed through WO_EnableHook are queued and applied in one MH_ApplyQueued.
+volatile long g_hookBatchMode = 0;
 
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();

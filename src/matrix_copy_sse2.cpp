@@ -147,7 +147,7 @@ bool InstallMatrixCopySSE2() {
     int installed = 0;
     for (auto& h : hooks) {
         if (WineSafe_CreateHook(h.addr, h.hook, h.orig) == MH_OK) {
-            if (MH_EnableHook(h.addr) == MH_OK) {
+            if (WO_EnableHook(h.addr) == MH_OK) {
                 installed++;
                 Log("[MatrixSSE2] Hooked %s at 0x%08X (%d xrefs)", h.name, (DWORD)(uintptr_t)h.addr, h.xrefs);
             }
@@ -161,7 +161,7 @@ bool InstallMatrixCopySSE2() {
 #if !TEST_DISABLE_MATRIX_MULTIPLY
     if (WineSafe_CreateHook((void*)0x004C1F00, (void*)HookMatrixMultiply,
                             (void**)&pOrigMatMul) == MH_OK &&
-        MH_EnableHook((void*)0x004C1F00) == MH_OK) {
+        WO_EnableHook((void*)0x004C1F00) == MH_OK) {
         Log("[MatrixSSE2] Hooked MatrixMultiply at 0x004C1F00 (SSE2, IDA-verified A*B)");
     } else {
         Log("[MatrixSSE2] MatrixMultiply hook FAILED");

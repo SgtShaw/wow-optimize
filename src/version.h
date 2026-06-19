@@ -390,5 +390,21 @@ static inline MH_STATUS WineSafe_CreateHook(void* target, void* detour, void** o
 #endif
     return MH_CreateHook(target, detour, original);
 }
+
+// Hook-enable batching shared across modules. Each MH_EnableHook freezes every
+// process thread (~20ms via a system-wide thread snapshot). During MainThread's
+// synchronous install sequence g_hookBatchMode is 1, so enables routed through
+// WO_EnableHook are queued and applied in a single MH_ApplyQueued freeze at the
+// end of init. Outside that window (and for crash guards that call MH_EnableHook
+// directly) enables apply immediately. Defined in dllmain.cpp.
+extern volatile long g_hookBatchMode;
+static inline MH_STATUS WO_EnableHook(void* target) {
+#if defined(TEST_DISABLE_HOOK_BATCHING) && TEST_DISABLE_HOOK_BATCHING
+    return MH_EnableHook(target);
+#else
+    if (g_hookBatchMode) return MH_QueueEnableHook(target);
+    return MH_EnableHook(target);
+#endif
+}
 #endif
 #endif

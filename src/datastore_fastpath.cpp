@@ -251,7 +251,7 @@ bool InitDataStoreFastPath() {
     int installed = 0;
     for (auto& h : hooks) {
         if (WineSafe_CreateHook(h.addr, h.hook, h.orig) == MH_OK) {
-            if (MH_EnableHook(h.addr) == MH_OK) {
+            if (WO_EnableHook(h.addr) == MH_OK) {
                 installed++;
                 Log("[DataStore] Hooked %s at 0x%08X (%d xrefs)", h.name, (DWORD)(uintptr_t)h.addr, h.xrefs);
             }
