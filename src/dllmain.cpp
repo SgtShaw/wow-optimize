@@ -6058,7 +6058,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("SpellEffectMT");
 
     Log("--- Lua Bytecode Pre-Compiler ---");
+#if TEST_DISABLE_LUA_PRECOMPILE
+    bool bytecodePreCompilerOk = false;
+    Log("[LuaPreCompile] DISABLED (addon file-prefetch adds I/O pressure on VA-tight HD clients)");
+#else
     bool bytecodePreCompilerOk = LuaBytecodePreCompiler::Init();
+#endif
     CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
 
     Log("--- Animation MT ---");

@@ -363,8 +363,10 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
     mi_collect(true);
     applied++;
     
-    // 4. Set working set to maximum allowed
-    SIZE_T minWS = 256 * 1024 * 1024;  // 256MB minimum
+    // 4. Set working set. Single-client pins a high minimum so Windows can't
+    // page WoW out when it loses focus; faulting ~1GB back on alt-tab was
+    // stalling the main thread for 10s+ on VA-tight HD clients.
+    SIZE_T minWS = 768 * 1024 * 1024;  // 768MB minimum (pinned, single-client)
     SIZE_T maxWS = 2048ULL * 1024 * 1024; // 2GB maximum (or 3GB with LAA)
 
     if (g_isMultiClient) {
@@ -380,10 +382,30 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
         Log("[MEMORY_OPT] MemOpt: LAA active, setting max working set to 3GB");
     }
 
-    if (SetProcessWorkingSetSize(GetCurrentProcess(), minWS, maxWS)) {
+    // Try to hard-pin the minimum (keeps pages resident across focus loss).
+    // Needs SE_INC_WORKING_SET_NAME; fall back to a soft hint if unavailable.
+    bool pinned = false;
+    if (!g_isMultiClient) {
+        HANDLE hTok = NULL;
+        if (OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hTok)) {
+            TOKEN_PRIVILEGES tp; ZeroMemory(&tp, sizeof(tp));
+            tp.PrivilegeCount = 1;
+            tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+            if (LookupPrivilegeValueA(NULL, SE_INC_WORKING_SET_NAME, &tp.Privileges[0].Luid)) {
+                AdjustTokenPrivileges(hTok, FALSE, &tp, 0, NULL, NULL);
+            }
+            CloseHandle(hTok);
+        }
+        if (SetProcessWorkingSetSizeEx(GetCurrentProcess(), minWS, maxWS,
+                QUOTA_LIMITS_HARDWS_MIN_ENABLE | QUOTA_LIMITS_HARDWS_MAX_DISABLE)) {
+            pinned = true;
+        }
+    }
+    if (pinned || SetProcessWorkingSetSize(GetCurrentProcess(), minWS, maxWS)) {
         applied++;
-        Log("[MEMORY_OPT] MemOpt: Working set %uMB - %uMB", 
-            (unsigned)(minWS / (1024*1024)), (unsigned)(maxWS / (1024*1024)));
+        Log("[MEMORY_OPT] MemOpt: Working set %uMB - %uMB%s",
+            (unsigned)(minWS / (1024*1024)), (unsigned)(maxWS / (1024*1024)),
+            pinned ? " (min pinned resident)" : "");
     }
     
     // 5. Disable heap serialization where possible

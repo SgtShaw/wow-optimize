@@ -44,8 +44,12 @@ static const int STOCK_MAX_BYTES = 0x04000000;   // 64 MB
 // both stutter and the large-block-heap fragmentation that churn causes -- but it
 // holds that much VA. With /3GB (bcdedit /set increaseuserva 3072) there is room
 // for 256MB; on a stock 2GB user-VA layout we keep it to 192MB.
-static const int TARGET_3GB_BYTES = 0x10000000;  // 256 MB (increaseuserva active)
-static const int TARGET_2GB_BYTES = 0x0C000000;  // 192 MB (stock 2GB user VA)
+// Lowered from 256/192 MB: on VA-tight HD clients the larger resident set
+// enlarged the working set that Windows trims on alt-tab, so faulting it back
+// stalled the main thread. A smaller budget trades a little eviction churn for
+// much less paging pressure.
+static const int TARGET_3GB_BYTES = 0x08000000;  // 128 MB (increaseuserva active)
+static const int TARGET_2GB_BYTES = 0x06000000;  //  96 MB (stock 2GB user VA)
 static int g_targetBytes = TARGET_2GB_BYTES;
 
 static bool g_logged = false;

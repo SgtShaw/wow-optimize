@@ -194,6 +194,11 @@
 // system-wide thread snapshot). Set to 1 to revert to per-hook immediate enables.
 #define TEST_DISABLE_HOOK_BATCHING       0
 
+// Addon Lua-file prefetch (reads ~6000 addon files during loading to warm the OS
+// cache). DISABLED: on VA/RAM-tight HD clients it adds disk-I/O contention during
+// the load window for marginal benefit. Set to 0 to re-enable.
+#define TEST_DISABLE_LUA_PRECOMPILE      1
+
 // CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 path replaced the
 // engine's exact normalize but (a) omitted the original's near-zero magnitude
 // guard, producing NaN quaternions on degenerate bones, and (b) had a broken
