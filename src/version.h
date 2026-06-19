@@ -189,6 +189,11 @@
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY     0
 
+// SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
+// Vectorized 3D point and 4D vector matrix transformations using SSE2.
+// Set to 1 to revert to original FPU scalar implementation.
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.

@@ -31,6 +31,14 @@ static MatIdentity_t pOrigMatIdentity = nullptr;
 static MatMul_t      pOrigMatMul      = nullptr;
 static volatile long g_matmul_calls   = 0;
 
+typedef float* (__cdecl* MatVec3Mul_t)(float* result, const float* vec3, const float* matrix44);
+typedef float* (__cdecl* MatVec4Mul_t)(float* result, const float* vec4, const float* matrix44);
+
+static MatVec3Mul_t  pOrigMatVec3Mul  = nullptr;
+static MatVec4Mul_t  pOrigMatVec4Mul  = nullptr;
+static volatile long g_matvec3_calls  = 0;
+static volatile long g_matvec4_calls  = 0;
+
 // ================================================================
 // Precomputed identity matrix rows for the SSE2 store path
 // ================================================================
@@ -128,6 +136,82 @@ static float* __cdecl HookMatrixMultiply(float* result, float* a, float* b) {
 }
 
 // ================================================================
+// sub_4C21B0: 3D point * 4x4 matrix (100+ xrefs)
+// Vectorized via column linear combination using SSE2
+// ================================================================
+static float* __cdecl Hooked_MatVec3Mul(float* result, const float* vec3, const float* matrix44) {
+    ++g_matvec3_calls;
+
+    uintptr_t r = (uintptr_t)result, pv = (uintptr_t)vec3, pm = (uintptr_t)matrix44;
+    if (r > 0x10000 && r < 0xBFFF0000 &&
+        pv > 0x10000 && pv < 0xBFFF0000 &&
+        pm > 0x10000 && pm < 0xBFFF0000) {
+        __try {
+            __m128 vx = _mm_set1_ps(vec3[0]);
+            __m128 vy = _mm_set1_ps(vec3[1]);
+            __m128 vz = _mm_set1_ps(vec3[2]);
+
+            __m128 col0 = _mm_loadu_ps(matrix44);
+            __m128 col1 = _mm_loadu_ps(matrix44 + 4);
+            __m128 col2 = _mm_loadu_ps(matrix44 + 8);
+            __m128 col3 = _mm_loadu_ps(matrix44 + 12);
+
+            __m128 res = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
+                _mm_add_ps(_mm_mul_ps(vz, col2), col3)
+            );
+
+            // Safe 12-byte write to result (float[3])
+            _mm_store_ss(result, res);
+            _mm_store_ss(result + 1, _mm_shuffle_ps(res, res, _MM_SHUFFLE(1, 1, 1, 1)));
+            _mm_store_ss(result + 2, _mm_shuffle_ps(res, res, _MM_SHUFFLE(2, 2, 2, 2)));
+
+            return result;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Unmapped page - fallback
+        }
+    }
+    return pOrigMatVec3Mul(result, vec3, matrix44);
+}
+
+// ================================================================
+// sub_4C2270: 4D vector * 4x4 matrix (20 xrefs)
+// Vectorized via column linear combination using SSE2
+// ================================================================
+static float* __cdecl Hooked_MatVec4Mul(float* result, const float* vec4, const float* matrix44) {
+    ++g_matvec4_calls;
+
+    uintptr_t r = (uintptr_t)result, pv = (uintptr_t)vec4, pm = (uintptr_t)matrix44;
+    if (r > 0x10000 && r < 0xBFFF0000 &&
+        pv > 0x10000 && pv < 0xBFFF0000 &&
+        pm > 0x10000 && pm < 0xBFFF0000) {
+        __try {
+            __m128 vx = _mm_set1_ps(vec4[0]);
+            __m128 vy = _mm_set1_ps(vec4[1]);
+            __m128 vz = _mm_set1_ps(vec4[2]);
+            __m128 vw = _mm_set1_ps(vec4[3]);
+
+            __m128 col0 = _mm_loadu_ps(matrix44);
+            __m128 col1 = _mm_loadu_ps(matrix44 + 4);
+            __m128 col2 = _mm_loadu_ps(matrix44 + 8);
+            __m128 col3 = _mm_loadu_ps(matrix44 + 12);
+
+            __m128 res = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
+                _mm_add_ps(_mm_mul_ps(vz, col2), _mm_mul_ps(vw, col3))
+            );
+
+            // Safe 16-byte write to result (float[4])
+            _mm_storeu_ps(result, res);
+            return result;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            // Unmapped page - fallback
+        }
+    }
+    return pOrigMatVec4Mul(result, vec4, matrix44);
+}
+
+// ================================================================
 // Install hooks
 // ================================================================
 bool InstallMatrixCopySSE2() {
@@ -170,6 +254,26 @@ bool InstallMatrixCopySSE2() {
     Log("[MatrixSSE2] MatrixMultiply DISABLED via feature flag");
 #endif
 
+#if !TEST_DISABLE_MATRIX_VECTOR_SSE2
+    if (WineSafe_CreateHook((void*)0x004C21B0, (void*)Hooked_MatVec3Mul,
+                            (void**)&pOrigMatVec3Mul) == MH_OK &&
+        WO_EnableHook((void*)0x004C21B0) == MH_OK) {
+        Log("[MatrixSSE2] Hooked MatVec3Mul at 0x004C21B0 (SSE2, 100+ xrefs)");
+    } else {
+        Log("[MatrixSSE2] MatVec3Mul hook FAILED");
+    }
+
+    if (WineSafe_CreateHook((void*)0x004C2270, (void*)Hooked_MatVec4Mul,
+                            (void**)&pOrigMatVec4Mul) == MH_OK &&
+        WO_EnableHook((void*)0x004C2270) == MH_OK) {
+        Log("[MatrixSSE2] Hooked MatVec4Mul at 0x004C2270 (SSE2, 20 xrefs)");
+    } else {
+        Log("[MatrixSSE2] MatVec4Mul hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] Matrix-Vector hooks DISABLED via feature flag");
+#endif
+
     return installed == (int)(sizeof(hooks) / sizeof(hooks[0]));
 }
 
@@ -182,7 +286,11 @@ void ShutdownMatrixCopySSE2() {
 #if !TEST_DISABLE_MATRIX_MULTIPLY
     MH_DisableHook((void*)0x004C1F00);
 #endif
+#if !TEST_DISABLE_MATRIX_VECTOR_SSE2
+    MH_DisableHook((void*)0x004C21B0);
+    MH_DisableHook((void*)0x004C2270);
+#endif
 
-    Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld",
-        g_matcopy_calls, g_matident_calls, g_matmul_calls);
+    Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld  MatVec3=%ld  MatVec4=%ld",
+        g_matcopy_calls, g_matident_calls, g_matmul_calls, g_matvec3_calls, g_matvec4_calls);
 }
