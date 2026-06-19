@@ -387,6 +387,9 @@ void SSE2_Vec3Cross(const float* __restrict a,
 #ifndef ADDR_WOW_FRUSTUM_CULL_TYPE2
 #define ADDR_WOW_FRUSTUM_CULL_TYPE2 0x00983A60  // CFrustum::IsAABBVisible_Type2
 #endif
+#ifndef ADDR_WOW_FRUSTUM_CULL_POINT
+#define ADDR_WOW_FRUSTUM_CULL_POINT 0x00983D70  // CFrustum::IsPointVisible
+#endif
 
 // ================================================================
 // Statistics
@@ -564,6 +567,58 @@ int SSE2_IsAABBVisible_Type2(const float* planes, const float* bounds) {
     }
 }
 
+// Test point against 6 planes in CFrustum and return culling mask
+// point: float[3] (x, y, z)
+// planes: float[6][4] at ecx
+void SSE2_IsPointVisible(const float* planes, const float* point, uint8_t* outMask) {
+    __try {
+        if (!planes || !point || !outMask) return;
+        
+        // Validate pointers are in valid user-mode address space
+        if ((uintptr_t)planes < 0x10000 || (uintptr_t)planes >= 0xBFFF0000) return;
+        if ((uintptr_t)point < 0x10000 || (uintptr_t)point >= 0xBFFF0000) return;
+        if ((uintptr_t)outMask < 0x10000 || (uintptr_t)outMask >= 0xBFFF0000) return;
+
+        __m128 px = _mm_set1_ps(point[0]);
+        __m128 py = _mm_set1_ps(point[1]);
+        __m128 pz = _mm_set1_ps(point[2]);
+        const __m128 eps = _mm_set1_ps(-0.019444443f);
+
+        // Load planes 0 to 3
+        __m128 r0 = _mm_loadu_ps(planes + 0);  // n0_x, n0_y, n0_z, d0
+        __m128 r1 = _mm_loadu_ps(planes + 4);  // n1_x, n1_y, n1_z, d1
+        __m128 r2 = _mm_loadu_ps(planes + 8);  // n2_x, n2_y, n2_z, d2
+        __m128 r3 = _mm_loadu_ps(planes + 12); // n3_x, n3_y, n3_z, d3
+
+        _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+
+        __m128 dp = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, px), _mm_mul_ps(r1, py)), 
+                               _mm_add_ps(_mm_mul_ps(r2, pz), r3));
+
+        __m128 mask = _mm_cmplt_ps(dp, eps);
+        int bitmask1 = _mm_movemask_ps(mask);
+
+        // Load planes 4 and 5, with dummy planes for 6 and 7
+        __m128 r4 = _mm_loadu_ps(planes + 16); // n4_x, n4_y, n4_z, d4
+        __m128 r5 = _mm_loadu_ps(planes + 20); // n5_x, n5_y, n5_z, d5
+        __m128 r6 = _mm_setzero_ps();
+        __m128 r7 = _mm_setzero_ps();
+
+        _MM_TRANSPOSE4_PS(r4, r5, r6, r7);
+
+        __m128 dp2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r4, px), _mm_mul_ps(r5, py)), 
+                                _mm_add_ps(_mm_mul_ps(r6, pz), r7));
+
+        __m128 mask2 = _mm_cmplt_ps(dp2, eps);
+        int bitmask2 = _mm_movemask_ps(mask2) & 3;
+
+        *outMask = (uint8_t)(bitmask1 | (bitmask2 << 4));
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        // safe fallback: not culled
+    }
+}
+
 #if !TEST_DISABLE_QUAT_NORMALIZE
 typedef void (__fastcall *QuatNormalize_t)(float* ecx, void* edx);
 static QuatNormalize_t orig_QuatNormalize = nullptr;
@@ -597,6 +652,17 @@ static int __fastcall Hooked_IsAABBVisibleType2(void* ecx, void* edx, const floa
         g_frustumCulled++;
     }
     return res;
+}
+
+typedef void (__fastcall *IsPointVisible_t)(void* ecx, void* edx, const float* point, uint8_t* outMask);
+static IsPointVisible_t orig_IsPointVisible = nullptr;
+
+static void __fastcall Hooked_IsPointVisible(void* ecx, void* edx, const float* point, uint8_t* outMask) {
+    g_frustumCalls++;
+    SSE2_IsPointVisible((const float*)ecx, point, outMask);
+    if (outMask && *outMask != 0) {
+        g_frustumCulled++;
+    }
 }
 #endif
 
@@ -657,12 +723,28 @@ bool InstallSimdHooks(void) {
         Log("[SimdHooks] Frustum cull type 2: fill ADDR_WOW_FRUSTUM_CULL_TYPE2");
     }
 
+    if (ADDR_WOW_FRUSTUM_CULL_POINT) {
+        Log("[SimdHooks] Frustum cull point hook target: 0x%08X", ADDR_WOW_FRUSTUM_CULL_POINT);
+#if !TEST_DISABLE_FRUSTUM_CULL
+        if (WineSafe_CreateHook((void*)ADDR_WOW_FRUSTUM_CULL_POINT, (void*)Hooked_IsPointVisible, (void**)&orig_IsPointVisible) == MH_OK) {
+            WO_EnableHook((void*)ADDR_WOW_FRUSTUM_CULL_POINT);
+            Log("[SimdHooks] Frustum cull point hook ACTIVE");
+        } else {
+            Log("[SimdHooks] Frustum cull point hook FAILED");
+        }
+#else
+        Log("[SimdHooks] Frustum cull point hook DISABLED by TEST_DISABLE_FRUSTUM_CULL");
+#endif
+    } else {
+        Log("[SimdHooks] Frustum cull point: fill ADDR_WOW_FRUSTUM_CULL_POINT");
+    }
+
     return true;
 }
 
 void ShutdownSimdHooks(void) {
-    Log("[SimdHooks] Stats: matMul=%lld, quatNorm=%lld, frustum=%lld (culled=%lld, %.1f%%)",
-        g_matMulCalls, g_quatNormCalls,
+    Log("[SimdHooks] Stats: matMul=%lld, ... frustum=%lld (culled=%lld, %.1f%%)",
+        g_matMulCalls,
         g_frustumCalls, g_frustumCulled,
         g_frustumCalls ? 100.0 * g_frustumCulled / g_frustumCalls : 0.0);
 }
