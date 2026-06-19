@@ -5422,6 +5422,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaFastPath");
     CrashDumper::RegisterFeature("AddonPreload");
     CrashDumper::RegisterFeature("BytecodeCache");
+    CrashDumper::RegisterFeature("FrustumCull");
 
     Log("--- Colossal Optimizations ---");
 #if !TEST_DISABLE_EVENT_COALESCER

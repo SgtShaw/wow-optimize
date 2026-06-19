@@ -382,7 +382,7 @@ void SSE2_Vec3Cross(const float* __restrict a,
 #define ADDR_WOW_QUAT_NORMALIZE 0x00979110  // CQuaternion::Normalize
 #endif
 #ifndef ADDR_WOW_FRUSTUM_CULL
-#define ADDR_WOW_FRUSTUM_CULL  0x00000000  // Frustum::IsAABBVisible or similar
+#define ADDR_WOW_FRUSTUM_CULL  0x009839E0  // CFrustum::IsAABBVisible
 #endif
 
 // ================================================================
@@ -400,6 +400,86 @@ static volatile LONG64 g_frustumCulled  = 0;
 #include "version.h"
 #include "MinHook.h"
 
+// Test AABB against 6 planes in CFrustum
+// bounds: float[6] (min_x, min_y, min_z, max_x, max_y, max_z)
+// planes: float[6][4] at ecx
+int SSE2_IsAABBVisible(const float* planes, const float* bounds) {
+    __try {
+        if (!planes || !bounds) return 3; // safe fallback (visible)
+        
+        // Validate pointers are in valid user-mode address space
+        if ((uintptr_t)planes < 0x10000 || (uintptr_t)planes >= 0xBFFF0000) return 3;
+        if ((uintptr_t)bounds < 0x10000 || (uintptr_t)bounds >= 0xBFFF0000) return 3;
+
+        // Load bounds
+        __m128 min_x = _mm_set1_ps(bounds[0]);
+        __m128 min_y = _mm_set1_ps(bounds[1]);
+        __m128 min_z = _mm_set1_ps(bounds[2]);
+        __m128 max_x = _mm_set1_ps(bounds[3]);
+        __m128 max_y = _mm_set1_ps(bounds[4]);
+        __m128 max_z = _mm_set1_ps(bounds[5]);
+
+        // Epsilon constant from WoW engine
+        const __m128 eps = _mm_set1_ps(-0.019444443f);
+
+        // Load planes 0 to 3
+        __m128 r0 = _mm_loadu_ps(planes + 0);  // n0_x, n0_y, n0_z, d0
+        __m128 r1 = _mm_loadu_ps(planes + 4);  // n1_x, n1_y, n1_z, d1
+        __m128 r2 = _mm_loadu_ps(planes + 8);  // n2_x, n2_y, n2_z, d2
+        __m128 r3 = _mm_loadu_ps(planes + 12); // n3_x, n3_y, n3_z, d3
+
+        _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+
+        __m128 mask_x = _mm_cmpge_ps(r0, _mm_setzero_ps());
+        __m128 x_val = _mm_or_ps(_mm_and_ps(mask_x, max_x), _mm_andnot_ps(mask_x, min_x));
+
+        __m128 mask_y = _mm_cmpge_ps(r1, _mm_setzero_ps());
+        __m128 y_val = _mm_or_ps(_mm_and_ps(mask_y, max_y), _mm_andnot_ps(mask_y, min_y));
+
+        __m128 mask_z = _mm_cmpge_ps(r2, _mm_setzero_ps());
+        __m128 z_val = _mm_or_ps(_mm_and_ps(mask_z, max_z), _mm_andnot_ps(mask_z, min_z));
+
+        __m128 dp = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, x_val), _mm_mul_ps(r1, y_val)), 
+                               _mm_add_ps(_mm_mul_ps(r2, z_val), r3));
+
+        __m128 cull_mask = _mm_cmplt_ps(dp, eps);
+        if (_mm_movemask_ps(cull_mask) != 0) {
+            return 0; // Culled by at least one of planes 0..3
+        }
+
+        // Load planes 4 and 5, with dummy planes for 6 and 7
+        __m128 r4 = _mm_loadu_ps(planes + 16); // n4_x, n4_y, n4_z, d4
+        __m128 r5 = _mm_loadu_ps(planes + 20); // n5_x, n5_y, n5_z, d5
+        // Dummy planes have normal = (0,0,0) and d = 1000.0f -> never culled
+        __m128 r6 = _mm_set_ps(1000.0f, 0.0f, 0.0f, 0.0f);
+        __m128 r7 = _mm_set_ps(1000.0f, 0.0f, 0.0f, 0.0f);
+
+        _MM_TRANSPOSE4_PS(r4, r5, r6, r7);
+
+        __m128 mask_x2 = _mm_cmpge_ps(r4, _mm_setzero_ps());
+        __m128 x_val2 = _mm_or_ps(_mm_and_ps(mask_x2, max_x), _mm_andnot_ps(mask_x2, min_x));
+
+        __m128 mask_y2 = _mm_cmpge_ps(r5, _mm_setzero_ps());
+        __m128 y_val2 = _mm_or_ps(_mm_and_ps(mask_y2, max_y), _mm_andnot_ps(mask_y2, min_y));
+
+        __m128 mask_z2 = _mm_cmpge_ps(r6, _mm_setzero_ps());
+        __m128 z_val2 = _mm_or_ps(_mm_and_ps(mask_z2, max_z), _mm_andnot_ps(mask_z2, min_z));
+
+        __m128 dp2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r4, x_val2), _mm_mul_ps(r5, y_val2)), 
+                                _mm_add_ps(_mm_mul_ps(r6, z_val2), r7));
+
+        __m128 cull_mask2 = _mm_cmplt_ps(dp2, eps);
+        if (_mm_movemask_ps(cull_mask2) != 0) {
+            return 0; // Culled by plane 4 or 5
+        }
+
+        return 3; // Visible
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return 3; // safe fallback (visible)
+    }
+}
+
 #if !TEST_DISABLE_QUAT_NORMALIZE
 typedef void (__fastcall *QuatNormalize_t)(float* ecx, void* edx);
 static QuatNormalize_t orig_QuatNormalize = nullptr;
@@ -410,6 +490,19 @@ static void __fastcall Hooked_QuatNormalize(float* ecx, void* edx) {
 }
 #endif
 
+#if !TEST_DISABLE_FRUSTUM_CULL
+typedef int (__fastcall *IsAABBVisible_t)(void* ecx, void* edx, const float* bounds);
+static IsAABBVisible_t orig_IsAABBVisible = nullptr;
+
+static int __fastcall Hooked_IsAABBVisible(void* ecx, void* edx, const float* bounds) {
+    g_frustumCalls++;
+    int res = SSE2_IsAABBVisible((const float*)ecx, bounds);
+    if (res == 0) {
+        g_frustumCulled++;
+    }
+    return res;
+}
+#endif
 
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
@@ -423,8 +516,8 @@ bool InstallSimdHooks(void) {
     if (ADDR_WOW_QUAT_NORMALIZE) {
         Log("[SimdHooks] Quaternion normalize hook target: 0x%08X", ADDR_WOW_QUAT_NORMALIZE);
 #if !TEST_DISABLE_QUAT_NORMALIZE
-        if (MH_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
-            MH_EnableHook((void*)ADDR_WOW_QUAT_NORMALIZE);
+        if (WineSafe_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
+            WO_EnableHook((void*)ADDR_WOW_QUAT_NORMALIZE);
             Log("[SimdHooks] Quaternion normalize hook ACTIVE");
         } else {
             Log("[SimdHooks] Quaternion normalize hook FAILED");
@@ -436,10 +529,21 @@ bool InstallSimdHooks(void) {
         Log("[SimdHooks] Quaternion normalize: fill ADDR_WOW_QUAT_NORMALIZE");
     }
 
-    if (ADDR_WOW_FRUSTUM_CULL)
+    if (ADDR_WOW_FRUSTUM_CULL) {
         Log("[SimdHooks] Frustum cull hook target: 0x%08X", ADDR_WOW_FRUSTUM_CULL);
-    else
+#if !TEST_DISABLE_FRUSTUM_CULL
+        if (WineSafe_CreateHook((void*)ADDR_WOW_FRUSTUM_CULL, (void*)Hooked_IsAABBVisible, (void**)&orig_IsAABBVisible) == MH_OK) {
+            WO_EnableHook((void*)ADDR_WOW_FRUSTUM_CULL);
+            Log("[SimdHooks] Frustum cull hook ACTIVE");
+        } else {
+            Log("[SimdHooks] Frustum cull hook FAILED");
+        }
+#else
+        Log("[SimdHooks] Frustum cull hook DISABLED by TEST_DISABLE_FRUSTUM_CULL");
+#endif
+    } else {
         Log("[SimdHooks] Frustum cull: fill ADDR_WOW_FRUSTUM_CULL");
+    }
 
     return true;
 }

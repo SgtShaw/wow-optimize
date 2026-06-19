@@ -189,6 +189,11 @@
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY     0
 
+// SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
+// Vectorized check using transposed SSE2 dot products.
+// Set to 1 to revert to original FPU scalar implementation.
+#define TEST_DISABLE_FRUSTUM_CULL        0
+
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
 // system-wide thread snapshot). Set to 1 to revert to per-hook immediate enables.
