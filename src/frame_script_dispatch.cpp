@@ -164,7 +164,7 @@ bool InstallFrameScriptDispatch()
         Log("[FrameScriptDispatch] MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("[FrameScriptDispatch] MH_EnableHook FAILED");
         MH_RemoveHook(target);
         return false;
