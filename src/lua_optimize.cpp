@@ -59,6 +59,7 @@ extern "C" void ReleaseLoadingArena();
 
 extern bool g_isMultiClient;
 extern "C" void Log(const char* fmt, ...);
+extern "C" SIZE_T HeapCompactor_GetCachedLargestBlock();
 
 // ================================================================
 // Lua 5.1 types and GC constants.
@@ -799,6 +800,19 @@ static void StepGC(lua_State* L, double frameMs) {
         } else if (frameMs < 8.0) {
             // Frame took < 8ms (above 120 FPS) - increase GC to catch up on garbage
             stepKB = stepKB * 3 / 2;
+        }
+    }
+
+    // VA-pressure override: when contiguous 32-bit address space runs low (the
+    // usual precursor to an HD-client OOM crash) collect harder to return Lua
+    // memory to the OS before a large engine allocation fails -- a small GC step
+    // beats ERROR #134. Uses the heap compactor's cached sample (0 = not yet
+    // measured -> ignored). Bounded to 8MB/frame so it can't itself stall.
+    {
+        SIZE_T vaLargest = HeapCompactor_GetCachedLargestBlock();
+        if (vaLargest != 0 && vaLargest < 48u * 1024 * 1024) {
+            stepKB *= 3;
+            if (stepKB > 8192) stepKB = 8192;
         }
     }
 

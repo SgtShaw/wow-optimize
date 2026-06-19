@@ -185,6 +185,12 @@ extern "C" SIZE_T HeapCompactor_GetLargestFreeBlock() {
     return GetLargestFreeBlock();
 }
 
+// Cheap cached read (no VirtualQuery walk) for per-frame consumers like the GC
+// step. Returns the last value the monitor sampled; 0 means "not sampled yet".
+extern "C" SIZE_T HeapCompactor_GetCachedLargestBlock() {
+    return g_lastLargestBlock.load();
+}
+
 extern "C" void HeapCompactor_GetStats(uint64_t* checks, uint64_t* compactions, 
                                         SIZE_T* lastBlock, SIZE_T* minBlock, SIZE_T* maxBlock) {
     if (checks) *checks = g_checksPerformed.load();
@@ -193,5 +199,11 @@ extern "C" void HeapCompactor_GetStats(uint64_t* checks, uint64_t* compactions,
     if (minBlock) *minBlock = g_minLargestBlock.load();
     if (maxBlock) *maxBlock = g_maxLargestBlock.load();
 }
+
+#else  // TEST_DISABLE_HEAP_COMPACTOR
+
+// Compactor disabled: report "no data" so VA-pressure consumers stay inert.
+#include <windows.h>
+extern "C" SIZE_T HeapCompactor_GetCachedLargestBlock() { return 0; }
 
 #endif // TEST_DISABLE_HEAP_COMPACTOR
