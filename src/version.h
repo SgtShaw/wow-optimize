@@ -188,7 +188,14 @@
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY     0
-#define TEST_DISABLE_QUAT_NORMALIZE      0  
+
+// CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 path replaced the
+// engine's exact normalize but (a) omitted the original's near-zero magnitude
+// guard, producing NaN quaternions on degenerate bones, and (b) had a broken
+// horizontal reduction. NaN/garbage quaternions corrupt the transform pipeline
+// -> instance crashes + post-combat freezes. The math is fixed in hooks_simd.cpp
+// but stays OFF pending in-game validation on the render path.
+#define TEST_DISABLE_QUAT_NORMALIZE      1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1

@@ -72,17 +72,27 @@ void SSE2_QuatNormalize(float* __restrict q) {
     __m128 v = _mm_loadu_ps(q); // x, y, z, w
     __m128 dot = _mm_mul_ps(v, v);
 
-    // Horizontal sum: _mm_hadd_ps not available in pure SSE2
-    // Use shuffle + add instead
-    __m128 shuf = _mm_shuffle_ps(dot, dot, _MM_SHUFFLE(2,3,0,1)); // y,x,w,z
-    __m128 sum1 = _mm_add_ps(dot, shuf);                           // x+y, x+y, z+w, z+w
-    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1,1,1,1));
-    __m128 sum2 = _mm_add_ps(sum1, shuf2);                         // x+y+z+w repeated
+    // Horizontal sum broadcast to ALL lanes. SSE2 has no _mm_hadd_ps, so do a
+    // two-step shuffle+add. Both steps must fold across the full register or some
+    // lanes hold a partial sum (the earlier _MM_SHUFFLE(1,1,1,1) form left lanes
+    // 0/1 at 2*(x^2+y^2), mis-scaling x and y).
+    __m128 shuf = _mm_shuffle_ps(dot, dot, _MM_SHUFFLE(2,3,0,1));   // [y2, x2, w2, z2]
+    __m128 sum1 = _mm_add_ps(dot, shuf);                            // [x2+y2, x2+y2, z2+w2, z2+w2]
+    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1,0,3,2));// [z2+w2, z2+w2, x2+y2, x2+y2]
+    __m128 sum2 = _mm_add_ps(sum1, shuf2);                          // full sum in every lane
 
-    // rsqrt approximation (12-bit accuracy, good enough for quaternions)
+    // Match the engine's guard: a near-zero magnitude quaternion is left
+    // unchanged (the original sub_979110 only normalizes when mag^2 > 2^-22).
+    // Without this, rsqrt(0)=Inf and the Newton step yields NaN, poisoning the
+    // bone/transform pipeline.
+    float mag2;
+    _mm_store_ss(&mag2, sum2);
+    if (mag2 <= 0.00000023841858f) {
+        return;
+    }
+
+    // rsqrt approximation + one Newton-Raphson iteration (~23-bit accuracy)
     __m128 rlen = _mm_rsqrt_ps(sum2);
-
-    // One Newton-Raphson iteration for 23-bit accuracy
     __m128 half = _mm_set1_ps(0.5f);
     __m128 three = _mm_set1_ps(3.0f);
     __m128 rlen2 = _mm_mul_ps(sum2, _mm_mul_ps(rlen, rlen));
