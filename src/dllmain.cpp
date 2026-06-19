@@ -262,7 +262,24 @@ static void StopFreezeWatchdog() {
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
- 
+
+// ----------------------------------------------------------------
+// Hook-enable batching. Each MH_EnableHook freezes every process thread
+// (~20ms via a system-wide thread snapshot); ~90 serial enables at startup
+// stalled WoW's main thread for ~2s. During MainThread's install sequence we
+// queue the enables and apply them in a single MH_ApplyQueued freeze. The flag
+// is only set during that synchronous sequence, so any lazy/later install (and
+// the crash guard, which calls MH_EnableHook directly) still enables immediately.
+static volatile LONG g_hookBatchMode = 0;
+static inline MH_STATUS WO_EnableHook(void* target) {
+#if TEST_DISABLE_HOOK_BATCHING
+    return MH_EnableHook(target);
+#else
+    if (g_hookBatchMode) return MH_QueueEnableHook(target);
+    return MH_EnableHook(target);
+#endif
+}
+
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
 
@@ -441,7 +458,7 @@ static bool InstallFieldUpdateHook() {
 #else
     void* target = (void*)0x006A3C40;
     if (WineSafe_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
-    if (MH_EnableHook(target) != MH_OK) return false;
+    if (WO_EnableHook(target) != MH_OK) return false;
 
     Log("Deferred field updates: ACTIVE (sync batch flush, 4096 slots)");
     return true;
@@ -770,7 +787,7 @@ static bool InstallAllocatorHooks() {
     #undef TRY_HOOK
 
     if (ok == 0) return false;
-    if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK) return false;
+    if (WO_EnableHook(MH_ALL_HOOKS) != MH_OK) return false;
     Log("Allocator hooks: %d/%d active", ok, total);
     return true;
 }
@@ -953,7 +970,7 @@ static bool InstallSleepHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "Sleep");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_Sleep, (void**)&orig_Sleep) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("Sleep hook: ACTIVE (PreciseSleep RDTSC %.1f MHz + Lua GC + combat log)", g_rdtscFreqMhz);
     return true;
 }
@@ -1139,16 +1156,16 @@ static bool InstallNetworkHooks() {
     int ok = 0;
 
     if (MH_CreateHook(pConnect, (void*)hooked_connect, (void**)&orig_connect) == MH_OK)
-        if (MH_EnableHook(pConnect) == MH_OK) ok++;
+        if (WO_EnableHook(pConnect) == MH_OK) ok++;
 
     if (pSend && MH_CreateHook(pSend, (void*)hooked_send, (void**)&orig_send) == MH_OK)
-        if (MH_EnableHook(pSend) == MH_OK) ok++;
+        if (WO_EnableHook(pSend) == MH_OK) ok++;
 
     if (pRecv && MH_CreateHook(pRecv, (void*)hooked_recv, (void**)&orig_recv) == MH_OK)
-        if (MH_EnableHook(pRecv) == MH_OK) ok++;
+        if (WO_EnableHook(pRecv) == MH_OK) ok++;
 
     if (pWSARecv && MH_CreateHook(pWSARecv, (void*)hooked_WSARecv, (void**)&orig_WSARecv) == MH_OK)
-        if (MH_EnableHook(pWSARecv) == MH_OK) ok++;
+        if (WO_EnableHook(pWSARecv) == MH_OK) ok++;
 
     Log("Network hook: ACTIVE (%d/4 hooks, NODELAY+ACK+QoS+BUF+KA+recv, deferred mode)", ok);
     return ok > 0;
@@ -1713,7 +1730,7 @@ static bool InstallReadFileHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "ReadFile");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_ReadFile, (void**)&orig_ReadFile) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("ReadFile hook: ACTIVE (MPQ cache, 64KB/256KB adaptive read-ahead, %d slots + async prefetch)", MAX_CACHED_HANDLES);
     return true;
 }
@@ -1872,7 +1889,7 @@ static bool InstallGetTickCountHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetTickCount");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_GetTickCount, (void**)&orig_GetTickCount) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetTickCount hook: ACTIVE (QPC-based microsecond precision)");
     return true;
 }
@@ -1900,7 +1917,7 @@ static bool InstallTimeGetTimeHook() {
     if (!p) { Log("timeGetTime hook: SKIP (function not found)"); return false; }
 
     if (MH_CreateHook(p, (void*)hooked_timeGetTime, (void**)&orig_timeGetTime) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("timeGetTime hook: ACTIVE (QPC-based, synced with GetTickCount)");
     return true;
 }
@@ -1953,7 +1970,7 @@ static bool InstallCriticalSectionHook() {
 #if !CRASH_TEST_DISABLE_CS_INIT
     void* pInit = (void*)GetProcAddress(hK32, "InitializeCriticalSection");
     if (pInit && MH_CreateHook(pInit, (void*)hooked_InitCS, (void**)&orig_InitCS) == MH_OK)
-        if (MH_EnableHook(pInit) == MH_OK) ok++;
+        if (WO_EnableHook(pInit) == MH_OK) ok++;
 #endif
 
 #if CRASH_TEST_DISABLE_CS_ENTER
@@ -1962,7 +1979,7 @@ static bool InstallCriticalSectionHook() {
 #else
     void* pEnter = (void*)GetProcAddress(hK32, "EnterCriticalSection");
     if (pEnter && MH_CreateHook(pEnter, (void*)hooked_EnterCS, (void**)&orig_EnterCS) == MH_OK)
-        if (MH_EnableHook(pEnter) == MH_OK) ok++;
+        if (WO_EnableHook(pEnter) == MH_OK) ok++;
 
     Log("CriticalSection hooks: ACTIVE (%d/2, spin 4000 + TryEnter spin-first)", ok);
     return ok > 0;
@@ -2034,7 +2051,7 @@ static bool InstallHeapOptimization() {
         Log("Heap optimization: LFH on process heap only (%d heaps)", g_heapsOptimized);
         return g_heapsOptimized > 0;
     }
-    if (MH_EnableHook(p) != MH_OK) {
+    if (WO_EnableHook(p) != MH_OK) {
         Log("Heap optimization: LFH on process heap only (%d heaps)", g_heapsOptimized);
         return g_heapsOptimized > 0;
     }
@@ -2122,7 +2139,7 @@ static bool InstallHeapRedirectToMimalloc() {
     if (p && MH_CreateHook(p, (void*)hooked_HeapSize, (void**)&orig_HeapSize) == MH_OK) ok++;
 
     if (ok > 0) {
-        MH_EnableHook(MH_ALL_HOOKS);
+        WO_EnableHook(MH_ALL_HOOKS);
         Log("Heap redirect: ACTIVE (%d/4 hooks, process heap -> mimalloc)", ok);
         return true;
     }
@@ -2150,7 +2167,7 @@ static bool InstallOutputDebugStringHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "OutputDebugStringA");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_OutputDebugStringA, (void**)&orig_OutputDebugStringA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("OutputDebugStringA hook: ACTIVE (no-op when no debugger)");
     return true;
 }
@@ -2228,7 +2245,7 @@ static bool InstallCompareStringHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CompareStringA");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_CompareStringA, (void**)&orig_CompareStringA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("CompareStringA hook: ACTIVE (fast ASCII path, locale fallback for non-ASCII)");
     return true;
 #endif
@@ -2297,7 +2314,7 @@ static bool InstallGetFileAttributesHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetFileAttributesA");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_GetFileAttributesA, (void**)&orig_GetFileAttributesA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetFileAttributesA hook: ACTIVE (cache existing files, %d slots)", FILE_ATTR_CACHE_SIZE);
     return true;
 #endif
@@ -2342,7 +2359,7 @@ static bool InstallSetFilePointerHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "SetFilePointer");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_SetFilePointer, (void**)&orig_SetFilePointer) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("SetFilePointer hook: ACTIVE (redirected to SetFilePointerEx)");
     return true;
 #endif
@@ -2397,11 +2414,11 @@ static bool InstallGlobalAllocHooks() {
 
     void* pA = (void*)GetProcAddress(hK32, "GlobalAlloc");
     if (pA && MH_CreateHook(pA, (void*)hooked_GlobalAlloc, (void**)&orig_GlobalAlloc) == MH_OK)
-        if (MH_EnableHook(pA) == MH_OK) ok++;
+        if (WO_EnableHook(pA) == MH_OK) ok++;
 
     void* pF = (void*)GetProcAddress(hK32, "GlobalFree");
     if (pF && MH_CreateHook(pF, (void*)hooked_GlobalFree, (void**)&orig_GlobalFree) == MH_OK)
-        if (MH_EnableHook(pF) == MH_OK) ok++;
+        if (WO_EnableHook(pF) == MH_OK) ok++;
 
     if (ok > 0) {
         Log("GlobalAlloc hooks: ACTIVE (%d/2, mimalloc for GMEM_FIXED)", ok);
@@ -2462,11 +2479,11 @@ static bool InstallBadPtrHooks() {
 
     void* pR = (void*)GetProcAddress(hK32, "IsBadReadPtr");
     if (pR && MH_CreateHook(pR, (void*)hooked_IsBadReadPtr, (void**)&orig_IsBadReadPtr) == MH_OK)
-        if (MH_EnableHook(pR) == MH_OK) ok++;
+        if (WO_EnableHook(pR) == MH_OK) ok++;
 
     void* pW = (void*)GetProcAddress(hK32, "IsBadWritePtr");
     if (pW && MH_CreateHook(pW, (void*)hooked_IsBadWritePtr, (void**)&orig_IsBadWritePtr) == MH_OK)
-        if (MH_EnableHook(pW) == MH_OK) ok++;
+        if (WO_EnableHook(pW) == MH_OK) ok++;
 
     if (ok > 0) {
         Log("IsBadPtr hooks: ACTIVE (%d/2, fast VirtualQuery path)", ok);
@@ -2511,13 +2528,13 @@ static bool InstallThreadIdCacheHook() {
     void* pTid = (void*)GetProcAddress(hK32, "GetCurrentThreadId");
     if (pTid) {
         if (MH_CreateHook(pTid, (void*)hooked_GetCurrentThreadId, (void**)&orig_GetCurrentThreadId) == MH_OK)
-            if (MH_EnableHook(pTid) == MH_OK) ok++;
+            if (WO_EnableHook(pTid) == MH_OK) ok++;
     }
 
     void* pTh = (void*)GetProcAddress(hK32, "GetCurrentThread");
     if (pTh) {
         if (MH_CreateHook(pTh, (void*)hooked_GetCurrentThread, (void**)&orig_GetCurrentThread) == MH_OK)
-            if (MH_EnableHook(pTh) == MH_OK) ok++;
+            if (WO_EnableHook(pTh) == MH_OK) ok++;
     }
 
     if (ok > 0) {
@@ -2601,7 +2618,7 @@ static bool InstallQPCHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "QueryPerformanceCounter");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_QPC, (void**)&orig_QPC) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("QPC hook: ACTIVE (50us coalescing, %llu RDTSC cycles, RDTSC fast path)", g_rdtscThreshold);
     return true;
 }
@@ -2714,9 +2731,9 @@ static bool InstallFileHooks() {
     void* pA = (void*)GetProcAddress(hK32, "CreateFileA");
     void* pW = (void*)GetProcAddress(hK32, "CreateFileW");
     if (pA && MH_CreateHook(pA, (void*)hooked_CreateFileA, (void**)&orig_CreateFileA) == MH_OK)
-        if (MH_EnableHook(pA) == MH_OK) ok++;
+        if (WO_EnableHook(pA) == MH_OK) ok++;
     if (pW && MH_CreateHook(pW, (void*)hooked_CreateFileW, (void**)&orig_CreateFileW) == MH_OK)
-        if (MH_EnableHook(pW) == MH_OK) ok++;
+        if (WO_EnableHook(pW) == MH_OK) ok++;
     if (ok > 0) { Log("CreateFile hooks: ACTIVE (%d/2, sequential scan + MPQ tracking)", ok); return true; }
     return false;
 }
@@ -2754,7 +2771,7 @@ static bool InstallCloseHandleHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CloseHandle");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_CloseHandle, (void**)&orig_CloseHandle) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("CloseHandle hook: ACTIVE (cache invalidation on file close)");
     return true;
 }
@@ -2923,7 +2940,7 @@ static bool InstallFlushFileBuffersHook() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "FlushFileBuffers");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_FlushFileBuffers, (void**)&orig_FlushFileBuffers) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("FlushFileBuffers hook: ACTIVE (skip for read-only MPQ handles)");
     return true;
 }
@@ -3688,7 +3705,7 @@ static bool InstallMsgPumpHook() {
         Log("MsgPump hook: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("MsgPump hook: MH_EnableHook FAILED");
         return false;
     }
@@ -3792,7 +3809,7 @@ static bool InstallSwapPresentHook() {
         Log("Swap hook: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("Swap hook: MH_EnableHook FAILED");
         return false;
     }
@@ -3863,7 +3880,7 @@ static bool InstallLuaRawGetICache() {
         Log("lua_rawgeti cache: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("lua_rawgeti cache: MH_EnableHook FAILED");
         return false;
     }
@@ -3995,7 +4012,7 @@ static bool InstallLuaPushStringCache() {
         Log("lua_pushstring cache: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("lua_pushstring cache: MH_EnableHook FAILED");
         return false;
     }
@@ -4134,7 +4151,7 @@ static bool InstallTableConcatFastPath() {
     if (p[0] != 0x55 || p[1] != 0x8B) return false;
 
     if (WineSafe_CreateHook(target, (void*)hooked_table_concat, (void**)&orig_table_concat) != MH_OK) return false;
-    if (MH_EnableHook(target) != MH_OK) return false;
+    if (WO_EnableHook(target) != MH_OK) return false;
 
     Log("table.concat fast path: ACTIVE (sub_851C30 @ 0x00851C30 - array direct + inline nums)");
     return true;
@@ -4267,7 +4284,7 @@ static bool InstallLuaHGetStrCache() {
 
     if (WineSafe_CreateHook(target, (void*)hooked_luaH_getstr, (void**)&orig_luaH_getstr) != MH_OK)
         { Log("luaH_getstr cache: MH_CreateHook FAILED"); return false; }
-    if (MH_EnableHook(target) != MH_OK)
+    if (WO_EnableHook(target) != MH_OK)
         { Log("luaH_getstr cache: MH_EnableHook FAILED"); return false; }
 
     memset(g_getstrCache, 0, sizeof(g_getstrCache));
@@ -4421,7 +4438,7 @@ static bool InstallCombatLogFullCache() {
         Log("CombatLog full cache: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("CombatLog full cache: MH_EnableHook FAILED");
         return false;
     }
@@ -4526,7 +4543,7 @@ static bool InstallLuaHResizeHook() {
         Log("LuaH_resize hook: MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("LuaH_resize hook: MH_EnableHook FAILED");
         return false;
     }
@@ -4565,7 +4582,7 @@ static bool InstallAssetPathCache() {
     void* target = (void*)0x00819D40;
     if (WineSafe_CreateHook(target, (void*)hooked_AssetPathResolver, (void**)&orig_AssetPathResolver) != MH_OK)
         return false;
-    if (MH_EnableHook(target) != MH_OK)
+    if (WO_EnableHook(target) != MH_OK)
         return false;
     Log("Asset path cache: ACTIVE (%d slots, sub_819D40 @ 0x00819D40)", ASSET_PATH_CACHE_SIZE);
     return true;
@@ -4609,7 +4626,7 @@ static bool InstallTValueMemcpyHook() {
 
     if (WineSafe_CreateHook(p, (void*)hooked_Memcpy_TValue, (void**)&orig_Memcpy) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK)
+    if (WO_EnableHook(p) != MH_OK)
         return false;
 
     Log("TValue memcpy: ACTIVE (16-byte fast path)");
@@ -4638,7 +4655,7 @@ static bool InstallSysInfoCache() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetSystemInfo");
     if (!p || MH_CreateHook(p, (void*)hooked_GetSystemInfo, (void**)&orig_GetSystemInfo) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetSystemInfo cache: ACTIVE");
     return true;
 }
@@ -4701,7 +4718,7 @@ static bool InstallRegCache() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("advapi32.dll"), "RegQueryValueExA");
     if (!p || MH_CreateHook(p, (void*)hooked_RegQueryValueExA, (void**)&orig_RegQueryValueExA) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("RegQueryValueExA cache: ACTIVE (%d slots)", REG_CACHE_SIZE);
     return true;
 }
@@ -4736,7 +4753,7 @@ static bool InstallSysMetricsCache() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("user32.dll"), "GetSystemMetrics");
     if (!p || MH_CreateHook(p, (void*)hooked_GetSystemMetrics, (void**)&orig_GetSystemMetrics) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     return true;
 }
 
@@ -4752,7 +4769,7 @@ static bool InstallNoDebuggerPresent() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "IsDebuggerPresent");
     if (!p || MH_CreateHook(p, (void*)hooked_IsDebuggerPresent, (void**)&orig_IsDebuggerPresent) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     return true;
 }
 
@@ -4785,7 +4802,7 @@ static bool InstallVerCache() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "GetVersionExA");
     if (!p || MH_CreateHook(p, (void*)hooked_GetVersionExA, (void**)&orig_GetVersionExA) != MH_OK)
         return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     return true;
 }
 
@@ -4833,7 +4850,7 @@ static bool InstallMemcmpFast() {
     if (!hCRT) return false;
     void* p = (void*)GetProcAddress(hCRT, "memcmp");
     if (!p || MH_CreateHook(p, (void*)hooked_Memcmp_Fast, (void**)&orig_Memcmp) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("memcmp fast path: ACTIVE (4/8-byte inline)");
     return true;
 }
@@ -4854,7 +4871,7 @@ static HMODULE WINAPI hooked_LoadLibraryA(LPCSTR lpLibFileName) {
 static bool InstallLoadLibFast() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "LoadLibraryA");
     if (!p || MH_CreateHook(p, (void*)hooked_LoadLibraryA, (void**)&orig_LoadLibraryA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     return true;
 }
 
@@ -4876,7 +4893,7 @@ static DWORD WINAPI hooked_WFMO(DWORD nCount, const HANDLE* lpHandles, BOOL bWai
 static bool InstallWFMOFast() {
     void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "WaitForMultipleObjects");
     if (!p || MH_CreateHook(p, (void*)hooked_WFMO, (void**)&orig_WFMO) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     return true;
 }
 
@@ -5043,29 +5060,29 @@ static bool InstallBatchOpt10() {
     void* p;
     // #1 GSTAFT
     p = (void*)GetProcAddress(hK32, "GetSystemTimeAsFileTime");
-    if (p && MH_CreateHook(p, (void*)hooked_GSTAFT, (void**)&orig_GSTAFT) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_GSTAFT, (void**)&orig_GSTAFT) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #2 GetACP
     p = (void*)GetProcAddress(hK32, "GetACP");
-    if (p && MH_CreateHook(p, (void*)hooked_GetACP, (void**)&orig_GetACP) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_GetACP, (void**)&orig_GetACP) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #3 GetUserDefaultLangID
     p = (void*)GetProcAddress(hK32, "GetUserDefaultLangID");
-    if (p && MH_CreateHook(p, (void*)hooked_GetUDLI, (void**)&orig_GetUDLI) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_GetUDLI, (void**)&orig_GetUDLI) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #4 GetProcessHeap
     p = (void*)GetProcAddress(hK32, "GetProcessHeap");
-    if (p && MH_CreateHook(p, (void*)hooked_GetProcessHeap, (void**)&orig_GetProcessHeap) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_GetProcessHeap, (void**)&orig_GetProcessHeap) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #5 CharUpperA
     p = (void*)GetProcAddress(hU32, "CharUpperA");
-    if (p && MH_CreateHook(p, (void*)hooked_CharUpperA, (void**)&orig_CharUpperA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_CharUpperA, (void**)&orig_CharUpperA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #6 CharLowerA
     p = (void*)GetProcAddress(hU32, "CharLowerA");
-    if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #7 wsprintfA REMOVED - variadic args can't forward
     // #8 MapVirtualKeyA
     p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
-    if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #9 GetThreadPriority
     p = (void*)GetProcAddress(hK32, "GetThreadPriority");
-    if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+    if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #10 lstrlenW REMOVED - duplicate hook
 
     Log("Batch opt #1-8: %d/8 active", ok);
@@ -5135,7 +5152,7 @@ static bool InstallBatchOpt20() {
     int ok = 0;
     HMODULE hK32 = GetModuleHandleA("kernel32.dll"), hU32 = GetModuleHandleA("user32.dll");
     void* p;
-    #define H(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    #define H(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&WO_EnableHook(p)==MH_OK) ok++
     H(hK32, GetOEMCP, orig_GetOEMCP); H(hU32, GetDoubleClickTime, orig_GetDoubleClickTime);
     // H(hU32, GetCursorPos, orig_GetCursorPos); // DISABLED - breaks hardware cursor with RTSSHooks.dll
     H(hU32, GetSysColor, orig_GetSysColor);
@@ -5203,7 +5220,7 @@ static bool InstallBatchOpt30() {
     int ok = 0;
     HMODULE hK32 = GetModuleHandleA("kernel32.dll"), hU32 = GetModuleHandleA("user32.dll");
     void* p;
-    #define H31(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    #define H31(dll, fn, orig) p=(void*)GetProcAddress(dll,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&WO_EnableHook(p)==MH_OK) ok++
     H31(hK32, GetTickCount64, orig_GetTickCount64);
     // H31(hU32, GetClientRect, orig_GetClientRect); // DISABLED - cached window dimensions break window resize (clicks miss UI elements)
     // H31(hU32, GetWindowRect, orig_GetWindowRect); // DISABLED - cached window dimensions break window resize (clicks miss UI elements)
@@ -5267,7 +5284,7 @@ static bool InstallBatchOpt35() {
     int ok = 0;
     HMODULE hK32 = GetModuleHandleA("kernel32.dll");
     void* p;
-    #define H35(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    #define H35(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&WO_EnableHook(p)==MH_OK) ok++
     H35(GetComputerNameA, orig_GetComputerNameA);
     H35(GetUserNameA, orig_GetUserNameA);
     H35(GetSystemDirectoryA, orig_GetSystemDirectoryA);
@@ -5300,7 +5317,7 @@ static BOOL WINAPI hooked_GetCPInfo(UINT cp, LPCPINFO lp) {
 // #38: GetCurrentThread - already handled at line 2256, returns (HANDLE)-2 constant
 static bool InstallBatchOpt38() {
     int ok = 0; HMODULE hK32 = GetModuleHandleA("kernel32.dll"); void* p;
-    #define H38(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&MH_EnableHook(p)==MH_OK) ok++
+    #define H38(fn, orig) p=(void*)GetProcAddress(hK32,#fn); if(p&&MH_CreateHook(p,(void*)hooked_##fn,(void**)&orig)==MH_OK&&WO_EnableHook(p)==MH_OK) ok++
     H38(GetCurrentProcess, orig_GetCurrentProcess);
     H38(GetCPInfo, orig_GetCPInfo);
     #undef H38
@@ -5334,6 +5351,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     if (MH_Initialize() != MH_OK) { Log("FATAL: MinHook initialization failed"); LogClose(); return 1; }
     Log("MinHook initialized");
+
+    // Batch every hook enable installed during this synchronous init into one
+    // thread-freeze (applied just before "Initialization complete" below).
+    g_hookBatchMode = 1;
 
     CrashDumper::Init();
 
@@ -5506,7 +5527,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
         void* pSetPriorityClass = (void*)GetProcAddress(hKernel32, "SetPriorityClass");
         if (pSetPriorityClass && 
             MH_CreateHook(pSetPriorityClass, (void*)hooked_SetPriorityClass, (void**)&orig_SetPriorityClass) == MH_OK &&
-            MH_EnableHook(pSetPriorityClass) == MH_OK) {
+            WO_EnableHook(pSetPriorityClass) == MH_OK) {
             Log("SetPriorityClass hook: ACTIVE (blocks priority downgrades)");
         } else {
             Log("WARNING: SetPriorityClass hook failed");
@@ -5937,6 +5958,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
         void* target = (void*)0x5E90D0;
         // Use WineSafe_CreateHook to avoid Rosetta JIT desync on macOS
         if (WineSafe_CreateHook(target, (void*)NullGuard_5E90D0::Hooked, (void**)&orig_Sub5E90D0) == MH_OK) {
+            // Crash guard: enable immediately (not batched) so it protects the
+            // init window too.
             if (MH_EnableHook(target) == MH_OK) {
                 Log("[CrashFix] sub_5E90D0 NULL guard: ACTIVE (dword_C24238 check)");
             } else {
@@ -6120,6 +6143,20 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Hooks (worker pool, particle, prefetch) ---");
     bool asyncHooksOk = InstallAsyncHooks(); // BISECT
+
+    // Apply all queued hook enables in a single thread-freeze, then leave batch
+    // mode so any later/lazy install enables immediately.
+    g_hookBatchMode = 0;
+#if !TEST_DISABLE_HOOK_BATCHING
+    {
+        MH_STATUS aq = MH_ApplyQueued();
+        if (aq != MH_OK) {
+            Log("[HookBatch] MH_ApplyQueued FAILED (%d) — some hooks may be inactive", (int)aq);
+        } else {
+            Log("[HookBatch] Applied queued hook enables in one freeze");
+        }
+    }
+#endif
 
     Log("");
     Log("========================================");
@@ -6315,7 +6352,7 @@ static bool InstallStreamBufferFastPath() {
     unsigned char* pr = (unsigned char*)pRead;
     if (pr[0] == 0x55 && pr[1] == 0x8B) {
         if (WineSafe_CreateHook(pRead, (void*)hooked_StreamRead, (void**)&orig_StreamRead) == MH_OK
-            && MH_EnableHook(pRead) == MH_OK) ok++;
+            && WO_EnableHook(pRead) == MH_OK) ok++;
     }
 
     // sub_47B0A0 - StreamWrite (1185 callers)
@@ -6323,7 +6360,7 @@ static bool InstallStreamBufferFastPath() {
     unsigned char* pw = (unsigned char*)pWrite;
     if (pw[0] == 0x55 && pw[1] == 0x8B) {
         if (WineSafe_CreateHook(pWrite, (void*)hooked_StreamWrite, (void**)&orig_StreamWrite) == MH_OK
-            && MH_EnableHook(pWrite) == MH_OK) ok++;
+            && WO_EnableHook(pWrite) == MH_OK) ok++;
     }
 
     if (ok > 0) {
@@ -6374,7 +6411,7 @@ static bool InstallGetFileSizeCache() {
     void* p = (void*)GetProcAddress(hK32, "GetFileSizeEx");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_GetFileSizeEx, (void**)&orig_GetFileSizeEx) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetFileSizeEx hook: ACTIVE (cache via FileNameInfo, %d slots)", FSIZE_CACHE_SIZE);
     return true;
 #endif
@@ -6413,7 +6450,7 @@ static bool InstallWaitForSingleObjectHook() {
     void* p = (void*)GetProcAddress(hK32, "WaitForSingleObject");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_WaitForSingleObject, (void**)&orig_WaitForSingleObject) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("WaitForSingleObject hook: ACTIVE (spin-first for <=1ms waits, 32x pause)");
     return true;
 #endif
@@ -6476,7 +6513,7 @@ static bool InstallGetModuleHandleCache() {
     void* p = (void*)GetProcAddress(hK32, "GetModuleHandleA");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_GetModuleHandleA, (void**)&orig_GetModuleHandleA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetModuleHandleA hook: ACTIVE (cache, %d slots)", MOD_CACHE_SIZE);
     return true;
 #endif
@@ -6559,11 +6596,11 @@ static bool InstallLstrcmpHook() {
 
     void* pCmp = (void*)GetProcAddress(hK32, "lstrcmpA");
     if (pCmp && MH_CreateHook(pCmp, (void*)hooked_lstrcmpA, (void**)&orig_lstrcmpA) == MH_OK)
-        if (MH_EnableHook(pCmp) == MH_OK) ok++;
+        if (WO_EnableHook(pCmp) == MH_OK) ok++;
 
     void* pCmpi = (void*)GetProcAddress(hK32, "lstrcmpiA");
     if (pCmpi && MH_CreateHook(pCmpi, (void*)hooked_lstrcmpiA, (void**)&orig_lstrcmpiA) == MH_OK)
-        if (MH_EnableHook(pCmpi) == MH_OK) ok++;
+        if (WO_EnableHook(pCmpi) == MH_OK) ok++;
 
     if (ok > 0) {
         Log("lstrcmp/lstrcmpiA hooks: ACTIVE (%d/2, fast ASCII path)", ok);
@@ -6650,7 +6687,7 @@ static bool InstallGetPrivateProfileCache() {
     void* p = (void*)GetProcAddress(hK32, "GetPrivateProfileStringA");
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_GetPrivateProfileStringA, (void**)&orig_GetPrivateProfileStringA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
     Log("GetPrivateProfileStringA hook: ACTIVE (cache, %d slots, %dB max value)", PROF_CACHE_SIZE, PROF_MAX_VALUE);
     return true;
 #endif
@@ -6711,11 +6748,11 @@ static bool InstallLStrLenHooks() {
 
     void* pA = (void*)GetProcAddress(hK32, "lstrlenA");
     if (pA && MH_CreateHook(pA, (void*)hooked_lstrlenA, (void**)&orig_lstrlenA) == MH_OK)
-        if (MH_EnableHook(pA) == MH_OK) ok++;
+        if (WO_EnableHook(pA) == MH_OK) ok++;
 
     void* pW = (void*)GetProcAddress(hK32, "lstrlenW");
     if (pW && MH_CreateHook(pW, (void*)hooked_lstrlenW, (void**)&orig_lstrlenW) == MH_OK)
-        if (MH_EnableHook(pW) == MH_OK) ok++;
+        if (WO_EnableHook(pW) == MH_OK) ok++;
 
     if (ok > 0) {
         Log("lstrlenA/W hooks: ACTIVE (%d/2, fast inline length)", ok);
@@ -6778,7 +6815,7 @@ static bool InstallWowStrlenHook() {
     void* target = (void*)0x0076EE30;
     if (WineSafe_CreateHook(target, (void*)hooked_strlen76, (void**)&orig_strlen76) != MH_OK)
         return false;
-    if (MH_EnableHook(target) != MH_OK)
+    if (WO_EnableHook(target) != MH_OK)
         return false;
     return true;
 }
@@ -6993,11 +7030,11 @@ static bool InstallMBWCHooks() {
 
     void* pMbt = (void*)GetProcAddress(hK32, "MultiByteToWideChar");
     if (pMbt && MH_CreateHook(pMbt, (void*)hooked_MultiByteToWideChar, (void**)&orig_MultiByteToWideChar) == MH_OK)
-        if (MH_EnableHook(pMbt) == MH_OK) ok++;
+        if (WO_EnableHook(pMbt) == MH_OK) ok++;
 
     void* pWcm = (void*)GetProcAddress(hK32, "WideCharToMultiByte");
     if (pWcm && MH_CreateHook(pWcm, (void*)hooked_WideCharToMultiByte, (void**)&orig_WideCharToMultiByte) == MH_OK)
-        if (MH_EnableHook(pWcm) == MH_OK) ok++;
+        if (WO_EnableHook(pWcm) == MH_OK) ok++;
 
     if (ok > 0) {
         Log("MBWC hooks: ACTIVE (%d/2, SSE2 ASCII fast path)", ok);
@@ -7196,7 +7233,7 @@ static bool InstallGetProcAddressCache() {
     if (!p) return false;
 
     if (MH_CreateHook(p, (void*)hooked_GetProcAddress, (void**)&orig_GetProcAddress) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
 
     g_gpaWineMode = IsWine();
     Log("GetProcAddress cache: ACTIVE (4-way, 128 sets, strcmp-based%s)",
@@ -7276,11 +7313,11 @@ static bool InstallGetModuleFileNameCache() {
     int ok = 0;
     void* pA = (void*)GetProcAddress(hK32, "GetModuleFileNameA");
     if (pA && MH_CreateHook(pA, (void*)hooked_GetModuleFileNameA, (void**)&orig_GetModuleFileNameA) == MH_OK)
-        if (MH_EnableHook(pA) == MH_OK) ok++;
+        if (WO_EnableHook(pA) == MH_OK) ok++;
 
     void* pW = (void*)GetProcAddress(hK32, "GetModuleFileNameW");
     if (pW && MH_CreateHook(pW, (void*)hooked_GetModuleFileNameW, (void**)&orig_GetModuleFileNameW) == MH_OK)
-        if (MH_EnableHook(pW) == MH_OK) ok++;
+        if (WO_EnableHook(pW) == MH_OK) ok++;
 
     if (ok > 0)
         Log("GetModuleFileNameA/W cache: ACTIVE (%d-slot, HMODULE-keyed)", GMF_CACHE_SIZE);
@@ -7350,7 +7387,7 @@ static bool InstallEnvironmentVariableCache() {
     if (!p) return false;
 
     if (MH_CreateHook(p, (void*)hooked_GetEnvironmentVariableA, (void**)&orig_GetEnvironmentVariableA) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
 
     Log("GetEnvironmentVariableA cache: ACTIVE (32-slot, name-hash-keyed)");
     return true;
@@ -7399,7 +7436,7 @@ static void InstallWineSTIPNoop() {
     if (!p) return;
     static DWORD(WINAPI* orig)(HANDLE, DWORD) = nullptr;
     if (MH_CreateHook(p, (void*)Noop_SetThreadIdealProcessor, (void**)&orig) == MH_OK &&
-        MH_EnableHook(p) == MH_OK) {
+        WO_EnableHook(p) == MH_OK) {
         Log("SetThreadIdealProcessor: NO-OP on Wine (prevents rosettax87 desync)");
     }
 }
@@ -7444,7 +7481,7 @@ static bool InstallThreadAffinity() {
     void* p = (void*)0x008D2110;
     if (!IsExecutableMemory((uintptr_t)p)) return false;
     if (WineSafe_CreateHook(p, (void*)Hooked_ThreadWorker, (void**)&orig_ThreadWorker) != MH_OK) return false;
-    if (MH_EnableHook(p) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
 
     Log("Thread affinity: ACTIVE (process-mask aware, %d worker cores)", g_affinityCount);
     return true;
@@ -7673,7 +7710,7 @@ static bool InstallVAArena() {
         return false;
     }
 
-    if (MH_EnableHook(MH_ALL_HOOKS) != MH_OK) {
+    if (WO_EnableHook(MH_ALL_HOOKS) != MH_OK) {
         MH_DisableHook(pAlloc); MH_DisableHook(pFree);
         VirtualFree(g_vaArenaBase, 0, MEM_RELEASE);
         g_vaArenaBase = nullptr;

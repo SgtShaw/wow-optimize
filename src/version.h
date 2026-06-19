@@ -189,6 +189,11 @@
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY     0
 
+// Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
+// instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
+// system-wide thread snapshot). Set to 1 to revert to per-hook immediate enables.
+#define TEST_DISABLE_HOOK_BATCHING       0
+
 // CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 path replaced the
 // engine's exact normalize but (a) omitted the original's near-zero magnitude
 // guard, producing NaN quaternions on degenerate bones, and (b) had a broken
