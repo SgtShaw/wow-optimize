@@ -1,105 +1,226 @@
 // ================================================================
-// Frame-Scoped Event Coalescer (Synchronous Deduplication)
+// Frame-Scoped Event Coalescer (Smart Deduplication)
 // ================================================================
+// Buffers high-frequency UI events (UNIT_AURA, BAG_UPDATE, etc.) and
+// dispatches each unique (eventId, arg) combination once per frame.
+// Only coalesces events with known-safe semantics; all others pass through.
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
 #include <cstdint>
+#include <cstring>
 #include "MinHook.h"
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
 
-// Address of FrameScript_SignalEvent in 3.3.5a 12340
 static constexpr uintptr_t ADDR_FrameScript_SignalEvent = 0x0081AC90;
 
 typedef void(__cdecl *FrameScript_SignalEvent_t)(int eventId, const char* format, ...);
 static void* orig_FrameScript_SignalEvent = nullptr;
 
-// We use a small direct-mapped hash table to track seen events this frame
-static constexpr int HASH_BITS = 10;
-static constexpr int HASH_SIZE = 1 << HASH_BITS;
-static constexpr int HASH_MASK = HASH_SIZE - 1;
-
-struct EventEntry {
+// Fixed-size event entry — no C++ objects, safe for SEH
+struct QueuedEvent {
     int eventId;
-    uintptr_t arg1;
-    uint32_t generation;
+    char format[8];        // longest observed format is "%s%s" (5 chars)
+    char strArg1[32];      // unitId strings like "player", "party1target" etc
+    char strArg2[32];
+    int intArg1;
+    bool hasStr1;
+    bool hasStr2;
+    bool hasInt1;
+    bool used;
 };
 
-static EventEntry g_eventCache[HASH_SIZE];
-static uint32_t g_currentGeneration = 1;
-static uint32_t g_eventsDropped = 0;
-static uint32_t g_eventsTotal = 0;
+static constexpr int MAX_QUEUED = 256;
+static QueuedEvent g_queue[MAX_QUEUED];
+static int g_queueCount = 0;
+static thread_local bool g_isReplaying = false;
 
-// Call this at the end of every frame (e.g., in Sleep hook or OnFrame)
-extern "C" void EventCoalescer_NextFrame() {
-    g_currentGeneration++;
-    if (g_currentGeneration == 0) {
-        g_currentGeneration = 1; // avoid 0
+static uint32_t g_eventsTotal = 0;
+static uint32_t g_eventsDropped = 0;
+
+static const char* GetEventName(int eventId) {
+    __try {
+        if (eventId < 0 || eventId > 2000) return nullptr;
+        uintptr_t* eventTable = *(uintptr_t**)0x00D3F7D8;
+        if (!eventTable) return nullptr;
+
+        uintptr_t eventPtr = eventTable[eventId];
+        if (eventPtr < 0x10000 || eventPtr > 0xBFFF0000) return nullptr;
+
+        const char* name = *(const char**)(eventPtr + 20);
+        if (name < (const char*)0x10000 || name > (const char*)0xBFFF0000) return nullptr;
+
+        return name;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return nullptr;
     }
 }
 
-// Returns true if the event is a duplicate THIS FRAME
-bool __fastcall CheckEventDuplicate(int eventId, const char* format, uintptr_t arg1) {
-    g_eventsTotal++;
-    
-    // We only care about high-spam events (e.g. UNIT_HEALTH, UNIT_POWER, UNIT_AURA)
-    // and we hash them by (eventId ^ arg1). 
-    // arg1 is usually a pointer to a string ("player", "target") or a GUID part.
-    uint32_t hash = ((uint32_t)eventId ^ (uint32_t)arg1) & HASH_MASK;
-    
-    EventEntry& entry = g_eventCache[hash];
-    if (entry.generation == g_currentGeneration && 
-        entry.eventId == eventId && 
-        entry.arg1 == arg1) {
-        // It's a duplicate!
-        g_eventsDropped++;
-        return true; 
-    }
-    
-    // Record it
-    entry.generation = g_currentGeneration;
-    entry.eventId = eventId;
-    entry.arg1 = arg1;
-    
+static bool ShouldCoalesce(const char* name) {
+    if (!name) return false;
+    if (strcmp(name, "UNIT_AURA") == 0) return true;
+    if (strcmp(name, "BAG_UPDATE") == 0) return true;
+    if (strcmp(name, "UNIT_POWER") == 0) return true;
+    if (strcmp(name, "UNIT_MANA") == 0) return true;
+    if (strcmp(name, "UNIT_ENERGY") == 0) return true;
+    if (strcmp(name, "UNIT_RAGE") == 0) return true;
+    if (strcmp(name, "UNIT_HEALTH") == 0) return true;
+    if (strcmp(name, "UNIT_THREAT_LIST_UPDATE") == 0) return true;
     return false;
 }
 
-// Naked hook to intercept FrameScript_SignalEvent without disturbing the va_list
+static bool IsDuplicate(const QueuedEvent* ev) {
+    for (int i = 0; i < g_queueCount; ++i) {
+        const QueuedEvent* e = &g_queue[i];
+        if (!e->used) continue;
+        if (e->eventId != ev->eventId) continue;
+        if (e->hasStr1 != ev->hasStr1) continue;
+        if (e->hasStr1 && strcmp(e->strArg1, ev->strArg1) != 0) continue;
+        if (e->hasStr2 != ev->hasStr2) continue;
+        if (e->hasStr2 && strcmp(e->strArg2, ev->strArg2) != 0) continue;
+        if (e->hasInt1 != ev->hasInt1) continue;
+        if (e->hasInt1 && e->intArg1 != ev->intArg1) continue;
+        return true;
+    }
+    return false;
+}
+
+static void DispatchSingle(const QueuedEvent* ev) {
+    __try {
+        auto fn = (FrameScript_SignalEvent_t)orig_FrameScript_SignalEvent;
+        if (ev->hasStr1 && ev->hasStr2) {
+            fn(ev->eventId, ev->format, ev->strArg1, ev->strArg2);
+        } else if (ev->hasStr1) {
+            fn(ev->eventId, ev->format, ev->strArg1);
+        } else if (ev->hasInt1) {
+            fn(ev->eventId, ev->format, ev->intArg1);
+        } else {
+            fn(ev->eventId, ev->format);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // guard replay
+    }
+}
+
+// Called from the naked hook — parse format string and queue if coalescable
+extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* vaStart) {
+    if (g_isReplaying) return false;
+
+    g_eventsTotal++;
+    const char* eventName = GetEventName(eventId);
+    if (!eventName || !ShouldCoalesce(eventName)) {
+        return false;
+    }
+
+    if (g_queueCount >= MAX_QUEUED) {
+        return false; // queue full, let it through
+    }
+
+    QueuedEvent ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.eventId = eventId;
+    ev.used = true;
+
+    if (format) {
+        size_t fmtLen = strlen(format);
+        if (fmtLen >= sizeof(ev.format)) fmtLen = sizeof(ev.format) - 1;
+        memcpy(ev.format, format, fmtLen);
+        ev.format[fmtLen] = '\0';
+    }
+
+    // Parse varargs from the stack based on the format string
+    __try {
+        uintptr_t* pArgs = (uintptr_t*)vaStart;
+        if (format) {
+            const char* p = format;
+            while (*p) {
+                if (*p == '%') {
+                    p++;
+                    if (*p == '\0') break;
+                    char type = *p;
+                    if (type == 's') {
+                        const char* s = (const char*)*pArgs;
+                        pArgs++;
+                        if (s >= (const char*)0x10000 && s < (const char*)0xBFFF0000) {
+                            if (!ev.hasStr1) {
+                                strncpy(ev.strArg1, s, sizeof(ev.strArg1) - 1);
+                                ev.strArg1[sizeof(ev.strArg1) - 1] = '\0';
+                                ev.hasStr1 = true;
+                            } else if (!ev.hasStr2) {
+                                strncpy(ev.strArg2, s, sizeof(ev.strArg2) - 1);
+                                ev.strArg2[sizeof(ev.strArg2) - 1] = '\0';
+                                ev.hasStr2 = true;
+                            }
+                        }
+                    } else if (type == 'd' || type == 'u' || type == 'b') {
+                        int val = (int)*pArgs;
+                        pArgs++;
+                        ev.intArg1 = val;
+                        ev.hasInt1 = true;
+                    } else if (type == 'f') {
+                        // skip double (8 bytes on stack)
+                        pArgs += 2;
+                    }
+                }
+                p++;
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false; // failed to parse, let original handle it
+    }
+
+    if (IsDuplicate(&ev)) {
+        g_eventsDropped++;
+        return true; // drop duplicate
+    }
+
+    g_queue[g_queueCount++] = ev;
+    return true; // queued, suppress original
+}
+
 __declspec(naked) void Hooked_FrameScript_SignalEvent() {
     __asm {
-        // __cdecl arguments:
-        // [esp]   = return address
-        // [esp+4] = eventId
-        // [esp+8] = format
-        // [esp+12] = arg1 (first vararg)
-        
-        mov ecx, dword ptr [esp+4]  // eventId (fastcall arg 1)
-        mov edx, dword ptr [esp+8]  // format (fastcall arg 2)
-        mov eax, dword ptr [esp+12] // arg1
-        
-        push eax // fastcall stack arg
-        call CheckEventDuplicate
+        // [esp+0]  = return address
+        // [esp+4]  = eventId
+        // [esp+8]  = format
+        // [esp+12] = first vararg
+
+        mov ecx, dword ptr [esp+4]   // eventId -> fastcall arg1
+        mov edx, dword ptr [esp+8]   // format  -> fastcall arg2
+        lea eax, [esp+12]            // &first vararg
+        push eax                     // stack arg for __fastcall
+        call TryQueueEvent
+
         test al, al
         jnz drop_event
-        
-        // Not a duplicate, jump to original
+
         jmp [orig_FrameScript_SignalEvent]
-        
+
     drop_event:
-        // Duplicate: just return. 
-        // The caller is __cdecl, so it will clean up the stack.
         ret
     }
+}
+
+extern "C" void EventCoalescer_Flush() {
+    if (g_queueCount == 0) return;
+
+    g_isReplaying = true;
+    for (int i = 0; i < g_queueCount; ++i) {
+        if (g_queue[i].used) {
+            DispatchSingle(&g_queue[i]);
+        }
+    }
+    g_queueCount = 0;
+    g_isReplaying = false;
 }
 
 namespace EventCoalescer {
     bool Init() {
         Log("[EventCoalescer] Initializing Frame-Scoped Event Deduplication");
-        
-        // Validate prologue (push ebp; mov ebp, esp)
+
         unsigned char* p = (unsigned char*)ADDR_FrameScript_SignalEvent;
         if (p[0] != 0x55 || p[1] != 0x8B) {
             Log("[EventCoalescer] BAD PROLOGUE at 0x%08X", ADDR_FrameScript_SignalEvent);
@@ -110,16 +231,13 @@ namespace EventCoalescer {
             Log("[EventCoalescer] Failed to hook FrameScript_SignalEvent");
             return false;
         }
-        
-        if (MH_EnableHook((void*)ADDR_FrameScript_SignalEvent) != MH_OK) {
+
+        if (WO_EnableHook((void*)ADDR_FrameScript_SignalEvent) != MH_OK) {
             Log("[EventCoalescer] Failed to enable hook");
             return false;
         }
-        
-        for (int i = 0; i < HASH_SIZE; i++) {
-            g_eventCache[i].generation = 0;
-        }
-        
+
+        memset(g_queue, 0, sizeof(g_queue));
         Log("[EventCoalescer] ACTIVE (Hooked at 0x%08X)", ADDR_FrameScript_SignalEvent);
         return true;
     }
@@ -129,8 +247,8 @@ namespace EventCoalescer {
             MH_DisableHook((void*)ADDR_FrameScript_SignalEvent);
         }
         if (g_eventsTotal > 0) {
-            Log("[EventCoalescer] Stats: Total %u, Dropped %u (%.1f%% reduction)", 
-                g_eventsTotal, g_eventsDropped, 
+            Log("[EventCoalescer] Stats: Total %u, Dropped %u (%.1f%% reduction)",
+                g_eventsTotal, g_eventsDropped,
                 100.0 * g_eventsDropped / g_eventsTotal);
         }
     }

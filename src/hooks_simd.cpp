@@ -404,6 +404,9 @@ static volatile LONG64 g_matMulCalls    = 0;
 static volatile LONG64 g_quatNormCalls  = 0;
 static volatile LONG64 g_frustumCalls   = 0;
 static volatile LONG64 g_frustumCulled  = 0;
+static float g_activeFrustum[24] = {0};
+static bool g_hasActiveFrustum = false;
+static uint32_t g_particleFrameCount = 0;
 static volatile LONG64 g_rayTriangleCalls = 0;
 static volatile LONG64 g_rayTriangleIntersects = 0;
 
@@ -791,6 +794,10 @@ static IsAABBVisible_t orig_IsAABBVisible = nullptr;
 
 static int __fastcall Hooked_IsAABBVisible(void* ecx, void* edx, const float* bounds) {
     g_frustumCalls++;
+    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xBFFF0000) {
+        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
+        g_hasActiveFrustum = true;
+    }
     int res = SSE2_IsAABBVisible((const float*)ecx, bounds);
     if (res == 0) {
         g_frustumCulled++;
@@ -803,6 +810,10 @@ static IsAABBVisibleType2_t orig_IsAABBVisibleType2 = nullptr;
 
 static int __fastcall Hooked_IsAABBVisibleType2(void* ecx, void* edx, const float* bounds) {
     g_frustumCalls++;
+    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xBFFF0000) {
+        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
+        g_hasActiveFrustum = true;
+    }
     int res = SSE2_IsAABBVisible_Type2((const float*)ecx, bounds);
     if (res == 0) {
         g_frustumCulled++;
@@ -815,12 +826,63 @@ static IsPointVisible_t orig_IsPointVisible = nullptr;
 
 static void __fastcall Hooked_IsPointVisible(void* ecx, void* edx, const float* point, uint8_t* outMask) {
     g_frustumCalls++;
+    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xBFFF0000) {
+        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
+        g_hasActiveFrustum = true;
+    }
     SSE2_IsPointVisible((const float*)ecx, point, outMask);
     if (outMask && *outMask != 0) {
         g_frustumCulled++;
     }
 }
 #endif
+
+extern "C" void IncrementParticleFrameCount() {
+    g_particleFrameCount++;
+}
+
+extern "C" bool SSE2_IsSphereVisible(float x, float y, float z, float radius) {
+    if (!g_hasActiveFrustum) return true;
+    __try {
+        const float* planes = g_activeFrustum;
+        for (int i = 0; i < 6; ++i) {
+            float nx = planes[i * 4 + 0];
+            float ny = planes[i * 4 + 1];
+            float nz = planes[i * 4 + 2];
+            float d  = planes[i * 4 + 3];
+            
+            float dist = nx * x + ny * y + nz * z + d;
+            if (dist < -radius) {
+                return false; // Culled
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return true;
+    }
+    return true;
+}
+
+typedef int (__fastcall *SimulateParticle_t)(void* self, void* edx, int particle, float timeStep, float* transformMatrix);
+static SimulateParticle_t orig_SimulateParticle = nullptr;
+
+static int __fastcall Hooked_SimulateParticle(void* self, void* edx, int particle, float timeStep, float* transformMatrix) {
+    __try {
+        if (transformMatrix && (uintptr_t)transformMatrix >= 0x10000 && (uintptr_t)transformMatrix < 0xBFFF0000) {
+            float x = transformMatrix[12];
+            float y = transformMatrix[13];
+            float z = transformMatrix[14];
+            
+            if (!SSE2_IsSphereVisible(x, y, z, 25.0f)) {
+                if ((g_particleFrameCount % 10) != 0) {
+                    return 0; // Skip simulation
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Fall back to original on exception
+    }
+    return orig_SimulateParticle(self, edx, particle, timeStep, transformMatrix);
+}
 
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
@@ -926,6 +988,19 @@ bool InstallSimdHooks(void) {
     } else {
         Log("[SimdHooks] Ray-Triangle 16-bit: fill ADDR_WOW_RAY_TRIANGLE_16BIT");
     }
+
+#if !TEST_DISABLE_PARTICLE_THROTTLE
+    Log("[SimdHooks] Hooking CParticleEmitter::SimulateParticle at 0x00981D40");
+    if (WineSafe_CreateHook((void*)0x00981D40, (void*)Hooked_SimulateParticle, (void**)&orig_SimulateParticle) == MH_OK) {
+        if (WO_EnableHook((void*)0x00981D40) == MH_OK) {
+            Log("[SimdHooks] CParticleEmitter::SimulateParticle hook ACTIVE");
+        } else {
+            Log("[SimdHooks] CParticleEmitter::SimulateParticle hook enable FAILED");
+        }
+    } else {
+        Log("[SimdHooks] CParticleEmitter::SimulateParticle hook creation FAILED");
+    }
+#endif
 
     return true;
 }

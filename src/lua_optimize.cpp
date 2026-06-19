@@ -727,7 +727,14 @@ static void StepGC(lua_State* L, double frameMs) {
 
         // On an already-slow frame, halve the step to avoid compounding the
         // stutter -- but never skip, or garbage runs away over a long fight.
-        if (frameMs > 18.0) stepKB = (stepKB > 32) ? stepKB / 2 : 16;
+        // On high-FPS frames, scale up the step to clean up proactively.
+        if (frameMs > 0.0) {
+            if (frameMs > 16.0) {
+                stepKB = (stepKB > 32) ? stepKB / 2 : 16;
+            } else if (frameMs < 8.0) {
+                stepKB = stepKB * 3 / 2;
+            }
+        }
 
         // Bound a single step; bursts above this catch up over the next frames.
         if (stepKB > 1024) stepKB = 1024;

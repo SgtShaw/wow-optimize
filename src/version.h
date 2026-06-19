@@ -324,13 +324,14 @@
 #define TEST_DISABLE_NAMEPLATE_MT       0
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
-// DISABLED: dropping FrameScript_SignalEvent events is unsound. The dedup key
-// (eventId ^ arg1) reads arg1 from the first vararg slot, which is garbage for
-// events with no args or non-pointer args, so unrelated events collide and get
-// dropped. Suppressing one SPELLS_CHANGED / LEARNED_SPELL_IN_TAB /
-// ACTIVE_TALENT_GROUP_CHANGED leaves the spellbook showing the previous tab's
-// icons. No event can be safely coalesced without per-event semantics.
-#define TEST_DISABLE_EVENT_COALESCER    1
+// RE-ENABLED: now uses smart dynamic event name checks and copies arguments safely
+#define TEST_DISABLE_EVENT_COALESCER    0
+
+// Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20)
+#define TEST_DISABLE_NETWORK_GUID_SSE2  0
+
+// Particle simulation culling/throttling (CParticleEmitter::SimulateParticle at 0x00981D40)
+#define TEST_DISABLE_PARTICLE_THROTTLE  0
 
 // SSE2 Vectorized luaS_newlstr Fast Path
 // O(1) string creation/lookup for alive strings

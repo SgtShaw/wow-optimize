@@ -219,6 +219,8 @@ static void StopFreezeWatchdog() {
 #include "hooks_memory.h"
 #include "hooks_async.h"
 
+extern "C" void IncrementParticleFrameCount();
+
 #include "version.h"
 
 // ================================================================
@@ -918,7 +920,11 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         NameplateMT::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_EVENT_COALESCER
-        EventCoalescer_NextFrame();
+        EventCoalescer_Flush();
+#endif
+
+#if !TEST_DISABLE_PARTICLE_THROTTLE
+        IncrementParticleFrameCount();
 #endif
 
         // D3D9 disabled (DXVK vtable mismatch), other 4 enabled
