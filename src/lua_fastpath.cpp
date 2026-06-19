@@ -3439,9 +3439,14 @@ bool InitPhase2(lua_State* L) {
                         e.table ? e.table : "_G", e.name, (int)s);
                     continue;
                 }
-                s = MH_EnableHook((void*)e.address);
+                // Queue the enable instead of applying it now: a per-hook
+                // MH_EnableHook freezes every thread in the process (~20ms via a
+                // system-wide thread snapshot), so 45 serial enables stalled WoW's
+                // main thread for ~1s right as the login UI loads. MH_ApplyQueued
+                // below applies all of them in a single freeze.
+                s = MH_QueueEnableHook((void*)e.address);
                 if (s != MH_OK) {
-                    Log("[FastPath]   %-8s.%-8s  MH_EnableHook failed (%d)",
+                    Log("[FastPath]   %-8s.%-8s  MH_QueueEnableHook failed (%d)",
                         e.table ? e.table : "_G", e.name, (int)s);
                     continue;
                 }
@@ -3458,6 +3463,12 @@ bool InitPhase2(lua_State* L) {
             Log("[FastPath]   %-8s.%-8s  EXCEPTION during hook",
                 e.table ? e.table : "_G", e.name);
         }
+    }
+
+    // Apply every queued enable in a single thread-freeze (see the per-hook note).
+    MH_STATUS applyStatus = MH_ApplyQueued();
+    if (applyStatus != MH_OK) {
+        Log("[FastPath] MH_ApplyQueued failed (%d) — fast paths may be inactive", (int)applyStatus);
     }
 
     g_phase2Hooks  = hookedTotal;
