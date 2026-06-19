@@ -395,7 +395,7 @@ typedef void (__fastcall *QuatNormalize_t)(float* ecx, void* edx);
 static QuatNormalize_t orig_QuatNormalize = nullptr;
 
 static void __fastcall Hooked_QuatNormalize(float* ecx, void* edx) {
-    _InterlockedIncrement(&g_quatNormCalls);
+    g_quatNormCalls++;
     SSE2_QuatNormalize(ecx);
 }
 #endif
