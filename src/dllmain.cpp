@@ -49,6 +49,15 @@
 #include "lua_internals.h"
 #include "lua_vm_cache.h"
 #include "crash_dumper.h"
+#include "memory_pressure_governor.h"
+#include "lua_getstr_inline.h"
+#include "lua_rawgeti_inline.h"
+#include "hooks_memory.h"
+#include "data_caches.h"
+#include "compute_caches.h"
+#include "tooltip_cache.h"
+#include "regex_cache.h"
+#include "texcache_tuning.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -104,7 +113,7 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
 static void StartFreezeWatchdog() {
     g_lastMainThreadTick = GetTickCount();
     g_freezeWatchdogActive = true;
-    g_freezeWatchdogThread = CreateThread(NULL, 0, FreezeWatchdogProc, NULL, 0, NULL);
+    g_freezeWatchdogThread = CreateThread(NULL, 65536, FreezeWatchdogProc, NULL, 0, NULL);
     Log("[FreezeWatchdog] Started (10s threshold, 5s check interval)");
 }
 
@@ -840,6 +849,10 @@ static void RunPeriodicMaintenanceOnMainThread() {
     // Re-assert the raised texture-cache budget; WoW resets it to the stock 64MB on
     // device/settings resets, and this runs on the main thread where the cache lives.
     TexCacheTuning_Tick();
+
+#if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
+    PressureGovernor::OnFrame();
+#endif
 
     if (g_isMultiClient) {
         // Periodic mimalloc trim in multi-client. mi_collect(true) is a forced
@@ -3154,7 +3167,7 @@ static DWORD WINAPI PriorityWatchdogProc(LPVOID param) {
 
 static void StartPriorityWatchdog() {
     g_priorityWatchdogActive = true;
-    g_priorityWatchdogThread = CreateThread(NULL, 0, PriorityWatchdogProc, NULL, CREATE_SUSPENDED, NULL);
+    g_priorityWatchdogThread = CreateThread(NULL, 65536, PriorityWatchdogProc, NULL, CREATE_SUSPENDED, NULL);
     if (g_priorityWatchdogThread) {
         SetThreadPriority(g_priorityWatchdogThread, THREAD_PRIORITY_LOWEST);
         ResumeThread(g_priorityWatchdogThread);
@@ -5684,6 +5697,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
     HeapCompactor_Init();
+#if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
+    PressureGovernor::Init();
+#endif
     VersionChecker_Init();
 
     Log("--- Lua tonumber Fast Path ---");
@@ -6147,6 +6163,64 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Hooks (worker pool, particle, prefetch) ---");
     bool asyncHooksOk = InstallAsyncHooks(); // BISECT
+
+    // Register memory-pressure governor shed callbacks.  These fire from the
+    // main thread (Sleep hook) when VA fragments below threshold, and each
+    // clears its cache via a pure memset-to-zero — all safe under pressure.
+#if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
+    {
+        using namespace PressureGovernor;
+
+        // YELLOW (free < 48MB): shed the 2 heaviest non-critical caches +
+        // drop texture budget toward stock.  Regex is ~2.2MB (256×8KB bytecode),
+        // tooltip is ~2.1MB (512×4KB text) — together ~4.3MB of VA returned.
+        struct ShedTooltip { static void Go(Level, void*) { TooltipCache::Clear(); } };
+        RegisterShedCallback(ShedTooltip::Go, nullptr);
+
+        struct ShedRegex { static void Go(Level, void*) { RegexCache_Clear(); } };
+        RegisterShedCallback(ShedRegex::Go, nullptr);
+
+        // Data + compute caches (~150KB) — low cost but cold under pressure.
+        struct ShedDataCaches { static void Go(Level, void*) { ClearAllDataCaches(); } };
+        RegisterShedCallback(ShedDataCaches::Go, nullptr);
+
+        struct ShedComputeCaches { static void Go(Level lv, void*) {
+            if (lv < PRESSURE_RED) ClearAllComputeCaches();
+        }};
+        RegisterShedCallback(ShedComputeCaches::Go, nullptr);
+
+        // Texture budget: YELLOW → 72MB (half way to stock), RED → 64MB (stock).
+        // On ease the normal TexCacheTuning_Tick re-arms the target budget
+        // (the slow-path RaiseBudget self-throttles by waiting for WoW to put
+        // 64MB back, which it does on device reset / world transition).
+        struct ShedTexBudget { static void Go(Level lv, void*) {
+            if (lv >= PRESSURE_RED)      TexCache_SetBudget(0x04000000); // 64MB
+            else if (lv >= PRESSURE_YELLOW) TexCache_SetBudget(0x04800000); // 72MB
+            // GREEN: normal Tick re-asserts the configured target
+        }};
+        RegisterShedCallback(ShedTexBudget::Go, nullptr);
+
+        // RED (free < 24MB): shed EVERYTHING including the large Lua caches
+        // (~256KB GetStrInline + ~128KB RawGetIInline + ~256KB GUID hash)
+        // and drop budget to stock 64MB.
+        struct ShedGetStrInline { static void Go(Level lv, void*) {
+            if (lv >= PRESSURE_RED) InvalidateLuaGetStrInlineCache();
+        }};
+        RegisterShedCallback(ShedGetStrInline::Go, nullptr);
+
+        struct ShedRawGetIInline { static void Go(Level lv, void*) {
+            if (lv >= PRESSURE_RED) ClearRawGetIInlineCache();
+        }};
+        RegisterShedCallback(ShedRawGetIInline::Go, nullptr);
+
+        struct ShedGuidHash { static void Go(Level lv, void*) {
+            if (lv >= PRESSURE_RED) ClearGuidHashTable();
+        }};
+        RegisterShedCallback(ShedGuidHash::Go, nullptr);
+
+        Log("[PressureGovernor] %d shed callbacks registered", 8);
+    }
+#endif
 
     // Apply all queued hook enables in a single thread-freeze, then leave batch
     // mode so any later/lazy install enables immediately.

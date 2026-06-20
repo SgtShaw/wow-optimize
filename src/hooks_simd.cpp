@@ -16,8 +16,9 @@
 #endif
 #include <windows.h>
 #include <cstdint>
-#include <xmmintrin.h>  // SSE
-#include <emmintrin.h>  // SSE2
+#include <xmmintrin.h>
+#include <emmintrin.h>
+#include "crash_dumper.h"
 #include <tmmintrin.h>  // SSSE3 (_mm_shuffle_epi8 for color swizzle)
 #include "MinHook.h"
 #include "version.h"

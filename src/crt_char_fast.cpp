@@ -4,6 +4,7 @@
 #include "crt_char_fast.h"
 #include "version.h"
 #include "MinHook.h"
+#include "crash_dumper.h"
 #include <cstdint>
 #include <intrin.h>
 
@@ -26,6 +27,7 @@ typedef void* (__cdecl *memchr_fn)(const void*, int, size_t);
 static memchr_fn orig_memchr = nullptr;
 
 static void* __cdecl Hooked_memchr(const void* ptr, int value, size_t num) {
+    CrashDumper::RecordHookCall("CRT_memchr", (uintptr_t)_ReturnAddress());
     CHAR_ENTER();
     if (!ptr || num == 0) { CHAR_LEAVE(); goto fallback; }
     if (((uintptr_t)ptr & 0xFFF) > 0xFF0) { CHAR_LEAVE(); goto fallback; }

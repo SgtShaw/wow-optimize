@@ -14,8 +14,10 @@
 #include "strcat_fast.h"
 #include "version.h"
 #include "MinHook.h"
+#include "crash_dumper.h"
 #include <windows.h>
-#include <emmintrin.h>  // SSE2
+#include <intrin.h>
+#include <emmintrin.h>
 #include <cstdint>
 #include <atomic>
 
@@ -79,7 +81,7 @@ static inline size_t fast_strlen_sse2(const char* s) {
 
 // Hooked function
 static int __cdecl Hooked_Sub76ED20(char* dst, const char* src, int maxlen) {
-    // Validation matches original (returns 0, sets ERROR_INVALID_PARAMETER)
+    CrashDumper::RecordHookCall("StrcpySSE2", (uintptr_t)_ReturnAddress());
     if (!dst || !src) {
         g_fallback_paths++;
         SetLastError(0x57);  // ERROR_INVALID_PARAMETER

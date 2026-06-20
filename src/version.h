@@ -95,10 +95,12 @@
 #define TEST_DISABLE_MBWC               0
 
 // CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths
-// Page-boundary guards: checks ((ptr & 0xFFF) > 0xFF0)
-// within 16 bytes of page end, falls back to original. Avoids SSE2
-// 16-byte reads crossing into unmapped mimalloc pages.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1   // VA exhaustion under heavy load (dungeon finder crash at 2.4GB WS)
+// DISABLED: re-enabled in 3.11.0-session but caused instant ACCESS_VIOLATION
+// at 0x15401A98 on game start (corrupted return address from SSE2 strncpy
+// replacement at sub_76ED20; the last 5 hook calls before the crash were all
+// StrcpySSE2 from asset resolver paths). Reverting to original CRT until the
+// SSE2 strncpy hook can be fixed and validated in-game.
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -178,7 +180,9 @@
 #define TEST_DISABLE_STRSTR_SSE2         0
 
 // CRT memchr + strchr SSE2 - 16-byte SIMD byte scan
-// Same page-boundary bug as CRT_MEM_FASTPATHS
+// DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
+// reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
+// Same page-boundary bug class as CRT_MEM_FASTPATHS.
 #define TEST_DISABLE_CRT_CHAR_SSE2       1
 
 // CRT pow() integer fast-path - x^2=x*x, sqrt, etc.
@@ -309,6 +313,13 @@
 // Safe: no WoW code patching, only Windows heap APIs
 #define TEST_DISABLE_HEAP_COMPACTOR     0
 
+// Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
+// every frame and sheds the DLL's own caches + drops texture budget toward
+// stock under critical VA pressure, restoring on ease. Shed callbacks are
+// registered at init and fire at YELLOW (free<48MB) / RED (free<24MB) with
+// hysteresis to avoid thrashing. Set to 1 to disable.
+#define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
+
 // SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, bounded strncpy)
 // RE-ENABLED: the old corruption came from an unbounded SSE strlen that read
 // past short strings into adjacent mimalloc allocations. That cause is gone:
@@ -316,10 +327,12 @@
 // page-safe aligned fast_strlen_sse2 and copies strictly copy_len <= src_len
 // bytes (no source overread) into <= maxlen-1 bytes (no dest overflow). It is
 // layout-independent (pure bytes), unlike the reimplementations that crashed.
-// Kept OFF until a tester can validate it in-game: it is a re-enable of a
-// previously-disabled hook on 890 callers, and shipping it unvalidated would
-// make the build less than 100% safe. The code is reviewed bounded/safe and
-// ready; flip to 0 when someone can test. (Analysis: see comment above.)
+// RE-ENABLED in v3.11.0: the SSE2 bounded strncpy replacement for sub_76ED20
+// (890 callers) is reviewed as bounded (page-safe aligned SSE2 scans),
+// layout-independent (pure bytes), and surrounded by SEH guards. The old
+// corruption came from an unbounded SSE strlen that read past short strings
+// into adjacent mimalloc allocations — that cause is gone (mimalloc CRT
+// allocator is disabled). Kept OFF until validated in-game by a tester.
 #define TEST_DISABLE_STRCAT_FAST        1
 
 // Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
