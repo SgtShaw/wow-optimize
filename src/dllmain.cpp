@@ -6291,7 +6291,18 @@ static DWORD WINAPI MainThread(LPVOID param) {
         }};
         RegisterShedCallback(ShedGuidHash::Go, nullptr);
 
-        Log("[PressureGovernor] %d shed callbacks registered", 8);
+        // RED: now that mimalloc backs WoW's ENTIRE heap (see InstallAllocatorHooks),
+        // force it to return all freed segments to the OS. This reclaims WoW's own
+        // freed memory, not just the DLL's, so it directly raises LargestFreeBlock --
+        // the one action that actually unfragments the VA. Registered LAST so the
+        // cache shedders above have already freed their memory into mimalloc; bounded
+        // (fires once per RED transition, not per frame).
+        struct ShedMiCollect { static void Go(Level lv, void*) {
+            if (lv >= PRESSURE_RED) mi_collect(true);
+        }};
+        RegisterShedCallback(ShedMiCollect::Go, nullptr);
+
+        Log("[PressureGovernor] %d shed callbacks registered", 9);
     }
 #endif
 
