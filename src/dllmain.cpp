@@ -5411,6 +5411,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("DataStoreFastPath");
     CrashDumper::RegisterFeature("StringOpsFast");
     CrashDumper::RegisterFeature("MBWCHooks");
+    CrashDumper::RegisterFeature("GetProcAddress");
+    CrashDumper::RegisterFeature("GetEnvVariable");
     CrashDumper::RegisterFeature("CrtMemFastPaths");
     CrashDumper::RegisterFeature("MsgPump");
     CrashDumper::RegisterFeature("SwapPresent");
@@ -5426,13 +5428,20 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("RawGetIInline");
     CrashDumper::RegisterFeature("HardwareCursor");
     CrashDumper::RegisterFeature("FrameThrottle");
+    CrashDumper::RegisterFeature("UIFrameBatch");
+    CrashDumper::RegisterFeature("TooltipCache");
     CrashDumper::RegisterFeature("SpellCache");
     CrashDumper::RegisterFeature("LuaRawGetICache");
     CrashDumper::RegisterFeature("CombatLogFullCache");
     CrashDumper::RegisterFeature("ThreadAffinity");
     CrashDumper::RegisterFeature("VAArena");
+    CrashDumper::RegisterFeature("HeapCompactor");
+    CrashDumper::RegisterFeature("MemoryPressureGovernor");
     CrashDumper::RegisterFeature("StreamBufFastPath");
     CrashDumper::RegisterFeature("LuaOptimizer");
+    CrashDumper::RegisterFeature("LuaNewKeySafety");
+    CrashDumper::RegisterFeature("LuaGetTableSafety");
+    CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::RegisterFeature("CombatLogOpt");
     CrashDumper::RegisterFeature("CombatLogBuffer");
     CrashDumper::RegisterFeature("CombatLogMT");
@@ -5442,6 +5451,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("ObjVisCache");
     CrashDumper::RegisterFeature("SoundPrefetch");
     CrashDumper::RegisterFeature("QuestAsync");
+    CrashDumper::RegisterFeature("AddonDispatcher");
+    CrashDumper::RegisterFeature("MPQPrefetch");
+    CrashDumper::RegisterFeature("NameplateMT");
+    CrashDumper::RegisterFeature("NetworkGUID");
     CrashDumper::RegisterFeature("UICache");
     CrashDumper::RegisterFeature("ApiCache");
     CrashDumper::RegisterFeature("LuaFastPath");
@@ -5452,6 +5465,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("MatrixVectorSSE2");
     CrashDumper::RegisterFeature("Vec3NormalizeSSE2");
     CrashDumper::RegisterFeature("MatrixExtSSE2");
+    CrashDumper::RegisterFeature("MatrixMultiply");
 
     Log("--- Colossal Optimizations ---");
 #if !TEST_DISABLE_EVENT_COALESCER
@@ -8003,6 +8017,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
                 if (g_readCache[i].buffer) { mi_free(g_readCache[i].buffer); g_readCache[i].buffer = nullptr; }
             }
+            // Return all mimalloc-managed pages to the OS before process exit.
+            // Without this, freed blocks sit in mimalloc's internal caches and
+            // the OS sees them as committed even though they're logically free.
+            mi_collect(true);
             } __except(EXCEPTION_EXECUTE_HANDLER) {
                 Log("Exception during DLL shutdown - continuing exit");
             }

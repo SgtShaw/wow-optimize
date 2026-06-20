@@ -2392,45 +2392,84 @@ fallback:
 
 // ================================================================
 // Hooked_Math_Random — math.random fast path
-// CRT rand() call without Lua VM overhead.
+// Direct stack access: zero Lua VM calls on the fast path.
+// The old hook paid lua_gettop + lua_type per arg + lua_tonumber
+// per arg + lua_pushnumber (up to 5 VM calls per random). Now we
+// read L+0x0C/L+0x10 directly and write the result TValue inline.
+// SEH-guarded + pointer-validated; any fault falls back to the engine.
 // ================================================================
 
 static int __cdecl Hooked_Math_Random(lua_State* L) {
-    int nargs = lua_gettop_(L);
-    if (nargs > 2) { g_mathRandomFallbacks++; return orig_math_random(L); }
+    uintptr_t Lp = (uintptr_t)L;
+    if (Lp < 0x10000 || Lp > 0xBFFF0000) {
+        g_mathRandomFallbacks++; return orig_math_random(L);
+    }
+    __try {
+        RawTValue* base = *(RawTValue**)(Lp + 0x10);
+        RawTValue* top  = *(RawTValue**)(Lp + 0x0C);
+        if ((uintptr_t)base < 0x10000 || (uintptr_t)base > 0xBFFF0000 ||
+            (uintptr_t)top  < 0x10000 || (uintptr_t)top  > 0xBFFF0000 ||
+            base > top) {
+            g_mathRandomFallbacks++; return orig_math_random(L);
+        }
 
-    if (nargs == 0) {
-        // No args: return [0, 1)
-        double r = (double)rand() / (double)RAND_MAX;
-        lua_pushnumber_(L, r);
+        int nargs = (int)(top - base);
+        if (nargs > 2) {
+            g_mathRandomFallbacks++; return orig_math_random(L);
+        }
+
+        // --- nargs == 0: return [0, 1) ---
+        if (nargs == 0) {
+            double r = (double)rand() / (double)RAND_MAX;
+            top->value.n = r;
+            top->tt      = LUA_TNUMBER;
+            top->taint   = 0;
+            SetStackTopFast(L, top + 1);
+            g_mathRandomHits++;
+            return 1;
+        }
+
+        // --- Validate arg types and read values directly from the stack ---
+        if (base->tt != LUA_TNUMBER) {
+            g_mathRandomFallbacks++; return orig_math_random(L);
+        }
+        double val1 = base->value.n;
+
+        if (nargs == 1) {
+            int n = (int)val1;
+            if (n < 1) { g_mathRandomFallbacks++; return orig_math_random(L); }
+            double r = 1.0 + (double)(rand() % n);
+            top->value.n = r;
+            top->tt      = LUA_TNUMBER;
+            top->taint   = 0;
+            SetStackTopFast(L, top + 1);
+            g_mathRandomHits++;
+            return 1;
+        }
+
+        // nargs == 2: return [m, n]
+        RawTValue* slot2 = base + 1;
+        if ((uintptr_t)slot2 > 0xBFFF0000 || slot2->tt != LUA_TNUMBER) {
+            g_mathRandomFallbacks++; return orig_math_random(L);
+        }
+        double val2 = slot2->value.n;
+
+        int m = (int)val1;
+        int n = (int)val2;
+        if (n < m) { g_mathRandomFallbacks++; return orig_math_random(L); }
+        int range = n - m + 1;
+        double r = (double)m + (double)(rand() % range);
+        top->value.n = r;
+        top->tt      = LUA_TNUMBER;
+        top->taint   = 0;
+        SetStackTopFast(L, top + 1);
         g_mathRandomHits++;
         return 1;
     }
-
-    // Check all args are numbers
-    for (int i = 1; i <= nargs; i++) {
-        if (lua_type_(L, i) != LUA_TNUMBER) { g_mathRandomFallbacks++; return orig_math_random(L); }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        g_mathRandomFallbacks++;
+        return orig_math_random(L);
     }
-
-    if (nargs == 1) {
-        // 1 arg: return [1, n]
-        int n = (int)lua_tonumber_(L, 1);
-        if (n < 1) { g_mathRandomFallbacks++; return orig_math_random(L); }
-        double r = 1.0 + (double)(rand() % n);
-        lua_pushnumber_(L, r);
-        g_mathRandomHits++;
-        return 1;
-    }
-
-    // 2 args: return [m, n]
-    int m = (int)lua_tonumber_(L, 1);
-    int n = (int)lua_tonumber_(L, 2);
-    if (n < m) { g_mathRandomFallbacks++; return orig_math_random(L); }
-    int range = n - m + 1;
-    double r = (double)m + (double)(rand() % range);
-    lua_pushnumber_(L, r);
-    g_mathRandomHits++;
-    return 1;
 }
 
 // ================================================================
