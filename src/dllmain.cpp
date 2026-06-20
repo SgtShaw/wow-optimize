@@ -241,7 +241,7 @@ extern "C" void IncrementParticleFrameCount();
 // ================================================================
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
-#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc mimalloc (ALREADY DISABLED - risky)
+#define CRASH_TEST_DISABLE_GLOBALALLOC     0   // GlobalAlloc mimalloc (safe now — CRT+process-heap redirect proven)
 #define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
@@ -886,11 +886,12 @@ static void RunPeriodicMaintenanceOnMainThread() {
 
     if (g_isMultiClient) {
         // Periodic mimalloc trim in multi-client. mi_collect(true) is a forced
-        // global heap walk + decommit -- a visible hitch -- and the mimalloc Lua/
-        // CRT allocator is disabled, so it only reclaims this DLL's own small
-        // footprint, never WoW's MPQ/Lua VA. At a 5s cadence that hitch landed
-        // mid-boss-fight for no real VA benefit. mimalloc's 100ms background purge
-        // already hands freed memory back, so a 60s safety trim is plenty.
+        // global heap walk + decommit -- a visible hitch. Now that mimalloc backs
+        // WoW's ENTIRE heap (static CRT + process-heap redirect), this collects
+        // every freed segment from every WoW allocation -- worth the occasional
+        // hitch to raise LargestFreeBlock on a VA-tight multi-client. The 25ms
+        // background purge normally keeps up; a 60s safety trim catches anything
+        // stranded in mimalloc's internal caches.
         if (g_nextMiCollectTick == 0) {
             g_nextMiCollectTick = nowTick + 60000;
         } else if ((LONG)(nowTick - g_nextMiCollectTick) >= 0) {
@@ -6392,7 +6393,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] FlushFileBuffers (MPQ skip)",  flushOk     ? " OK " : "FAIL");
     Log("  [%s] GetFileAttributesA (cache)",   faOk        ? " OK " : "FAIL");
     Log("  [%s] SetFilePointer (64-bit)",      sfpOk       ? " OK " : "FAIL");
-    Log("  [SKIP] GlobalAlloc fast path (disabled hotfix)");  
+    Log("  [%s] GlobalAlloc (mimalloc GMEM_FIXED)", gaOk      ? " OK " : "FAIL");
     Log("  [ OK ] Timer resolution (0.5ms)");
     Log("  [ OK ] Thread affinity + priority");
     if (g_isMultiClient)
