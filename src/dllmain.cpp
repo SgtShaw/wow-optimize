@@ -52,6 +52,7 @@
 #include "memory_pressure_governor.h"
 #include "lua_getstr_inline.h"
 #include "lua_rawgeti_inline.h"
+#include "lua_toboolean_inline.h"
 #include "hooks_memory.h"
 #include "data_caches.h"
 #include "compute_caches.h"
@@ -5755,6 +5756,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- luaH_getstr Inline Optimization ---");
     bool getStrInlineOk = InstallLuaGetStrInline();
+
+    Log("--- lua_toboolean Inline Optimization ---");
+    bool tobooleanOk = InstallLuaTobooleanInline();
+    CrashDumper::RegisterFeature("LuaTBoolean");
+    CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
 
     Log("--- lua_rawgeti Inline Optimization ---");
 #if TEST_DISABLE_RAWGETI_INLINE

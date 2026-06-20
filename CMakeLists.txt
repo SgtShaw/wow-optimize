@@ -157,7 +157,9 @@ add_library(wow_optimize SHARED
     src/event_name_cache.h
     src/lua_getstr_inline.cpp
     src/lua_rawgeti_inline.cpp
+    src/lua_toboolean_inline.cpp
     src/lua_getstr_inline.h
+    src/lua_toboolean_inline.h
     src/lua_gettable_safety.cpp
     src/lua_gettable_safety.h
     src/lua_newkey_safety.cpp
