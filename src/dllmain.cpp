@@ -5086,9 +5086,13 @@ static bool InstallBatchOpt10() {
     p = (void*)GetProcAddress(hU32, "CharLowerA");
     if (p && MH_CreateHook(p, (void*)hooked_CharLowerA, (void**)&orig_CharLowerA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
     // #7 wsprintfA REMOVED - variadic args can't forward
-    // #8 MapVirtualKeyA
-    p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
-    if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
+    // #8 MapVirtualKeyA — DISABLED: returns 0 for unmapped keys, cache treats 0 as "uncached",
+    // causing repeated re-queries. Cached mappings become stale across Shift/CapsLock/IME changes,
+    // breaking the entire keyboard input pipeline (all keys dead).
+    if (0) {
+        p = (void*)GetProcAddress(hU32, "MapVirtualKeyA");
+        if (p && MH_CreateHook(p, (void*)hooked_MapVirtualKeyA, (void**)&orig_MapVirtualKeyA) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
+    }
     // #9 GetThreadPriority
     p = (void*)GetProcAddress(hK32, "GetThreadPriority");
     if (p && MH_CreateHook(p, (void*)hooked_GetThreadPriority, (void**)&orig_GetThreadPriority) == MH_OK && WO_EnableHook(p) == MH_OK) ok++;
