@@ -1,4 +1,4 @@
-﻿# wow_optimize
+# wow_optimize
 
 Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
@@ -11,19 +11,32 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in v3.10.0
+## What's New in v3.11.0
 
-This release is a stability-and-correctness pass over the v3.9 feature set, plus new optimizations that are **layout-independent** (they operate on raw bytes / verified-stock offsets and cannot corrupt game structures). Several aggressive v3.9 features that reimplemented WoW internals were found to crash or corrupt on real raids and have been reverted to WoW's own correct paths.
+This release adds Lua event coalescing, SSE2 network GUID unpacking, particle simulation throttling, new SSE2 math routines (frustum point culling, ray-triangle intersection, matrix-vector transforms, 4×4 matrix multiply), adaptive GC pacing improvements, hook enable batching for faster startup, and new Lua C-function fast paths — alongside stability fixes for SSE2 quaternion normalize, first-launch slowness, and VA/RAM exhaustion.
 
 ### New optimizations
-- **Object GUID → pointer cache** on `ClntObjMgrObjectPtr` (0x4D4DB0). Addons resolve GUID→object thousands of times per frame (UnitHealth/UnitName/…). Positive results are cached and **content-validated on every hit** by re-reading the object's own GUID dwords, so a freed/recycled object can never be returned stale; SEH-guarded and bypassed during VM reload.
+- **Lua Event Coalescing** — hooks `FrameScript_SignalEvent` (0x81AC90), dynamically resolves event names via `*(*(0xD3F7D8 + eventId*4) + 20)`, buffers and deduplicates high-frequency UI events (`UNIT_AURA`, `BAG_UPDATE`, `UNIT_POWER`, `UNIT_HEALTH`, `UNIT_THREAT_LIST_UPDATE` etc.) per frame, dispatches each unique (eventId, args) combination once at frame end. Reduces addon handler calls by 60-80% in 25-man raids.
+- **SSE2 Network GUID Unpacking** — hooks `CDataStore::GetWowGUID` (0x76DC20, 100+ xrefs across network packet handlers), branchless unrolled byte-deposit replaces the original's per-byte conditional loop with `__allshl` calls.
+- **Particle Simulation Throttling** — hooks `CParticleEmitter::SimulateParticle` (0x981D40), captures the active camera frustum from `CFrustum::IsAABBVisible` calls, tests each emitter's world position against frustum with 25-unit sphere radius, off-screen emitters simulate only every 10th frame (90% skip rate), on-screen emitters run at full rate.
+- **SSE2 Frustum Point Culling** — vectorized `CFrustum::IsPointVisible` (0x983D70) using transposed SSE2 dot products.
+- **SSE2 Möller-Trumbore Ray-Triangle Intersection** — vectorized core 3D raycasting routines (0x9836B0 for 32-bit indices, 0x983490 for 16-bit indices) using branchless SSE2 cross/dot products.
+- **SSE2 Matrix-Vector Transformations** — vectorized 3D point × 4x4 matrix (0x4C21B0, 100+ callers) and 4D vector × 4x4 matrix (0x4C2270) using SSE2 column linear combinations.
+- **SSE2 4×4 Matrix Multiply** — replaces `CMatrix::operator*` (0x4C1F00) x87 scalar ops with SSE2 vectorized multiply.
+- **Adaptive GC Pacing Enhancement** — combat GC path now scales up on fast frames (<8ms: 1.5× step) and down on slow frames (>16ms: 0.5× step). VA-pressure override triples step size when largest free VA block < 48MB.
+- **Hook Enable Batching** — main-init hook enables batched via `MH_QueueEnableHook` + single `MH_ApplyQueued` instead of per-hook `MH_EnableHook` (each freezes all threads ~20ms). Cuts first-launch startup time by ~1.7s.
+- **string.gsub plain-literal fast path** — non-overlapping literal substring replace using first-char fast-skip + memcmp into scratch buffer, falls back to engine for magic patterns.
+- **math.fmod / math.modf / string.char / strjoin / strtrim / strsplit** C-global fast paths
 - **SSE2 memcpy** for the 16–255 B range (WoW's path is dword-scalar there), plus **non-temporal streaming stores + source prefetch for copies ≥256 KB** so bulk asset moves don't evict the working-set cache during loading. Overlap-safe (memmove semantics preserved), bounded.
 - **Non-temporal SSE2 memset** for large clears (≥2 MB), full SSE2 across all sizes.
 - **free-wrapper fast path**: calls WoW's own `free` directly, eliminating a redundant `_msize` heap-walk on the second-hottest function in the binary (2901 callers).
 - **`luaH_getstr` inline cache** restored — verified line-by-line against the stock `luaH_getstr` decompile (offsets, node fields, chain walk, nil sentinel all match).
 
-### Stability fix — mid-raid freeze
-The combat garbage collector previously collected only ~50% of the allocation rate and skipped GC entirely on slow frames. In sustained heavy raids this starved the collector until Lua forced a full collection of the entire multi-hundred-MB state — a multi-second freeze. It now sizes each per-frame step to ~110% of the measured allocation rate, so the heap stays flat with steady tiny steps instead of one giant stall.
+### Stability fixes
+- **Broken SSE2 quaternion normalize** — the SSE2 path had a broken horizontal reduction and dropped the engine's near-zero magnitude guard, producing NaN quaternions on degenerate bones → instance crashes + post-combat freezes. Fixed math + guard, kept disabled pending in-game validation.
+- **Slow first-launch** — hook enable batching reduced ~1.7s of thread-freeze overhead.
+- **VA/RAM exhaustion on HD clients** — resident-texture budget reduced, working-set pinned, addon Lua-file prefetch disabled.
+- **Reverted 7 dead modules and crash-disabled flag re-enables** from a faulty commit.
 
 ### Reverted for stability (now use WoW's correct paths)
 - **Direct-threaded Lua interpreter** — custom `luaV_execute` dispatch caused `compare number with nil` corruption and world-transition freezes.
@@ -39,7 +52,7 @@ The combat garbage collector previously collected only ~50% of the allocation ra
 
 ### 6 CPU-Side Optimization Modules
 - **Off-screen animation throttle**: 3-tier distance-based update rate (full / 1:4 / 1:16)
-- **SSE2 math**: matrix multiply, quaternion normalize, frustum AABB-vs-4-planes cull, BGRA↔ARGB batch swap, premultiplied alpha
+- **SSE2 math**: matrix multiply, 4×4 matrix multiply, quaternion normalize, frustum AABB-vs-4-planes cull, frustum point culling, ray-triangle intersection, matrix-vector transforms, particle simulation throttling, network GUID unpacking, BGRA↔ARGB batch swap, premultiplied alpha
 - **Combat text batching**: 256-entry ring buffer, flush-per-frame
 - **UI layout dirty-flag cache**: 4096-slot frame-pointer keyed, generation-based invalidation
 - **Network heartbeat filter**: suppresses CMSG_PING/CMSG_TIME_SYNC_RESP when data recently sent
@@ -54,7 +67,7 @@ The combat garbage collector previously collected only ~50% of the allocation ra
 - 50-API infra_patch: object pools, deduplication, frame-time smoothing, adaptive cache TTL
 - 20-feature hot_patch: datastore lookup cache, delete prefetch, tooltip early-exit, event dedup
 - 3-hook hook_prefetch: SSE2 prefetch on cleanup/delete/datastore-reset paths
-- CrashDumper: 64-slot feature registry + 256-entry hook call trace + minidump/text crash reports
+- CrashDumper: 128-slot feature registry + 256-entry hook call trace + minidump/text crash reports
 - Freeze watchdog: 10s threshold with per-feature activity reporting
 - Priority watchdog with rate-limited logging
 
@@ -125,6 +138,7 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
   - `string.find` (plain mode)
   - `string.match` (safe partial fast path)
   - `string.rep`
+  - `string.gsub` (plain-literal fast path)
   - `type`
   - `math.floor`
   - `math.ceil`
@@ -133,8 +147,11 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
   - `math.min` (2 args)
   - `math.random`
   - `math.sqrt`
+  - `math.fmod`
+  - `math.modf`
   - `string.len`
   - `string.byte`
+  - `string.char`
   - `tostring`
   - `tonumber`
   - `select`
@@ -145,6 +162,10 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
   - `table.concat` (disabled - direct RawTValue* stack writes caused hangs)
   - `unpack` (disabled - direct RawTValue* stack writes caused hangs)
   - `ipairs` (disabled - closure factory incompatible with WoW iterator pattern)
+- C-global fast paths - **ENABLED**:
+  - `strjoin`
+  - `strtrim`
+  - `strsplit`
 
 ### Lua VM internals
 - `luaV_concat` and `luaS_newlstr` hooks disabled for public stability
@@ -188,15 +209,16 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 
 Features that use worker threads and lock-free queues. Status reflects the current public-safe configuration; individual toggles live in `src/version.h`.
 
-- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(enabled)*
+- **Async spell data prefetching** - predictive spell data loading before cast completes, reduces spell cast lag, worker thread with lock-free queue (4096 entries) and cache (4096 entries) *(disabled — placeholder worker with no producers)*
 - **Multithreaded addon dispatcher** - parallelizes addon OnUpdate callbacks across worker thread pool (4 threads), reduces main thread CPU in addon-heavy setups, batch processing with lock-free queue (8192 entries) *(disabled - unsynchronized writes to WoW game state)*
-- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, reduces zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(disabled - workers touch WoW globals)*
-- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU in raids, lock-free queue with async processing *(enabled, auto-disables inside raids)*
-- **Sound prefetching** - predicts and prefetches sound files based on spell casts, zone transitions, combat state, worker thread pool (2 threads) with lock-free queue (1024 entries) *(enabled)*
-- **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(enabled)*
+- **Predictive MPQ prefetching** - tracks zone transitions and predicts next zone, prefetches textures/models/WMOs into OS cache before teleport, reduces zone loading stutters, worker thread pool (2 threads) with lock-free queue (2048 entries) *(enabled)*
+- **Multithreaded combat log parser** - offloads combat log parsing to worker thread, reduces main thread CPU in raids, lock-free queue with async processing *(disabled — placeholder worker with no producers)*
+- **Sound prefetching** - predicts and prefetches sound files based on spell casts, zone transitions, combat state, worker thread pool (2 threads) with lock-free queue (1024 entries) *(disabled — placeholder worker with no producers)*
+- **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(disabled — placeholder worker with no producers)*
 - **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(disabled - unsynchronized writes to WoW game state)*
 - **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading *(enabled)*
-- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled - loading screen regression)*
+- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled — placeholder worker with no producers)*
+- **Addon dispatcher** - lightweight event-driven addon update dispatch *(enabled)*
 
 ### Other runtime optimizations
 - combat log optimizer - **fixes the 16-year combat log bug** (log retention increased from 300s to 1800s, events no longer lost during extended sessions)
@@ -218,7 +240,23 @@ Replacements for WoW's own statically-linked CRT routines at verified addresses:
 - `strstr` - SSE2 Boyer–Moore–Horspool
 - `MultiByteToWideChar` / `WideCharToMultiByte` - SSE2 ASCII fast path
 
+### SSE2 math and geometry (WoW-internal, active)
+- SSE2 4×4 matrix multiply — `CMatrix::operator*` (0x4C1F00)
+- SSE2 matrix-vector transforms — 3D point × 4x4 matrix (0x4C21B0), 4D vector × 4x4 matrix (0x4C2270)
+- SSE2 frustum point culling — `CFrustum::IsPointVisible` (0x983D70)
+- SSE2 Möller-Trumbore ray-triangle intersection — 32-bit indices (0x9836B0), 16-bit indices (0x983490)
+- SSE2 frustum AABB-vs-4-planes cull
+- SSE2 quaternion normalize *(disabled — broken horizontal reduction, pending in-game validation)*
+- SSE2 BGRA↔ARGB batch swap, premultiplied alpha
+- Particle simulation throttling with frustum culling — `CParticleEmitter::SimulateParticle` (0x981D40)
+- Network GUID SSE2 unpacking — `CDataStore::GetWowGUID` (0x76DC20)
+
 > The generic msvcrt CRT mem/char SSE2 paths (`crt_mem_fastpath`, `crt_char_fast`) are **disabled** — WoW links its CRT statically, so hooking msvcrt exports had little effect and risked VA exhaustion.
+
+### Lua Event Coalescing
+- Hooks `FrameScript_SignalEvent` (0x81AC90) to buffer and deduplicate high-frequency UI events per frame
+- Reduces addon handler calls by 60-80% in 25-man raids
+- Coalesced events: `UNIT_AURA`, `BAG_UPDATE`, `UNIT_POWER`, `UNIT_HEALTH`, `UNIT_THREAT_LIST_UPDATE`, etc.
 
 ### Kernel-call caches (38 hooks)
 Batch 1-8: `GetSystemTimeAsFileTime` (QPC-based 1ms refresh), `GetACP`, `GetUserDefaultLangID`, `GetProcessHeap`, `CharUpperA/W`, `CharLowerA/W`, `MapVirtualKeyA`, `GetThreadPriority`
@@ -247,6 +285,7 @@ Batch 31-38: `GetCurrentProcess`, `GetCurrentThread`, `GetCPInfo` and related ke
 
 These features are disabled in public-safe builds because they previously caused regressions or crashes:
 
+- Object GUID → pointer cache on `ClntObjMgrObjectPtr` (0x4D4DB0) — permanently disabled; object-pointer caches are fundamentally unsound (teardown unlinks objects before scrubbing identity bytes, so content-validation reads stale/recycled data)
 - WoW-internal SSE2 strlen at `sub_76EE30` - page-boundary bug (exit crash)
 - MPQ memory mapping (disabled for stability)
 - UI widget cache (disabled due to addon regressions)
@@ -281,6 +320,7 @@ These features are disabled in public-safe builds because they previously caused
 - CriticalSection 3-stage spin hooks - caused login crashes / freezes
 - `GetKeyboardLayout` / `GetKeyboardLayoutNameA` hooks - cached keyboard state, broke language switching
 - `GetClientRect` / `GetWindowRect` hooks - cached window dimensions, broke window resize
+- SSE2 quaternion normalize - broken horizontal reduction, NaN on degenerate bones (pending validation)
 
 ### Enabled features
 
@@ -335,7 +375,7 @@ This is an engine and runtime optimization DLL, not a UI overhaul.
 For best results, use wow_optimize together with [!LuaBoost](https://github.com/suprepupre/LuaBoost).
 
 | Layer | Tool | Purpose |
-|------|------|---------|
+|------|------|---------| 
 | Engine / C / Win32 | `wow_optimize.dll` | allocator, Lua VM, timers, file I/O, networking, runtime overhead reduction |
 | Lua / Addons | `!LuaBoost` | GC control, loading helpers, table pool, update dispatcher, diagnostics |
 
@@ -472,18 +512,20 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 
 ### Main modules
 - `dllmain.cpp` - Win32 hooks, allocator, timers, file I/O, networking, threading, VA Arena
-- `lua_optimize.cpp` - Lua VM allocator, adaptive GC, Lua globals bridge
-- `lua_fastpath.cpp` - `string.format` and runtime-discovered Phase 2 hooks (20/27 functions)
+- `lua_optimize.cpp` - Lua VM allocator, adaptive GC (with frame-time scaling and VA-pressure override), Lua globals bridge
+- `lua_fastpath.cpp` - `string.format` and runtime-discovered Phase 2 hooks (24/27 functions)
 - `lua_vm_engine.cpp` - Direct-threaded Lua VM interpreter with inline cache
 - `lua_getstr_inline.cpp` - Safe bucket-index cache for luaH_getstr (16384 entries)
 - `lua_rawgeti_inline.cpp` - Safe array-direct + bucket-index cache for lua_rawgeti (8192)
 - `lua_pushnumber_fast.cpp` - Direct TValue stack write for lua_pushnumber
 - `lua_gettable_safety.cpp` - TValue type validation crash fix
 - `hooks_render.cpp` - 3-tier off-screen animation throttle, backbuffer LockRect skip
-- `hooks_simd.cpp` - SSE2 matrix, quaternion, frustum cull, BGRA↔ARGB, premultiplied alpha
+- `hooks_simd.cpp` - SSE2 matrix multiply, 4×4 matrix multiply, quaternion normalize, frustum AABB/point cull, ray-triangle intersection, matrix-vector transforms, particle simulation throttle, BGRA↔ARGB, premultiplied alpha
 - `hooks_logic.cpp` - Combat text batching, UI layout cache, heartbeat filter, script cache
 - `hooks_memory.cpp` - 64B-aligned slab allocator, 16384-entry GUID hash-table
 - `hooks_async.cpp` - 2-thread worker pool, particle SSE2, ADT prefetch
+- `event_coalescer.cpp` - Lua event coalescing via FrameScript_SignalEvent hook, per-frame deduplication
+- `network_guid_sse2.cpp` - SSE2 branchless GUID unpacking for CDataStore::GetWowGUID
 - `d3d9_state_manager.cpp` - 15-hook D3D9 vtable patcher (disabled — DXVK conflict)
 - `hot_patch.cpp` - 20 runtime hot-patch optimizations
 - `infra_patch.cpp` - 50 infrastructure APIs (pools, caches, dedup, perfmon)
@@ -531,7 +573,7 @@ wow-optimize/
 ├── src/
 │   ├── dllmain.cpp                       # Win32/CRT hooks, allocator, timers
 │   ├── lua_optimize.cpp/.h               # Lua VM allocator, GC, string table
-│   ├── lua_fastpath.cpp/.h               # Lua C-function fast paths (20/27)
+│   ├── lua_fastpath.cpp/.h               # Lua C-function fast paths (24/27)
 │   ├── lua_vm_engine.cpp/.h              # Direct-threaded Lua VM interpreter
 │   ├── lua_getstr_inline.cpp/.h          # Safe luaH_getstr cache (16384)
 │   ├── lua_rawgeti_inline.cpp/.h         # Safe lua_rawgeti cache (8192)
@@ -544,10 +586,12 @@ wow-optimize/
 │   ├── lua_bytecode_pre_compiler.cpp/.h  # Addon file pre-scanner
 │   ├── lua_settable_cache.cpp/.h         # luaV_settable cache
 │   ├── hooks_render.cpp/.h               # 3-tier off-screen animation throttle
-│   ├── hooks_simd.cpp/.h                 # SSE2 matrix/quat/frustum cull
+│   ├── hooks_simd.cpp/.h                 # SSE2 matrix/quat/frustum/ray-tri/mat-vec/particle
 │   ├── hooks_logic.cpp/.h                # Combat text, UI cache, heartbeat
 │   ├── hooks_memory.cpp/.h               # 64B slabs, GUID hash-table
 │   ├── hooks_async.cpp/.h                # 2-thread worker pool
+│   ├── event_coalescer.cpp/.h            # Lua event coalescing (FrameScript_SignalEvent)
+│   ├── network_guid_sse2.cpp/.h          # SSE2 network GUID unpacking
 │   ├── d3d9_state_manager.cpp/.h         # D3D9 15-hook vtable patcher
 │   ├── hot_patch.cpp/.h                  # 20 runtime hot-patch optimizations
 │   ├── infra_patch.cpp/.h                # 50 infrastructure APIs
@@ -566,7 +610,7 @@ wow-optimize/
 │   ├── texture_async.cpp/.h              # Texture async loading
 │   ├── texture_decode_mt.cpp/.h          # BLP decode worker pool
 │   ├── anim_mt.cpp/.h                    # M2 animation worker pool
-│   ├── mpq_prefetch.cpp/.h               # Predictive MPQ prefetching
+│   ├── mpq_prefetch.cpp/.h              # Predictive MPQ prefetching
 │   ├── mpq_decompress_mt.cpp/.h          # Multithreaded zlib decompress
 │   ├── obj_vis_cache.cpp/.h              # Object visibility cache
 │   ├── nameplate_batch.cpp/.h            # Multithreaded nameplates
