@@ -35,6 +35,15 @@
 // Lua VM GC optimizer + mimalloc allocator replacement
 #define TEST_DISABLE_LUA_VM_OPT         0
 
+// Redirect WoW's STATIC MSVCRT allocator (malloc/free/realloc/calloc/_msize/
+// _recalloc at 0x415074/0x412FC7/0x416A95/0x416A56/0x4112F8/0x416CB0) to mimalloc
+// to fight 32-bit VA fragmentation (the LargestBlock=14MB freeze). The old attempt
+// hooked the DYNAMIC CRT exports (which WoW barely uses) and corrupted cross-heap;
+// this hooks the static set as a closed group with a mi_is_in_heap_region transition
+// guard so blocks allocated before install free through the original CRT. ENABLED by
+// default; set to 1 if it regresses (this is the single riskiest hook in the project).
+#define TEST_DISABLE_ALLOCATOR_REDIRECT 0
+
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
 #define TEST_DISABLE_PHASE2_WRITES      1

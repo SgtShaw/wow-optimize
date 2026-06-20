@@ -702,12 +702,14 @@ typedef void  (__cdecl* free_fn)(void*);
 typedef void* (__cdecl* realloc_fn)(void*, size_t);
 typedef void* (__cdecl* calloc_fn)(size_t, size_t);
 typedef size_t (__cdecl* msize_fn)(void*);
+typedef void* (__cdecl* recalloc_fn)(void*, size_t, size_t);
 
-static malloc_fn  orig_malloc  = nullptr;
-static free_fn    orig_free    = nullptr;
-static realloc_fn orig_realloc = nullptr;
-static calloc_fn  orig_calloc  = nullptr;
-static msize_fn   orig_msize   = nullptr;
+static malloc_fn   orig_malloc   = nullptr;
+static free_fn     orig_free     = nullptr;
+static realloc_fn  orig_realloc  = nullptr;
+static calloc_fn   orig_calloc   = nullptr;
+static msize_fn    orig_msize    = nullptr;
+static recalloc_fn orig_recalloc = nullptr;
 
 static void* __cdecl hooked_malloc(size_t size) {
     return mi_malloc(size);
@@ -750,46 +752,72 @@ static size_t __cdecl hooked_msize(void* ptr) {
     return orig_msize ? orig_msize(ptr) : 0;
 }
 
-static bool InstallAllocatorHooks() {
-    const char* crt_names[] = {
-        "msvcr80.dll", "msvcr90.dll", "msvcr100.dll",
-        "msvcr110.dll", "msvcr120.dll", "ucrtbase.dll",
-        "msvcrt.dll", nullptr
-    };
-
-    HMODULE hCRT = nullptr;
-    const char* found_crt = nullptr;
-    for (int i = 0; crt_names[i]; i++) {
-        hCRT = GetModuleHandleA(crt_names[i]);
-        if (hCRT) { found_crt = crt_names[i]; break; }
-    }
-    if (!hCRT) { Log("ERROR: No CRT DLL found"); return false; }
-    Log("Found CRT: %s at 0x%p", found_crt, hCRT);
-
-    void* pm = (void*)GetProcAddress(hCRT, "malloc");
-    void* pf = (void*)GetProcAddress(hCRT, "free");
-    void* pr = (void*)GetProcAddress(hCRT, "realloc");
-    void* pc = (void*)GetProcAddress(hCRT, "calloc");
-    void* ps = (void*)GetProcAddress(hCRT, "_msize");
-    if (!pm || !pf || !pr) { Log("ERROR: malloc/free/realloc not found"); return false; }
-
-    int ok = 0, total = 0;
-    #define TRY_HOOK(target, hook, orig, name) \
-        if (target) { total++; \
-            if (MH_CreateHook(target, (void*)(hook), (void**)&(orig)) == MH_OK) { \
-                ok++; Log("  Hook %s: OK", name); \
-            } else { Log("  Hook %s: FAILED", name); } \
+static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
+    // _recalloc(ptr, count, size): realloc to count*size, zero-filling any growth.
+    if (size != 0 && count > (size_t)-1 / size) return nullptr;  // overflow
+    size_t total = count * size;
+    if (!ptr) return mi_calloc(count, size);
+    if (size == 0) { hooked_free(ptr); return nullptr; }
+    if (mi_is_in_heap_region(ptr))
+        return mi_recalloc(ptr, count, size);
+    // Block predates our hook: migrate into a zero-filled mimalloc block.
+    if (orig_msize) {
+        size_t old = orig_msize(ptr);
+        void* np = mi_calloc(count, size);
+        if (np) {
+            memcpy(np, ptr, (old < total) ? old : total);
+            orig_free(ptr);
+            return np;
         }
-    TRY_HOOK(pm, hooked_malloc,  orig_malloc,  "malloc");
-    TRY_HOOK(pf, hooked_free,    orig_free,    "free");
-    TRY_HOOK(pr, hooked_realloc, orig_realloc, "realloc");
-    TRY_HOOK(pc, hooked_calloc,  orig_calloc,  "calloc");
-    TRY_HOOK(ps, hooked_msize,   orig_msize,   "_msize");
-    #undef TRY_HOOK
+    }
+    return orig_recalloc ? orig_recalloc(ptr, count, size) : nullptr;
+}
 
-    if (ok == 0) return false;
-    if (WO_EnableHook(MH_ALL_HOOKS) != MH_OK) return false;
-    Log("Allocator hooks: %d/%d active", ok, total);
+// Redirect WoW's STATIC MSVCRT allocator to mimalloc. WoW links its CRT statically,
+// so these are the real allocation entry points (the old hook targeted the dynamic
+// CRT exports WoW barely uses -> cross-heap corruption on the boundary). All six are
+// a closed set: _malloc/_free are a matched pair and operator new/delete route through
+// them. We create all six first (CreateHook does not redirect), then QUEUE + apply in
+// one MH_ApplyQueued so they activate ATOMICALLY -- no window where malloc is redirected
+// but free isn't, which would free a mimalloc block on the original heap. Blocks
+// allocated before activation are detected by mi_is_in_heap_region on every
+// free/realloc/_msize/_recalloc and routed back to the original CRT.
+static bool InstallAllocatorHooks() {
+    struct AllocHook { void* addr; void* hook; void** orig; const char* name; };
+    static const AllocHook hooks[] = {
+        { (void*)0x00415074, (void*)hooked_malloc,   (void**)&orig_malloc,   "malloc"    },
+        { (void*)0x00412FC7, (void*)hooked_free,     (void**)&orig_free,     "free"      },
+        { (void*)0x00416A95, (void*)hooked_realloc,  (void**)&orig_realloc,  "realloc"   },
+        { (void*)0x00416A56, (void*)hooked_calloc,   (void**)&orig_calloc,   "calloc"    },
+        { (void*)0x004112F8, (void*)hooked_msize,    (void**)&orig_msize,    "_msize"    },
+        { (void*)0x00416CB0, (void*)hooked_recalloc, (void**)&orig_recalloc, "_recalloc" },
+    };
+    const int N = (int)(sizeof(hooks) / sizeof(hooks[0]));
+
+    // Phase 1: create all trampolines (no redirection happens yet).
+    for (int i = 0; i < N; i++) {
+        if (WineSafe_CreateHook(hooks[i].addr, hooks[i].hook, hooks[i].orig) != MH_OK) {
+            Log("[Allocator] CreateHook %s @0x%08X FAILED -- ABORTING (a partial set corrupts)",
+                hooks[i].name, (uintptr_t)hooks[i].addr);
+            for (int j = 0; j < i; j++) MH_RemoveHook(hooks[j].addr);  // undo, stay on stock CRT
+            return false;
+        }
+    }
+    // Phase 2: queue all, then activate in a single atomic apply.
+    for (int i = 0; i < N; i++) {
+        if (MH_QueueEnableHook(hooks[i].addr) != MH_OK) {
+            Log("[Allocator] QueueEnable %s FAILED -- ABORTING", hooks[i].name);
+            for (int j = 0; j < N; j++) MH_RemoveHook(hooks[j].addr);
+            return false;
+        }
+    }
+    if (MH_ApplyQueued() != MH_OK) {
+        Log("[Allocator] ApplyQueued FAILED -- ABORTING");
+        for (int i = 0; i < N; i++) MH_RemoveHook(hooks[i].addr);
+        return false;
+    }
+    Log("[Allocator] ACTIVE: WoW static CRT malloc/free/realloc/calloc/_msize/_recalloc "
+        "-> mimalloc (atomic activation, is_in_heap_region transition guard)");
     return true;
 }
 
@@ -5491,12 +5519,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     g_nextMiCollectTick = 0;
 
     Log("--- Memory Allocator ---");
-    // DISABLED: mimalloc allocator hooks cause corrupted function pointers
-    // during login initialization. WoW expects CRT heap layout with specific
-    // internal structure; mimalloc returns differently-layouted memory causing
-    // ACCESS_VIOLATION at unknown addresses (e.g. 0x1618D830)
-    bool allocOk = false; // InstallAllocatorHooks();
-    Log("[Allocator] DISABLED: mimalloc causes corrupted pointers during login");
+#if !TEST_DISABLE_ALLOCATOR_REDIRECT
+    // Redirect WoW's STATIC CRT allocator to mimalloc to defragment the 32-bit VA
+    // space (the prior failure hooked the dynamic CRT exports WoW doesn't use; see
+    // InstallAllocatorHooks). Closed set, atomic activation, transition-guarded.
+    bool allocOk = InstallAllocatorHooks();
+    if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
+#else
+    bool allocOk = false;
+    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT");
+#endif
 
     Log("--- Frame Pacing ---");
     bool sleepOk = InstallSleepHook();
