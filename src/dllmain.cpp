@@ -5777,12 +5777,25 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool getStrInlineOk = InstallLuaGetStrInline();
 
     Log("--- lua_toboolean Inline Optimization ---");
-    bool tobooleanOk = InstallLuaTobooleanInline();
+    // DISABLED: the hook returned 1 for boolean `false`. The real lua_toboolean
+    // (0x84E0B0) returns `v3 && (v3 != 1 || *v2)` -> 0 for false; the hook dropped
+    // that term so every C-side truthiness check on `false` flipped to true. It also
+    // wrote taint globals the engine function never touches, spuriously tainting
+    // secure actions (blocked action buttons / keybinds). Inlining a 4-instruction
+    // function is not worth the risk.
+    bool tobooleanOk = false;
+    Log("[LuaTBool] DISABLED (returned true for boolean false + spurious taint write)");
     CrashDumper::RegisterFeature("LuaTBoolean");
     CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
 
     Log("--- lua_objlen Inline Optimization ---");
-    bool objlenOk = InstallLuaObjLenInline();
+    // DISABLED: 0x84E1C0 is lua_touserdata, NOT lua_objlen (verified: returns the
+    // userdata pointer for tt 2/7, else 0; pushes nothing). The hook, when probed on
+    // a table, PUSHED a number onto the Lua stack and returned 1 -> stack corruption
+    // plus a bogus non-NULL "userdata pointer" handed to C callers. Misidentified
+    // target, catastrophic; the engine function is left intact.
+    bool objlenOk = false;
+    Log("[LuaObjLen] DISABLED (0x84E1C0 is lua_touserdata, not lua_objlen; stack corruption)");
 
     Log("--- lua_rawgeti Inline Optimization ---");
 #if TEST_DISABLE_RAWGETI_INLINE
