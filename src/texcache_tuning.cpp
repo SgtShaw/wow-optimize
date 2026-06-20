@@ -54,13 +54,22 @@ static int g_targetBytes = TARGET_2GB_BYTES;
 
 static bool g_logged = false;
 
-// True when the OS hands this 32-bit process >2GB of user address space, i.e.
-// /3GB / increaseuserva is in effect. lpMaximumApplicationAddress is ~0x7FFEFFFF
-// at 2GB and ~0xBFFEFFFF at 3GB.
+// True when the OS hands this 32-bit process >2GB of usable user address space.
+// lpMaximumApplicationAddress alone is not reliable: it can report a high
+// architectural ceiling (~0xBFFEFFFF/0xFFFEFFFF) that the process cannot actually
+// map -- a tester's log showed this field reading high while a real reservation at
+// 0x80000000 failed and the client ran out of VA at ~2GB. Over-budgeting resident
+// textures there enlarges the working set Windows trims on a world transition, so
+// faulting it back stalls the main thread. Gate on the cheap field, then CONFIRM
+// with a real reservation in the >2GB region (matches the MEMORY_OPT probe).
 static bool Has3GBUserVA() {
     SYSTEM_INFO si;
     GetSystemInfo(&si);
-    return (uintptr_t)si.lpMaximumApplicationAddress > 0x80000000;
+    if ((uintptr_t)si.lpMaximumApplicationAddress <= 0x80000000) return false;
+    void* probe = VirtualAlloc((void*)0x80000000, 0x10000, MEM_RESERVE, PAGE_NOACCESS);
+    if (!probe) return false;
+    VirtualFree(probe, 0, MEM_RELEASE);
+    return true;
 }
 
 static void RaiseBudget() {
