@@ -158,6 +158,7 @@ add_library(wow_optimize SHARED
     src/lua_getstr_inline.cpp
     src/lua_rawgeti_inline.cpp
     src/lua_toboolean_inline.cpp
+    src/lua_objlen_inline.cpp
     src/lua_getstr_inline.h
     src/lua_toboolean_inline.h
     src/lua_gettable_safety.cpp

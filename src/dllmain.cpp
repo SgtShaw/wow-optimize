@@ -53,6 +53,7 @@
 #include "lua_getstr_inline.h"
 #include "lua_rawgeti_inline.h"
 #include "lua_toboolean_inline.h"
+#include "lua_objlen_inline.h"
 #include "hooks_memory.h"
 #include "data_caches.h"
 #include "compute_caches.h"
@@ -5761,6 +5762,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tobooleanOk = InstallLuaTobooleanInline();
     CrashDumper::RegisterFeature("LuaTBoolean");
     CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
+
+    Log("--- lua_objlen Inline Optimization ---");
+    bool objlenOk = InstallLuaObjLenInline();
 
     Log("--- lua_rawgeti Inline Optimization ---");
 #if TEST_DISABLE_RAWGETI_INLINE

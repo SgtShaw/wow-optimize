@@ -755,16 +755,20 @@ static void StepGC(lua_State* L, double frameMs) {
         return;
     }
 
-    // Skip GC for first 30 frames after entering loading mode
-    // Zone transitions are fragile - Lua VM is in transitional state
+    // During loading screens, the Sleep hook may not fire for seconds, so the
+    // per-frame GC step misses entirely. When it does fire, burst-step several
+    // times at the loading interval to catch up — this prevents the post-load
+    // freeze spike when the world first renders and triggers a forced collection.
     if (Config.isLoading) {
-        if (g_loadingGraceFrames < 30) {
-            g_loadingGraceFrames++;
-            ResetAllocCounter();
-            return;
+        int stepKB = Config.loadingStepKB;
+        if (stepKB > 1024) stepKB = 1024;
+        for (int burst = 0; burst < 4; burst++) {
+            __try {
+                Api.lua_gc(L, LUA_GCSTEP, stepKB);
+                State.gcStepsTotal++;
+            } __except(EXCEPTION_EXECUTE_HANDLER) { break; }
         }
-    } else {
-        g_loadingGraceFrames = 0;
+        return;
     }
 
     if (g_gcPerfFreq.QuadPart == 0) {
