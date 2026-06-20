@@ -194,6 +194,13 @@
 // Set to 1 to revert to original FPU scalar implementation.
 #define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
 
+// SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
+// mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
+// (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
+// replicates each function's guard exactly. Pointer-validated + SEH-guarded with
+// fallback to the original. Set to 1 to revert to the FPU scalar implementation.
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
+
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
