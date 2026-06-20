@@ -201,6 +201,12 @@
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
 #define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
 
+// SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
+// in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
+// shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
+// SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
+#define TEST_DISABLE_MATRIX_EXT_SSE2     0
+
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.

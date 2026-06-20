@@ -283,6 +283,77 @@ static void __fastcall Hooked_Vec3NormSafe(float* self, void* edx) {
 #endif
 
 // ================================================================
+// sub_4C23D0: CMatrix::Transpose  out = transpose(this)  __thiscall(this, out)
+// ================================================================
+// Pure data movement (16 scalar fld/fstp in the original). _MM_TRANSPOSE4_PS is
+// bit-identical -- no arithmetic -- and loads all four rows before storing, so it
+// is also safe when out aliases this (the scalar original is not).
+//
+// sub_4C2300: 3D point * 4x4 matrix, written to BOTH a2 (in place) and a1.
+// __cdecl(a1_out, a2_point_inout, a3_matrix). Identical products to MatVec3Mul
+// (already shipped against sub_4C21B0); only the accumulation order differs.
+#if !TEST_DISABLE_MATRIX_EXT_SSE2
+typedef float* (__fastcall* MatTranspose_t)(float* self, void* edx, float* out);
+static MatTranspose_t pOrigMatTranspose = nullptr;
+static volatile long g_mattranspose_calls = 0;
+
+static float* __fastcall Hooked_MatTranspose(float* self, void* edx, float* out) {
+    ++g_mattranspose_calls;
+    uintptr_t s = (uintptr_t)self, o = (uintptr_t)out;
+    if (s > 0x10000 && s < 0xBFFF0000 && o > 0x10000 && o < 0xBFFF0000) {
+        __try {
+            __m128 r0 = _mm_loadu_ps(self);
+            __m128 r1 = _mm_loadu_ps(self + 4);
+            __m128 r2 = _mm_loadu_ps(self + 8);
+            __m128 r3 = _mm_loadu_ps(self + 12);
+            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+            _mm_storeu_ps(out + 0,  r0);
+            _mm_storeu_ps(out + 4,  r1);
+            _mm_storeu_ps(out + 8,  r2);
+            _mm_storeu_ps(out + 12, r3);
+            return out;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigMatTranspose(self, edx, out);
+}
+
+typedef float* (__cdecl* PointXformIP_t)(float* a1, float* a2, float* a3);
+static PointXformIP_t pOrigPointXformIP = nullptr;
+static volatile long g_pointxformip_calls = 0;
+
+static float* __cdecl Hooked_PointXformInPlace(float* a1, float* a2, float* a3) {
+    ++g_pointxformip_calls;
+    uintptr_t p1 = (uintptr_t)a1, p2 = (uintptr_t)a2, p3 = (uintptr_t)a3;
+    if (p1 > 0x10000 && p1 < 0xBFFF0000 &&
+        p2 > 0x10000 && p2 < 0xBFFF0000 &&
+        p3 > 0x10000 && p3 < 0xBFFF0000) {
+        __try {
+            // Read the point fully before writing -> safe for a1 aliasing a2.
+            __m128 vx = _mm_set1_ps(a2[0]);
+            __m128 vy = _mm_set1_ps(a2[1]);
+            __m128 vz = _mm_set1_ps(a2[2]);
+            __m128 col0 = _mm_loadu_ps(a3);
+            __m128 col1 = _mm_loadu_ps(a3 + 4);
+            __m128 col2 = _mm_loadu_ps(a3 + 8);
+            __m128 col3 = _mm_loadu_ps(a3 + 12);
+            __m128 res = _mm_add_ps(_mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
+                                    _mm_add_ps(_mm_mul_ps(vz, col2), col3));
+            float rx, ry, rz;
+            _mm_store_ss(&rx, res);
+            _mm_store_ss(&ry, _mm_shuffle_ps(res, res, _MM_SHUFFLE(1, 1, 1, 1)));
+            _mm_store_ss(&rz, _mm_shuffle_ps(res, res, _MM_SHUFFLE(2, 2, 2, 2)));
+            a2[0] = rx; a2[1] = ry; a2[2] = rz;   // in-place result
+            a1[0] = rx; a1[1] = ry; a1[2] = rz;   // and the output copy
+            return a1;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigPointXformIP(a1, a2, a3);
+}
+#endif
+
+// ================================================================
 // Install hooks
 // ================================================================
 bool InstallMatrixCopySSE2() {
@@ -365,6 +436,26 @@ bool InstallMatrixCopySSE2() {
     Log("[MatrixSSE2] Vector-Normalize hooks DISABLED via feature flag");
 #endif
 
+#if !TEST_DISABLE_MATRIX_EXT_SSE2
+    if (WineSafe_CreateHook((void*)0x004C23D0, (void*)Hooked_MatTranspose,
+                            (void**)&pOrigMatTranspose) == MH_OK &&
+        WO_EnableHook((void*)0x004C23D0) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::Transpose at 0x004C23D0 (SSE2 _MM_TRANSPOSE4_PS)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::Transpose hook FAILED");
+    }
+
+    if (WineSafe_CreateHook((void*)0x004C2300, (void*)Hooked_PointXformInPlace,
+                            (void**)&pOrigPointXformIP) == MH_OK &&
+        WO_EnableHook((void*)0x004C2300) == MH_OK) {
+        Log("[MatrixSSE2] Hooked PointTransformInPlace at 0x004C2300 (SSE2, 65 callers)");
+    } else {
+        Log("[MatrixSSE2] PointTransformInPlace hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] Matrix-Ext hooks DISABLED via feature flag");
+#endif
+
     return installed == (int)(sizeof(hooks) / sizeof(hooks[0]));
 }
 
@@ -385,6 +476,11 @@ void ShutdownMatrixCopySSE2() {
     MH_DisableHook((void*)0x004C3420);
     MH_DisableHook((void*)0x004C3600);
     Log("[MatrixSSE2] Stats: Vec3Normalize=%ld", g_vec3norm_calls);
+#endif
+#if !TEST_DISABLE_MATRIX_EXT_SSE2
+    MH_DisableHook((void*)0x004C23D0);
+    MH_DisableHook((void*)0x004C2300);
+    Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld", g_mattranspose_calls, g_pointxformip_calls);
 #endif
 
     Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld  MatVec3=%ld  MatVec4=%ld",
