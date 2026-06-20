@@ -50,7 +50,14 @@
 // heap on the 32-bit VA. Active only for GetProcessHeap(); other heaps are
 // untouched. Uses the same mi_is_in_heap_region guard as the CRT redirect.
 // ENABLED by default; set to 1 to revert to stock process heap.
-#define TEST_DISABLE_HEAP_REDIRECT        0
+// TEMPORARILY DISABLED: silent exit within seconds of launch. The mi_malloc
+// pointers returned by hooked_HeapAlloc are not valid process-heap blocks,
+// and Win32 APIs that internally HeapValidate/HeapWalk/HeapSize on them
+// detect corruption → CRT abort() → silent exit. Needs a redesign: either
+// use a private mimalloc heap that masquerades as the process heap, or
+// only redirect allocations above a size threshold where win32 internals
+// don't track pointers.
+#define TEST_DISABLE_HEAP_REDIRECT        1
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
