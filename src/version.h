@@ -44,6 +44,14 @@
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
 #define TEST_DISABLE_ALLOCATOR_REDIRECT 0
 
+// Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
+// Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
+// bypass CRT malloc entirely and would otherwise fragment the stock process
+// heap on the 32-bit VA. Active only for GetProcessHeap(); other heaps are
+// untouched. Uses the same mi_is_in_heap_region guard as the CRT redirect.
+// ENABLED by default; set to 1 to revert to stock process heap.
+#define TEST_DISABLE_HEAP_REDIRECT        0
+
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
 #define TEST_DISABLE_PHASE2_WRITES      1

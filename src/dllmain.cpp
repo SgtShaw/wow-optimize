@@ -2175,11 +2175,17 @@ static bool InstallHeapRedirectToMimalloc() {
     p = (void*)GetProcAddress(hK32, "HeapSize");
     if (p && MH_CreateHook(p, (void*)hooked_HeapSize, (void**)&orig_HeapSize) == MH_OK) ok++;
 
-    if (ok > 0) {
-        WO_EnableHook(MH_ALL_HOOKS);
-        Log("Heap redirect: ACTIVE (%d/4 hooks, process heap -> mimalloc)", ok);
+    if (ok == 4) {
+        // Enable individually through WO_EnableHook so they batch with the rest of
+        // MainThread's init sequence instead of flushing the queue prematurely.
+        WO_EnableHook((void*)GetProcAddress(hK32, "HeapAlloc"));
+        WO_EnableHook((void*)GetProcAddress(hK32, "HeapFree"));
+        WO_EnableHook((void*)GetProcAddress(hK32, "HeapReAlloc"));
+        WO_EnableHook((void*)GetProcAddress(hK32, "HeapSize"));
+        Log("Heap redirect: ACTIVE (4/4 hooks, process heap -> mimalloc)");
         return true;
     }
+    Log("Heap redirect: FAILED (%d/4 hooks installed)", ok);
     return false;
 }
 
@@ -3248,16 +3254,17 @@ static void ConfigureMimalloc() {
     // Commits entire arena at once instead of page-by-page
     mi_option_set(mi_option_arena_eager_commit, 1);
 
-    // Return freed arenas to the OS after a short idle delay. This was -1
-    // (never purge) to keep freed pages mapped so the mimalloc-backed Lua
-    // allocator could not hand back a reused address for a cached Node*/TString*.
-    // That allocator is now DISABLED -- Lua objects live in WoW's own pool, so
-    // mimalloc never holds game data -- and never-purging only let mimalloc's
-    // reserved VA grow without bound across a session, which on 32-bit (HD
-    // clients + heavy addons) contributed to VA exhaustion and NULL-alloc
-    // crashes on relog. 100ms keeps a comfortable window for any transient
-    // reuse while still handing memory back. Multi-client tightens this further.
-    mi_option_set(mi_option_purge_delay, 100);
+    // Return freed arenas to the OS after 25ms idle. Now that mimalloc backs
+    // WoW's ENTIRE heap (static CRT allocator redirect), the 32-bit VA is the
+    // critical resource — every stranded freed segment is VA the process can't
+    // use for the next allocation. 25ms is aggressive but still catches the
+    // "allocate, use, free within one frame" pattern (16.6ms at 60fps); a
+    // longer window only accumulates dead pages on a VA-tight client, visibly
+    // fragmenting LargestFreeBlock. On a 64-bit build this wouldn't matter, but
+    // 32-bit with HD MPQs + addons runs at 2GB with no headroom. Decommit
+    // (MEM_DECOMMIT) returns physical pages immediately without releasing VA,
+    // keeping the address slot reserved for mimalloc's arena reuse.
+    mi_option_set(mi_option_purge_delay, 25);
 
     // v3.3.x: use decommit (MEM_DECOMMIT) rather than reset (MEM_RESET)
     // Decommit releases physical memory immediately, reducing RSS pressure
@@ -3287,18 +3294,17 @@ static void ConfigureMimalloc() {
 
 static void AdjustMimallocForMultiClient() {
     if (g_isMultiClient) {
-        // The mimalloc-backed Lua/CRT allocator is DISABLED, so mimalloc only
-        // manages this DLL's own footprint (worker queues, caches) -- it never
-        // holds WoW's MPQ/Lua memory and cannot free WoW's VA. A 10ms decommit
-        // delay therefore did not relieve the 32-bit exhaustion it claimed to;
-        // it only thrashed our own pages (decommit -> immediate re-fault).
-        // Match the single-client 100ms delay and just run one collection to
-        // hand back the startup pre-warm. The real multi-client VA fix is
-        // user-side: bcdedit /set increaseuserva 3072.
-        mi_option_set(mi_option_purge_delay, 100);
+        // Multi-client doubles the VA pressure: every client carries its own
+        // MPQ data, world LOD, and addon Lua state. The allocator redirect now
+        // makes mimalloc the single heap for EVERYTHING WoW allocates, so the
+        // single-client 25ms purge is still appropriate — it returns freed
+        // segments to the OS fast. The only multi-client adjustment is a one-time
+        // forced collect to hand back the pre-warm (32MB + 23 seed batches) which
+        // is pure startup waste on the 2nd+ client. The real fix remains user-side
+        // bcdedit /set increaseuserva 3072 for 3GB VA.
         mi_option_set(mi_option_purge_decommits, 1);
         mi_collect(true);
-        Log("mimalloc: multi-client mode (100ms purge, decommit, one-time collect)");
+        Log("mimalloc: multi-client mode (25ms purge, decommit, one-time collect)");
     }
 }
 
@@ -5372,8 +5378,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     GetSystemInfo(&g_cachedSysInfo);
     g_sysInfoCached = true;
 
-    Sleep(5000);
-
+    // --- Early allocator redirect ---
+    // Install mimalloc BEFORE the 5s Sleep so it captures EVERY allocation during
+    // login/world-load (MPQ data, world LOD assets, UI setup) — that's precisely
+    // where the LargestBlock=14MB fragmentation comes from. The old sequence
+    // waited 5s then installed, missing the entire early-init allocation stream.
     LogOpen();
     Log("========================================");
     Log("  wow_optimize.dll v%s BY %s", WOW_OPTIMIZE_VERSION_STR, WOW_OPTIMIZE_AUTHOR);
@@ -5392,6 +5401,31 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     if (MH_Initialize() != MH_OK) { Log("FATAL: MinHook initialization failed"); LogClose(); return 1; }
     Log("MinHook initialized");
+
+    ConfigureMimalloc();
+    TryEnableLargePages();
+    g_nextStatsDumpTick = 0;
+    g_nextMiCollectTick = 0;
+
+    Log("--- Memory Allocator (early, pre-load) ---");
+#if !TEST_DISABLE_ALLOCATOR_REDIRECT
+    // Redirect WoW's STATIC CRT allocator to mimalloc to defragment the 32-bit VA
+    // space (the prior failure hooked the dynamic CRT exports WoW doesn't use; see
+    // InstallAllocatorHooks). Closed set, atomic activation, transition-guarded.
+    // Installed BEFORE the 5s Sleep so mimalloc backs the entire login + world-load
+    // allocation stream — all the MPQ data, world assets, and UI setup that dominate
+    // the startup VA footprint and cause the early-fragmentation wall.
+    bool allocOk = InstallAllocatorHooks();
+    if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
+#else
+    bool allocOk = false;
+    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT");
+#endif
+
+    // Now let WoW finish loading. With mimalloc already owning the heap, every
+    // allocation during this window stays in mimalloc's arena-managed VA — no
+    // SBH fragmentation, no scattered HeapAlloc regions, clean from the start.
+    Sleep(5000);
 
     // Batch every hook enable installed during this synchronous init into one
     // thread-freeze (applied just before "Initialization complete" below).
@@ -5513,23 +5547,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("TlsObjectCache");
     Log("[CrashDumper] Registered %d features for tracking", MAX_TRACKED_FEATURES);
 
-    ConfigureMimalloc();
-    TryEnableLargePages();
-    g_nextStatsDumpTick = 0;
-    g_nextMiCollectTick = 0;
-
-    Log("--- Memory Allocator ---");
-#if !TEST_DISABLE_ALLOCATOR_REDIRECT
-    // Redirect WoW's STATIC CRT allocator to mimalloc to defragment the 32-bit VA
-    // space (the prior failure hooked the dynamic CRT exports WoW doesn't use; see
-    // InstallAllocatorHooks). Closed set, atomic activation, transition-guarded.
-    bool allocOk = InstallAllocatorHooks();
-    if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
-#else
-    bool allocOk = false;
-    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT");
-#endif
-
     Log("--- Frame Pacing ---");
     bool sleepOk = InstallSleepHook();
     Log("--- Timer Precision ---");
@@ -5537,6 +5554,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tgtOk  = InstallTimeGetTimeHook();
     Log("--- Heap Optimization ---");
     bool heapOk = InstallHeapOptimization();
+#if !TEST_DISABLE_HEAP_REDIRECT
+    Log("--- Process Heap Redirect ---");
+    bool heapRedirectOk = InstallHeapRedirectToMimalloc();
+    if (!heapRedirectOk) Log("[HeapRedirect] install failed -- process heap stays stock");
+#else
+    Log("[HeapRedirect] DISABLED via TEST_DISABLE_HEAP_REDIRECT");
+#endif
     Log("--- Lock Contention Tuning ---");
     InstallLockTuning();   // self-logs; spin counts are best-effort
     Log("--- Texture Cache Budget ---");
