@@ -2267,7 +2267,7 @@ static bool InstallCompareStringHook() {
 typedef DWORD (WINAPI* GetFileAttributesA_fn)(LPCSTR);
 static GetFileAttributesA_fn orig_GetFileAttributesA = nullptr;
 
-static constexpr int FILE_ATTR_CACHE_SIZE = 4096;
+static constexpr int FILE_ATTR_CACHE_SIZE = 16384;
 static constexpr int FILE_ATTR_CACHE_MASK = FILE_ATTR_CACHE_SIZE - 1;
 
 struct FileAttrEntry {
