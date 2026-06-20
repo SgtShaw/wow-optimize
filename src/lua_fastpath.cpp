@@ -1568,14 +1568,40 @@ static int __cdecl Hooked_StrReverse(lua_State* L) {
     const char* s = lua_tolstring_(L, 1, &sLen);
     if (!s || sLen == 0 || sLen > 4096) return orig_str_reverse(L);
 
-    char buf[4097];
+    // Check for embedded NULs (we cannot reverse them correctly)
     for (size_t i = 0; i < sLen; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (c == 0) return orig_str_reverse(L);
-        buf[sLen - 1 - i] = (char)c;
+        if (s[i] == '\0') return orig_str_reverse(L);
     }
-    buf[sLen] = '\0';
 
+    // SSE2 byte-swap: reverse 16 bytes at a time with _mm_shuffle_epi8.
+    // For shorts strings (<16B) use the scalar path; for longer ones the
+    // SSE2 path halves the instruction count.
+    char buf[4097];
+    size_t i = 0;
+
+    if (sLen >= 16) {
+        // Pre-build the byte-reversal shuffle mask once.
+        // _mm_set_epi8(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15) reverses.
+        __m128i revMask = _mm_set_epi8(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15);
+
+        while (i + 16 <= sLen) {
+            // Load 16 bytes in order: [b0..b15]
+            __m128i v = _mm_loadu_si128((const __m128i*)(s + i));
+            // Reverse: [b15..b0]
+            v = _mm_shuffle_epi8(v, revMask);
+            // Store at mirrored destination
+            size_t dstOff = sLen - i - 16;
+            _mm_storeu_si128((__m128i*)(buf + dstOff), v);
+            i += 16;
+        }
+    }
+    // Scalar tail for remaining bytes
+    while (i < sLen) {
+        buf[sLen - 1 - i] = s[i];
+        i++;
+    }
+
+    buf[sLen] = '\0';
     lua_pushstring_(L, buf);
     g_strlowerHits++; // reuse lower hits stat
     return 1;

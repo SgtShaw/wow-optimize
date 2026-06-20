@@ -89,6 +89,16 @@ static void RaiseBudget() {
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+void TexCache_SetBudget(int bytes) {
+    __try {
+        *TEXCACHE_BUDGET = bytes;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
+int TexCache_GetConfiguredTarget() {
+    return g_targetBytes;
+}
+
 void InitTexCacheTuning() {
     if (g_isMultiClient) {
         Log("[TexCache] Budget tuning OFF (multi-client: preserve stock budget for VA headroom)");

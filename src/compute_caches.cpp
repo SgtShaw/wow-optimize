@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // compute_caches.cpp — 10 compute/transform acceleration caches
 // ================================================================
 // 1. BZ2 Decompression SSE2 (MTF + prefetch)
@@ -526,6 +526,19 @@ void MixerCache_Put(uint32_t configHash, uint32_t sampleRate, uint32_t channels,
 // ================================================================
 // INSTALL / SHUTDOWN
 // ================================================================
+
+void ClearAllComputeCaches() {
+    memset(g_bz2Cache,          0, sizeof(g_bz2Cache));
+    memset(g_itCodecCache,      0, sizeof(g_itCodecCache));
+    memset(g_renderStateValid,  0, sizeof(g_renderStateValid));
+    memset(g_currentRenderStates, 0, sizeof(g_currentRenderStates));
+    memset(g_fsDispatchCache,   0, sizeof(g_fsDispatchCache));
+    memset(g_m2PrepareCache,    0, sizeof(g_m2PrepareCache));
+    memset(g_spellBatch,        0, sizeof(g_spellBatch));
+    memset(g_regexExtCache,     0, sizeof(g_regexExtCache));
+    memset(g_mixerCache,        0, sizeof(g_mixerCache));
+    g_spellBatchCount = 0;
+}
 
 bool InitComputeCaches() {
     // Clear all caches

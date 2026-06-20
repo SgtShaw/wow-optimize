@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // data_caches.cpp — 9 game-data lookup and processing caches
 // (DBC lookup moved to separate dbc_lookup_cache.cpp)
 // ================================================================
@@ -482,6 +482,17 @@ bool InitDataCaches() {
     Log("  [9] Texture Decode Prefetch (L1/L2 hints)");
 
     return true;
+}
+
+void ClearAllDataCaches() {
+    memset(g_spellCache, 0, sizeof(g_spellCache));
+    memset(g_modelCache, 0, sizeof(g_modelCache));
+    memset(g_audioCache, 0, sizeof(g_audioCache));
+    memset(g_fsCache,   0, sizeof(g_fsCache));
+    memset(g_strL2,     0, sizeof(g_strL2));
+    memset(g_cleBloom,  0, sizeof(g_cleBloom));
+    g_rsBatchCount = 0;
+    StrL2_Invalidate();  // bump generation so any live consumers see stale entries
 }
 
 void ShutdownDataCaches() {

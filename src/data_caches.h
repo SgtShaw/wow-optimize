@@ -33,6 +33,8 @@ void StrL2_Invalidate();
 void CombatLogDedup_NewFrame();
 bool CombatLogDedup_IsDuplicate(uint64_t eventFingerprint);
 
+void ClearAllDataCaches();  // zeroes all 9 data cache arrays
+
 // 9. Render State Batch
 struct RenderStateBatch { uint32_t state; uint32_t value; };
 bool RenderStateBatch_Add(uint32_t state, uint32_t value);

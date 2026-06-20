@@ -80,6 +80,10 @@ struct SafeGetStrEntry {
 
 static SafeGetStrEntry g_cache[CACHE_SIZE];
 
+void InvalidateLuaGetStrInlineCache() {
+    memset(g_cache, 0, sizeof(g_cache));
+}
+
 // ----------------------------------------------------------------
 // Nil object sentinel (returned when key not found)
 // Located at 0xA46F78 in WoW 3.3.5a

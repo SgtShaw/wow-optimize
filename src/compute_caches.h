@@ -41,6 +41,8 @@ int SpellBatch_Flush(SpellBatchEntry* outBatch);
 uintptr_t RegexExtCache_Get(uint64_t patternHash, uint32_t* size);
 void RegexExtCache_Put(uint64_t patternHash, uintptr_t compiledPtr, uint32_t compiledSize);
 
+void ClearAllComputeCaches();  // zeroes all 10 compute cache arrays
+
 // 10. Audio Mixer Cache
 bool MixerCache_Get(uint32_t configHash, uint32_t* sampleRate, uint32_t* channels, uint32_t* bufLen);
 void MixerCache_Put(uint32_t configHash, uint32_t sampleRate, uint32_t channels, uint32_t bufLen);

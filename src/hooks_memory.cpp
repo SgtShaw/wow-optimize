@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // hooks_memory.cpp — Memory & Caching Enhancements
 // ================================================================
 // 1. Cache-line Alignment (64-byte) — aligned allocator for hot structs
@@ -430,4 +430,8 @@ void ShutdownMemoryHooks(void) {
         g_guidLookups, g_guidHits,
         g_guidLookups ? 100.0 * g_guidHits / g_guidLookups : 0.0,
         g_guidEvictions, g_guidStaleCheck);
+}
+
+void ClearGuidHashTable(void) {
+    memset(g_guidCache, 0, sizeof(g_guidCache));
 }

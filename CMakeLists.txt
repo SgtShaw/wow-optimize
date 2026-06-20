@@ -135,6 +135,8 @@ add_library(wow_optimize SHARED
     src/format_validator_cache.h
     src/heap_compactor.cpp
     src/heap_compactor.h
+    src/memory_pressure_governor.cpp
+    src/memory_pressure_governor.h
     src/lua_tonumber_fast.cpp
     src/lua_pushnumber_fast.cpp
     src/gettime_fast.cpp

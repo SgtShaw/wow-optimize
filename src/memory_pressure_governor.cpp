@@ -1,0 +1,154 @@
+// ================================================================
+// Memory-Pressure Governor — shed caches under critical VA pressure
+// ================================================================
+// Polls HeapCompactor_GetCachedLargestBlock() every frame (a cheap
+// atomic read of the last monitor sample), classifies the result into
+// 3 levels with hysteresis, and fires registered callbacks + trims
+// the resident-texture budget toward stock when VA fragments.
+// ================================================================
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <cstdint>
+#include <atomic>
+#include "memory_pressure_governor.h"
+#include "version.h"
+
+extern "C" void Log(const char* fmt, ...);
+extern "C" SIZE_T HeapCompactor_GetCachedLargestBlock();
+
+namespace PressureGovernor {
+
+// ---- thresholds (in MB) -----------------------------------------
+static constexpr SIZE_T YELLOW_ENTER = 48 * 1024 * 1024;   // 48 MB
+static constexpr SIZE_T YELLOW_EXIT  = 64 * 1024 * 1024;   // 64 MB
+static constexpr SIZE_T RED_ENTER    = 24 * 1024 * 1024;   // 24 MB
+static constexpr SIZE_T RED_EXIT     = 48 * 1024 * 1024;   // same as YELLOW_ENTER
+
+// Hysteresis: require N consecutive samples above/below threshold
+// before changing level, so a transient spike doesn't shed+cache
+// thrash. At 10 fps the Sleeping hook polls ≥60×/s, so 3 samples
+// is ≤50ms of hold-off.
+static constexpr int HYST_SAMPLES = 3;
+
+// ---- callback table ----------------------------------------------
+static constexpr int MAX_CALLBACKS = 16;
+
+struct CallbackEntry {
+    ShedCallback fn;
+    void*        ctx;
+};
+
+static CallbackEntry g_callbacks[MAX_CALLBACKS];
+static int           g_cbCount = 0;
+
+// ---- state ------------------------------------------------------
+static std::atomic<Level> g_level{PRESSURE_GREEN};
+static int                g_hystCount   = 0;
+static int                g_frameTick   = 0;
+static bool               g_active      = false;
+
+// ---- helpers -----------------------------------------------------
+static const char* LevelName(Level lv) {
+    switch (lv) {
+        case PRESSURE_GREEN:  return "GREEN";
+        case PRESSURE_YELLOW: return "YELLOW";
+        case PRESSURE_RED:    return "RED";
+        default:              return "?";
+    }
+}
+
+static void FireCallbacks(Level newLevel) {
+    for (int i = 0; i < g_cbCount; i++) {
+        if (g_callbacks[i].fn)
+            g_callbacks[i].fn(newLevel, g_callbacks[i].ctx);
+    }
+}
+
+// ---- public API --------------------------------------------------
+bool Init() {
+    for (int i = 0; i < MAX_CALLBACKS; i++) {
+        g_callbacks[i].fn  = nullptr;
+        g_callbacks[i].ctx = nullptr;
+    }
+    g_cbCount   = 0;
+    g_level     = PRESSURE_GREEN;
+    g_hystCount = 0;
+    g_frameTick = 0;
+    g_active    = true;
+    Log("[PressureGovernor] INIT (YELLOW<48MB, RED<24MB, hysteresis=%d samples)",
+        HYST_SAMPLES);
+    return true;
+}
+
+void Shutdown() {
+    g_active = false;
+    Log("[PressureGovernor] SHUTDOWN (final level=%s)", LevelName(g_level.load()));
+}
+
+Level GetLevel() { return g_level.load(); }
+
+bool RegisterShedCallback(ShedCallback cb, void* ctx) {
+    if (g_cbCount >= MAX_CALLBACKS) return false;
+    g_callbacks[g_cbCount].fn  = cb;
+    g_callbacks[g_cbCount].ctx = ctx;
+    g_cbCount++;
+    return true;
+}
+
+void OnFrame() {
+    if (!g_active) return;
+
+    // Throttle to ~10Hz so we're not reading the atomic + walking
+    // the callback list every frame when pressure is stable.
+    g_frameTick++;
+    if ((g_frameTick & 0x3) != 0) return;          // every 4th frame
+
+    SIZE_T freeBlock = HeapCompactor_GetCachedLargestBlock();
+    if (freeBlock == 0) return;                     // monitor not sampled yet
+
+    Level current = g_level.load();
+
+    // Hysteresis: accumulate consecutive samples in the target
+    // direction before firing the level change.
+    Level target = current;  // default: stay
+
+    if (freeBlock < RED_ENTER) {
+        target = PRESSURE_RED;
+    } else if (freeBlock < YELLOW_ENTER) {
+        if (current == PRESSURE_RED) {
+            // Exiting RED requires RED_EXIT (48MB)
+            target = (freeBlock >= RED_EXIT) ? PRESSURE_YELLOW : PRESSURE_RED;
+        } else {
+            target = PRESSURE_YELLOW;
+        }
+    } else {
+        // free ≥ YELLOW_ENTER
+        if (current == PRESSURE_YELLOW && freeBlock >= YELLOW_EXIT) {
+            target = PRESSURE_GREEN;
+        } else if (current == PRESSURE_RED) {
+            // Still climbing out of RED — need RED_EXIT first
+            target = (freeBlock >= RED_EXIT) ? PRESSURE_YELLOW : PRESSURE_RED;
+        } else {
+            target = PRESSURE_GREEN;
+        }
+    }
+
+    if (target != current) {
+        g_hystCount++;
+        if (g_hystCount >= HYST_SAMPLES) {
+            g_level.store(target);
+            Log("[PressureGovernor] %s -> %s (LargestFree=%uMB, samples=%d)",
+                LevelName(current), LevelName(target),
+                (unsigned)(freeBlock / (1024*1024)), g_hystCount);
+            FireCallbacks(target);
+            g_hystCount = 0;
+        }
+    } else {
+        g_hystCount = 0;  // reset if back to current level
+    }
+}
+
+} // namespace PressureGovernor

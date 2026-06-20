@@ -2,4 +2,4 @@
 
 bool InstallLuaGetStrInline();
 void UninstallLuaGetStrInline();
-void InvalidateLuaGetStrInlineCache();
+void InvalidateLuaGetStrInlineCache();  // zeroes the entire 16384-entry bucket cache

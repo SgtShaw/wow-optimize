@@ -8,6 +8,7 @@
 #include <emmintrin.h>
 #include "MinHook.h"
 #include "version.h"
+#include "crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -45,6 +46,7 @@ static memset_fn  orig_memset  = nullptr;
 // strlen - SSE2 null-terminator scan
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
+    CrashDumper::RecordHookCall("CRT_strlen", (uintptr_t)_ReturnAddress());
     CRT_ENTER();
     if (!s) { CRT_LEAVE(); goto fallback; }
     // Page-boundary guard: if within 16 bytes of 4KB boundary,
