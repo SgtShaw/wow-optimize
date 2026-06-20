@@ -862,6 +862,7 @@ extern "C" bool SSE2_IsSphereVisible(float x, float y, float z, float radius) {
     return true;
 }
 
+#if !TEST_DISABLE_PARTICLE_THROTTLE
 typedef int (__fastcall *SimulateParticle_t)(void* self, void* edx, int particle, float timeStep, float* transformMatrix);
 static SimulateParticle_t orig_SimulateParticle = nullptr;
 
@@ -883,6 +884,7 @@ static int __fastcall Hooked_SimulateParticle(void* self, void* edx, int particl
     }
     return orig_SimulateParticle(self, edx, particle, timeStep, transformMatrix);
 }
+#endif
 
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "

@@ -324,18 +324,36 @@
 #define TEST_DISABLE_NAMEPLATE_MT       0
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
-// RE-ENABLED: now uses smart dynamic event name checks and copies arguments safely
-#define TEST_DISABLE_EVENT_COALESCER    0
+// DISABLED again: suppresses whitelisted events and re-emits them a frame later from
+// the Sleep hook, which changes event timing/ordering and runs Lua handlers at an
+// unintended point in the frame. Unvalidated across the in-world -> glue teardown
+// where the char-switch crashes occur. Stability outranks the dedup win until a
+// tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20)
 #define TEST_DISABLE_NETWORK_GUID_SSE2  0
 
 // Particle simulation culling/throttling (CParticleEmitter::SimulateParticle at 0x00981D40)
-#define TEST_DISABLE_PARTICLE_THROTTLE  0
+// DISABLED: 0x981D40 is the particle SPAWN/INIT routine (writes lifespan at a2+0,
+// position at a2+4, velocity at a2+16). Skipping it and returning 0 leaves the new
+// particle's position/velocity/color uninitialized, so it renders as a garbage-
+// positioned, garbage-colored quad -> the colorful flashes over open terrain. It is
+// not a skippable per-frame advance, and its shared g_activeFrustum can be a
+// shadow/reflection frustum, throttling on-screen emitters too.
+#define TEST_DISABLE_PARTICLE_THROTTLE  1
 
 // SSE2 Vectorized luaS_newlstr Fast Path
-// O(1) string creation/lookup for alive strings
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
+// DISABLED: wrong dead-string offsets for WoW's Lua layout. Verified vs sub_856C80:
+// TString.marked is at +9 (not +5) and global_State.currentwhite is at +0x15 (not
+// +0x14). The hook's isdead/resurrection check ((~currentwhite & marked & 3)) was
+// reading garbage bytes, so it could return a content-matching TString the GC had
+// already marked dead -> the caller holds a dangling string after the sweep. That
+// surfaces as method-name lookups going nil ("SetDisabledFontObject (a nil value)"
+// on char-select) and use-after-free crashes/freezes during the GC-heavy lua_State
+// swap. Net-negative regardless (re-walks the chain the original walks again on a
+// miss -- the dominant case during load). See CONTEXT lessons 3, 4, 15, 16.
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
