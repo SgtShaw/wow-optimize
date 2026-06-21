@@ -65,42 +65,43 @@ void SSE2_MatrixMultiply(const float* __restrict a,
 // ================================================================
 // SIMD Utility: Quaternion Normalize (SSE2)
 // ================================================================
-// Replaces WoW's CQuaternion::Normalize (often called per-bone
-// in animation blends, 50+ bones per model x 20+ models per frame).
-// Uses SSE2 rsqrt approximation for ~3x throughput vs x87 sqrt.
+// Replaces WoW's CQuaternion::Normalize (sub_979110, called per-bone
+// in animation blends). Uses full-precision sqrtss+divss (IEEE
+// round-to-nearest) -- deliberately NOT _mm_rsqrt_ps, whose ~23-bit
+// approximation was the original source of NaN corruption. The engine
+// computes 1.0/sqrt(mag2) in x87 double precision then truncates to
+// float; sqrtss+divss matches to sub-ULP.
+//
+// Engine logic (verified via decompile):
+//   mag2 = x*x + y*y + z*z + w*w
+//   if (mag2 > 2^-22) { inv = 1.0/sqrt(mag2); q *= inv; }
+//   else leave unchanged.
+
+// 2^-22 == 0.00000023841858, the engine's near-zero magnitude cutoff.
+static const float kQuatNormEps = 0.00000023841858f;
 
 void SSE2_QuatNormalize(float* __restrict q) {
     __m128 v = _mm_loadu_ps(q); // x, y, z, w
-    __m128 dot = _mm_mul_ps(v, v);
+    __m128 sq = _mm_mul_ps(v, v);
 
-    // Horizontal sum broadcast to ALL lanes. SSE2 has no _mm_hadd_ps, so do a
-    // two-step shuffle+add. Both steps must fold across the full register or some
-    // lanes hold a partial sum (the earlier _MM_SHUFFLE(1,1,1,1) form left lanes
-    // 0/1 at 2*(x^2+y^2), mis-scaling x and y).
-    __m128 shuf = _mm_shuffle_ps(dot, dot, _MM_SHUFFLE(2,3,0,1));   // [y2, x2, w2, z2]
-    __m128 sum1 = _mm_add_ps(dot, shuf);                            // [x2+y2, x2+y2, z2+w2, z2+w2]
-    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1,0,3,2));// [z2+w2, z2+w2, x2+y2, x2+y2]
-    __m128 sum2 = _mm_add_ps(sum1, shuf2);                          // full sum in every lane
+    // Horizontal sum: x^2+y^2+z^2+w^2 in lane 0.
+    // Two-step shuffle+add folds all four lanes correctly.
+    __m128 shuf = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(2,3,0,1));
+    __m128 sum1 = _mm_add_ps(sq, shuf);
+    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1,0,3,2));
+    __m128 mag2 = _mm_add_ps(sum1, shuf2);  // full sum in every lane
 
-    // Match the engine's guard: a near-zero magnitude quaternion is left
-    // unchanged (the original sub_979110 only normalizes when mag^2 > 2^-22).
-    // Without this, rsqrt(0)=Inf and the Newton step yields NaN, poisoning the
-    // bone/transform pipeline.
-    float mag2;
-    _mm_store_ss(&mag2, sum2);
-    if (mag2 <= 0.00000023841858f) {
-        return;
-    }
+    // Guard: leave degenerate quaternions unchanged (matches engine exactly).
+    float m;
+    _mm_store_ss(&m, mag2);
+    if (!(m > kQuatNormEps)) return;
 
-    // rsqrt approximation + one Newton-Raphson iteration (~23-bit accuracy)
-    __m128 rlen = _mm_rsqrt_ps(sum2);
-    __m128 half = _mm_set1_ps(0.5f);
-    __m128 three = _mm_set1_ps(3.0f);
-    __m128 rlen2 = _mm_mul_ps(sum2, _mm_mul_ps(rlen, rlen));
-    rlen = _mm_mul_ps(_mm_mul_ps(half, rlen), _mm_sub_ps(three, rlen2));
+    // Full-precision reciprocal square root via sqrtss + divss.
+    // Only lane 0 matters; broadcast the scalar result to all lanes.
+    __m128 inv = _mm_div_ss(_mm_set_ss(1.0f), _mm_sqrt_ss(mag2));
+    __m128 invb = _mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0,0,0,0));
 
-    // Multiply quaternion components by reciprocal length
-    v = _mm_mul_ps(v, rlen);
+    v = _mm_mul_ps(v, invb);
     _mm_storeu_ps(q, v);
 }
 
@@ -785,7 +786,16 @@ static QuatNormalize_t orig_QuatNormalize = nullptr;
 
 static void __fastcall Hooked_QuatNormalize(float* ecx, void* edx) {
     g_quatNormCalls++;
-    SSE2_QuatNormalize(ecx);
+    uintptr_t p = (uintptr_t)ecx;
+    if (p > 0x10000 && p < 0xBFFF0000) {
+        __try {
+            SSE2_QuatNormalize(ecx);
+            return;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            // Bad pointer or unmapped page — fall through to original
+        }
+    }
+    if (orig_QuatNormalize) orig_QuatNormalize(ecx, edx);
 }
 #endif
 
