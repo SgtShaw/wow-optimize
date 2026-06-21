@@ -13,12 +13,14 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.11.0
 
-This release adds Lua event coalescing, SSE2 network GUID unpacking, particle simulation throttling, new SSE2 math routines (frustum point culling, ray-triangle intersection, matrix-vector transforms, 4×4 matrix multiply), adaptive GC pacing improvements, hook enable batching for faster startup, and new Lua C-function fast paths — alongside stability fixes for SSE2 quaternion normalize, first-launch slowness, and VA/RAM exhaustion.
+The headline change is the **mimalloc allocator redirect**: WoW's entire statically-linked CRT heap is routed through mimalloc to fight 32-bit virtual-address fragmentation — the root cause of long-session and alt-switch freezes. It also adds SSE2 network GUID unpacking and a broader SSE2 math pass (vector normalize, matrix transpose, in-place point transform, frustum point culling, ray-triangle intersection, matrix-vector transforms, 4×4 matrix multiply), adaptive GC pacing, hook-enable batching for faster startup, and new Lua C-function fast paths — alongside stability work that disabled several features that proved unsafe in testing (Lua event coalescing, particle throttling, two mis-identified Lua inline hooks).
 
 ### New optimizations
-- **Lua Event Coalescing** — hooks `FrameScript_SignalEvent` (0x81AC90), dynamically resolves event names via `*(*(0xD3F7D8 + eventId*4) + 20)`, buffers and deduplicates high-frequency UI events (`UNIT_AURA`, `BAG_UPDATE`, `UNIT_POWER`, `UNIT_HEALTH`, `UNIT_THREAT_LIST_UPDATE` etc.) per frame, dispatches each unique (eventId, args) combination once at frame end. Reduces addon handler calls by 60-80% in 25-man raids.
-- **SSE2 Network GUID Unpacking** — hooks `CDataStore::GetWowGUID` (0x76DC20, 100+ xrefs across network packet handlers), branchless unrolled byte-deposit replaces the original's per-byte conditional loop with `__allshl` calls.
-- **Particle Simulation Throttling** — hooks `CParticleEmitter::SimulateParticle` (0x981D40), captures the active camera frustum from `CFrustum::IsAABBVisible` calls, tests each emitter's world position against frustum with 25-unit sphere radius, off-screen emitters simulate only every 10th frame (90% skip rate), on-screen emitters run at full rate.
+- **mimalloc Allocator Redirect** — WoW links its CRT statically, so its real allocations go through `_malloc` (0x415074), `_free` (0x412FC7), `_realloc` (0x416A95), `_calloc` (0x416A56), `__msize` (0x4112F8) and `_recalloc` (0x416CB0). All six are redirected to mimalloc as a closed set with atomic activation and an `mi_is_in_heap_region` transition guard (blocks allocated before the redirect free through the original CRT). mimalloc's segment design packs memory far tighter and returns it to the OS, so 32-bit VA stays defragmented across long sessions and repeated alt-switches. Installs early (pre-load) so it owns the heap from the start. An earlier attempt failed by hooking the *dynamic* CRT (`msvcr*.dll`) WoW barely uses; this targets the static set.
+- **Adaptive purge + VA-pressure governor** — mimalloc's purge delay is tuned to actual VA pressure (gentle when there's headroom to avoid decommit/recommit page-fault storms, aggressive only when the largest free block runs low), and a forced `mi_collect` reclaims WoW's freed segments under critical pressure.
+- **SSE2 Network GUID Unpacking** — hooks `CDataStore::GetWowGUID` (0x76DC20, 100+ xrefs across network packet handlers), branchless unrolled byte-deposit replaces the original's per-byte conditional loop. Verified byte-identical to the engine's `sub_47B340` read path.
+- **SSE2 C3Vector::Normalize** — `0x4C3420` (unguarded) and `0x4C3600` (engine's `mag² > 2^-22` guard) replace x87 `fsqrt`+`fdiv` with full-precision `sqrtss`+`divss` (deliberately *not* rsqrt approximation, which NaN-poisoned the quaternion path), replicating each function's guard exactly.
+- **SSE2 CMatrix::Transpose + in-place point transform** — `_MM_TRANSPOSE4_PS` for `0x4C23D0` (bit-identical) and the ~65-caller in-place 3D point × 4×4 transform at `0x4C2300`.
 - **SSE2 Frustum Point Culling** — vectorized `CFrustum::IsPointVisible` (0x983D70) using transposed SSE2 dot products.
 - **SSE2 Möller-Trumbore Ray-Triangle Intersection** — vectorized core 3D raycasting routines (0x9836B0 for 32-bit indices, 0x983490 for 16-bit indices) using branchless SSE2 cross/dot products.
 - **SSE2 Matrix-Vector Transformations** — vectorized 3D point × 4x4 matrix (0x4C21B0, 100+ callers) and 4D vector × 4x4 matrix (0x4C2270) using SSE2 column linear combinations.
@@ -105,7 +107,9 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 ## Current Feature Set
 
 ### Memory and allocator
-- mimalloc CRT/Lua allocator replacement *(disabled — corrupted pointers during login; mimalloc still backs internal pools)*
+- **mimalloc redirect of WoW's static CRT allocator** *(enabled)* — `malloc`/`free`/`realloc`/`calloc`/`_msize`/`_recalloc` routed to mimalloc as a closed set with a transition guard, to defragment 32-bit VA over long sessions (see *New optimizations*). `GlobalAlloc(GMEM_FIXED)` is also serviced from mimalloc.
+- **Adaptive purge delay + memory-pressure governor** — purge aggression scales with VA pressure; forced `mi_collect` under critical pressure
+- Lua allocator replacement *(disabled — corrupted pointers during login; the CRT redirect above is the safe path)*
 - WoW `free`-wrapper fast path (calls WoW's own `free`, skips a redundant `_msize` heap-walk)
 - Lua string table pre-sizing to reduce hash resize spikes
 - Low Fragmentation Heap (LFH) enabled for process heap and new heaps
@@ -203,7 +207,7 @@ Morbent, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRoc
 - immediate ACK frequency
 - socket buffer tuning
 - low-delay TOS
-- fast keepalive settings
+- keepalive (30s idle / 5s interval — tuned to keep NAT warm without dropping the connection on transient network jitter)
 
 ### Async loading and prefetching
 
@@ -242,21 +246,22 @@ Replacements for WoW's own statically-linked CRT routines at verified addresses:
 
 ### SSE2 math and geometry (WoW-internal, active)
 - SSE2 4×4 matrix multiply — `CMatrix::operator*` (0x4C1F00)
-- SSE2 matrix-vector transforms — 3D point × 4x4 matrix (0x4C21B0), 4D vector × 4x4 matrix (0x4C2270)
+- SSE2 matrix-vector transforms — 3D point × 4x4 matrix (0x4C21B0), 4D vector × 4x4 matrix (0x4C2270), in-place point × 4x4 (0x4C2300)
+- SSE2 `C3Vector::Normalize` — 0x4C3420 + 0x4C3600 (full-precision `sqrtss`/`divss`, engine guards replicated)
+- SSE2 `CMatrix::Transpose` — 0x4C23D0 (`_MM_TRANSPOSE4_PS`, bit-identical)
 - SSE2 frustum point culling — `CFrustum::IsPointVisible` (0x983D70)
 - SSE2 Möller-Trumbore ray-triangle intersection — 32-bit indices (0x9836B0), 16-bit indices (0x983490)
 - SSE2 frustum AABB-vs-4-planes cull
-- SSE2 quaternion normalize *(disabled — broken horizontal reduction, pending in-game validation)*
 - SSE2 BGRA↔ARGB batch swap, premultiplied alpha
-- Particle simulation throttling with frustum culling — `CParticleEmitter::SimulateParticle` (0x981D40)
 - Network GUID SSE2 unpacking — `CDataStore::GetWowGUID` (0x76DC20)
+- SSE2 quaternion normalize *(disabled — broken horizontal reduction, pending in-game validation)*
+- Particle simulation throttling — `CParticleEmitter::SimulateParticle` (0x981D40) *(disabled — 0x981D40 is the particle spawn/init routine, not a skippable advance; throttling it left particles uninitialized, rendering as colored flashes)*
 
 > The generic msvcrt CRT mem/char SSE2 paths (`crt_mem_fastpath`, `crt_char_fast`) are **disabled** — WoW links its CRT statically, so hooking msvcrt exports had little effect and risked VA exhaustion.
 
-### Lua Event Coalescing
+### Lua Event Coalescing *(disabled)*
 - Hooks `FrameScript_SignalEvent` (0x81AC90) to buffer and deduplicate high-frequency UI events per frame
-- Reduces addon handler calls by 60-80% in 25-man raids
-- Coalesced events: `UNIT_AURA`, `BAG_UPDATE`, `UNIT_POWER`, `UNIT_HEALTH`, `UNIT_THREAT_LIST_UPDATE`, etc.
+- **Disabled**: suppressing and re-emitting events a frame later changes event timing/ordering and was unvalidated across the in-world → glue teardown where char-switch crashes occur. Stability outranks the dedup win until it can be confirmed in-game.
 
 ### Kernel-call caches (38 hooks)
 Batch 1-8: `GetSystemTimeAsFileTime` (QPC-based 1ms refresh), `GetACP`, `GetUserDefaultLangID`, `GetProcessHeap`, `CharUpperA/W`, `CharLowerA/W`, `MapVirtualKeyA`, `GetThreadPriority`
@@ -292,8 +297,11 @@ These features are disabled in public-safe builds because they previously caused
 - GetSpellInfo cache (disabled - icon corruption, crashes on relog)
 - ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
 - dynamic unit API caching (disabled)
-- GlobalAlloc fast path (disabled)
-- luaH_getstr table lookup cache - ERROR #134, stale Node* from address reuse
+- Lua Event Coalescing (`FrameScript_SignalEvent`) — changes event timing/ordering; unvalidated across world→glue teardown
+- Particle simulation throttling (`CParticleEmitter::SimulateParticle`, 0x981D40) — that address is the particle spawn/init routine, not a skippable advance; throttling it left particles uninitialized (colored flashes)
+- `lua_toboolean` inline hook (0x84E0B0) — returned true for boolean `false` and wrote spurious taint; inverted C-side truthiness checks
+- `lua_objlen` inline hook — 0x84E1C0 is actually `lua_touserdata`, not `lua_objlen`; pushed a value onto the Lua stack and corrupted it
+- `luaH_getstr` table lookup cache - ERROR #134, stale Node* from address reuse
 - Async texture loading hook - caused loading screen regression
 - Model async workers - loading screen regression
 - `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
