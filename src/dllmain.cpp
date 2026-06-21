@@ -152,7 +152,6 @@ static void StopFreezeWatchdog() {
 #include "lua_bytecode_cache.h"
 #include "strstr_fast.h"
 #include "crt_char_fast.h"
-#include "crt_pow_sse2.h"
 #include "crt_wchar_fast.h"
 #include "tls_cache.h"
 #include "stream_cache.h"
@@ -241,7 +240,7 @@ extern "C" void IncrementParticleFrameCount();
 // ================================================================
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
-#define CRASH_TEST_DISABLE_GLOBALALLOC     0   // GlobalAlloc mimalloc (safe now — CRT+process-heap redirect proven)
+#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc->mimalloc DISABLED: only GlobalAlloc/Free were hooked, not GlobalSize/Lock/ReAlloc/Handle, so the Global* family was inconsistent. The d3d9->OpenGL wrapper's driver thread called GlobalAlloc(GMEM_ZEROINIT, large) -> mi_calloc whose zeroing memset ran off the block into an unmapped system page (verified #132 AV in VCRUNTIME140 memset, caller = this hook, nvoglv32/d3d9 worker thread). WoW barely uses GlobalAlloc; redirect is negligible benefit. CRT malloc/free redirect (the real mimalloc win) is unaffected.
 #define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
@@ -271,7 +270,12 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
-#define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 - RE-ENABLED (safe bucket-index cache)
+#define TEST_DISABLE_RAWGETI_INLINE             1   // lua_rawgeti inline v2 DISABLED: inline Lua read caches in the table-key/metatable path corrupt addon lookups (WeakAuras "aura_env is nil" + weird addons). luaH_getstr (hooked by GetStrInline) is the __index resolution path; same risk class. WoW 3.3.5 is wait/GPU-bound so these CPU micro-opts buy ~0 FPS — not worth the addon breakage.
+#define TEST_DISABLE_GETSTR_INLINE              1   // luaH_getstr inline v2 DISABLED: see TEST_DISABLE_RAWGETI_INLINE. sub_85C430 is the metatable __index lookup WeakAuras' aura_env depends on; the chain-walk bails on high-VA nodes (line 188) now that mimalloc backs the whole heap, returning nil for live keys.
+
+// ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
+// (TEST_ENABLE_WS_AGGRESSIVE_PIN lives in wow_memory_opt.cpp, where the working set is set.)
+#define TEST_ENABLE_LARGE_PAGES         1   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
@@ -3044,6 +3048,10 @@ static void SetHighTimerResolution() {
 //
 // Enables mimalloc large page support if privilege is available.
 static void TryEnableLargePages() {
+#if !TEST_ENABLE_LARGE_PAGES
+    Log("Large pages: DISABLED (TEST_ENABLE_LARGE_PAGES=0)");
+    return;
+#else
     HANDLE hToken;
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken)) return;
     TOKEN_PRIVILEGES tp = {};
@@ -3055,10 +3063,19 @@ static void TryEnableLargePages() {
     AdjustTokenPrivileges(hToken, FALSE, &tp, sizeof(tp), NULL, NULL);
     CloseHandle(hToken);
     if (GetLastError() == ERROR_NOT_ALL_ASSIGNED) {
-        Log("Large pages: no permission (need 'Lock pages in memory' policy)"); return;
+        // The account does not hold the privilege; we cannot grant it. The user
+        // must add their account to secpol.msc -> Local Policies -> User Rights
+        // Assignment -> "Lock pages in memory", then log off/on. Until then this
+        // is a harmless no-op (mimalloc falls back to normal 4KB pages).
+        Log("Large pages: no permission (grant 'Lock pages in memory' in secpol.msc to this account, then relog)");
+        return;
     }
+    // Privilege held + enabled. mimalloc will now back arenas with large pages.
+    SIZE_T lp = GetLargePageMinimum();  // 0 if unsupported; typically 2MB on x86
     mi_option_set(mi_option_allow_large_os_pages, 1);
-    Log("Large pages: enabled for mimalloc");
+    Log("Large pages: ENABLED for mimalloc (large-page unit = %u KB; watch LargestFreeBlock on 32-bit VA)",
+        (unsigned)(lp / 1024));
+#endif
 }
 
 // 12. Thread optimization - ideal processor, priority.
@@ -3253,8 +3270,10 @@ static void OptimizeWorkingSet() {
 //
 // Configures mimalloc options and pre-warms the allocator.
 static void ConfigureMimalloc() {
-    // Allow large OS pages when enabled by system policy
-    mi_option_set(mi_option_allow_large_os_pages, 1);
+    // Allow large OS pages when enabled by system policy (gated; TryEnableLargePages
+    // confirms the privilege). Off here when disabled so mimalloc never even attempts
+    // 2MB reservations on a VA-tight 32-bit client.
+    mi_option_set(mi_option_allow_large_os_pages, TEST_ENABLE_LARGE_PAGES ? 1 : 0);
 
     // v3.3.x: eager commit arenas on Windows for faster allocation
     // Commits entire arena at once instead of page-by-page
@@ -3273,9 +3292,21 @@ static void ConfigureMimalloc() {
     // shed callback.
     mi_option_set(mi_option_purge_delay, 500);
 
-    // v3.3.x: use decommit (MEM_DECOMMIT) rather than reset (MEM_RESET)
-    // Decommit releases physical memory immediately, reducing RSS pressure
-    mi_option_set(mi_option_purge_decommits, 1);
+    // Purge via RESET (MEM_RESET), NOT decommit (MEM_DECOMMIT).
+    //
+    // Now that mimalloc backs WoW's ENTIRE heap, it also backs the dynamic
+    // vertex/index/staging buffers WoW locks and hands to the d3d9->OpenGL
+    // wrapper. That wrapper's NVIDIA GL driver consumes those buffers
+    // ASYNCHRONOUSLY on its own worker thread. With MEM_DECOMMIT, a buffer
+    // freed on the main thread gets its page UNMAPPED before the driver
+    // finishes reading it -> the driver faults reading a still-valid-looking
+    // pointer whose page is gone (verified: #132 ACCESS_VIOLATION reading
+    // 0x8589006C on nvoglv32.dll worker thread, login screen, only with this
+    // DLL loaded). MEM_RESET keeps the VA mapped and readable (the OS may
+    // reclaim the physical frames lazily and faulting it back in just returns
+    // zeros/old data) so the driver never faults, while still handing physical
+    // RAM back under pressure.
+    mi_option_set(mi_option_purge_decommits, 0);
 
     // Pre-warm allocator with 32MB to reduce VA space pressure
     // 64MB was too aggressive for HD clients with 37+ MPQs (VA fragmentation)
@@ -3295,7 +3326,7 @@ static void ConfigureMimalloc() {
         for (int i = 0; i < SEEDS_PER_SIZE; i++) if (batch[i]) mi_free(batch[i]);
     }
 
-    Log("mimalloc v%d.%d.%d configured (eager commit, decommit purge, pre-warmed 32MB + 23 size classes)",
+    Log("mimalloc v%d.%d.%d configured (eager commit, reset purge, pre-warmed 32MB + 23 size classes)",
         mi_version() / 100, (mi_version() % 100) / 10, mi_version() % 10);
 }
 
@@ -3308,9 +3339,11 @@ static void AdjustMimallocForMultiClient() {
         // on the per-client governor instance only when that client's VA
         // fragments. The real fix remains user-side
         // bcdedit /set increaseuserva 3072 for 3GB VA.
-        mi_option_set(mi_option_purge_decommits, 1);
+        // RESET (not decommit) — keep freed VA mapped so async GPU-driver
+        // reads of in-flight buffers never fault (see ConfigureMimalloc).
+        mi_option_set(mi_option_purge_decommits, 0);
         mi_collect(true);
-        Log("mimalloc: multi-client mode (decommit, one-time collect)");
+        Log("mimalloc: multi-client mode (reset purge, one-time collect)");
     }
 }
 
@@ -5464,7 +5497,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("WowStrlen");
     CrashDumper::RegisterFeature("StrstrSSE2");
     CrashDumper::RegisterFeature("CrtCharSSE2");
-    CrashDumper::RegisterFeature("CrtPowSSE2");
     CrashDumper::RegisterFeature("TlsCache");
     CrashDumper::RegisterFeature("StreamCache");
     CrashDumper::RegisterFeature("LuaThisCache");
@@ -5661,12 +5693,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool chrOk = false;
 #endif
 
-    // CRT pow() integer fast-path - x^2=x*x, sqrt, etc.
-#if !TEST_DISABLE_CRT_POW_SSE2
-    bool powOk = InstallCrtPowSSE2();
-#else
-    bool powOk = false;
-#endif
     bool wcharOk = InstallCrtWcharSSE2();
 
     // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
@@ -5836,7 +5862,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool eventNameOk = InstallEventNameCache();
 
     Log("--- luaH_getstr Inline Optimization ---");
+#if TEST_DISABLE_GETSTR_INLINE
+    bool getStrInlineOk = false;
+    Log("[GetStrInline] DISABLED (addon nil-field corruption: WeakAuras aura_env via __index)");
+#else
     bool getStrInlineOk = InstallLuaGetStrInline();
+#endif
 
     Log("--- lua_toboolean Inline Optimization ---");
     // DISABLED: the hook returned 1 for boolean `false`. The real lua_toboolean
@@ -8003,7 +8034,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LuaBytecodeCache::Shutdown();
             ShutdownStrstrSSE2();
             ShutdownCrtCharSSE2();
-            ShutdownCrtPowSSE2();
             ShutdownCrtWcharSSE2();
             ShutdownAddonPreload();
             ApiCache::Shutdown();
