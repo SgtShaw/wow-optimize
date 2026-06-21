@@ -430,6 +430,174 @@ static float* __cdecl Hooked_PointXformInPlace(float* a1, float* a2, float* a3) 
 #endif
 
 // ================================================================
+// sub_4C2FC0: rigid-transform inverse builder  __thiscall(this, out)  (~34 xrefs)
+// ================================================================
+// Builds the inverse of an orthonormal (rotation + translation) 4x4 from the
+// input matrix `this` into `out`:
+//   out_R   = transpose(upper-left 3x3 of this)
+//   out[12+i] = -(R_row_i . t),  t = this[12..14]
+//   out[3] = out[7] = out[11] = 0,  out[15] = 1
+// The engine first repacks this' 3x3 into a stack scratch via sub_4C51B0 and
+// reads from there; since that helper only copies the SAME nine elements
+// (this[0,1,2,4,5,6,8,9,10]) we read them directly and skip the call entirely.
+// _MM_TRANSPOSE4_PS with a zeroed 4th row yields the transposed rotation rows
+// with lane3 already 0; the same transposed rows are exactly the column vectors
+// needed for the three translation dot products, so trans = r0*(-tx)+r1*(-ty)+
+// r2*(-tz) lands (out12,out13,out14,0). Products and (a+b)+c summation order
+// match the FPU original; only x87 80-bit vs SSE 32-bit intermediates differ
+// (sub-ULP, invisible for a rigid transform). All reads stay inside the 64-byte
+// input matrix; the full 16-float output is written exactly as the original.
+#if !TEST_DISABLE_MATRIX_INVERT_SSE2
+typedef float* (__fastcall* MatInvRigid_t)(float* self, void* edx, float* out);
+static MatInvRigid_t pOrigMatInvRigid = nullptr;
+static volatile long g_matinvrigid_calls = 0;
+
+static float* __fastcall Hooked_MatInvertRigid(float* self, void* edx, float* out) {
+    ++g_matinvrigid_calls;
+    uintptr_t s = (uintptr_t)self, o = (uintptr_t)out;
+    if (s > 0x10000 && s < 0xBFFF0000 && o > 0x10000 && o < 0xBFFF0000) {
+        __try {
+            __m128 r0 = _mm_loadu_ps(self);       // M0..M3   (row 0)
+            __m128 r1 = _mm_loadu_ps(self + 4);   // M4..M7   (row 1)
+            __m128 r2 = _mm_loadu_ps(self + 8);   // M8..M11  (row 2)
+            __m128 r3 = _mm_setzero_ps();         // forces transposed lane3 -> 0
+            float tx = self[12], ty = self[13], tz = self[14];   // translation row
+
+            // r0=(M0,M4,M8,0) r1=(M1,M5,M9,0) r2=(M2,M6,M10,0) -> R^T rows + zero col3
+            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+
+            // trans lane_i = M[i]*(-tx) + M[4+i? ...] -> using transposed rows as
+            // columns: (M0,M4,M8)*(-tx)+(M1,M5,M9)*(-ty)+(M2,M6,M10)*(-tz)
+            __m128 trans = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(r0, _mm_set1_ps(-tx)),
+                           _mm_mul_ps(r1, _mm_set1_ps(-ty))),
+                _mm_mul_ps(r2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
+            trans = _mm_add_ps(trans, _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)); // out15=1
+
+            _mm_storeu_ps(out,      r0);
+            _mm_storeu_ps(out + 4,  r1);
+            _mm_storeu_ps(out + 8,  r2);
+            _mm_storeu_ps(out + 12, trans);
+            return out;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigMatInvRigid(self, nullptr, out);
+}
+#endif
+
+// ================================================================
+// sub_4C2120: scalar * 4x4 matrix  __cdecl(out, src, scalar)  (4 xrefs)
+// ================================================================
+// out[i] = src[i] * scalar for all 16 elements. 16 scalar fmuls -> 4 mul_ps.
+// Loads each src row fully before storing, so it is safe if out aliases src.
+#if !TEST_DISABLE_MATRIX_MISC_SSE2
+typedef float* (__cdecl* MatScalarMul_t)(float* out, float* src, float scalar);
+static MatScalarMul_t pOrigMatScalarMul = nullptr;
+static volatile long g_matscalarmul_calls = 0;
+
+typedef float* (__cdecl* RowAffinePoint_t)(float* out, float* mat, float* pt);
+static RowAffinePoint_t pOrigRowAffinePoint = nullptr;
+
+static float* __cdecl Hooked_MatScalarMul(float* out, float* src, float scalar) {
+    ++g_matscalarmul_calls;
+    uintptr_t o = (uintptr_t)out, s = (uintptr_t)src;
+    if (o > 0x10000 && o < 0xBFFF0000 && s > 0x10000 && s < 0xBFFF0000) {
+        __try {
+            __m128 k = _mm_set1_ps(scalar);
+            _mm_storeu_ps(out,      _mm_mul_ps(_mm_loadu_ps(src),      k));
+            _mm_storeu_ps(out + 4,  _mm_mul_ps(_mm_loadu_ps(src + 4),  k));
+            _mm_storeu_ps(out + 8,  _mm_mul_ps(_mm_loadu_ps(src + 8),  k));
+            _mm_storeu_ps(out + 12, _mm_mul_ps(_mm_loadu_ps(src + 12), k));
+            return out;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigMatScalarMul(out, src, scalar);
+}
+
+// ================================================================
+// sub_4C2210: row-major affine 3D point transform  __cdecl(out3, mat16, pt3)  (6 xrefs)
+// ================================================================
+// out_i = mat[4i]*p.x + mat[4i+1]*p.y + mat[4i+2]*p.z + mat[4i+3], i=0..2.
+// (Row-vector form: each output row dotted with the homogeneous point (p,1).)
+// Transposing the three matrix rows with a zeroed 4th yields column vectors whose
+// linear combination px*c0 + py*c1 + pz*c2 + c3 reproduces exactly those products;
+// lane3 stays 0 and is never stored. Reads only mat[0..11] + pt[0..2]; writes 3
+// floats. Same four products as the FPU original (summation order sub-ULP).
+static float* __cdecl Hooked_RowAffinePoint(float* out, float* mat, float* pt) {
+    ++g_matscalarmul_calls;  // shared misc-ops counter
+    uintptr_t o = (uintptr_t)out, m = (uintptr_t)mat, p = (uintptr_t)pt;
+    if (o > 0x10000 && o < 0xBFFF0000 && m > 0x10000 && m < 0xBFFF0000 &&
+        p > 0x10000 && p < 0xBFFF0000) {
+        __try {
+            __m128 r0 = _mm_loadu_ps(mat);       // M0..M3
+            __m128 r1 = _mm_loadu_ps(mat + 4);   // M4..M7
+            __m128 r2 = _mm_loadu_ps(mat + 8);   // M8..M11
+            __m128 r3 = _mm_setzero_ps();
+            float px = pt[0], py = pt[1], pz = pt[2];
+            // r0=(M0,M4,M8,0)=col0  r1=(M1,M5,M9,0)=col1  r2=(M2,M6,M10,0)=col2
+            //                                              r3=(M3,M7,M11,0)=col3
+            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+            __m128 res = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(_mm_set1_ps(px), r0),
+                           _mm_mul_ps(_mm_set1_ps(py), r1)),
+                _mm_add_ps(_mm_mul_ps(_mm_set1_ps(pz), r2), r3));  // (out0,out1,out2,0)
+            _mm_store_ss(out,     res);
+            _mm_store_ss(out + 1, _mm_shuffle_ps(res, res, _MM_SHUFFLE(1, 1, 1, 1)));
+            _mm_store_ss(out + 2, _mm_shuffle_ps(res, res, _MM_SHUFFLE(2, 2, 2, 2)));
+            return out;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigRowAffinePoint(out, mat, pt);
+}
+#endif
+
+// ================================================================
+// sub_4C1B30: in-place local-space translate  __thiscall(this, vec3)  (65+ xrefs)
+// ================================================================
+// this[12+i] += this[i]*v.x + this[4+i]*v.y + this[8+i]*v.z   (i=0..2)
+// i.e. adds R.v to the translation row, where the rotation columns are
+// col0=(this[0],this[1],this[2]) = first 3 lanes of row0, etc. The three matrix
+// rows loaded as (r0,r1,r2) ARE those columns in lanes 0..2, so
+// delta = v.x*r0 + v.y*r1 + v.z*r2 holds the three increments in lanes 0..2
+// (lane3 = junk from this[3]/[7]/[11], never used). Only this[12..14] are written
+// via scalar adds, leaving this[15] untouched exactly like the original. Same
+// products as the FPU original; summation order differs sub-ULP.
+#if !TEST_DISABLE_MATRIX_TRANSLATE_SSE2
+typedef float* (__fastcall* MatTranslate_t)(float* self, void* edx, float* vec3);
+static MatTranslate_t pOrigMatTranslate = nullptr;
+static volatile long g_mattranslate_calls = 0;
+
+static float* __fastcall Hooked_MatTranslateLocal(float* self, void* edx, float* vec3) {
+    ++g_mattranslate_calls;
+    uintptr_t s = (uintptr_t)self, v = (uintptr_t)vec3;
+    if (s > 0x10000 && s < 0xBFFF0000 && v > 0x10000 && v < 0xBFFF0000) {
+        __try {
+            __m128 r0 = _mm_loadu_ps(self);       // (this[0],this[1],this[2], _)  = col0
+            __m128 r1 = _mm_loadu_ps(self + 4);   // (this[4],this[5],this[6], _)  = col1
+            __m128 r2 = _mm_loadu_ps(self + 8);   // (this[8],this[9],this[10],_)  = col2
+            __m128 delta = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(_mm_set1_ps(vec3[0]), r0),
+                           _mm_mul_ps(_mm_set1_ps(vec3[1]), r1)),
+                _mm_mul_ps(_mm_set1_ps(vec3[2]), r2));   // lanes 0..2 = increments
+            float d0, d1, d2;
+            _mm_store_ss(&d0, delta);
+            _mm_store_ss(&d1, _mm_shuffle_ps(delta, delta, _MM_SHUFFLE(1, 1, 1, 1)));
+            _mm_store_ss(&d2, _mm_shuffle_ps(delta, delta, _MM_SHUFFLE(2, 2, 2, 2)));
+            self[12] += d0;
+            self[13] += d1;
+            self[14] += d2;
+            return vec3;   // original returns the vec3 argument
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigMatTranslate(self, nullptr, vec3);
+}
+#endif
+
+// ================================================================
 // Install hooks
 // ================================================================
 bool InstallMatrixCopySSE2() {
@@ -548,6 +716,50 @@ bool InstallMatrixCopySSE2() {
     Log("[MatrixSSE2] Matrix-Ext hooks DISABLED via feature flag");
 #endif
 
+#if !TEST_DISABLE_MATRIX_INVERT_SSE2
+    if (WineSafe_CreateHook((void*)0x004C2FC0, (void*)Hooked_MatInvertRigid,
+                            (void**)&pOrigMatInvRigid) == MH_OK &&
+        WO_EnableHook((void*)0x004C2FC0) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::InvertRigid at 0x004C2FC0 (SSE2, ~34 callers)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::InvertRigid hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] CMatrix::InvertRigid DISABLED via feature flag");
+#endif
+
+#if !TEST_DISABLE_MATRIX_MISC_SSE2
+    if (WineSafe_CreateHook((void*)0x004C2120, (void*)Hooked_MatScalarMul,
+                            (void**)&pOrigMatScalarMul) == MH_OK &&
+        WO_EnableHook((void*)0x004C2120) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::ScalarMul at 0x004C2120 (SSE2, 4 callers)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::ScalarMul hook FAILED");
+    }
+
+    if (WineSafe_CreateHook((void*)0x004C2210, (void*)Hooked_RowAffinePoint,
+                            (void**)&pOrigRowAffinePoint) == MH_OK &&
+        WO_EnableHook((void*)0x004C2210) == MH_OK) {
+        Log("[MatrixSSE2] Hooked RowAffinePoint at 0x004C2210 (SSE2, 6 callers)");
+    } else {
+        Log("[MatrixSSE2] RowAffinePoint hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] Matrix-Misc hooks DISABLED via feature flag");
+#endif
+
+#if !TEST_DISABLE_MATRIX_TRANSLATE_SSE2
+    if (WineSafe_CreateHook((void*)0x004C1B30, (void*)Hooked_MatTranslateLocal,
+                            (void**)&pOrigMatTranslate) == MH_OK &&
+        WO_EnableHook((void*)0x004C1B30) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::TranslateLocal at 0x004C1B30 (SSE2, 65+ callers)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::TranslateLocal hook FAILED");
+    }
+#else
+    Log("[MatrixSSE2] CMatrix::TranslateLocal DISABLED via feature flag");
+#endif
+
     return installed == (int)(sizeof(hooks) / sizeof(hooks[0]));
 }
 
@@ -576,6 +788,19 @@ void ShutdownMatrixCopySSE2() {
     MH_DisableHook((void*)0x004C3680);
     Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld  Scale3x3=%ld  From3x3=%ld",
         g_mattranspose_calls, g_pointxformip_calls, g_scale3x3_calls, g_matfrom3x3_calls);
+#endif
+#if !TEST_DISABLE_MATRIX_INVERT_SSE2
+    MH_DisableHook((void*)0x004C2FC0);
+    Log("[MatrixSSE2] Stats: InvertRigid=%ld", g_matinvrigid_calls);
+#endif
+#if !TEST_DISABLE_MATRIX_MISC_SSE2
+    MH_DisableHook((void*)0x004C2120);
+    MH_DisableHook((void*)0x004C2210);
+    Log("[MatrixSSE2] Stats: MatrixMisc(ScalarMul+RowAffine)=%ld", g_matscalarmul_calls);
+#endif
+#if !TEST_DISABLE_MATRIX_TRANSLATE_SSE2
+    MH_DisableHook((void*)0x004C1B30);
+    Log("[MatrixSSE2] Stats: TranslateLocal=%ld", g_mattranslate_calls);
 #endif
 
     Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld  MatVec3=%ld  MatVec4=%ld",

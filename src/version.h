@@ -209,9 +209,6 @@
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
 #define TEST_DISABLE_CRT_CHAR_SSE2       1
 
-// CRT pow() integer fast-path - x^2=x*x, sqrt, etc.
-#define TEST_DISABLE_CRT_POW_SSE2        0
-
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
@@ -234,6 +231,29 @@
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
 #define TEST_DISABLE_MATRIX_EXT_SSE2     0
+
+// SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
+// world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
+// row/col zeroed, out[15]=1. Reads the 3x3 + translation straight from the input
+// 4x4 (row-major, translation at [12..14]) -- the engine's scratch-buffer helper
+// (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
+// products + summation order as the FPU original (sub-ULP delta only). Pointer-
+// validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
+#define TEST_DISABLE_MATRIX_INVERT_SSE2  0
+
+// SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
+// sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
+// 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
+// Same products as the FPU originals (summation order sub-ULP). Isolation flag.
+#define TEST_DISABLE_MATRIX_MISC_SSE2    0
+
+// SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
+// network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
+// matrix translation row: this[12+i] += col_i.v, col vectors = (this[i],this[4+i],
+// this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
+// preserved, never stored). Same products as the FPU original (summation order
+// sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2  0
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
