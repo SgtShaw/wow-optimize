@@ -1091,11 +1091,16 @@ static void OptimizeSocket(SOCKET s, const char* trigger) {
     setsockopt(s, SOL_SOCKET, SO_RCVBUF, (const char*)&recvbuf, sizeof(recvbuf));
     applied += 2;
 
-    // 5. Fast keepalive
+    // 5. Keepalive. WoW already has an app-level heartbeat, so this only needs to keep
+    // NAT mappings warm. The old 10s/1s was far too aggressive: after 10s idle it probes
+    // every 1s and Windows drops the connection after ~10 unanswered probes, so any
+    // ~20s network blip (or a transient server hiccup) became a disconnect on long
+    // sessions. 30s idle + 5s interval tolerates real-world jitter while still keeping
+    // the path alive.
     tcp_keepalive ka;
     ka.onoff             = 1;
-    ka.keepalivetime     = 10000;
-    ka.keepaliveinterval = 1000;
+    ka.keepalivetime     = 30000;
+    ka.keepaliveinterval = 5000;
     DWORD kaBytes = 0;
     if (WSAIoctl(s, SIO_KEEPALIVE_VALS, &ka, sizeof(ka),
                  NULL, 0, &kaBytes, NULL, NULL) == 0)
@@ -3255,17 +3260,18 @@ static void ConfigureMimalloc() {
     // Commits entire arena at once instead of page-by-page
     mi_option_set(mi_option_arena_eager_commit, 1);
 
-    // Return freed arenas to the OS after 25ms idle. Now that mimalloc backs
-    // WoW's ENTIRE heap (static CRT allocator redirect), the 32-bit VA is the
-    // critical resource — every stranded freed segment is VA the process can't
-    // use for the next allocation. 25ms is aggressive but still catches the
-    // "allocate, use, free within one frame" pattern (16.6ms at 60fps); a
-    // longer window only accumulates dead pages on a VA-tight client, visibly
-    // fragmenting LargestFreeBlock. On a 64-bit build this wouldn't matter, but
-    // 32-bit with HD MPQs + addons runs at 2GB with no headroom. Decommit
-    // (MEM_DECOMMIT) returns physical pages immediately without releasing VA,
-    // keeping the address slot reserved for mimalloc's arena reuse.
-    mi_option_set(mi_option_purge_delay, 25);
+    // Purge delay = how long mimalloc keeps a freed page mapped before decommitting
+    // it back to the OS. Now that mimalloc backs WoW's ENTIRE high-churn heap, a too-
+    // short delay is actively harmful: WoW frees and re-allocates constantly, so the
+    // pages get decommitted and immediately re-committed -> a page-fault storm (a
+    // tester saw 6.3M faults + an 11s stall with delay=25). A multi-second main-thread
+    // stall also misses WoW's app-level heartbeat -> the server disconnects the client.
+    // So default GENTLE (500ms) -> freed pages are reused in place, far fewer faults,
+    // and in-place reuse actually fragments LESS than decommit+recommit-elsewhere. The
+    // pressure governor tightens this to 100ms (YELLOW) / 10ms (RED) only when VA is
+    // genuinely scarce, where aggressive reclaim earns its faults. See the AdaptPurge
+    // shed callback.
+    mi_option_set(mi_option_purge_delay, 500);
 
     // v3.3.x: use decommit (MEM_DECOMMIT) rather than reset (MEM_RESET)
     // Decommit releases physical memory immediately, reducing RSS pressure
@@ -6327,7 +6333,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
         }};
         RegisterShedCallback(ShedMiCollect::Go, nullptr);
 
-        Log("[PressureGovernor] %d shed callbacks registered", 9);
+        // Adaptive mimalloc purge delay. Fires on every level change. Gentle when VA
+        // has headroom (avoid the decommit/recommit fault storm on the now-whole-heap
+        // mimalloc); tighten only under real pressure where returning VA to the OS is
+        // worth the faults. Mirrors the default set in ConfigureMimalloc (500ms).
+        struct AdaptPurge { static void Go(Level lv, void*) {
+            long delay = (lv >= PRESSURE_RED) ? 10 : (lv >= PRESSURE_YELLOW) ? 100 : 500;
+            mi_option_set(mi_option_purge_delay, delay);
+        }};
+        RegisterShedCallback(AdaptPurge::Go, nullptr);
+
+        Log("[PressureGovernor] %d shed callbacks registered", 10);
     }
 #endif
 
