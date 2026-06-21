@@ -2993,15 +2993,18 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "byte",     (void*)Hooked_StrByte,          &orig_str_byte,         0, false},
     {nullptr,  "tostring", (void*)Hooked_ToString,         &orig_luaB_tostring,    0, false},
     {nullptr,  "tonumber", (void*)Hooked_ToNumber_Global,  &orig_luaB_tonumber,    0, false},
-    // PERMANENTLY DISABLED: All RawTValue write hooks cause luaH_getstr crashes
-    // These hooks write to RawTValue* which corrupts Lua table internals during
-    // world entry and heavy addon loading (WeakAuras /wa crash at 0x0085C457)
+    // PERMANENTLY DISABLED: hooks that write RawTValue* to Lua TABLE
+    // internals corrupt hash chains during world entry / heavy addon
+    // loading (WeakAuras /wa crash at 0x0085C457).
+    // table.concat is ENABLED — it only READS from the table's array
+    // (via luaH_getnum_) and pushes one interned string to the stack
+    // (same pattern as the stable math.random fast path).
     // {nullptr,  "next",     (void*)Hooked_Next_Global,      &orig_luaB_next,        0, false},
     // {nullptr,  "rawget",   (void*)Hooked_RawGet_Global,    &orig_luaB_rawget,      0, false},
     // {nullptr,  "rawset",   (void*)Hooked_RawSet_Global,    &orig_luaB_rawset,      0, false},
     // {"table",  "insert",   (void*)Hooked_TableInsert,      &orig_tbl_insert,       0, false},
     // {"table",  "remove",   (void*)Hooked_TableRemove,      &orig_tbl_remove,       0, false},
-    // {"table",  "concat",   (void*)Hooked_TableConcat,      &orig_tbl_concat,         0, false},
+    {"table",  "concat",   (void*)Hooked_TableConcat,      &orig_tbl_concat,         0, false},
     // {nullptr,  "unpack",   (void*)Hooked_Unpack,           &orig_luaB_unpack,        0, false},
     {nullptr,  "select",   (void*)Hooked_Select,           &orig_luaB_select,        0, false},
     {nullptr,  "rawequal", (void*)Hooked_RawEqual,         &orig_luaB_rawequal,      0, false},
@@ -3401,10 +3404,12 @@ bool InitPhase2(lua_State* L) {
 #endif
 
 #if TEST_DISABLE_PHASE2_READS
-        // Table read hooks that write to stack
-        // via RawTValue* copies — causes hangs in real gameplay
+        // rawget / unpack: RawTValue* copies that move GC objects or
+        // push multiple values to the stack — caused hangs in real
+        // gameplay. table.concat is safe (pushes exactly one interned
+        // string, same pattern as the enabled math.random fast path)
+        // and is NOT gated here.
         if (strcmp(e.name, "rawget") == 0 ||
-            strcmp(e.name, "concat") == 0 ||
             strcmp(e.name, "unpack") == 0) {
             Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
                 e.table ? e.table : "_G", e.name);

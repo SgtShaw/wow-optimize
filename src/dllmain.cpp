@@ -3301,17 +3301,16 @@ static void ConfigureMimalloc() {
 
 static void AdjustMimallocForMultiClient() {
     if (g_isMultiClient) {
-        // Multi-client doubles the VA pressure: every client carries its own
-        // MPQ data, world LOD, and addon Lua state. The allocator redirect now
-        // makes mimalloc the single heap for EVERYTHING WoW allocates, so the
-        // single-client 25ms purge is still appropriate — it returns freed
-        // segments to the OS fast. The only multi-client adjustment is a one-time
-        // forced collect to hand back the pre-warm (32MB + 23 seed batches) which
-        // is pure startup waste on the 2nd+ client. The real fix remains user-side
+        // Multi-client doubles the VA pressure. The one-time forced collect
+        // hands back the pre-warm (32MB + 23 seed batches) which is pure
+        // startup waste on the 2nd+ client. Purge delay stays at 500ms
+        // (GREEN via ConfigureMimalloc); the pressure governor tightens it
+        // on the per-client governor instance only when that client's VA
+        // fragments. The real fix remains user-side
         // bcdedit /set increaseuserva 3072 for 3GB VA.
         mi_option_set(mi_option_purge_decommits, 1);
         mi_collect(true);
-        Log("mimalloc: multi-client mode (25ms purge, decommit, one-time collect)");
+        Log("mimalloc: multi-client mode (decommit, one-time collect)");
     }
 }
 

@@ -339,15 +339,17 @@ void WowMemoryOpt::ShutdownAsyncWorkerPool() {
 bool WowMemoryOpt::ApplyMemoryOptimizations() {
     int applied = 0;
     
-    // 1. Configure mimalloc for aggressive page reuse
-    // Purge delay: 50ms (return pages to OS quickly to reduce fragmentation)
-    mi_option_set(mi_option_purge_delay, 50);
-    mi_option_set(mi_option_reset_delay, 10);
-    // abandoned_page_purge not available in mimalloc v3.2.8
-    mi_option_set(mi_option_allow_large_os_pages, 1);
-    applied++;
+    // 1. Mimalloc is already configured by ConfigureMimalloc() before the
+    //    5s loader delay (purge_delay=500ms GREEN, arena_eager_commit=1,
+    //    purge_decommits=1). The pressure governor adapts purge_delay to
+    //    100ms (YELLOW) / 10ms (RED) when VA fragments. Do NOT override
+    //    those here — a flat 50ms purge_delay on the whole-heap mimalloc
+    //    causes the 6.3M-fault / 11s-stall / disconnect storm documented
+    //    in the crash history.
     
-    // 2. Pre-warm critical size classes to avoid first-allocation stalls
+    // 2. Pre-warm additional large size classes not covered by
+    //    ConfigureMimalloc (which warms 16..1024). Those cover Lua
+    //    objects; these cover MPQ data buffers, texture uploads, etc.
     static const size_t warmSizes[] = {
         16, 24, 32, 48, 64, 96, 128, 192, 256, 384, 512, 768, 1024,
         2048, 4096, 8192, 16384, 32768, 65536
@@ -359,11 +361,7 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
     }
     applied++;
     
-    // 3. Force initial collection to establish clean baseline
-    mi_collect(true);
-    applied++;
-    
-    // 4. Set working set. Single-client pins a high minimum so Windows can't
+    // 3. Set working set. Single-client pins a high minimum so Windows can't
     // page WoW out when it loses focus; faulting ~1GB back on alt-tab was
     // stalling the main thread for 10s+ on VA-tight HD clients.
     SIZE_T minWS = 768 * 1024 * 1024;  // 768MB minimum (pinned, single-client)
