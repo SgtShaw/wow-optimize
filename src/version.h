@@ -371,11 +371,12 @@
 // bytes). Surrounded by SEH guards. Enabled for testing.
 #define TEST_DISABLE_STRCAT_FAST        0
 
-// Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
-// DISABLED: ACCESS_VIOLATION crashes - lua_State structure offsets incorrect
-// sub_84D9C0 (index2adr) has complex pseudo-index logic that cannot be safely inlined
-// Reading o->value from wrong offset caused 0xC0000005 at 0x00000209
-#define TEST_DISABLE_LUA_TONUMBER_FAST  1
+// Lua tonumber Fast Path - sub_84E030 (NOT 0x84E0E0 = lua_tolstring; that wrong
+// target, plus tt==4 instead of 3 and top at +0x14 instead of +0x0C, caused the
+// old 0xC0000005). RE-ENABLED after IDA root-cause: correct target/tag/offsets,
+// index2adr inlined only for plain stack indices (pseudo-indices defer), tt==3
+// fast path returns the double directly, SEH + teardown guard. ~750 xrefs.
+#define TEST_DISABLE_LUA_TONUMBER_FAST  0
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing

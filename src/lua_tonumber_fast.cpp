@@ -1,83 +1,104 @@
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <cstdint>
 #include "lua_tonumber_fast.h"
 #include "version.h"
 #include "MinHook.h"
-#include <atomic>
+#include "lua_optimize.h"
 
 // Forward declaration for Log
 extern "C" void Log(const char* fmt, ...);
 
 #if !TEST_DISABLE_LUA_TONUMBER_FAST
 
-// Lua TValue structure (16 bytes)
-struct TValue {
-    double value;      // 8 bytes - number value
-    int type;          // 4 bytes - type tag
-    int padding;       // 4 bytes
-};
-
-// Lua state structure (simplified)
-struct lua_State {
-    char padding1[16];     // 0x00-0x0F
-    TValue* stack;         // 0x10 - stack base
-    TValue* top;           // 0x14 - stack top
-    // ... more fields
-};
-
 // Original function pointer
-typedef double (__cdecl* lua_tonumber_t)(lua_State* L, int idx);
+typedef double (__cdecl* lua_tonumber_t)(void* L, int idx);
 static lua_tonumber_t orig_lua_tonumber = nullptr;
 
-// Statistics
-static std::atomic<uint64_t> g_fast_path_count{0};
-static std::atomic<uint64_t> g_slow_path_count{0};
+// Statistics (Lua is single-threaded; plain volatile, no atomics)
+static volatile LONG64 g_fast_path_count = 0;
+static volatile LONG64 g_slow_path_count = 0;
 
-// Helper to get TValue from stack index (inlined from sub_84D9C0)
-static inline TValue* lua_index2adr(lua_State* L, int idx) {
-    if (idx > 0) {
-        TValue* o = L->stack + idx - 1;
-        return (o < L->top) ? o : nullptr;
-    } else if (idx > -10000) {  // LUA_MINSTACK
-        return L->top + idx;
+// ----------------------------------------------------------------
+// Fast path for lua_tonumber (sub_84E030). Mirrors the engine:
+//   o = index2adr(idx, L);  if (o->tt == 3) return o->value;  else <coerce>
+// We take the fast path ONLY for an already-numeric value (tt==3) and defer
+// everything else (string coercion, nil, errors) to the original.
+//
+// IDA-verified vs sub_84D9C0 (index2adr) and sub_84E030:
+//   L->base at L+0x10, L->top at L+0x0C; TValue is 16 bytes, value (double) at
+//   +0, tt at +0x08; LUA_TNUMBER == 3.
+//   positive idx: o = base + 16*(idx-1), valid iff o < top
+//   negative idx in (-10000,0): o = top + 16*idx
+//   idx <= -10000 (pseudo-index) or out-of-range: defer to the engine.
+//
+// The previous version was triply wrong (hooked 0x84E0E0 = lua_tolstring, tested
+// tt==4 = LUA_TSTRING, read top at +0x14) -> the 0xC0000005 crashes.
+// ----------------------------------------------------------------
+double __cdecl hooked_lua_tonumber(void* L, int idx) {
+    uintptr_t La = (uintptr_t)L;
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping() ||
+        La < 0x10000 || La > 0xBFFF0000) {
+        ++g_slow_path_count;
+        return orig_lua_tonumber(L, idx);
     }
-    return nullptr;  // pseudo-index or invalid
-}
 
-// Hooked lua_tonumber with fast path
-double __cdecl hooked_lua_tonumber(lua_State* L, int idx) {
-    // Fast path: inline type check and value extraction
-    TValue* o = lua_index2adr(L, idx);
-    
-    if (o && o->type == 4) {  // LUA_TNUMBER = 4
-        // Number type - return value directly
-        g_fast_path_count++;
-        return o->value;
+    __try {
+        uint8_t* top  = *(uint8_t**)(La + 0x0C);
+        uint8_t* base = *(uint8_t**)(La + 0x10);
+        uint8_t* o = nullptr;
+
+        if (idx > 0) {
+            o = base + (idx - 1) * 16;
+            if (o >= top) o = nullptr;          // engine returns nilobject -> defer
+        } else if (idx > -10000) {
+            o = top + idx * 16;
+            if (o < base) o = nullptr;          // invalid negative index -> defer
+        }
+        // idx <= -10000: pseudo-index, leave o null -> defer to the engine.
+
+        if (o && (uintptr_t)o >= 0x10000 && (uintptr_t)o < 0xBFFF0000 &&
+            *(int*)(o + 8) == 3) {              // tt == LUA_TNUMBER
+            ++g_fast_path_count;
+            return *(double*)o;                 // value at +0
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Bad stack pointer during teardown — fall through to the engine.
     }
-    
-    // Slow path: call original for type conversion
-    g_slow_path_count++;
+
+    ++g_slow_path_count;
     return orig_lua_tonumber(L, idx);
 }
 
 bool InstallLuaToNumberFast() {
-    void* target = (void*)0x0084E0E0;  // lua_tonumber
-    
+    // sub_84E030 = lua_tonumber.  (0x84E0E0 is lua_tolstring — the old bug.)
+    void* target = (void*)0x0084E030;
+
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B) {
+        Log("[LuaToNumberFast] BAD PROLOGUE at 0x%08X (expected 55 8B)", (uintptr_t)target);
+        return false;
+    }
+
     if (MH_CreateHook(target, (void*)hooked_lua_tonumber, (void**)&orig_lua_tonumber) != MH_OK) {
         Log("[LuaToNumberFast] MH_CreateHook failed");
         return false;
     }
-    
+
     if (MH_EnableHook(target) != MH_OK) {
         Log("[LuaToNumberFast] MH_EnableHook failed");
         return false;
     }
-    
-    Log("[LuaToNumberFast] Installed hook at 0x%08X (750 xrefs)", target);
+
+    Log("[LuaToNumberFast] ACTIVE at 0x%08X (sub_84E030, tt==3 fast path)", (uintptr_t)target);
     return true;
 }
 
 void GetLuaToNumberStats(uint64_t* fast_path, uint64_t* slow_path) {
-    if (fast_path) *fast_path = g_fast_path_count.load();
-    if (slow_path) *slow_path = g_slow_path_count.load();
+    if (fast_path) *fast_path = (uint64_t)g_fast_path_count;
+    if (slow_path) *slow_path = (uint64_t)g_slow_path_count;
 }
 
 #else  // TEST_DISABLE_LUA_TONUMBER_FAST
