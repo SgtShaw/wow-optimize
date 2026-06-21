@@ -55,32 +55,36 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     
     uint32_t bucket = h & (nsize - 1);
     uint32_t tstring = hash_array[bucket];
-    
-    // Read currentwhite for isdead check
-    uint8_t currentwhite = *(uint8_t*)(globalState + 0x14);
-    uint8_t otherwhite = currentwhite ^ 3; // 3 = WHITEBITS
-    
+
+    // currentwhite lives at G+0x15 in this build (IDA-verified vs sub_856C80;
+    // the dead/resurrect test reads *(BYTE*)(G+21)). Reading +0x14 was the bug.
+    uint8_t currentwhite = *(uint8_t*)(globalState + 0x15);
+
     // Traverse collision chain — wrapped in SEH because a GC sweep
     // can modify the chain concurrently with FrameScript execution
     __try {
         while (tstring) {
             if (tstring < 0x10000 || tstring > 0xBFFF0000) break;
-            
+
             // tstring+16 is length
             if (*(uint32_t*)(tstring + 16) == l) {
                 // tstring+20 is string data
                 const char* ts_data = (const char*)(tstring + 20);
-                
+
                 if (memcmp(ts_data, str, l) == 0) {
-                    // Check if it's dead
-                    uint8_t marked = *(uint8_t*)(tstring + 5);
-                    if ((marked & otherwhite) == 0) {
-                        g_newlstr_fast_hits++;
-                        return (void*)tstring;
-                    } else {
-                        g_newlstr_dead++;
-                        break;
+                    // Content match. Replicate the engine EXACTLY (sub_856C80 tail):
+                    //   if (~currentwhite & marked & 3)  marked ^= 3;  // changewhite
+                    //   return ts;
+                    // i.e. if the interned string is "other-white" (would be swept
+                    // = dead), resurrect it in place, then hand it back. marked is
+                    // the byte at TString+0x09 (reading +5 was the bug that let a
+                    // GC-dead string slip through as live -> use-after-free).
+                    uint8_t marked = *(uint8_t*)(tstring + 9);
+                    if (((uint8_t)(~currentwhite) & marked & 3) != 0) {
+                        *(uint8_t*)(tstring + 9) = (uint8_t)(marked ^ 3);
                     }
+                    g_newlstr_fast_hits++;
+                    return (void*)tstring;
                 }
             }
             // next pointer
@@ -89,7 +93,7 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         // Corrupted chain pointer — fall through to original
     }
-    
+
     return orig_luaS_newlstr(L, str, l);
 }
 

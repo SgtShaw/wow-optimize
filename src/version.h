@@ -405,17 +405,18 @@
 // shadow/reflection frustum, throttling on-screen emitters too.
 #define TEST_DISABLE_PARTICLE_THROTTLE  1
 
-// SSE2 Vectorized luaS_newlstr Fast Path
-// DISABLED: wrong dead-string offsets for WoW's Lua layout. Verified vs sub_856C80:
-// TString.marked is at +9 (not +5) and global_State.currentwhite is at +0x15 (not
-// +0x14). The hook's isdead/resurrection check ((~currentwhite & marked & 3)) was
-// reading garbage bytes, so it could return a content-matching TString the GC had
-// already marked dead -> the caller holds a dangling string after the sweep. That
-// surfaces as method-name lookups going nil ("SetDisabledFontObject (a nil value)"
-// on char-select) and use-after-free crashes/freezes during the GC-heavy lua_State
-// swap. Net-negative regardless (re-walks the chain the original walks again on a
-// miss -- the dominant case during load). See CONTEXT lessons 3, 4, 15, 16.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1
+// Inline luaS_newlstr intern lookup (string-creation fast path)
+// RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
+// offsets were wrong for WoW's Lua layout. Fixed to the verified offsets --
+// TString.marked at +9 (was +5), global_State.currentwhite at +0x15 (was +0x14) --
+// and the content-match path now replicates the engine EXACTLY: resurrect the
+// interned string in place if it is other-white (changewhite: marked ^= 3), then
+// return it, instead of the old "bail to original on dead" which combined with the
+// garbage offsets to hand back GC-dead TStrings (use-after-free during the GC-heavy
+// lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
+// or anomaly it defers to the original. Behaviour is now provably identical to the
+// engine on a hit. See CONTEXT lessons 3, 4.
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
