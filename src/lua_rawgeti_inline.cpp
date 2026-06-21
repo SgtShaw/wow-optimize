@@ -123,10 +123,11 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
             if (tableSlot < L_base) {
                 return g_orig_rawgeti(L, idx, n);
             }
-        } else if (idx == -10002) {
-            tableSlot = L_base + 18 * 4;  // GLOBALSINDEX
         }
-
+        // Pseudo-indices (LUA_GLOBALSINDEX -10002, ENVIRONINDEX -10001,
+        // REGISTRYINDEX -10000) are NOT plain stack slots; index2adr resolves
+        // them specially. Don't reimplement that — leave tableSlot null so they
+        // defer to the engine (the old GLOBALSINDEX = L_base+72 guess was wrong).
         if (!tableSlot) {
             return g_orig_rawgeti(L, idx, n);
         }
@@ -168,15 +169,24 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
             top[3] = src[3];  // taint
             *(DWORD**)(L + 0x0C) = top + 4;
 
-            // Handle taint propagation
+            // Taint propagation — replicate sub_84E670 EXACTLY (verified via
+            // disasm: dword_D4139C is the taint cell itself, single indirection).
+            //   taint != 0: if (D413A0 && !D413A4) global_taint = taint; return taint
+            //   taint == 0: stamp the just-pushed value with the current global
+            //               taint and return it. The old hook OMITTED this branch,
+            //               so values read in a tainted context came out untainted
+            //               -- a taint-model divergence from the engine.
             DWORD taint = src[3];
+            ++g_array_hits;
             if (taint) {
                 if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
                     *(DWORD*)0x00D4139C = taint;
+                return (int)taint;
+            } else {
+                DWORD gt = *(DWORD*)0x00D4139C;
+                top[3] = gt;            // matches: mov [ecx+0Ch], eax  (ecx = old top)
+                return (int)gt;
             }
-
-            ++g_array_hits;
-            return src[3];  // return taint value (matches original behavior)
         }
 
         // ============================================================

@@ -115,111 +115,88 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
         return g_orig_getstr(table, tstring);
     }
 
-    // Read tstring hash: tstring[12] = precomputed string hash
-    uint32_t ts_hash = *(uint32_t*)(tstring + 12);
+    // The entire node access is wrapped in SEH. The engine (sub_85C430)
+    // trusts the bucket chain and dereferences it with no bounds check; we
+    // match that for VALID tables but, on a genuinely corrupt chain, defer
+    // to the original instead of faulting inside the hook. This SEH backstop
+    // replaces the previous hard bounds-check `break`, which was the bug:
+    // on /3GB clients (mimalloc now backs the whole heap and places arenas
+    // high) a live node could sit above 0xBFFF0000, so the walk broke early
+    // and returned the nil sentinel for a LIVE key -> WeakAuras aura_env and
+    // other addon fields read nil. We now walk exactly like the engine.
+    __try {
+        // Read tstring hash: tstring[12] = precomputed string hash
+        uint32_t ts_hash = *(uint32_t*)(tstring + 12);
 
-    // Read table metadata
-    uint8_t  lsize      = *(uint8_t*)(table + 11);   // log2 of hash size
-    uint32_t* node_array = *(uint32_t**)(table + 20); // hash bucket array
+        // Read table metadata
+        uint8_t  lsize      = *(uint8_t*)(table + 11);   // log2 of hash size
+        uint32_t* node_array = *(uint32_t**)(table + 20); // hash bucket array
 
-    if (!node_array || lsize == 0 || lsize > 24) {
-        return g_orig_getstr(table, tstring);
-    }
+        if (!node_array || lsize == 0 || lsize > 24) {
+            return g_orig_getstr(table, tstring);
+        }
 
-    // Compute bucket index: ts_hash & ((1 << lsize) - 1)
-    uint32_t bucket_mask = (1u << lsize) - 1;
-    uint32_t bucket_idx  = ts_hash & bucket_mask;
+        // Compute bucket index: ts_hash & ((1 << lsize) - 1)
+        uint32_t bucket_mask = (1u << lsize) - 1;
+        uint32_t bucket_idx  = ts_hash & bucket_mask;
 
-    // Get first node in chain
-    // Each node is 40 bytes = 10 DWORDs
-    uint32_t* node = (uint32_t*)((uint8_t*)node_array + 40 * bucket_idx);
+        // Get first node in chain (each node is 40 bytes = 10 DWORDs)
+        uint32_t* node = (uint32_t*)((uint8_t*)node_array + 40 * bucket_idx);
 
-    // ============================================================
-    // FAST PATH 1: Direct first-node check (~80% of lookups)
-    // No cache involved — just check if the bucket's first node
-    // is our target. This is the most common case.
-    // ============================================================
-    if (node[6] == 4 && node[4] == (uint32_t)tstring) {
-        ++g_first_node_hits;
-        return node;
-    }
+        // FAST PATH 1: direct first-node check (~80% of lookups).
+        if (node[6] == 4 && node[4] == (uint32_t)tstring) {
+            ++g_first_node_hits;
+            return node;
+        }
 
-    // ============================================================
-    // FAST PATH 2: Bucket-index cache lookup
-    // Cache stores bucket_idx + lsize, NOT a pointer.
-    // We recompute the pointer from fresh node_array each time.
-    // ============================================================
-    uint32_t cache_key = ((uint32_t)table ^ ts_hash) & CACHE_MASK;
-    SafeGetStrEntry* entry = &g_cache[cache_key];
+        // FAST PATH 2: bucket-index cache (stores index+lsize, never a
+        // pointer; recomputes from the fresh node_array and content-validates,
+        // so a mimalloc address reuse can never return wrong data).
+        uint32_t cache_key = ((uint32_t)table ^ ts_hash) & CACHE_MASK;
+        SafeGetStrEntry* entry = &g_cache[cache_key];
 
-    if (entry->table_lo == (uint32_t)table &&
-        entry->tstring_hash == ts_hash &&
-        entry->lsize == lsize) {
-        // Cache hit — recompute pointer from FRESH node_array
-        uint32_t cached_bucket = entry->bucket_idx;
-        if (cached_bucket <= bucket_mask) {
-            uint32_t* cached_node = (uint32_t*)((uint8_t*)node_array + 40 * cached_bucket);
-
-            // CONTENT VALIDATION — this is what makes it safe.
-            // Even if mimalloc reused the address, the content check
-            // ensures we only return the correct node.
-            uintptr_t cn = (uintptr_t)cached_node;
-            if (cn >= 0x10000 && cn <= 0xBFFF0000 &&
-                cached_node[6] == 4 && cached_node[4] == (uint32_t)tstring) {
-                ++g_cache_hits;
-                return cached_node;
+        if (entry->table_lo == (uint32_t)table &&
+            entry->tstring_hash == ts_hash &&
+            entry->lsize == lsize) {
+            uint32_t cached_bucket = entry->bucket_idx;
+            if (cached_bucket <= bucket_mask) {
+                uint32_t* cached_node = (uint32_t*)((uint8_t*)node_array + 40 * cached_bucket);
+                if (cached_node[6] == 4 && cached_node[4] == (uint32_t)tstring) {
+                    ++g_cache_hits;
+                    return cached_node;
+                }
             }
         }
-    }
 
-    // ============================================================
-    // SLOW PATH: Chain walk with prefetch
-    // Walk the linked list from the first node, prefetching ahead.
-    // ============================================================
-    ++g_chain_walks;
-    int depth = 1;
-
-    void* next = (void*)node[8];
-    while (next != nullptr) {
-        uint32_t* n = (uint32_t*)next;
-        uintptr_t np = (uintptr_t)n;
-
-        // Bounds check
-        if (np < 0x10000 || np > 0xBFFF0000) break;
-
-        // Prefetch next node's cache line while we check this one
-        void* prefetch_next = (void*)n[8];
-        if (prefetch_next) {
-            _mm_prefetch((const char*)prefetch_next, _MM_HINT_T0);
+        // SLOW PATH: walk the chain exactly like the engine — follow node[8]
+        // until a match or NULL. NO early bounds-check break (that was the bug).
+        ++g_chain_walks;
+        int depth = 1;
+        void* next = (void*)node[8];
+        while (next != nullptr) {
+            uint32_t* n = (uint32_t*)next;
+            if (n[6] == 4 && n[4] == (uint32_t)tstring) {
+                // Found — cache the chain's start bucket (all nodes in a chain
+                // share it) so a repeat lookup short-circuits the walk.
+                entry->table_lo = (uint32_t)table;
+                entry->tstring_hash = ts_hash;
+                entry->bucket_idx = bucket_idx;
+                entry->lsize = lsize;
+                g_chain_depth_total += depth;
+                return n;
+            }
+            next = (void*)n[8];
+            depth++;
         }
 
-        if (n[6] == 4 && n[4] == (uint32_t)tstring) {
-            // Found — cache the bucket index (NOT the pointer)
-            // Compute which bucket this node belongs to by scanning
-            // Actually, we can compute it: the node is somewhere in the
-            // chain starting at bucket_idx. For caching, we store the
-            // ORIGINAL bucket_idx since that's where the chain starts.
-            // On next lookup, we'll find this node via the cached bucket.
-            // But wait — the node might be at a different position in the
-            // chain. We need to store the bucket where THIS node lives.
-            // Since nodes in a chain all hash to the same bucket, we can
-            // just store the current bucket_idx.
-            entry->table_lo = (uint32_t)table;
-            entry->tstring_hash = ts_hash;
-            entry->bucket_idx = bucket_idx;
-            entry->lsize = lsize;
-
-            g_chain_depth_total += depth;
-            return n;
-        }
-
-        next = prefetch_next;
-        depth++;
+        // End of chain, no match — same as the engine returning &nilObject
+        // when result[8] becomes NULL.
+        ++g_nil_returns;
+        return g_nil_object;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Corrupt chain/table — fall back to the engine rather than fault.
+        return g_orig_getstr(table, tstring);
     }
-
-    // Not found
-    ++g_nil_returns;
-    return g_nil_object;
 }
 
 // ----------------------------------------------------------------
