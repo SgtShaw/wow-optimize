@@ -31,8 +31,12 @@ static std::atomic<uint64_t> g_fast_paths{0};
 static std::atomic<uint64_t> g_fallback_paths{0};
 
 // Original function pointer
-// Signature: int sub_76ED20(char* dst, const char* src, int maxlen)
-typedef int (__cdecl *StrncpyLike_fn)(char* dst, const char* src, int maxlen);
+// Signature: int __stdcall sub_76ED20(char* dst, const char* src, int maxlen)
+// NOTE: the original is __stdcall (callee pops 12 bytes — every return path is
+// `retn 0Ch`). The hook MUST match or each of the 890 call sites leaves the
+// stack 12 bytes off, drifting ESP until a corrupted return address jumps into
+// the heap.
+typedef int (__stdcall *StrncpyLike_fn)(char* dst, const char* src, int maxlen);
 static StrncpyLike_fn orig_Sub76ED20 = nullptr;
 
 // SSE2 strlen - processes 16 bytes at a time with aligned loads
@@ -79,8 +83,8 @@ static inline size_t fast_strlen_sse2(const char* s) {
     return offset;
 }
 
-// Hooked function
-static int __cdecl Hooked_Sub76ED20(char* dst, const char* src, int maxlen) {
+// Hooked function (__stdcall to match the original — see typedef note above)
+static int __stdcall Hooked_Sub76ED20(char* dst, const char* src, int maxlen) {
     CrashDumper::RecordHookCall("StrcpySSE2", (uintptr_t)_ReturnAddress());
     if (!dst || !src) {
         g_fallback_paths++;
