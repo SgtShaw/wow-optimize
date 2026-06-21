@@ -341,7 +341,8 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
     
     // 1. Mimalloc is already configured by ConfigureMimalloc() before the
     //    5s loader delay (purge_delay=500ms GREEN, arena_eager_commit=1,
-    //    purge_decommits=1). The pressure governor adapts purge_delay to
+    //    purge_decommits=0 — RESET not DECOMMIT, so freed VA stays mapped for
+    //    async GPU-driver reads). The pressure governor adapts purge_delay to
     //    100ms (YELLOW) / 10ms (RED) when VA fragments. Do NOT override
     //    those here — a flat 50ms purge_delay on the whole-heap mimalloc
     //    causes the 6.3M-fault / 11s-stall / disconnect storm documented
@@ -364,7 +365,15 @@ bool WowMemoryOpt::ApplyMemoryOptimizations() {
     // 3. Set working set. Single-client pins a high minimum so Windows can't
     // page WoW out when it loses focus; faulting ~1GB back on alt-tab was
     // stalling the main thread for 10s+ on VA-tight HD clients.
-    SIZE_T minWS = 768 * 1024 * 1024;  // 768MB minimum (pinned, single-client)
+    // Aggressive pin: raise the hard-pinned minimum so the ENTIRE world working set
+    // stays resident across focus loss. The default 768MB hard pin protects only the
+    // first 768MB; the remaining ~1GB of a loaded HD client still gets trimmed on
+    // alt-tab and faults back over ~10s on return. Raising the floor to 1536MB pins
+    // the common world footprint outright (costs that much resident RAM permanently).
+    // Default OFF — enable only on boxes with plenty of RAM.
+    #define TEST_ENABLE_WS_AGGRESSIVE_PIN 0
+
+    SIZE_T minWS = (TEST_ENABLE_WS_AGGRESSIVE_PIN ? 1536u : 768u) * 1024 * 1024;  // pinned, single-client
     SIZE_T maxWS = 2048ULL * 1024 * 1024; // 2GB maximum (or 3GB with LAA)
 
     if (g_isMultiClient) {
