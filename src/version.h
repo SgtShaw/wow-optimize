@@ -343,19 +343,13 @@
 #define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
 
 // SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, bounded strncpy)
-// RE-ENABLED: the old corruption came from an unbounded SSE strlen that read
-// past short strings into adjacent mimalloc allocations. That cause is gone:
-// (1) the mimalloc CRT allocator is disabled, and (2) the current code uses the
-// page-safe aligned fast_strlen_sse2 and copies strictly copy_len <= src_len
-// bytes (no source overread) into <= maxlen-1 bytes (no dest overflow). It is
-// layout-independent (pure bytes), unlike the reimplementations that crashed.
-// RE-ENABLED in v3.11.0: the SSE2 bounded strncpy replacement for sub_76ED20
-// (890 callers) is reviewed as bounded (page-safe aligned SSE2 scans),
-// layout-independent (pure bytes), and surrounded by SEH guards. The old
-// corruption came from an unbounded SSE strlen that read past short strings
-// into adjacent mimalloc allocations — that cause is gone (mimalloc CRT
-// allocator is disabled). Kept OFF until validated in-game by a tester.
-#define TEST_DISABLE_STRCAT_FAST        1
+// The old corruption came from an unbounded SSE strlen that read past short
+// strings into adjacent allocations. That cause is gone: (1) the mimalloc CRT
+// allocator redirect is now correctly scoped, and (2) the current code uses
+// page-safe aligned SSE2 scans with strict bounds (copy_len <= src_len, no
+// source overread; <= maxlen-1, no dest overflow). Layout-independent (pure
+// bytes). Surrounded by SEH guards. Enabled for testing.
+#define TEST_DISABLE_STRCAT_FAST        0
 
 // Lua tonumber Fast Path - sub_84E0E0 (750 xrefs)
 // DISABLED: ACCESS_VIOLATION crashes - lua_State structure offsets incorrect
