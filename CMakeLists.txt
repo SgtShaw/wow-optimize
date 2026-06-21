@@ -1,6 +1,26 @@
 cmake_minimum_required(VERSION 3.14)
 project(wow_optimize LANGUAGES C CXX)
 
+# ============================================================================
+# Whole-program / link-time optimization (LTO) for the DLL.
+#   -DWO_ENABLE_LTO=ON  ->  /GL (whole-program) + /LTCG (link-time codegen)
+# Default OFF: LTO re-generates code across the whole DLL and can shift the
+# exact codegen we are currently stabilizing crashes against. Turn it on only
+# after the build is confirmed stable in-game. Marginal win on a ~340KB DLL
+# next to wow.exe (which we cannot recompile), but free once stable.
+#
+# PROFILE-GUIDED OPTIMIZATION (PGO) is a manual 2-phase process because it
+# needs YOUR gameplay profile (there is no profile to bake in from here):
+#   1. Configure with -DWO_ENABLE_LTO=ON, then link instrumented:
+#        add  /GENPROFILE  to the linker (set WO_PGO=GEN below), build, and
+#        play a representative session (login -> world -> a raid). This writes
+#        wow_optimize!1.pgc next to the DLL.
+#   2. Re-link optimized with  /USEPROFILE  (set WO_PGO=USE), which folds the
+#        .pgc counts back in. Expect single-digit % on hot DLL paths only.
+# ============================================================================
+option(WO_ENABLE_LTO "Enable /GL + /LTCG whole-program optimization for wow_optimize" OFF)
+set(WO_PGO "OFF" CACHE STRING "PGO phase for wow_optimize: OFF | GEN | USE")
+
 include(FetchContent)
 set(FETCHCONTENT_UPDATES_DISCONNECTED ON)
 
@@ -91,8 +111,6 @@ add_library(wow_optimize SHARED
     src/strstr_fast.h
     src/crt_char_fast.cpp
     src/crt_char_fast.h
-    src/crt_pow_sse2.cpp
-    src/crt_pow_sse2.h
     src/crt_wchar_fast.cpp
     src/crt_wchar_fast.h
     src/tls_cache.cpp
@@ -255,6 +273,21 @@ target_compile_definitions(wow_optimize PRIVATE
     _CRT_SECURE_NO_WARNINGS
     _WINSOCK_DEPRECATED_NO_WARNINGS
 )
+
+# --- LTO / PGO (opt-in; see header block) ---
+if(WO_ENABLE_LTO AND MSVC)
+    target_compile_options(wow_optimize PRIVATE $<$<CONFIG:Release>:/GL>)
+    if(WO_PGO STREQUAL "GEN")
+        target_link_options(wow_optimize PRIVATE $<$<CONFIG:Release>:/LTCG:PGINSTRUMENT /GENPROFILE>)
+        message(STATUS "wow_optimize: LTO + PGO INSTRUMENT (play a session to emit .pgc, then reconfigure WO_PGO=USE)")
+    elseif(WO_PGO STREQUAL "USE")
+        target_link_options(wow_optimize PRIVATE $<$<CONFIG:Release>:/LTCG:PGOPTIMIZE /USEPROFILE>)
+        message(STATUS "wow_optimize: LTO + PGO OPTIMIZE (folding in collected .pgc profile)")
+    else()
+        target_link_options(wow_optimize PRIVATE $<$<CONFIG:Release>:/LTCG>)
+        message(STATUS "wow_optimize: LTO (/GL + /LTCG) enabled")
+    endif()
+endif()
 
 # === Proxy DLL (version.dll) — auto-loader ===
 add_library(version SHARED

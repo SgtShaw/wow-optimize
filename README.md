@@ -644,7 +644,6 @@ wow-optimize/
 │   ├── heap_compactor.cpp/.h             # VA fragmentation monitor
 │   ├── crt_mem_fastpath.cpp              # SSE2 strlen/strcmp/memcpy/memset
 │   ├── crt_char_fast.cpp/.h              # SSE2 memchr/strchr
-│   ├── crt_pow_sse2.cpp/.h               # SSE2 pow(x,y) fast path
 │   ├── strstr_fast.cpp/.h                # SSE2 Boyer-Moore-Horspool strstr
 │   ├── dxvk_bridge.cpp/.h                # DXVK/Vulkan detection
 │   ├── crash_dumper.cpp/.h               # Enhanced crash reporter
