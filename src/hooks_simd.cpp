@@ -106,6 +106,65 @@ void SSE2_QuatNormalize(float* __restrict q) {
 }
 
 // ================================================================
+// SIMD Utility: Quaternion Multiply (Hamilton product, SSE2)
+// ================================================================
+// result = a * b where q = (x,y,z,w).
+// Standard Hamilton: rw = aw*bw - ax*bx - ay*by - az*bz
+//                    rx = aw*bx + ax*bw + ay*bz - az*by
+//                    ry = aw*by - ax*bz + ay*bw + az*bx
+//                    rz = aw*bz + ax*by - ay*bx + az*bw
+void SSE2_QuatMultiply(const float* __restrict a, const float* __restrict b, float* __restrict result) {
+    __m128 va = _mm_loadu_ps(a); // ax, ay, az, aw
+    __m128 vb = _mm_loadu_ps(b); // bx, by, bz, bw
+
+    // Extract components
+    __m128 ax = _mm_shuffle_ps(va, va, _MM_SHUFFLE(0,0,0,0));
+    __m128 ay = _mm_shuffle_ps(va, va, _MM_SHUFFLE(1,1,1,1));
+    __m128 az = _mm_shuffle_ps(va, va, _MM_SHUFFLE(2,2,2,2));
+    __m128 aw = _mm_shuffle_ps(va, va, _MM_SHUFFLE(3,3,3,3));
+
+    __m128 bx = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(0,0,0,0));
+    __m128 by = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(1,1,1,1));
+    __m128 bz = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(2,2,2,2));
+    __m128 bw = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(3,3,3,3));
+
+    // Compute all 4 components in parallel
+    __m128 rw = _mm_sub_ps(_mm_sub_ps(_mm_mul_ps(aw, bw), _mm_mul_ps(ax, bx)),
+                           _mm_add_ps(_mm_mul_ps(ay, by), _mm_mul_ps(az, bz)));
+    __m128 rx = _mm_add_ps(_mm_add_ps(_mm_mul_ps(aw, bx), _mm_mul_ps(ax, bw)),
+                           _mm_sub_ps(_mm_mul_ps(ay, bz), _mm_mul_ps(az, by)));
+    __m128 ry = _mm_add_ps(_mm_sub_ps(_mm_mul_ps(aw, by), _mm_mul_ps(ax, bz)),
+                           _mm_add_ps(_mm_mul_ps(ay, bw), _mm_mul_ps(az, bx)));
+    __m128 rz = _mm_add_ps(_mm_sub_ps(_mm_mul_ps(aw, bz), _mm_mul_ps(ax, by)),
+                           _mm_add_ps(_mm_mul_ps(az, bw), _mm_mul_ps(ay, bx)));
+
+    // Pack into result (x,y,z,w)
+    __m128 lo = _mm_movelh_ps(rx, ry); // rx, ry, ?, ?
+    __m128 hi = _mm_movelh_ps(rz, rw); // rz, rw, ?, ?
+    // Interleave: need x,y,z,w from rx,ry,rz,rw lane 0
+    float fx, fy, fz, fw;
+    _mm_store_ss(&fx, rx);
+    _mm_store_ss(&fy, ry);
+    _mm_store_ss(&fz, rz);
+    _mm_store_ss(&fw, rw);
+    result[0] = fx; result[1] = fy; result[2] = fz; result[3] = fw;
+}
+
+// ================================================================
+// SIMD Utility: 3-Component Dot Product (SSE2)
+// ================================================================
+float SSE2_Vec3Dot(const float* a, const float* b) {
+    __m128 va = _mm_setr_ps(a[0], a[1], a[2], 0.0f);
+    __m128 vb = _mm_setr_ps(b[0], b[1], b[2], 0.0f);
+    __m128 m = _mm_mul_ps(va, vb);
+    __m128 s1 = _mm_add_ss(m, _mm_shuffle_ps(m, m, _MM_SHUFFLE(1,1,1,1)));
+    __m128 s2 = _mm_add_ss(s1, _mm_shuffle_ps(m, m, _MM_SHUFFLE(2,2,2,2)));
+    float r;
+    _mm_store_ss(&r, s2);
+    return r;
+}
+
+// ================================================================
 // SIMD Utility: Vector3 Normalize (SSE2)
 // ================================================================
 void SSE2_Vec3Normalize(float* __restrict v) {

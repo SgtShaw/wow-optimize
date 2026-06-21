@@ -251,9 +251,9 @@
 #define TEST_DISABLE_HOOK_BATCHING       0
 
 // Addon Lua-file prefetch (reads ~6000 addon files during loading to warm the OS
-// cache). DISABLED: on VA/RAM-tight HD clients it adds disk-I/O contention during
-// the load window for marginal benefit. Set to 0 to re-enable.
-#define TEST_DISABLE_LUA_PRECOMPILE      1
+// cache). Enabled for testing — warms OS page cache for faster addon loading.
+// On multi-client setups with shared disk, set to 1 to avoid I/O contention.
+#define TEST_DISABLE_LUA_PRECOMPILE      0
 
 // CQuaternion::Normalize SSE2 (sub_979110). Upgraded to full-precision
 // sqrtss+divss (IEEE round-to-nearest, sub-ULP match vs x87 original) with

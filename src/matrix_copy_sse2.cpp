@@ -359,6 +359,41 @@ static void __fastcall Hooked_Scale3x3(float* self, void* edx, float scalar) {
 }
 #endif
 
+// ================================================================
+// sub_4C3680: CMatrix::From3x3 — expand float[9] → float[16] (5 xrefs)
+// ================================================================
+// Copies a 3×3 row-major matrix into a 4×4 with identity padding:
+//   out[0..2]=in[0..2], out[3]=0
+//   out[4..6]=in[3..5], out[7]=0
+//   out[8..10]=in[6..8], out[11]=0
+//   out[12..14]=in[9..11], out[15]=1
+// Used in bone transform construction. SSE2 loads 3 rows of 3 floats
+// and stores 4 rows of 4 floats with zero/one padding.
+typedef float* (__fastcall* MatFrom3x3_t)(float* self, void* edx, float* src3x3);
+static MatFrom3x3_t pOrigMatFrom3x3 = nullptr;
+static volatile long g_matfrom3x3_calls = 0;
+
+static float* __fastcall Hooked_MatFrom3x3(float* self, void* edx, float* src) {
+    ++g_matfrom3x3_calls;
+    uintptr_t s = (uintptr_t)self, p = (uintptr_t)src;
+    if (s > 0x10000 && s < 0xBFFF0000 && p > 0x10000 && p < 0xBFFF0000) {
+        __try {
+            // Load 3 rows of 3 floats each (read exactly 3, never touch src[3])
+            __m128 r0 = _mm_setr_ps(src[0], src[1], src[2], 0.0f);
+            __m128 r1 = _mm_setr_ps(src[3], src[4], src[5], 0.0f);
+            __m128 r2 = _mm_setr_ps(src[6], src[7], src[8], 0.0f);
+            __m128 r3 = _mm_setr_ps(src[9], src[10], src[11], 1.0f);
+            _mm_storeu_ps(self,     r0);
+            _mm_storeu_ps(self + 4, r1);
+            _mm_storeu_ps(self + 8, r2);
+            _mm_storeu_ps(self + 12, r3);
+            return self;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    return pOrigMatFrom3x3(self, edx, src);
+}
+
 typedef float* (__cdecl* PointXformIP_t)(float* a1, float* a2, float* a3);
 static PointXformIP_t pOrigPointXformIP = nullptr;
 static volatile long g_pointxformip_calls = 0;
@@ -501,6 +536,14 @@ bool InstallMatrixCopySSE2() {
     } else {
         Log("[MatrixSSE2] CMatrix::Scale3x3 hook FAILED");
     }
+
+    if (WineSafe_CreateHook((void*)0x004C3680, (void*)Hooked_MatFrom3x3,
+                            (void**)&pOrigMatFrom3x3) == MH_OK &&
+        WO_EnableHook((void*)0x004C3680) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::From3x3 at 0x004C3680 (SSE2, 5 callers)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::From3x3 hook FAILED");
+    }
 #else
     Log("[MatrixSSE2] Matrix-Ext hooks DISABLED via feature flag");
 #endif
@@ -530,8 +573,9 @@ void ShutdownMatrixCopySSE2() {
     MH_DisableHook((void*)0x004C23D0);
     MH_DisableHook((void*)0x004C2300);
     MH_DisableHook((void*)0x004C1BF0);
-    Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld  Scale3x3=%ld",
-        g_mattranspose_calls, g_pointxformip_calls, g_scale3x3_calls);
+    MH_DisableHook((void*)0x004C3680);
+    Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld  Scale3x3=%ld  From3x3=%ld",
+        g_mattranspose_calls, g_pointxformip_calls, g_scale3x3_calls, g_matfrom3x3_calls);
 #endif
 
     Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld  MatVec3=%ld  MatVec4=%ld",

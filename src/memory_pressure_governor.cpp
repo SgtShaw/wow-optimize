@@ -101,10 +101,17 @@ bool RegisterShedCallback(ShedCallback cb, void* ctx) {
 void OnFrame() {
     if (!g_active) return;
 
-    // Throttle to ~10Hz so we're not reading the atomic + walking
-    // the callback list every frame when pressure is stable.
+    // Adaptive throttle: poll every 4th frame (~15Hz) normally, but
+    // skip entirely when GREEN and stable for 60+ frames (1 second).
+    // This eliminates per-frame overhead during steady-state gameplay.
     g_frameTick++;
-    if ((g_frameTick & 0x3) != 0) return;          // every 4th frame
+    if (g_level.load() == PRESSURE_GREEN && g_hystCount == 0 && g_frameTick > 60) {
+        // Stable GREEN: only re-check every 60 frames (~1Hz)
+        if ((g_frameTick % 60) != 0) return;
+    } else {
+        // Under pressure or recently changed: check every 4 frames
+        if ((g_frameTick & 0x3) != 0) return;
+    }
 
     SIZE_T freeBlock = HeapCompactor_GetCachedLargestBlock();
     if (freeBlock == 0) return;                     // monitor not sampled yet
