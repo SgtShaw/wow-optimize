@@ -255,13 +255,11 @@
 // the load window for marginal benefit. Set to 0 to re-enable.
 #define TEST_DISABLE_LUA_PRECOMPILE      1
 
-// CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 path replaced the
-// engine's exact normalize but (a) omitted the original's near-zero magnitude
-// guard, producing NaN quaternions on degenerate bones, and (b) had a broken
-// horizontal reduction. NaN/garbage quaternions corrupt the transform pipeline
-// -> instance crashes + post-combat freezes. The math is fixed in hooks_simd.cpp
-// but stays OFF pending in-game validation on the render path.
-#define TEST_DISABLE_QUAT_NORMALIZE      1
+// CQuaternion::Normalize SSE2 (sub_979110). Upgraded to full-precision
+// sqrtss+divss (IEEE round-to-nearest, sub-ULP match vs x87 original) with
+// pointer validation + SEH guard. The degenerate guard (mag^2 > 2^-22) and
+// horizontal sum are both verified correct against the decompile.
+#define TEST_DISABLE_QUAT_NORMALIZE      0
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1

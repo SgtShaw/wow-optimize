@@ -318,6 +318,47 @@ static float* __fastcall Hooked_MatTranspose(float* self, void* edx, float* out)
     return pOrigMatTranspose(self, edx, out);
 }
 
+// ================================================================
+// sub_4C1BF0: CMatrix::Scale3x3 (upper-left 3x3 *= scalar, __thiscall)
+// ================================================================
+// Multiplies indices 0,1,2 / 4,5,6 / 8,9,10 by a scalar. Skips the
+// translation column (3,7,11) and bottom row (12-15). 37 xrefs in the
+// model rendering pipeline (M2 bone/scale updates). The original is 9
+// scalar fmuls; SSE2 does 3 vector muls + masked stores.
+#if !TEST_DISABLE_MATRIX_EXT_SSE2
+typedef void (__fastcall* Scale3x3_t)(float* self, void* edx, float scalar);
+static Scale3x3_t pOrigScale3x3 = nullptr;
+static volatile long g_scale3x3_calls = 0;
+
+static void __fastcall Hooked_Scale3x3(float* self, void* edx, float scalar) {
+    ++g_scale3x3_calls;
+    uintptr_t p = (uintptr_t)self;
+    if (p > 0x10000 && p < 0xBFFF0000) {
+        __try {
+            __m128 s = _mm_set1_ps(scalar);
+            // Row 0: multiply [0..3], store only [0..2]
+            __m128 r0 = _mm_mul_ps(_mm_loadu_ps(self), s);
+            _mm_store_ss(self,     r0);
+            _mm_store_ss(self + 1, _mm_shuffle_ps(r0, r0, _MM_SHUFFLE(1,1,1,1)));
+            _mm_store_ss(self + 2, _mm_shuffle_ps(r0, r0, _MM_SHUFFLE(2,2,2,2)));
+            // Row 1: multiply [4..7], store only [4..6]
+            __m128 r1 = _mm_mul_ps(_mm_loadu_ps(self + 4), s);
+            _mm_store_ss(self + 4, r1);
+            _mm_store_ss(self + 5, _mm_shuffle_ps(r1, r1, _MM_SHUFFLE(1,1,1,1)));
+            _mm_store_ss(self + 6, _mm_shuffle_ps(r1, r1, _MM_SHUFFLE(2,2,2,2)));
+            // Row 2: multiply [8..11], store only [8..10]
+            __m128 r2 = _mm_mul_ps(_mm_loadu_ps(self + 8), s);
+            _mm_store_ss(self + 8,  r2);
+            _mm_store_ss(self + 9,  _mm_shuffle_ps(r2, r2, _MM_SHUFFLE(1,1,1,1)));
+            _mm_store_ss(self + 10, _mm_shuffle_ps(r2, r2, _MM_SHUFFLE(2,2,2,2)));
+            return;
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+        }
+    }
+    pOrigScale3x3(self, edx, scalar);
+}
+#endif
+
 typedef float* (__cdecl* PointXformIP_t)(float* a1, float* a2, float* a3);
 static PointXformIP_t pOrigPointXformIP = nullptr;
 static volatile long g_pointxformip_calls = 0;
@@ -452,6 +493,14 @@ bool InstallMatrixCopySSE2() {
     } else {
         Log("[MatrixSSE2] PointTransformInPlace hook FAILED");
     }
+
+    if (WineSafe_CreateHook((void*)0x004C1BF0, (void*)Hooked_Scale3x3,
+                            (void**)&pOrigScale3x3) == MH_OK &&
+        WO_EnableHook((void*)0x004C1BF0) == MH_OK) {
+        Log("[MatrixSSE2] Hooked CMatrix::Scale3x3 at 0x004C1BF0 (SSE2, 37 callers)");
+    } else {
+        Log("[MatrixSSE2] CMatrix::Scale3x3 hook FAILED");
+    }
 #else
     Log("[MatrixSSE2] Matrix-Ext hooks DISABLED via feature flag");
 #endif
@@ -480,7 +529,9 @@ void ShutdownMatrixCopySSE2() {
 #if !TEST_DISABLE_MATRIX_EXT_SSE2
     MH_DisableHook((void*)0x004C23D0);
     MH_DisableHook((void*)0x004C2300);
-    Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld", g_mattranspose_calls, g_pointxformip_calls);
+    MH_DisableHook((void*)0x004C1BF0);
+    Log("[MatrixSSE2] Stats: Transpose=%ld  PointXformIP=%ld  Scale3x3=%ld",
+        g_mattranspose_calls, g_pointxformip_calls, g_scale3x3_calls);
 #endif
 
     Log("[MatrixSSE2] Stats: MatrixCopy=%ld  MatrixIdentity=%ld  MatrixMul=%ld  MatVec3=%ld  MatVec4=%ld",
