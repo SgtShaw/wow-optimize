@@ -418,6 +418,13 @@
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
 
+// lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
+// the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
+// *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
+// custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
+// ~5M times/session (combat log, bars, timers) -- elides the call overhead.
+#define TEST_DISABLE_PUSHNUMBER_FAST    0
+
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
 #define TEST_DISABLE_LUA_NEWKEY_SAFETY  0

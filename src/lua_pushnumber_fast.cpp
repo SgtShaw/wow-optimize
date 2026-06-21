@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <cstring>
 #include "MinHook.h"
+#include "version.h"
 #include "lua_pushnumber_fast.h"
 #include "lua_optimize.h"
 
@@ -88,18 +89,20 @@ static void __cdecl Optimized_PushNumber(void* L, double n)
 
 bool InstallLuaPushNumberFast()
 {
-    // DISABLED pending isolation: lua_pushnumber writes a TValue directly to the
-    // Lua stack assuming a 16-byte value+tt+taint layout. If that layout is off
-    // by any field on this (HD/custom) client, every pushed number lands wrong
-    // -> "attempt to compare number with nil" in FrameXML. Secondary suspect to
-    // the VM engine for that symptom; disabled together so the fix can be tested
-    // cleanly. Re-enable this (return to the code below) to recover the path once
-    // the VM-engine disable is confirmed as the real fix.
+#if TEST_DISABLE_PUSHNUMBER_FAST
     (void)&Optimized_PushNumber;
-    Log("[PushNumFast] DISABLED (numeric-corruption suspect; see lua_pushnumber_fast.cpp)");
+    Log("[PushNumFast] DISABLED via TEST_DISABLE_PUSHNUMBER_FAST");
     return false;
-
-#if 0
+#else
+    // RE-ENABLED after root-causing in IDA (sub_84E2A0): the direct stack write
+    // is byte-exact to the engine --
+    //   top = L->top (L+0x0C); top[0..1] = (double)n; top[2] = 3 (LUA_TNUMBER);
+    //   top[3] = *(DWORD*)0xD4139C (global taint, single indirection); L->top += 16
+    // -- which is exactly what Optimized_PushNumber writes. The original
+    // "compare number with nil" corruption was the custom VM interpreter
+    // (lua_vm_engine, still disabled); this path was only collateral, disabled so
+    // that fix could be tested cleanly. Layout verified, so it is safe again.
+    // SEH-guarded + pointer-validated; defers to the engine during a state swap.
     void* target = (void*)0x0084E2A0;
 
     // Verify prologue: push ebp; mov ebp, esp
