@@ -15,7 +15,7 @@
 // (event_coalescer.cpp). This hook is complementary — it tracks how
 // often the registration list is resized.
 //
-// Calling convention (IDA-verified):
+// Calling convention (verified against engine):
 //   unsigned int __thiscall(unsigned int* this, unsigned int newSize)
 //   — this  in ECX
 //   — newSize on the stack at [ebp+8]

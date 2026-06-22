@@ -27,7 +27,7 @@ static volatile LONG64 g_slow_path_count = 0;
 // We take the fast path ONLY for an already-numeric value (tt==3) and defer
 // everything else (string coercion, nil, errors) to the original.
 //
-// IDA-verified vs sub_84D9C0 (index2adr) and sub_84E030:
+// Verified vs sub_84D9C0 (index2adr) and sub_84E030:
 //   L->base at L+0x10, L->top at L+0x0C; TValue is 16 bytes, value (double) at
 //   +0, tt at +0x08; LUA_TNUMBER == 3.
 //   positive idx: o = base + 16*(idx-1), valid iff o < top

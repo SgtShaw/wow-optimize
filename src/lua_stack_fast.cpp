@@ -6,7 +6,7 @@
 // more importantly skips the index2adr call for type queries that
 // use plain stack indices.
 //
-// All hooks are IDA-verified against the stock 3.3.5a binary.
+// All hooks verified against the stock 3.3.5a binary.
 // SEH-guarded, teardown-state-checked, gated behind a single
 // TEST_DISABLE flag.
 //

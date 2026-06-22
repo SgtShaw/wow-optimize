@@ -6,8 +6,8 @@
 // by the nearest known function address. On shutdown, the top-50 hot
 // functions are dumped to the log sorted by sample count.
 //
-// Known-address table is built from IDA-verified WoW.exe addresses
-// (see CONTEXT.md). Addresses outside known ranges are bucketed as
+// Known-address table is built from verified WoW.exe addresses.
+// Addresses outside known ranges are bucketed as
 // "unknown_wow" (in .text but not in our table) or "system" (outside
 // WoW's image entirely — kernel, driver, or system DLL time).
 // ================================================================

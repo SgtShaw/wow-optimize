@@ -10,7 +10,7 @@ extern "C" void Log(const char* fmt, ...);
 // lua_gettop (0x84DBD0, 17 bytes, ~2M calls/session)
 //
 // trivially: (L->top - L->base) >> 4
-// L->top is at L+0x0C, L->base at L+0x10 (IDA-verified vs index2adr)
+// L->top is at L+0x0C, L->base at L+0x10 (verified vs index2adr)
 // The original calls index2adr-style helpers for pseudo-indices, but
 // lua_gettop takes no stack-index arg — it just returns the absolute
 // stack depth, so the fast path is always valid.

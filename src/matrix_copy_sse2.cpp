@@ -100,7 +100,7 @@ static float* __fastcall HookMatrixIdentity(float* self, void* /*edx*/) {
 // ================================================================
 // sub_4C1F00: 4x4 matrix multiply  result = A * B  (53+ xrefs)
 // ================================================================
-// IDA-verified convention: result[r*4+c] = sum_k A[r*4+k] * B[k*4+c]
+// Verified convention: result[r*4+c] = sum_k A[r*4+k] * B[k*4+c]
 // (row-major C = A*B). The SSE2 form below broadcasts each element of an
 // A row across a full B row and accumulates, producing the identical
 // products; only the summation order differs, a sub-ULP delta that is
@@ -632,7 +632,7 @@ bool InstallMatrixCopySSE2() {
     if (WineSafe_CreateHook((void*)0x004C1F00, (void*)HookMatrixMultiply,
                             (void**)&pOrigMatMul) == MH_OK &&
         WO_EnableHook((void*)0x004C1F00) == MH_OK) {
-        Log("[MatrixSSE2] Hooked MatrixMultiply at 0x004C1F00 (SSE2, IDA-verified A*B)");
+        Log("[MatrixSSE2] Hooked MatrixMultiply at 0x004C1F00 (SSE2, verified A*B)");
     } else {
         Log("[MatrixSSE2] MatrixMultiply hook FAILED");
     }

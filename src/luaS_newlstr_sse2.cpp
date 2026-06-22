@@ -56,7 +56,7 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     uint32_t bucket = h & (nsize - 1);
     uint32_t tstring = hash_array[bucket];
 
-    // currentwhite lives at G+0x15 in this build (IDA-verified vs sub_856C80;
+    // currentwhite lives at G+0x15 in this build (verified vs sub_856C80;
     // the dead/resurrect test reads *(BYTE*)(G+21)). Reading +0x14 was the bug.
     uint8_t currentwhite = *(uint8_t*)(globalState + 0x15);
 
