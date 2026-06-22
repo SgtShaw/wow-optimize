@@ -406,6 +406,13 @@
 // shadow/reflection frustum, throttling on-screen emitters too.
 #define TEST_DISABLE_PARTICLE_THROTTLE  1
 
+// Inline Lua stack push/type-query fast paths — 8 hooks (lua_pushnil,
+// lua_pushinteger, lua_pushboolean, lua_pushlightuserdata, lua_type,
+// lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
+// engine; inlined to eliminate call overhead and index2adr for plain
+// stack indices. IDA-verified. Set to 1 to disable all 8.
+#define TEST_DISABLE_LUA_STACK_FAST  0
+
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
 // offsets were wrong for WoW's Lua layout. Fixed to the verified offsets --
@@ -429,6 +436,12 @@
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
 #define TEST_DISABLE_LUA_NEWKEY_SAFETY  0
+
+// Sampling Profiler — background thread samples main-thread EIP every ~1ms
+// via SuspendThread/GetThreadContext/ResumeThread, buckets by nearest known
+// function, dumps top-50 hot functions on shutdown. Read-only, no WoW hooks.
+// Fixes the xrefs≠runtime-frequency blind spot. Set to 1 to disable.
+#define TEST_DISABLE_SAMPLING_PROFILER  0
 
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.

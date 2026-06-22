@@ -218,6 +218,7 @@ static void StopFreezeWatchdog() {
 #include "network_guid_sse2.h"
 #include "matrix_copy_sse2.h"
 #include "lua_numconv_fast.h"
+#include "lua_stack_fast.h"
 #include "wow_subsystem_hooks.h"
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
@@ -5824,6 +5825,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- lua_pushvalue Direct Stack Copy ---");
     bool pushValueFastOk = InstallLuaPushValueFast();
 
+    Log("--- Lua Stack Push/Query Fast Paths (8 hooks) ---");
+#if !TEST_DISABLE_LUA_STACK_FAST
+    bool luaStackFastOk = InstallLuaStackFast();
+#else
+    bool luaStackFastOk = false;
+    Log("[LuaStackFast] DISABLED via TEST_DISABLE_LUA_STACK_FAST");
+#endif
+
     Log("--- Render State Deduplication ---");
     bool renderDedupOk = InstallRenderStateDedup();
 
@@ -8147,6 +8156,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownLuaPushValueFast();
             ShutdownDataCaches();
             ShutdownComputeCaches();
+            ShutdownLuaStackFast();
             ShutdownRenderStateDedup();
             ShutdownEventNameHash();
             ShutdownCDataStoreBatch();

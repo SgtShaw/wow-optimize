@@ -247,6 +247,10 @@ add_library(wow_optimize SHARED
     src/matrix_copy_sse2.h
     src/lua_numconv_fast.cpp
     src/lua_numconv_fast.h
+    src/lua_stack_fast.cpp
+    src/lua_stack_fast.h
+    src/sampling_profiler.cpp
+    src/sampling_profiler.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
