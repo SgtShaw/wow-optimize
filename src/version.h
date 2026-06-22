@@ -275,11 +275,12 @@
 // On multi-client setups with shared disk, set to 1 to avoid I/O contention.
 #define TEST_DISABLE_LUA_PRECOMPILE      0
 
-// CQuaternion::Normalize SSE2 (sub_979110). Upgraded to full-precision
-// sqrtss+divss (IEEE round-to-nearest, sub-ULP match vs x87 original) with
-// pointer validation + SEH guard. The degenerate guard (mag^2 > 2^-22) and
-// horizontal sum are both verified correct against the decompile.
-#define TEST_DISABLE_QUAT_NORMALIZE      0
+// CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 horizontal
+// reduction has a verified lane-splat bug (lanes 0/1 stuck at 2*(x^2+y^2)
+// → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
+// rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
+// transform → instant first-person zoom on camera movement.
+#define TEST_DISABLE_QUAT_NORMALIZE      1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
