@@ -50,6 +50,7 @@
 #include "lua_vm_cache.h"
 #include "crash_dumper.h"
 #include "memory_pressure_governor.h"
+#include "sampling_profiler.h"
 #include "lua_getstr_inline.h"
 #include "lua_rawgeti_inline.h"
 #include "lua_toboolean_inline.h"
@@ -5566,6 +5567,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("Vec3NormalizeSSE2");
     CrashDumper::RegisterFeature("MatrixExtSSE2");
     CrashDumper::RegisterFeature("MatrixMultiply");
+    CrashDumper::RegisterFeature("SamplingProfiler");
 
     Log("--- Colossal Optimizations ---");
 #if !TEST_DISABLE_EVENT_COALESCER
@@ -6398,6 +6400,21 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Start async I/O worker after all hooks/workers are ready - avoids init race
     InstallAsyncIoWorker();
+
+#if !TEST_DISABLE_SAMPLING_PROFILER
+    // Start lightweight sampling profiler. A background thread samples the
+    // main thread's EIP every ~1ms via SuspendThread/GetThreadContext/
+    // ResumeThread and dumps the top-50 hot functions on shutdown.
+    // Read-only — no hooks into WoW code, no writes to WoW memory.
+    {
+        HANDLE hMain = OpenThread(THREAD_QUERY_INFORMATION, FALSE, g_mainThreadId);
+        if (hMain) {
+            if (SamplingProfiler::Init(hMain))
+                CrashDumper::FeatureSetActive("SamplingProfiler", true);
+            CloseHandle(hMain);
+        }
+    }
+#endif
 
     Log("");
     Log("  [%s] mimalloc allocator",           allocOk     ? " OK " : "FAIL");
@@ -8106,6 +8123,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             }
             HeapCompactor_Shutdown();
             VersionChecker_Shutdown();
+
+#if !TEST_DISABLE_SAMPLING_PROFILER
+            SamplingProfiler::Shutdown();
+#endif
 
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
