@@ -7,6 +7,31 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
+// lua_gettop (0x84DBD0, 17 bytes, ~2M calls/session)
+//
+// trivially: (L->top - L->base) >> 4
+// L->top is at L+0x0C, L->base at L+0x10 (IDA-verified vs index2adr)
+// The original calls index2adr-style helpers for pseudo-indices, but
+// lua_gettop takes no stack-index arg — it just returns the absolute
+// stack depth, so the fast path is always valid.
+// ================================================================
+
+typedef int (__cdecl* lua_gettop_t)(uintptr_t L);
+static lua_gettop_t orig_lua_gettop = nullptr;
+
+static int __cdecl hook_lua_gettop(uintptr_t L) {
+    __try {
+        uintptr_t top  = *(uintptr_t*)(L + 0x0C);
+        uintptr_t base = *(uintptr_t*)(L + 0x10);
+        if (top >= base && (top - base) < 0x100000)  // sanity: <1M slots
+            return (int)((top - base) >> 4);
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // bad pointers — defer to original
+    }
+    return orig_lua_gettop(L);
+}
+
+// ================================================================
 // lua_isnumber (0x84DF20, 1194 xrefs) and lua_tonumber (0x84E030, 1165 xrefs)
 //
 // Both resolve a stack index to TValue* via sub_84D9C0 (index2adr),
@@ -131,13 +156,26 @@ static double __cdecl hook_lua_tonumber(uintptr_t L, int idx) {
 // Install / Shutdown
 // ================================================================
 
-static void* const ADDR_LUA_ISNUMBER  = (void*)0x0084DF20;
-static void* const ADDR_LUA_TONUMBER  = (void*)0x0084E030;
+static void* const ADDR_LUA_GETTOP   = (void*)0x0084DBD0;
+static void* const ADDR_LUA_ISNUMBER = (void*)0x0084DF20;
+static void* const ADDR_LUA_TONUMBER = (void*)0x0084E030;
 
 bool InstallLuaNumConvFast() {
     int installed = 0;
 
+    // lua_gettop — trivially inlined as (L->top - L->base) >> 4
+    // Called millions of times per session (every Lua API call checks)
     MH_STATUS st = WineSafe_CreateHook(
+        ADDR_LUA_GETTOP, (void*)hook_lua_gettop, (void**)&orig_lua_gettop);
+    if (st == MH_OK) {
+        MH_EnableHook(ADDR_LUA_GETTOP);
+        installed++;
+        Log("[LuaNumConvFast] lua_gettop hook at 0x84DBD0 (inline fast path)");
+    } else {
+        Log("[LuaNumConvFast] lua_gettop hook FAILED (status %d)", (int)st);
+    }
+
+    st = WineSafe_CreateHook(
         ADDR_LUA_ISNUMBER, (void*)hook_lua_isnumber, (void**)&orig_lua_isnumber);
     if (st == MH_OK) {
         MH_EnableHook(ADDR_LUA_ISNUMBER);
@@ -161,6 +199,7 @@ bool InstallLuaNumConvFast() {
 }
 
 void ShutdownLuaNumConvFast() {
+    MH_DisableHook(ADDR_LUA_GETTOP);
     MH_DisableHook(ADDR_LUA_ISNUMBER);
     MH_DisableHook(ADDR_LUA_TONUMBER);
 }
