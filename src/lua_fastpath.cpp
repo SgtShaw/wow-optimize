@@ -1515,6 +1515,38 @@ static int __cdecl Hooked_StrSub(lua_State* L) {
     return 1;
 }
 
+// SSE2 ASCII case conversion (shared by string.lower / string.upper).
+// Writes n converted bytes into buf and returns true; returns false the moment
+// a byte is >127 or NUL, so the caller defers the WHOLE string to the engine --
+// byte-identical semantics to the old scalar loop. Branchless conversion: add
+// `delta` only to bytes in [lo,hi]. Page-safe: 16-byte SSE2 loads only cover
+// full chunks (i+16<=n); the <16-byte tail is handled scalar, so we never read
+// past the string into a possibly-unmapped next page.
+static inline bool SSE2_CaseConvert(const char* s, size_t n, char* buf,
+                                    char lo, char hi, char delta) {
+    const __m128i zero  = _mm_setzero_si128();
+    const __m128i loM1  = _mm_set1_epi8((char)(lo - 1));
+    const __m128i hiP1  = _mm_set1_epi8((char)(hi + 1));
+    const __m128i vd    = _mm_set1_epi8(delta);
+    size_t i = 0;
+    for (; i + 16 <= n; i += 16) {
+        __m128i v = _mm_loadu_si128((const __m128i*)(s + i));
+        // bad = (v < 0)  i.e. c > 127  |  (v == 0)  i.e. NUL
+        __m128i bad = _mm_or_si128(_mm_cmpgt_epi8(zero, v), _mm_cmpeq_epi8(v, zero));
+        if (_mm_movemask_epi8(bad)) return false;
+        // inRange = (v >= lo) & (v <= hi)  ==  (v > lo-1) & (hi+1 > v)
+        __m128i inRange = _mm_and_si128(_mm_cmpgt_epi8(v, loM1), _mm_cmpgt_epi8(hiP1, v));
+        _mm_storeu_si128((__m128i*)(buf + i),
+                         _mm_add_epi8(v, _mm_and_si128(inRange, vd)));
+    }
+    for (; i < n; i++) {
+        unsigned char c = (unsigned char)s[i];
+        if (c > 127 || c == 0) return false;
+        buf[i] = (c >= (unsigned char)lo && c <= (unsigned char)hi) ? (char)(c + delta) : (char)c;
+    }
+    return true;
+}
+
 static lua_CFunction_t orig_str_lower = nullptr;
 
 static int __cdecl Hooked_StrLower(lua_State* L) {
@@ -1525,11 +1557,7 @@ static int __cdecl Hooked_StrLower(lua_State* L) {
     if (!s || sLen == 0 || sLen > 4096) return orig_str_lower(L);
 
     char buf[4097];
-    for (size_t i = 0; i < sLen; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (c > 127 || c == 0) return orig_str_lower(L);
-        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : (char)c;
-    }
+    if (!SSE2_CaseConvert(s, sLen, buf, 'A', 'Z', 32)) return orig_str_lower(L);
     buf[sLen] = '\0';
 
     lua_pushstring_(L, buf);
@@ -1547,11 +1575,7 @@ static int __cdecl Hooked_StrUpper(lua_State* L) {
     if (!s || sLen == 0 || sLen > 4096) return orig_str_upper(L);
 
     char buf[4097];
-    for (size_t i = 0; i < sLen; i++) {
-        unsigned char c = (unsigned char)s[i];
-        if (c > 127 || c == 0) return orig_str_upper(L);
-        buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : (char)c;
-    }
+    if (!SSE2_CaseConvert(s, sLen, buf, 'a', 'z', (char)-32)) return orig_str_upper(L);
     buf[sLen] = '\0';
 
     lua_pushstring_(L, buf);
