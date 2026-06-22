@@ -53,24 +53,12 @@ add_library(wow_optimize SHARED
     src/combatlog_optimize.h
     src/combatlog_buffer.cpp
     src/combatlog_buffer.h
-    src/combatlog_mt.cpp
-    src/combatlog_mt.h
-    src/texture_async.cpp
-    src/texture_async.h
-    src/spell_prefetch.cpp
-    src/spell_prefetch.h
     src/addon_dispatcher.cpp
     src/addon_dispatcher.h
-    src/model_async.cpp
-    src/model_async.h
     src/mpq_prefetch.cpp
     src/mpq_prefetch.h
     src/obj_vis_cache.cpp
     src/obj_vis_cache.h
-    src/sound_prefetch.cpp
-    src/sound_prefetch.h
-    src/quest_async.cpp
-    src/quest_async.h
     src/nameplate_batch.cpp
     src/nameplate_batch.h
     src/ui_cache.cpp
@@ -191,16 +179,8 @@ add_library(wow_optimize SHARED
     src/lua_gettable_cache.h
     src/saved_vars_async.cpp
     src/saved_vars_async.h
-    src/texture_decode_mt.cpp
-    src/texture_decode_mt.h
-    src/mpq_decompress_mt.cpp
-    src/mpq_decompress_mt.h
-    src/spell_effect_mt.cpp
-    src/spell_effect_mt.h
     src/lua_bytecode_pre_compiler.cpp
     src/lua_bytecode_pre_compiler.h
-    src/anim_mt.cpp
-    src/anim_mt.h
     src/hook_prefetch.cpp
     src/hook_prefetch.h
     src/hot_patch.cpp

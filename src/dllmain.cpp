@@ -139,15 +139,9 @@ static void StopFreezeWatchdog() {
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
 #include "combatlog_buffer.h"
-#include "combatlog_mt.h"
-#include "texture_async.h"
-#include "spell_prefetch.h"
 #include "addon_dispatcher.h"
-#include "model_async.h"
 #include "mpq_prefetch.h"
 #include "obj_vis_cache.h"
-#include "sound_prefetch.h"
-#include "quest_async.h"
 #include "nameplate_batch.h"
 #include "addon_preload.h"
 #include "lua_bytecode_cache.h"
@@ -203,11 +197,7 @@ static void StopFreezeWatchdog() {
 #include "saved_vars_async.h"
 #include "event_coalescer.h"
 #include "luaS_newlstr_sse2.h"
-#include "texture_decode_mt.h"
-#include "mpq_decompress_mt.h"
-#include "spell_effect_mt.h"
 #include "lua_bytecode_pre_compiler.h"
-#include "anim_mt.h"
 #include "hook_prefetch.h"
 #include "hot_patch.h"
 #include "infra_patch.h"
@@ -939,32 +929,14 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         CombatLogOpt::OnFrame(g_mainThreadId);
         CombatLogBuffer::OnFrame(g_mainThreadId);
-#if !TEST_DISABLE_COMBATLOG_MT
-        CombatLogMT::OnFrame(g_mainThreadId);
-#endif
-#if !TEST_DISABLE_TEXTURE_ASYNC
-        TextureAsync::OnFrame(g_mainThreadId);
-#endif
-#if !TEST_DISABLE_SPELL_PREFETCH
-        SpellPrefetch::OnFrame(g_mainThreadId);
-#endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
         AddonDispatcher::OnFrame(g_mainThreadId);
-#endif
-#if !TEST_DISABLE_MODEL_ASYNC
-        ModelAsync::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
         MPQPrefetch::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_OBJ_VIS_CACHE
         ObjVisCache::OnFrame();
-#endif
-#if !TEST_DISABLE_SOUND_PREFETCH
-        SoundPrefetch::OnFrame();
-#endif
-#if !TEST_DISABLE_QUEST_ASYNC
-        QuestAsync::OnFrame();
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
         NameplateMT::OnFrame(g_mainThreadId);
@@ -5546,13 +5518,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::RegisterFeature("CombatLogOpt");
     CrashDumper::RegisterFeature("CombatLogBuffer");
-    CrashDumper::RegisterFeature("CombatLogMT");
-    CrashDumper::RegisterFeature("TextureAsync");
-    CrashDumper::RegisterFeature("SpellPrefetch");
-    CrashDumper::RegisterFeature("ModelAsync");
     CrashDumper::RegisterFeature("ObjVisCache");
-    CrashDumper::RegisterFeature("SoundPrefetch");
-    CrashDumper::RegisterFeature("QuestAsync");
     CrashDumper::RegisterFeature("AddonDispatcher");
     CrashDumper::RegisterFeature("MPQPrefetch");
     CrashDumper::RegisterFeature("NameplateMT");
@@ -6001,47 +5967,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool combatLogBufOk = CombatLogBuffer::Init();
 
     Log("");
-    Log("--- Multithreaded Combat Log Parser ---");
-#if TEST_DISABLE_COMBATLOG_MT
-    Log("[CombatLogMT] DISABLED (feature flag)");
-    bool combatLogMTOk = false;
-#else
-    bool combatLogMTOk = CombatLogMT::Init();
-#endif
-
-    Log("");
-    Log("--- Async Texture/Model Loading ---");
-#if TEST_DISABLE_TEXTURE_ASYNC
-    Log("[TextureAsync] DISABLED (feature flag)");
-    bool textureAsyncOk = false;
-#else
-    bool textureAsyncOk = TextureAsync::Init();
-#endif
-
-    Log("");
-    Log("--- Async Spell Data Prefetching ---");
-#if TEST_DISABLE_SPELL_PREFETCH
-    Log("[SpellPrefetch] DISABLED (feature flag)");
-    bool spellPrefetchOk = false;
-#else
-    bool spellPrefetchOk = SpellPrefetch::Init();
-#endif
-
-    Log("");
     Log("--- Multithreaded Addon Update Dispatcher ---");
     // DISABLED: worker threads write to WoW game state without synchronization
     // causing ACCESS_VIOLATION at 0x009E4F24 from background thread
     Log("[AddonDispatcher] DISABLED: unsynchronized writes to WoW game state");
     bool addonDispatcherOk = false;
-
-    Log("");
-    Log("--- Async Model/M2 Loading ---");
-#if TEST_DISABLE_MODEL_ASYNC
-    Log("[ModelAsync] DISABLED (feature flag)");
-    bool modelAsyncOk = false;
-#else
-    bool modelAsyncOk = ModelAsync::Init();
-#endif
 
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
@@ -6136,24 +6066,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     }
 
     Log("");
-    Log("--- Async Sound/Audio Prefetching ---");
-#if TEST_DISABLE_SOUND_PREFETCH
-    Log("[SoundPrefetch] DISABLED (feature flag)");
-#else
-    SoundPrefetch::Init();
-    Log("[SoundPrefetch] Initialized");
-#endif
-
-    Log("");
-    Log("--- Async Quest/Achievement Data Loading ---");
-#if TEST_DISABLE_QUEST_ASYNC
-    Log("[QuestAsync] DISABLED (feature flag)");
-#else
-    QuestAsync::Init();
-    Log("[QuestAsync] Initialized");
-#endif
-
-    Log("");
     Log("--- Multithreaded Nameplate Renderer ---");
     // DISABLED: worker threads write to WoW rendering globals without synchronization
     Log("[NameplateMT] DISABLED: unsynchronized writes to WoW game state");
@@ -6217,18 +6129,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- SavedVariables Async Writer ---");
     bool savedVarsAsyncOk = InstallSavedVarsAsync();
 
-    Log("--- Texture Decode MT ---");
-    bool textureDecodeMTOk = TextureDecodeMT::Init();
-    CrashDumper::RegisterFeature("TextureDecodeMT");
-
-    Log("--- MPQ Decompress MT ---");
-    bool mpqDecompressMTOk = MPQDecompressMT::Init();
-    CrashDumper::RegisterFeature("MPQDecompressMT");
-
-    Log("--- Spell Effect MT ---");
-    bool spellEffectMTOk = SpellEffectMT::Init();
-    CrashDumper::RegisterFeature("SpellEffectMT");
-
     Log("--- Lua Bytecode Pre-Compiler ---");
 #if TEST_DISABLE_LUA_PRECOMPILE
     bool bytecodePreCompilerOk = false;
@@ -6237,10 +6137,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool bytecodePreCompilerOk = LuaBytecodePreCompiler::Init();
 #endif
     CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
-
-    Log("--- Animation MT ---");
-    bool animMTOk = AnimMT::Init();
-    CrashDumper::RegisterFeature("AnimMT");
 
     Log("--- Hook Prefetch (9 hooks) ---");
     bool hookPrefetchOk = HookPrefetch::InstallAll();
@@ -8035,10 +7931,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             CloseHandle(CreateThread(NULL, 0, MainThread, NULL, 0, NULL));
             break;
         case DLL_PROCESS_DETACH:
-            // Stop background workers BEFORE process teardown.
-            ModelAsync::Shutdown();
-            TextureAsync::Shutdown();
-
             if (reserved != NULL) {
                 ClearAssetPathCache();
                 if (g_log) {
@@ -8066,32 +7958,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             UICache::Shutdown();                       
             CombatLogOpt::Shutdown();
             CombatLogBuffer::Shutdown();
-#if !TEST_DISABLE_COMBATLOG_MT
-            CombatLogMT::Shutdown();
-#endif
-#if !TEST_DISABLE_TEXTURE_ASYNC
-            TextureAsync::Shutdown();
-#endif
-#if !TEST_DISABLE_SPELL_PREFETCH
-            SpellPrefetch::Shutdown();
-#endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
             AddonDispatcher::Shutdown();
-#endif
-#if !TEST_DISABLE_MODEL_ASYNC
-            ModelAsync::Shutdown();
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::Shutdown();
 #endif
 #if !TEST_DISABLE_OBJ_VIS_CACHE
             ObjVisCache::Shutdown();
-#endif
-#if !TEST_DISABLE_SOUND_PREFETCH
-            SoundPrefetch::Shutdown();
-#endif
-#if !TEST_DISABLE_QUEST_ASYNC
-            QuestAsync::Shutdown();
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::Shutdown();
@@ -8142,11 +8016,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             TooltipCache::Shutdown();
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
-            AnimMT::Shutdown();
             LuaBytecodePreCompiler::Shutdown();
-            SpellEffectMT::Shutdown();
-            MPQDecompressMT::Shutdown();
-            TextureDecodeMT::Shutdown();
             ShutdownSavedVarsAsync();
             ShutdownLuaGetTableCache();
             ShutdownDataStoreFastPath();
