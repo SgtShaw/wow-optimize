@@ -74,6 +74,10 @@ static volatile DWORD g_lastMainThreadTick = 0;
 static volatile bool  g_freezeWatchdogActive = false;
 static HANDLE         g_freezeWatchdogThread = NULL;
 
+// Forward-declared here because the watchdog (below) is defined before
+// lua_optimize.h is included; definitions match that header.
+namespace LuaOpt { bool IsLoadingMode(); bool IsReloading(); bool IsSwapping(); }
+
 static void UpdateMainThreadActivity() {
     g_lastMainThreadTick = GetTickCount();
     CrashDumper::FeatureCall("SleepHook");
@@ -89,21 +93,39 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
 
         DWORD elapsed = GetTickCount() - lastTick;
         if (elapsed > 10000) {
-            Log("!!! FREEZE DETECTED !!! Main thread silent for %u ms", elapsed);
-            Log("!!! Last main thread tick: %u, current: %u", lastTick, GetTickCount());
+            // Loading screens, UI reloads and lua_State swaps legitimately block
+            // the main thread (cold MPQ asset loads + addon (re)load). That is NOT
+            // a hang the player feels -- it's a progress-bar load -- so don't spam
+            // the log with a full freeze report. Note it on one line and wait it
+            // out. This is the source of the "many FREEZE DETECTED" entries.
+            bool expected = LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping();
+            if (expected) {
+                Log("[FreezeWatchdog] main thread blocked %u ms during loading/transition (expected, not a hang)", elapsed);
+            } else {
+                Log("!!! FREEZE DETECTED !!! Main thread silent for %u ms (no loading/transition active)", elapsed);
+                Log("!!! Last main thread tick: %u, current: %u", lastTick, GetTickCount());
 
-            FeatureState states[MAX_TRACKED_FEATURES];
-            int count = CrashDumper::GetFeatureStates(states, MAX_TRACKED_FEATURES);
-            Log("!!! FEATURE STATES (%d registered):", count);
-            for (int i = 0; i < count; i++) {
-                if (states[i].active) {
+                // Concise suspect list only: features that logged an error or were
+                // active right up to the stall. The old full dump printed 100+
+                // lines that were almost all calls=0 (only SleepHook records calls)
+                // -- pure noise that bloated the log on every load.
+                FeatureState states[MAX_TRACKED_FEATURES];
+                int count = CrashDumper::GetFeatureStates(states, MAX_TRACKED_FEATURES);
+                int suspects = 0;
+                for (int i = 0; i < count; i++) {
+                    if (!states[i].active) continue;
                     DWORD age = (states[i].lastCallTick > 0) ? (GetTickCount() - states[i].lastCallTick) : 999999;
-                    Log("!!!   %-28s calls=%lld errors=%lld lastCall=%ums ago",
-                        states[i].name ? states[i].name : "?",
-                        states[i].callCount, states[i].errorCount, age);
+                    if (states[i].errorCount > 0 || age < elapsed + 2000) {
+                        Log("!!!   %-28s calls=%lld errors=%lld lastCall=%u ms ago",
+                            states[i].name ? states[i].name : "?",
+                            states[i].callCount, states[i].errorCount, age);
+                        suspects++;
+                    }
                 }
+                if (suspects == 0)
+                    Log("!!!   (no error/recently-active DLL feature -- stall is WoW-internal)");
+                Log("!!! END FREEZE REPORT !!!");
             }
-            Log("!!! END FREEZE REPORT !!!");
 
             while (g_freezeWatchdogActive && (GetTickCount() - g_lastMainThreadTick) > 10000) {
                 Sleep(2000);
