@@ -372,12 +372,14 @@
 // bytes). Surrounded by SEH guards. Enabled for testing.
 #define TEST_DISABLE_STRCAT_FAST        0
 
-// Lua tonumber Fast Path - sub_84E030 (NOT 0x84E0E0 = lua_tolstring; that wrong
-// target, plus tt==4 instead of 3 and top at +0x14 instead of +0x0C, caused the
-// old 0xC0000005). RE-ENABLED after IDA root-cause: correct target/tag/offsets,
-// index2adr inlined only for plain stack indices (pseudo-indices defer), tt==3
-// fast path returns the double directly, SEH + teardown guard. ~750 xrefs.
-#define TEST_DISABLE_LUA_TONUMBER_FAST  0
+// Lua tonumber Fast Path - sub_84E030. DISABLED because it is REDUNDANT: the
+// LuaNumConvFast module already hooks lua_tonumber at 0x84E030 and installs
+// first, so this hook always loses the race and logs "BAD PROLOGUE at 0x84E030"
+// (the prologue is already a trampoline by the time it runs). Two modules on one
+// address -> the 2nd silently fails (CONTEXT lesson 8). Keeping LuaNumConvFast as
+// the single lua_tonumber owner; this one is dead weight. (Its re-targeting from
+// the old 0x84E0E0=lua_tolstring was still a correct fix, just superseded here.)
+#define TEST_DISABLE_LUA_TONUMBER_FAST  1
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
