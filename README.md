@@ -570,7 +570,38 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 | `[UICache] DISABLED` | Non-standard WoW build - method table not found. |
 | High CPU usage with multiple clients | Expected. Each client runs full optimization. Remove `version.dll` from secondary clients if needed. |
 | "I use DXVK or Vulkan" | Fully supported. No D3D9 state-cache dependencies. |
-| "Large pages: no permission" | Informational only. Not a crash cause. Requires "Lock pages in memory" policy. |
+| `Large pages: no permission` | Informational only — **not** a crash cause. Large pages are an optional TLB optimization (mimalloc 2&nbsp;MB OS pages); the DLL runs fine on normal 4&nbsp;KB pages without them. To enable them, see [Fixing `Large pages: no permission`](#fixing-large-pages-no-permission) below. |
+
+### Fixing `Large pages: no permission`
+
+This log line means your Windows account does not hold the **Lock pages in memory**
+privilege. The DLL can only *use* the privilege if the account already has it — it
+cannot grant it for you. Granting it is optional and only enables the large-page TLB
+optimization; everything else works without it.
+
+**1. Grant the privilege**
+
+1. Press `Win+R`, type `secpol.msc`, and run it as Administrator (Local Security Policy).
+2. Go to **Local Policies → User Rights Assignment → Lock pages in memory**.
+3. Click **Add User or Group**, type your Windows username, click **Check Names**, then **OK**.
+4. Log off and back on (or restart) for the change to take effect.
+
+**2. Still says `no permission`? Use a group catch-all**
+
+If running as Administrator still produces the `no permission` log line, your Windows
+username may not be mapping correctly inside the policy tool. Add the universal groups
+instead of a specific account:
+
+1. Open `secpol.msc` again.
+2. Go back to **Local Policies → User Rights Assignment → Lock pages in memory**.
+3. Clear out your specific account name.
+4. Click **Add User or Group**, type `Administrators` (plural), click **Check Names**, then **OK**.
+5. Click **Add User or Group** once more, type `Users` (plural), click **Check Names**, then **OK**.
+6. Restart your computer.
+
+After a restart the log should read `Large pages: ENABLED for mimalloc`. If you would
+rather not change the policy at all, the line is harmless and can be ignored — or set
+`TEST_ENABLE_LARGE_PAGES 0` in `src/version.h` to silence the attempt entirely.
 
 ---
 
