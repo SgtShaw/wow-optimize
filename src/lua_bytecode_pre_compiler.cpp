@@ -70,15 +70,24 @@ static DWORD WINAPI Worker(LPVOID) {
     while (!g_stop) {
         WaitForSingleObject(g_wakeup, 500);
 
-        // Only preload during loading screens to avoid I/O contention during gameplay
-        if (!LuaOpt::IsLoadingMode()) continue;
+        // PAUSE during loading screens and VM reload/swap transitions. Those are
+        // exactly when WoW is saturating the disk with cold MPQ reads, so doing our
+        // own addon-file reads there piles onto -- and visibly lengthens -- the
+        // loading-screen freeze on HD / many-MPQ clients. Warm the addon-file cache
+        // only in steady-state gameplay, where THREAD_PRIORITY_LOWEST lets these
+        // reads yield to the main thread.
+        if (LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping())
+            continue;
 
         for (;;) {
             LONG tail = g_queueTail;
             if (tail == g_queueHead || !g_queue[tail].ready) break;
 
-            // Re-check loading mode before each file read
-            if (!LuaOpt::IsLoadingMode()) break;
+            // Re-check before each file read: bail the instant a loading screen
+            // or VM transition begins, so an incoming dungeon load never contends
+            // with the pre-compiler mid-drain.
+            if (LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping())
+                break;
 
             wchar_t path[MAX_PATH];
             wcsncpy_s(path, MAX_PATH, g_queue[tail].path, _TRUNCATE);
