@@ -61,6 +61,12 @@ static volatile uintptr_t g_ring[RING_SIZE];
 static volatile uint64_t  g_writeIdx = 0;
 static volatile uint64_t  g_totalSamples = 0;
 
+// Per-4KB-page sample counts for WoW-image samples that don't match a named
+// function. Turns the opaque "unknown_wow" blob into a per-region hot-map so
+// unlisted hot code is still pinpointed by address (label "wow_region_0x...").
+static constexpr int NUM_PAGES = (int)((WOW_END - WOW_BASE) >> 12) + 1;  // ~2048
+static uint32_t g_pageCounts[NUM_PAGES];
+
 // ---- state --------------------------------------------------------
 static HANDLE  g_mainThread  = nullptr;
 static HANDLE  g_samplerThread = nullptr;
@@ -156,6 +162,53 @@ static void BuildKnownFuncTable() {
 
         // --- Misc ---
         { 0x0081B510, "EventNameWrapper" },
+
+        // --- Lua pattern matcher (verified this session, 0x852A10-0x853D9C) ---
+        { 0x00852A10, "lua_classend" },
+        { 0x00852C30, "lua_matchbalance" },
+        { 0x00852F60, "lua_match" },
+        { 0x00853240, "lua_lmemfind" },
+        { 0x008535B0, "string.find" },
+        { 0x008535D0, "string.match" },
+        { 0x00853980, "string.gsub" },
+        { 0x00853C50, "string.format" },
+
+        // --- Lua string library ---
+        { 0x00852400, "string.len" },
+        { 0x00852430, "string.sub" },
+        { 0x008524E0, "string.reverse" },
+        { 0x00852580, "string.lower" },
+        { 0x00852680, "string.upper" },
+        { 0x00852780, "string.rep" },
+        { 0x00852800, "string.byte" },
+        { 0x008528D0, "string.char" },
+
+        // --- Lua API (stack / push / query) ---
+        { 0x0084DBD0, "lua_gettop" },
+        { 0x0084DBF0, "lua_settop" },
+        { 0x0084DC50, "lua_remove" },
+        { 0x0084DCC0, "lua_insert" },
+        { 0x0084DEB0, "lua_type" },
+        { 0x0084DF20, "lua_isnumber" },
+        { 0x0084E280, "lua_pushnil" },
+        { 0x0084E2D0, "lua_pushinteger" },
+        { 0x0084E350, "lua_pushstring" },
+        { 0x0084E590, "lua_getfield" },
+        { 0x0084E900, "lua_setfield" },
+        { 0x0084E970, "lua_settable" },
+        { 0x0084EC30, "lua_call" },
+        { 0x0084ED50, "lua_gc" },
+
+        // --- Lua VM dispatch / tables ---
+        { 0x00856760, "luaD_call" },
+        { 0x00857250, "lua_gettable_raw" },
+        { 0x008573C0, "lua_rawset" },
+
+        // --- Lua base / conversion / table lib ---
+        { 0x00851C30, "table.concat" },
+        { 0x00854100, "tonumber" },
+        { 0x00854660, "type" },
+        { 0x00854A20, "tostring" },
     };
 
     g_knownCount = 0;
@@ -231,37 +284,27 @@ static void DumpResults() {
         return;
     }
 
-    // Aggregate: count samples per nearest-known-function.
-    // Unknown WoW addresses and system addresses get their own buckets.
-    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + 2;
-    SampleBucket buckets[MAX_BUCKETS];
+    // Buckets: one per named function, one "system_dll", plus one per non-empty
+    // 4KB WoW page (so unlisted hot code is reported by address, not lumped into
+    // a single opaque blob). Static (not on the stack) because of the page slots.
+    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + NUM_PAGES + 1;
+    static SampleBucket buckets[MAX_BUCKETS];
     int bucketCount = 0;
 
     // Initialize buckets from known funcs
-    for (int i = 0; i < g_knownCount && bucketCount < MAX_BUCKETS; i++) {
+    for (int i = 0; i < g_knownCount; i++) {
         buckets[bucketCount].addr  = g_knownFuncs[i].addr;
         buckets[bucketCount].name  = g_knownFuncs[i].name;
         buckets[bucketCount].count = 0;
         bucketCount++;
     }
 
-    // Two extra buckets for unknowns
-    int unknownWowIdx = -1;
-    int systemIdx = -1;
-    if (bucketCount < MAX_BUCKETS) {
-        unknownWowIdx = bucketCount;
-        buckets[bucketCount].addr  = 0;
-        buckets[bucketCount].name  = "unknown_wow";
-        buckets[bucketCount].count = 0;
-        bucketCount++;
-    }
-    if (bucketCount < MAX_BUCKETS) {
-        systemIdx = bucketCount;
-        buckets[bucketCount].addr  = 0;
-        buckets[bucketCount].name  = "system_dll";
-        buckets[bucketCount].count = 0;
-        bucketCount++;
-    }
+    // System (outside the WoW image) bucket
+    int systemIdx = bucketCount;
+    buckets[bucketCount].addr  = 0;
+    buckets[bucketCount].name  = "system_dll";
+    buckets[bucketCount].count = 0;
+    bucketCount++;
 
     // Walk the ring buffer and bucket each sample
     uint64_t n = (total < RING_SIZE) ? total : RING_SIZE;
@@ -282,13 +325,23 @@ static void DumpResults() {
             }
         }
 
-        // Not matched to a known function
+        // Not matched to a named function: aggregate WoW samples per 4KB page,
+        // everything else into the system bucket.
         if (eip >= WOW_BASE && eip <= WOW_END) {
-            if (unknownWowIdx >= 0) buckets[unknownWowIdx].count++;
+            g_pageCounts[(eip - WOW_BASE) >> 12]++;
         } else {
-            if (systemIdx >= 0) buckets[systemIdx].count++;
+            buckets[systemIdx].count++;
         }
         next_sample:;
+    }
+
+    // Merge every non-empty page region as an address-labelled bucket.
+    for (int p = 0; p < NUM_PAGES && bucketCount < MAX_BUCKETS; p++) {
+        if (!g_pageCounts[p]) continue;
+        buckets[bucketCount].addr  = WOW_BASE + ((uintptr_t)p << 12);
+        buckets[bucketCount].name  = nullptr;   // labelled by address at print time
+        buckets[bucketCount].count = g_pageCounts[p];
+        bucketCount++;
     }
 
     // Sort by count descending
@@ -297,23 +350,26 @@ static void DumpResults() {
                   return a.count > b.count;
               });
 
-    // Dump top-N
-    Log("[SamplingProfiler] === TOP %d HOT FUNCTIONS (%llu total samples) ===",
+    // Dump top-N (named functions and hot unlisted regions intermixed by heat)
+    Log("[SamplingProfiler] === TOP %d HOT FUNCTIONS/REGIONS (%llu total samples) ===",
         TOP_N, (unsigned long long)total);
 
     int printed = 0;
     for (int i = 0; i < bucketCount && printed < TOP_N; i++) {
         if (buckets[i].count == 0) break;
         double pct = 100.0 * (double)buckets[i].count / (double)total;
+        char label[40];
+        const char* name;
         if (buckets[i].name) {
-            Log("[SamplingProfiler] %3d. %-30s  %8llu samples (%5.2f%%)",
-                printed + 1, buckets[i].name,
-                (unsigned long long)buckets[i].count, pct);
+            name = buckets[i].name;
         } else {
-            Log("[SamplingProfiler] %3d. %-30s  %8llu samples (%5.2f%%)",
-                printed + 1, "(null)",
-                (unsigned long long)buckets[i].count, pct);
+            // Unlisted WoW code region — label by its 4KB page base so the
+            // region can be decompiled directly from the dump.
+            wsprintfA(label, "wow_region_0x%08X", (unsigned)buckets[i].addr);
+            name = label;
         }
+        Log("[SamplingProfiler] %3d. %-24s  %8llu samples (%5.2f%%)",
+            printed + 1, name, (unsigned long long)buckets[i].count, pct);
         printed++;
     }
 
@@ -328,6 +384,7 @@ bool Init(HANDLE mainThread) {
     g_writeIdx = 0;
     g_totalSamples = 0;
     memset((void*)g_ring, 0, sizeof(g_ring));
+    memset(g_pageCounts, 0, sizeof(g_pageCounts));
 
     BuildKnownFuncTable();
 
