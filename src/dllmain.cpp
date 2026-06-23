@@ -53,7 +53,9 @@
 #include "sampling_profiler.h"
 #include "lua_getstr_inline.h"
 #include "lua_rawgeti_inline.h"
+#include "lua_rawget_inline.h"
 #include "lua_toboolean_inline.h"
+#include "strtod_fast.h"
 #include "lua_objlen_inline.h"
 #include "hooks_memory.h"
 #include "data_caches.h"
@@ -285,6 +287,8 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
 #define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 RE-ENABLED after root-causing vs sub_84E670: the array fast path omitted the engine's taint==0 branch (stamp pushed value with the global taint cell *0xD4139C, then return it), so values read in a tainted context came out untainted; and it resolved GLOBALSINDEX to a wrong slot (L_base+72). Fixed: taint logic now byte-exact to the engine (disasm-verified single-indirection store), pseudo-indices defer to index2adr. Array path only; hash part defers. SEH-guarded. (It was originally disabled as collateral with GetStrInline, not for a confirmed RawGetI bug — aura_env nil was the GetStr high-VA bail.)
+#define TEST_DISABLE_RAWGET_INLINE              0   // lua_rawget inline fast path using direct stack resolution and luaH_get (0x85C470) detour.
+#define TEST_DISABLE_STRTOD_FAST                0   // Fast string-to-number parser (strtod hook)
 #define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xBFFF0000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
@@ -510,6 +514,8 @@ extern "C" void ClearLuaOptCaches() {
     ClearLuaHGetStrCache();
     ClearLuaPushStringCache();
     ClearAssetPathCache();
+    ClearRawGetIInlineCache();
+    ClearEventDispatchCache();
 }
 
 // Stats for new hooks (defined with implementations below)
@@ -5869,14 +5875,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- lua_toboolean Inline Optimization ---");
-    // DISABLED: the hook returned 1 for boolean `false`. The real lua_toboolean
-    // (0x84E0B0) returns `v3 && (v3 != 1 || *v2)` -> 0 for false; the hook dropped
-    // that term so every C-side truthiness check on `false` flipped to true. It also
-    // wrote taint globals the engine function never touches, spuriously tainting
-    // secure actions (blocked action buttons / keybinds). Inlining a 4-instruction
-    // function is not worth the risk.
-    bool tobooleanOk = false;
-    Log("[LuaTBool] DISABLED (returned true for boolean false + spurious taint write)");
+    bool tobooleanOk = InstallLuaTobooleanInline();
     CrashDumper::RegisterFeature("LuaTBoolean");
     CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
 
@@ -5895,6 +5894,22 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[RawGetIInline] DISABLED (suspected loading screen crash at 0x84E9DE)");
 #else
     bool rawGetIInlineOk = InstallLuaRawGetIInline();
+#endif
+
+    Log("--- lua_rawget Inline Optimization ---");
+#if TEST_DISABLE_RAWGET_INLINE
+    bool rawGetInlineOk = false;
+    Log("[RawGetInline] DISABLED");
+#else
+    bool rawGetInlineOk = InstallLuaRawGetInline();
+#endif
+
+    Log("--- strtod Fast Path ---");
+#if TEST_DISABLE_STRTOD_FAST
+    bool strtodFastOk = false;
+    Log("[StrtodFast] DISABLED");
+#else
+    bool strtodFastOk = InstallStrtodFast();
 #endif
 
     Log("--- luaV_gettable Safety Patch (crash fix) ---");

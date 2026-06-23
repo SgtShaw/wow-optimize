@@ -97,6 +97,8 @@ add_library(wow_optimize SHARED
     src/addon_preload.h
     src/strstr_fast.cpp
     src/strstr_fast.h
+    src/strtod_fast.cpp
+    src/strtod_fast.h
     src/crt_char_fast.cpp
     src/crt_char_fast.h
     src/crt_wchar_fast.cpp
@@ -163,9 +165,11 @@ add_library(wow_optimize SHARED
     src/event_name_cache.h
     src/lua_getstr_inline.cpp
     src/lua_rawgeti_inline.cpp
+    src/lua_rawget_inline.cpp
     src/lua_toboolean_inline.cpp
     src/lua_objlen_inline.cpp
     src/lua_getstr_inline.h
+    src/lua_rawget_inline.h
     src/lua_toboolean_inline.h
     src/lua_gettable_safety.cpp
     src/lua_gettable_safety.h
