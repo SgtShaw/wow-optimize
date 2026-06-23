@@ -5842,6 +5842,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool uiAccessorOk = InstallUIAccessorFast();
     CrashDumper::RegisterFeature("UIAccessorFast");
     CrashDumper::FeatureSetActive("UIAccessorFast", uiAccessorOk);
+    // 10 new colossal hooks (commit 670012c) — SIMD and UI Frame XML accessors
+    CrashDumper::RegisterFeature("Vec3CrossSSE2");
+    CrashDumper::RegisterFeature("IsSphereVisibleSSE2");
+    CrashDumper::RegisterFeature("FromAngleAxisSSE2");
+    CrashDumper::RegisterFeature("QuatSlerpSSE2");
+    CrashDumper::RegisterFeature("FrameAccessorFast");
+    CrashDumper::RegisterFeature("LayoutAccessorFast");
 #else
     Log("[UIAccessorFast] DISABLED via TEST_DISABLE_UI_ACCESSOR_FAST");
 #endif
