@@ -1093,12 +1093,16 @@ static void OptimizeSocket(SOCKET s, const char* trigger) {
     else
         failed++;
 
-    // 4. Buffer sizing
-    int sendbuf = 32768;
-    int recvbuf = 65536;
-    setsockopt(s, SOL_SOCKET, SO_SNDBUF, (const char*)&sendbuf, sizeof(sendbuf));
-    setsockopt(s, SOL_SOCKET, SO_RCVBUF, (const char*)&recvbuf, sizeof(recvbuf));
-    applied += 2;
+    // 4. Buffer sizing: deliberately NOT set. Calling setsockopt(SO_RCVBUF/SO_SNDBUF)
+    // PINS the socket buffers and DISABLES Windows TCP receive-window auto-tuning,
+    // locking the receive window at a fixed ~64KB. In a high-throughput zone like
+    // Dalaran (the server relays updates for hundreds of nearby players) that fixed
+    // window fills whenever the main thread hitches; the window drops to zero, the
+    // server's per-client send queue backs up, and TrinityCore-based realms (e.g.
+    // Circle) drop a client whose send queue overflows -- the reproducible ~45-min
+    // "only in Dalaran" disconnect. Leaving the buffers unset lets Windows auto-tune
+    // the window upward under load and avoids the backlog. TCP_NODELAY already covers
+    // latency; the fixed buffer caps only hurt throughput.
 
     // 5. Keepalive. WoW already has an app-level heartbeat, so this only needs to keep
     // NAT mappings warm. The old 10s/1s was far too aggressive: after 10s idle it probes
@@ -1117,7 +1121,7 @@ static void OptimizeSocket(SOCKET s, const char* trigger) {
     else
         failed++;
 
-    Log("Socket %d [%s]: %d applied, %d failed (NODELAY+ACK+QoS+BUF+KA)",
+    Log("Socket %d [%s]: %d applied, %d failed (NODELAY+ACK+QoS+KA, buffers auto-tuned)",
        (int)s, trigger, applied, failed);
 }
 
@@ -1219,7 +1223,7 @@ static bool InstallNetworkHooks() {
     if (pWSARecv && MH_CreateHook(pWSARecv, (void*)hooked_WSARecv, (void**)&orig_WSARecv) == MH_OK)
         if (WO_EnableHook(pWSARecv) == MH_OK) ok++;
 
-    Log("Network hook: ACTIVE (%d/4 hooks, NODELAY+ACK+QoS+BUF+KA+recv, deferred mode)", ok);
+    Log("Network hook: ACTIVE (%d/4 hooks, NODELAY+ACK+QoS+KA+recv, buffers auto-tuned)", ok);
     return ok > 0;
 }
 
