@@ -477,10 +477,12 @@
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
-//  WARNING: IDA-verified __usercall — MinHook CANNOT safely hook non-standard
-//  calling conventions. These are DISABLED by default (flag=1) until a naked-asm
-//  trampoline is written (CONTEXT lesson 10). Set to 0 only with a trampoline.
-#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST  1
+//  IDA decompile marked these __usercall, but full disassembly review shows
+//  standard __cdecl prologue (push ebp; mov ebp, esp) with one stack parameter
+//  (L = Lua state). IDA defaulted to __usercall because it saw callee-saved
+//  register use (ebx/esi/edi), not because of a non-standard convention.
+//  MinHook is safe. Default ENABLED.
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST  0
 
 
 // ================================================================
