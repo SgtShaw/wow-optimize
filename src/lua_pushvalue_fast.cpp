@@ -62,28 +62,27 @@ static int __cdecl Hooked_PushValue(uintptr_t L, int idx) {
         dst64[0] = src64[0];  // value (8 bytes)
         dst64[1] = src64[1];  // tt + taint (8 bytes)
 
-        // Read type tag (tt) from the copied value
-        int tt = *(int*)(src + 8);
-        int result;
-
-        if (tt != 0) {
-            result = tt;
+        // Propagate taint cell and return result exactly like sub_84DE50
+        uint32_t src_taint = *(uint32_t*)(src + 12);
+        uint32_t result_val;
+        if (src_taint != 0) {
+            result_val = src_taint;
             uint32_t a0 = *(uint32_t*)TAINT_A0;
             uint32_t a4 = *(uint32_t*)TAINT_A4;
             if (a0 && !a4) {
-                *(uint32_t*)TAINT_CELL = tt;
+                *(uint32_t*)TAINT_CELL = src_taint;
             }
         } else {
-            uint32_t taint = *(uint32_t*)TAINT_CELL;
-            *(uint32_t*)(top + 12) = taint;
-            result = (int)taint;
+            uint32_t global_taint = *(uint32_t*)TAINT_CELL;
+            *(uint32_t*)(top + 12) = global_taint;
+            result_val = global_taint;
         }
 
         // Advance top by 16 bytes
         *top_ptr = top + 16;
 
         ++g_pushvalue_hits;
-        return result;
+        return (int)result_val;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
 fallback:

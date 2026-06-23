@@ -644,51 +644,70 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                 uintptr_t env = 0;
                 uint32_t taint = *(uint32_t*)TAINT_CELL;
                 uint32_t push_taint = taint;
+                int result = 0;
+
+                uint32_t a0 = *(uint32_t*)TAINT_A0;
+                uint32_t a4 = *(uint32_t*)TAINT_A4;
 
                 if (tt == LUA_TFUNCTION) {
                     uintptr_t cl = *(uintptr_t*)(tv + 0);
                     if (IsValidPtr(cl)) {
                         env = *(uintptr_t*)(cl + 16);
-                        if (*(uint8_t*)(cl + 10)) {
+                        if (*(uint8_t*)(cl + 10)) { // isC
                             push_taint = taint;
                         } else {
                             uint32_t cl_taint = *(uint32_t*)(cl + 4);
                             if (cl_taint) {
                                 push_taint = cl_taint;
+                                if (a0 && !a4) {
+                                    *(uint32_t*)TAINT_CELL = cl_taint;
+                                }
                             }
                         }
+                        *(uintptr_t*)(top + 0) = env;
+                        *(int*)(top + 8) = LUA_TTABLE;
+                        *(uint32_t*)(top + 12) = push_taint;
+                        result = (int)cl;
                     }
                 } else if (tt == LUA_TUSERDATA) {
                     uintptr_t udata = *(uintptr_t*)(tv + 0);
                     if (IsValidPtr(udata)) {
                         env = *(uintptr_t*)(udata + 16);
-                        push_taint = taint;
+                        *(uintptr_t*)(top + 0) = env;
+                        *(int*)(top + 8) = LUA_TTABLE;
+                        *(uint32_t*)(top + 12) = taint;
+                        result = (int)udata;
                     }
                 } else if (tt == LUA_TTHREAD) {
                     uintptr_t th = *(uintptr_t*)(tv + 0);
                     if (IsValidPtr(th)) {
                         uintptr_t th_env = th + 72;
-                        env = *(uintptr_t*)(th_env + 0);
-                        push_taint = *(uint32_t*)(th_env + 12);
-                    }
-                }
+                        uint32_t th_val0 = *(uint32_t*)(th_env + 0);
+                        uint32_t th_val1 = *(uint32_t*)(th_env + 4);
+                        uint32_t th_val2 = *(uint32_t*)(th_env + 8);
+                        uint32_t th_val3 = *(uint32_t*)(th_env + 12);
 
-                int result = 0;
-                if (env) {
-                    *(uintptr_t*)(top + 0) = env;
-                    *(int*)(top + 8) = LUA_TTABLE;
-                    *(uint32_t*)(top + 12) = push_taint;
-                    result = *(int*)(tv + 0); // cl or udata pointer
+                        *(uint32_t*)(top + 0) = th_val0;
+                        *(uint32_t*)(top + 4) = th_val1;
+                        *(uint32_t*)(top + 8) = th_val2;
+
+                        if (th_val3) {
+                            *(uint32_t*)(top + 12) = th_val3;
+                            if (a0 && !a4) {
+                                *(uint32_t*)TAINT_CELL = th_val3;
+                            }
+                            result = th_val3;
+                        } else {
+                            *(uint32_t*)(top + 12) = taint;
+                            result = taint;
+                        }
+                    }
                 } else {
                     *(uintptr_t*)(top + 0) = 0;
                     *(uintptr_t*)(top + 4) = 0;
                     *(int*)(top + 8) = LUA_TNIL;
                     *(uint32_t*)(top + 12) = taint;
-                    if (tt == LUA_TTHREAD) {
-                        result = push_taint;
-                    } else {
-                        result = (int)top;
-                    }
+                    result = (int)top;
                 }
 
                 *(uintptr_t*)(L + 0x0C) = top + 16;
