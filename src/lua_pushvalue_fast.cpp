@@ -14,30 +14,34 @@
 #include <cstring>
 #include "MinHook.h"
 #include "version.h"
+#include "lua_pushvalue_fast.h"
 
 extern "C" void Log(const char* fmt, ...);
 
 static volatile LONG64 g_pushvalue_calls = 0;
 static volatile LONG64 g_pushvalue_hits = 0;
 
-typedef void (__cdecl *lua_pushvalue_fn)(void* L, int idx);
+static const uint32_t TAINT_CELL = 0x00D4139C;
+static const uint32_t TAINT_A0 = 0x00D413A0;
+static const uint32_t TAINT_A4 = 0x00D413A4;
+
+typedef int (__cdecl *lua_pushvalue_fn)(uintptr_t L, int idx);
 static lua_pushvalue_fn g_orig_pushvalue = nullptr;
 
-static void __cdecl Hooked_PushValue(void* L, int idx) {
+static int __cdecl Hooked_PushValue(uintptr_t L, int idx) {
     ++g_pushvalue_calls;
 
     __try {
-        uintptr_t L_addr = (uintptr_t)L;
-        if (L_addr < 0x10000 || L_addr > 0xBFFF0000) goto fallback;
+        if (L < 0x10000 || L > 0xBFFF0000) goto fallback;
 
         // Read base and top pointers
-        uint8_t** base_ptr = (uint8_t**)(L_addr + 0x10);
-        uint8_t** top_ptr = (uint8_t**)(L_addr + 0x0C);
+        uint8_t** base_ptr = (uint8_t**)(L + 0x10);
+        uint8_t** top_ptr = (uint8_t**)(L + 0x0C);
         uint8_t* base = *base_ptr;
         uint8_t* top = *top_ptr;
 
-        if (!base || !top) goto fallback;
-        if ((uintptr_t)base < 0x10000 || (uintptr_t)top < 0x10000) goto fallback;
+        if (base < (uint8_t*)0x10000 || base > (uint8_t*)0xBFFF0000) goto fallback;
+        if (top < (uint8_t*)0x10000 || top > (uint8_t*)0xBFFF0000) goto fallback;
 
         // Resolve index to stack slot (TValue = 16 bytes in WoW 3.3.5a)
         uint8_t* src;
@@ -50,8 +54,7 @@ static void __cdecl Hooked_PushValue(void* L, int idx) {
         }
 
         // Validate source is within stack bounds
-        if ((uintptr_t)src < (uintptr_t)base || (uintptr_t)src >= (uintptr_t)top) goto fallback;
-        if ((uintptr_t)src < 0x10000 || (uintptr_t)src > 0xBFFF0000) goto fallback;
+        if (src < base || src >= top) goto fallback;
 
         // Copy 16-byte TValue directly to top
         uint64_t* dst64 = (uint64_t*)top;
@@ -59,30 +62,51 @@ static void __cdecl Hooked_PushValue(void* L, int idx) {
         dst64[0] = src64[0];  // value (8 bytes)
         dst64[1] = src64[1];  // tt + taint (8 bytes)
 
+        // Read type tag (tt) from the copied value
+        int tt = *(int*)(src + 8);
+        int result;
+
+        if (tt != 0) {
+            result = tt;
+            uint32_t a0 = *(uint32_t*)TAINT_A0;
+            uint32_t a4 = *(uint32_t*)TAINT_A4;
+            if (a0 && !a4) {
+                *(uint32_t*)TAINT_CELL = tt;
+            }
+        } else {
+            uint32_t taint = *(uint32_t*)TAINT_CELL;
+            *(uint32_t*)(top + 12) = taint;
+            result = (int)taint;
+        }
+
         // Advance top by 16 bytes
         *top_ptr = top + 16;
 
         ++g_pushvalue_hits;
-        return;
+        return result;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
 fallback:
-    g_orig_pushvalue(L, idx);
+    return g_orig_pushvalue(L, idx);
 }
 
+static void* const ADDR_LUA_PUSHVALUE = (void*)0x0084DE50;
+
 bool InstallLuaPushValueFast(void) {
-    // DISABLED: lua_pushvalue uses __usercall or non-standard prologue.
-    // MinHook requires standard prologue (push ebp; mov ebp,esp) for safe hooking.
-    // WoW's Lua VM functions often use custom calling conventions that break
-    // MinHook's trampoline generation. Hooking these causes crashes or freezes
-    // during UI reload when the VM state is being swapped.
-    // The performance gain from direct stack copy doesn't justify the crash risk.
-    Log("[PushValueFast] SKIPPED: non-standard prologue (unsafe for MinHook)");
-    return false;
+    MH_STATUS st = WineSafe_CreateHook(
+        ADDR_LUA_PUSHVALUE, (void*)Hooked_PushValue, (void**)&g_orig_pushvalue);
+    if (st == MH_OK) {
+        WO_EnableHook(ADDR_LUA_PUSHVALUE);
+        Log("[PushValueFast] lua_pushvalue hook at 0x84DE50 ACTIVE (inline fast path)");
+        return true;
+    } else {
+        Log("[PushValueFast] lua_pushvalue hook FAILED (status %d)", (int)st);
+        return false;
+    }
 }
 
 void ShutdownLuaPushValueFast(void) {
-    MH_DisableHook((void*)0x0084E630);
+    MH_DisableHook(ADDR_LUA_PUSHVALUE);
 
     LONG64 calls = g_pushvalue_calls;
     LONG64 hits = g_pushvalue_hits;
