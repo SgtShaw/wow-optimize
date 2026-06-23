@@ -960,6 +960,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         g_lastLState = currentL;
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
+        LuaVMEngine_FrameTick();
         CombatLogOpt::OnFrame(g_mainThreadId);
         CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_ADDON_DISPATCHER

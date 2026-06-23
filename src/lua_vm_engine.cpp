@@ -1,42 +1,37 @@
-﻿// ================================================================
+// ================================================================
 // lua_vm_engine.cpp - Direct-Threaded Lua VM Execution Engine
 // ================================================================
 // THE BIGGEST OPTIMIZATION: Replaces WoW's switch-based opcode
 // dispatch with a direct-threaded interpreter featuring:
 //
-// 1. DIRECT THREADED CODE: Eliminates switch/case dispatch overhead
-//    Each bytecode instruction is translated to a direct jump target
-//    on first execution. Subsequent executions jump directly.
+// 1. DIRECT THREADED CODE: Replicates interpreter loop and uses raw
+//    Instruction* pc pointer for standard fast-dispatch logic.
 //
 // 2. POLYMORPHIC INLINE CACHE (PIC): Table lookups cache the last
 //    N successful (table, key) -> node mappings per callsite.
 //    Hit rate >90% for typical addon access patterns.
 //
-// 3. OPCODE FUSION: Common sequences like GETGLOBAL+GETTABLE,
-//    GETTABLE+CALL, LOADK+RETURN are fused into single operations.
+// 3. CORRECT OFFSETS & LAYOUTS (WoW 3.3.5a / Lua 5.1):
+//    - LClosure: env at +16, Proto* p at +24, upvals array at +28
+//    - Proto: k at +12, code at +16
+//    - UpVal: v (TValue*) at +12, closed at +16
+//    - marked byte at +9 (CommonHeader)
 //
-// 4. GLOBAL VARIABLE CACHE: Per-Proto cache of global name -> TValue
-//    eliminates repeated hash table walks for _G["UnitHealth"] etc.
+// 4. LUA API COOPERATION:
+//    - Uses luaD_precall (0x00856550) to run calls. Enters Lua frames
+//      directly inside our VM, and executes C functions inline.
+//      Uses get_cycles (0x0086AE30) for WoW's profiling timestamp.
+//    - Uses luaD_poscall (0x00856010) and luaF_close (0x0085CE70)
+//      to handle returns and upvalue closing.
+//    - Uses luaC_barrier_ (0x0085BA50) for upvalue write barriers.
 //
-// 5. REGISTER FILE OPTIMIZATION: Frequently accessed stack slots
-//    are kept in CPU registers across multiple opcodes.
-//
-// 6. SIMD TVALUE OPERATIONS: SSE2 for bulk copy/compare of TValues.
-//
-// WoW 3.3.5a Lua 5.1 Opcode Layout:
-//   iABC:  [opcode:6][A:8][B:9][C:9]
-//   iABx:  [opcode:6][A:8][Bx:18]
-//   iAsBx: [opcode:6][A:8][sBx:18] (signed)
-//
-// WoW 3.3.5a build 12340 addresses:
-//   luaV_execute:     0x00859160 (main interpreter loop - switch dispatch)
-//   luaV_gettable:    0x00857250
-//   luaV_settable:    0x008573C0
-//   luaH_getstr:      0x0085C430
-//   luaH_getnum:      0x0084E670
-//   nilObject:        0x00A46F78
-//   lua_State global: 0x00D3F78C
-//   NOTE: 0x00855B33 is luaD_rawrunprotected (wrapper), NOT luaV_execute
+// 5. CACHE SAFETY & CORRECTNESS:
+//    - Hooked luaH_resize (0x0085C6F0) to invalidate inline cache
+//      whenever tables are resized.
+//    - Periodic FrameTick invalidates cache between frames to prevent
+//      dangling pointer hits due to recycled table pointer addresses.
+//    - Wrapped in SEH __try/__except to fall back to the original
+//      interpreter on any memory anomaly.
 // ================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -68,10 +63,7 @@ static constexpr int LUA_TFUNCTION     = 6;
 static constexpr int LUA_TUSERDATA     = 7;
 static constexpr int LUA_TTHREAD       = 8;
 
-// TValue layout (16 bytes):
-//   [0..7]  value (double or gcobject pointer)
-//   [8]     tt (type tag)
-//   [12]    taint
+// TValue layout (16 bytes)
 struct TValue {
     union {
         double n;
@@ -85,7 +77,6 @@ struct TValue {
 
 static_assert(sizeof(TValue) == 16, "TValue must be 16 bytes");
 
-// Instruction encoding
 typedef uint32_t Instruction;
 
 static inline int GET_OPCODE(Instruction i) { return (int)(i & 0x3F); }
@@ -95,7 +86,6 @@ static inline int GETARG_C(Instruction i)   { return (int)((i >> 14) & 0x1FF); }
 static inline int GETARG_Bx(Instruction i)  { return (int)((i >> 14) & 0x3FFFF); }
 static inline int GETARG_sBx(Instruction i) { return GETARG_Bx(i) - 131071; }
 
-// WoW Lua 5.1 opcodes (38 total)
 enum OpCode {
     OP_MOVE = 0,     OP_LOADK,      OP_LOADBOOL,   OP_LOADNIL,
     OP_GETUPVAL,     OP_GETGLOBAL,  OP_GETTABLE,   OP_SETGLOBAL,
@@ -109,61 +99,6 @@ enum OpCode {
     OP_CLOSURE,      OP_VARARG
 };
 
-// Proto structure offsets
-// Proto layout varies but key fields:
-//   [+0]  k (constant array ptr)
-//   [+4]  sizek
-//   [+8]  p (sub-proto array ptr) 
-//   [+12] sizep
-//   [+16] code (instruction array ptr)
-//   [+20] sizecode
-//   [+24] upvalues
-//   [+28] numparams
-//   [+32] is_vararg
-//   [+36] maxstacksize
-//   [+40] sizelineinfo / lineinfo
-//   [+44] locvars
-//   [+48] sizelocvars
-//   [+52] upvalue names
-//   [+56] source (TString*)
-
-// Closure structure:
-//   [+0]  GC header (next, tt, marked)
-//   [+12] l.p (Proto*)
-//   [+16] l.upvals[0] (first upvalue)
-
-// lua_State key offsets:
-//   [+0x00] next (GC chain)
-//   [+0x04] tt
-//   [+0x08] status
-//   [+0x0C] top (TValue*)
-//   [+0x10] base (TValue*)
-//   [+0x14] l_G (global_state*)
-//   [+0x18] ci (CallInfo*)
-//   [+0x1C] savedpc (Instruction*)
-//   [+0x20] stack (TValue*)
-//   [+0x24] stacksize
-//   [+0x28] end_ci
-//   [+0x2C] base_ci
-//   [+0x30] nCcalls
-//   [+0x34] hookmask
-//   [+0x38] allowhook
-//   [+0x3C] basehookcount
-//   [+0x40] hookcount
-//   [+0x44] hook (function ptr)
-//   [+0x48] openupval
-//   [+0x4C] size_ci
-//   [+0x50] errfunc
-
-// CallInfo structure:
-//   [+0x00] func (TValue* - function being called)
-//   [+0x04] base (TValue*)
-//   [+0x08] top (TValue*)
-//   [+0x0C] tailcalls
-//   [+0x10] nresults
-//   [+0x14] previous (CallInfo*)
-//   [+0x18] next (CallInfo*)
-
 // ================================================================
 // Statistics
 // ================================================================
@@ -174,70 +109,37 @@ LuaVMEngineStats GetLuaVMEngineStats() { return g_stats; }
 // ================================================================
 // Inline Cache System
 // ================================================================
-// Polymorphic inline cache for table lookups.
-// Each callsite gets a small cache of (table_ptr, key_identity) -> result_node.
-// On hit, we skip the entire hash walk.
-
-static constexpr int IC_ENTRIES_PER_SITE = 4;  // 4-way polymorphic
-static constexpr int IC_TOTAL_SITES = 8192;     // One per potential callsite
-static constexpr int IC_GLOBAL_SIZE = 4096;
+static constexpr int IC_ENTRIES_PER_SITE = 4;
+static constexpr int IC_TOTAL_SITES = 8192;
 
 struct ICEntry {
-    uintptr_t tablePtr;      // Table* or 0 for empty
-    uint64_t  keyIdentity;   // TString* for string keys, bits for number
-    int       keyType;       // LUA_TSTRING or LUA_TNUMBER
-    void*     resultNode;    // Cached Node* from hash lookup
-    uint32_t  generation;    // Detects table rehash
-};
-
-struct GlobalCacheEntry {
-    uint32_t nameHash;       // FNV-1a of global name
-    void*    tstringPtr;     // TString* for this name
-    TValue   cachedValue;    // Last known value
-    bool     valid;
+    uintptr_t tablePtr;      // Table* or 0
+    uint64_t  keyIdentity;   // TString*
+    int       keyType;       // LUA_TSTRING
+    void*     resultNode;    // Node*
+    uint32_t  generation;
 };
 
 static ICEntry g_inlineCache[IC_TOTAL_SITES * IC_ENTRIES_PER_SITE];
-static GlobalCacheEntry g_globalCache[IC_GLOBAL_SIZE];
 static volatile LONG g_icGeneration = 0;
-
-static inline uint32_t HashGlobalName(const char* s) {
-    uint32_t h = 0x811C9DC5;
-    while (*s) { h ^= (uint8_t)*s++; h *= 0x01000193; }
-    return h;
-}
 
 static inline void ICInvalidate() {
     InterlockedIncrement(&g_icGeneration);
 }
 
-// Full cache clear - used on UI reload, logout, uninstall
 void ClearLuaVMEngineCaches() {
     memset(g_inlineCache, 0, sizeof(g_inlineCache));
-    memset(g_globalCache, 0, sizeof(g_globalCache));
     InterlockedIncrement(&g_icGeneration);
 }
 
-// Invalidate global cache entry by name hash
-static inline void InvalidateGlobalCache(const char* name) {
-    uint32_t hash = HashGlobalName(name);
-    uint32_t idx = hash & (IC_GLOBAL_SIZE - 1);
-    g_globalCache[idx].valid = false;
-}
-
-// Invalidate all global cache entries
-static inline void InvalidateAllGlobalCache() {
-    for (int i = 0; i < IC_GLOBAL_SIZE; i++) {
-        g_globalCache[i].valid = false;
-    }
+void LuaVMEngine_FrameTick() {
+    InterlockedIncrement(&g_icGeneration);
 }
 
 // ================================================================
-// Original function pointers
+// Original function pointers & internal Lua APIs
 // ================================================================
-// luaV_execute signature: int __cdecl luaV_execute(lua_State* L, int nresults)
-// sub_859160 takes (int a1, int a2) where a2 = nresults
-typedef int (__cdecl* luaV_execute_fn)(void* L, int nresults);
+typedef int (__cdecl* luaV_execute_fn)(void* L, int nexeccalls);
 static luaV_execute_fn g_orig_luaV_execute = nullptr;
 
 typedef void* (__cdecl* luaV_gettable_fn)(int L, int* table, int* key, void* result);
@@ -249,6 +151,24 @@ static luaV_settable_fn g_orig_luaV_settable = nullptr;
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
 static luaH_getstr_fn g_orig_luaH_getstr = nullptr;
 
+typedef void* (__cdecl* luaH_resize_fn)(void* L, void* t, int nasize, int nhsize);
+static luaH_resize_fn g_orig_luaH_resize = nullptr;
+
+typedef void (__cdecl* luaC_barrier__fn)(void* L, void* p, void* v);
+static luaC_barrier__fn g_orig_luaC_barrier_ = (luaC_barrier__fn)0x0085BA50;
+
+typedef int (__cdecl* luaD_precall_fn)(void* L, TValue* func, int nresults, __int64 start_time, __int64* end_time);
+static luaD_precall_fn g_orig_luaD_precall = (luaD_precall_fn)0x00856550;
+
+typedef int (__cdecl* luaD_poscall_fn)(void* L, TValue* ra);
+static luaD_poscall_fn g_orig_luaD_poscall = (luaD_poscall_fn)0x00856010;
+
+typedef void (__cdecl* luaF_close_fn)(void* L, TValue* level);
+static luaF_close_fn g_orig_luaF_close = (luaF_close_fn)0x0085CE70;
+
+typedef __int64 (__cdecl* get_cycles_fn)();
+static get_cycles_fn g_get_cycles = (get_cycles_fn)0x0086AE30;
+
 // ================================================================
 // Fast TValue helpers (SSE2-accelerated)
 // ================================================================
@@ -257,23 +177,29 @@ static inline void TValueCopy(TValue* dst, const TValue* src) {
     _mm_storeu_si128((__m128i*)dst, v);
 }
 
-static inline void TValueCopyN(TValue* dst, const TValue* src, int count) {
-    int i = 0;
-    for (; i + 1 <= count; i++) {
-        __m128i v = _mm_loadu_si128((const __m128i*)(src + i));
-        _mm_storeu_si128((__m128i*)(dst + i), v);
-    }
-}
-
-static inline bool TValueEqual(const TValue* a, const TValue* b) {
-    __m128i va = _mm_loadu_si128((const __m128i*)a);
-    __m128i vb = _mm_loadu_si128((const __m128i*)b);
-    __m128i eq = _mm_cmpeq_epi32(va, vb);
-    return _mm_movemask_epi8(eq) == 0xFFFF;
-}
-
 static inline void SetNilValue(TValue* v) {
     _mm_storeu_si128((__m128i*)v, _mm_setzero_si128());
+}
+
+static inline bool IsCollectable(const TValue* o) {
+    return o->tt >= LUA_TSTRING;
+}
+
+static inline unsigned char GetGCMarked(void* gc) {
+    return *(unsigned char*)((char*)gc + 9);
+}
+
+static inline void LuaC_Barrier(void* L, void* p, const TValue* v) {
+    if (IsCollectable(v)) {
+        void* gc_v = v->value.gc;
+        if (gc_v && p) {
+            unsigned char marked_p = GetGCMarked(p);
+            unsigned char marked_v = GetGCMarked(gc_v);
+            if ((marked_v & 3) && (marked_p & 4)) {
+                g_orig_luaC_barrier_(L, p, gc_v);
+            }
+        }
+    }
 }
 
 // ================================================================
@@ -282,7 +208,6 @@ static inline void SetNilValue(TValue* v) {
 static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue* result) {
     InterlockedIncrement64(&g_stats.gettableFastPath);
     
-    // Only fast-path tables with string keys
     if (table->tt != LUA_TTABLE || key->tt != LUA_TSTRING) {
         return g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
     }
@@ -295,25 +220,23 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
         return g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
     }
 
-    // Compute IC index from callsite (approximated by return address)
     uintptr_t retAddr = (uintptr_t)_ReturnAddress();
     uint32_t icIdx = ((uint32_t)(retAddr ^ tablePtr ^ tstringPtr)) % IC_TOTAL_SITES;
+    LONG currentGen = g_icGeneration;
     
-    // Search 4-way cache
     ICEntry* site = &g_inlineCache[icIdx * IC_ENTRIES_PER_SITE];
     for (int way = 0; way < IC_ENTRIES_PER_SITE; way++) {
         if (site[way].tablePtr == tablePtr && 
             site[way].keyIdentity == tstringPtr &&
-            site[way].keyType == LUA_TSTRING) {
+            site[way].keyType == LUA_TSTRING &&
+            site[way].generation == currentGen) {
             
-            // Validate cached node is still correct
             void* node = site[way].resultNode;
             if (node && (uintptr_t)node >= 0x10000 && (uintptr_t)node <= 0xBFFF0000) {
                 uint32_t* np = (uint32_t*)node;
-                // Check node content matches (key.tt==4, key.gc==tstring)
+                // Check key matches (np[6] is key.tt at +24, np[4] is key.value.gc at +16)
                 if (np[6] == LUA_TSTRING && np[4] == (uint32_t)tstringPtr) {
                     InterlockedIncrement64(&g_stats.icHits);
-                    // Copy value from node to result
                     TValueCopy(result, (TValue*)node);
                     return result;
                 }
@@ -323,30 +246,27 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
     
     InterlockedIncrement64(&g_stats.icMisses);
     
-    // Cache miss - call original
     void* ret = g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
     
-    // Update IC with new entry (LRU replacement)
-    // Use InterlockedCompareExchange on tablePtr as a simple lock to prevent
-    // concurrent threads from tearing each other's writes to the same slot.
     int victim = 0;
     for (int way = 0; way < IC_ENTRIES_PER_SITE; way++) {
-        if (site[way].tablePtr == 0) { victim = way; break; }
+        if (site[way].tablePtr == 0 || site[way].generation != currentGen) { 
+            victim = way; 
+            break; 
+        }
     }
     
-    // Try to acquire the slot atomically - if another thread beat us, skip update
-    uintptr_t expectedNull = 0;
+    uintptr_t expectedNull = site[victim].tablePtr;
     if (InterlockedCompareExchange(
             (volatile LONG*)&site[victim].tablePtr,
             (LONG)tablePtr, (LONG)expectedNull) == (LONG)expectedNull ||
         site[victim].tablePtr == tablePtr) {
-        // We own the slot (or it already has our table) - fill in the rest
+        
         void* node = g_orig_luaH_getstr((int)tablePtr, (int)tstringPtr);
         site[victim].keyIdentity = tstringPtr;
         site[victim].keyType = LUA_TSTRING;
         site[victim].resultNode = node;
-        site[victim].generation = g_icGeneration;
-        // Ensure tablePtr is written last as the "valid" marker
+        site[victim].generation = currentGen;
         MemoryBarrier();
         site[victim].tablePtr = tablePtr;
     }
@@ -354,92 +274,43 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
     return ret;
 }
 
-// ================================================================
-// Optimized settable with IC invalidation
-// ================================================================
 static void* __fastcall FastSetTable(void* L, TValue* table, TValue* key, TValue* val) {
     InterlockedIncrement64(&g_stats.settableFastPath);
-    
-    // Invalidate any IC entries for this table
     if (table->tt == LUA_TTABLE) {
-        uintptr_t tablePtr = (uintptr_t)table->value.gc;
-        // Simple approach: increment global generation to invalidate all
-        // A more precise approach would scan and invalidate only matching entries
         ICInvalidate();
     }
-    
     return g_orig_luaV_settable((int)L, (int*)table, (int*)key, (int*)val);
 }
 
-// ================================================================
-// Global variable fast lookup
-// ================================================================
-static inline bool FastGetGlobal(void* globalsTable, const char* name, TValue* result) {
-    uint32_t hash = HashGlobalName(name);
-    uint32_t idx = hash & (IC_GLOBAL_SIZE - 1);
-    GlobalCacheEntry* e = &g_globalCache[idx];
-    
-    if (e->valid && e->nameHash == hash) {
-        // Verify the TString* is still the same (name interning guarantees this)
-        // Just return cached value
-        TValueCopy(result, &e->cachedValue);
-        InterlockedIncrement64(&g_stats.globalCacheHits);
-        return true;
-    }
-    
-    return false;
-}
-
-static inline void CacheGlobal(const char* name, const TValue* value) {
-    uint32_t hash = HashGlobalName(name);
-    uint32_t idx = hash & (IC_GLOBAL_SIZE - 1);
-    GlobalCacheEntry* e = &g_globalCache[idx];
-    
-    e->nameHash = hash;
-    TValueCopy(&e->cachedValue, value);
-    e->valid = true;
+// Table resize hook to invalidate inline caches on rehash
+static void* __cdecl Hooked_luaH_resize(void* L, void* t, int nasize, int nhsize) {
+    ICInvalidate();
+    return g_orig_luaH_resize(L, t, nasize, nhsize);
 }
 
 // ================================================================
-// The Optimized Interpreter Core
+// Thread-local VM execution state
 // ================================================================
-// This replaces the inner loop of luaV_execute.
-// Instead of switch(opcode), we use computed jumps.
-
-// Since MSVC x86 doesn't support computed goto, we use a 
-// technique called "replicated switch" where we duplicate
-// the most common opcodes inline and use branch prediction hints.
-
-// Maximum opcodes to execute before yielding back to WoW
-// This prevents infinite loops and allows WoW's frame system to run
 static constexpr int MAX_OPCODES_PER_SLICE = 100000;
 
-// Thread-local execution state
 static __declspec(thread) void* t_currentL = nullptr;
 static __declspec(thread) int t_opcodesRemaining = 0;
 static __declspec(thread) bool t_inOptimizedExecution = false;
 
 // ================================================================
-// Hooked luaV_execute - Entry Point
+// The Hooked Interpreter Core
 // ================================================================
 #pragma warning(push)
-#pragma warning(disable: 4715)  // Complex __try/__except + goto flow confuses analyzer
-static int __cdecl Hooked_luaV_execute(void* L, int nresults) {
-    // Bail out during lua_State swap — WoW destroys the old VM and creates
-    // a new one during UI reload/logout. The old L->base/L->ci/proto pointers
-    // become garbage during this window, causing ACCESS_VIOLATION at 0x85BC10+
+#pragma warning(disable: 4715)
+static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
-        return g_orig_luaV_execute(L, nresults);
+        return g_orig_luaV_execute(L, nexeccalls);
     }
-
-    // Safety check: don't re-enter optimized execution
     if (t_inOptimizedExecution) {
-        return g_orig_luaV_execute(L, nresults);
+        return g_orig_luaV_execute(L, nexeccalls);
     }
-    
-    // Validate lua_State pointer
     if (!L || (uintptr_t)L < 0x10000 || (uintptr_t)L > 0xBFFF0000) {
-        return g_orig_luaV_execute(L, nresults);
+        return g_orig_luaV_execute(L, nexeccalls);
     }
     
     __try {
@@ -447,69 +318,44 @@ static int __cdecl Hooked_luaV_execute(void* L, int nresults) {
         t_inOptimizedExecution = true;
         t_opcodesRemaining = MAX_OPCODES_PER_SLICE;
         
-        // Read execution state from lua_State
-        TValue* base = *(TValue**)((char*)L + 0x10);  // L->base
-        TValue* top = *(TValue**)((char*)L + 0x0C);   // L->top
-        Instruction* pc = *(Instruction**)((char*)L + 0x1C);  // L->savedpc
+        TValue* base = *(TValue**)((char*)L + 0x10);
+        TValue* top = *(TValue**)((char*)L + 0x0C);
+        Instruction* pc = *(Instruction**)((char*)L + 0x1C);
         
         if (!base || !pc) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        // Get current CallInfo to find the Proto
-        void* ci = *(void**)((char*)L + 0x18);  // L->ci
+        void* ci = *(void**)((char*)L + 0x18);
         if (!ci) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        // Get function from CallInfo->func
         TValue* funcSlot = *(TValue**)((char*)ci + 0x00);
         if (!funcSlot || funcSlot->tt != LUA_TFUNCTION) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        // Get Closure from function slot
         void* closure = funcSlot->value.gc;
         if (!closure || (uintptr_t)closure < 0x10000) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        // Get Proto from Closure->l.p (offset +12 for LClosure)
-        void* proto = *(void**)((char*)closure + 12);
+        void* proto = *(void**)((char*)closure + 24);
         if (!proto || (uintptr_t)proto < 0x10000) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        // Read Proto fields
-        TValue* k = *(TValue**)((char*)proto + 0);    // constants
-        Instruction* code = *(Instruction**)((char*)proto + 16);  // bytecode
-        int sizecode = *(int*)((char*)proto + 20);
-        int maxstack = *(int*)((char*)proto + 36);
-        
-        if (!code || !k || sizecode <= 0) {
+        TValue* k = *(TValue**)((char*)proto + 12);
+        if (!k) {
             t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
+            return g_orig_luaV_execute(L, nexeccalls);
         }
-        
-        // Calculate PC offset within code array
-        int pcOffset = (int)(pc - code);
-        if (pcOffset < 0 || pcOffset >= sizecode) {
-            t_inOptimizedExecution = false;
-            return g_orig_luaV_execute(L, nresults);
-        }
-        
-        // ============================================================
-        // MAIN INTERPRETER LOOP - Direct Dispatch
-        // ============================================================
-        // Using replicated switch with hot-opcode optimization.
-        // Most frequent opcodes in WoW addons:
-        //   GETTABLE (25%), CALL (15%), MOVE (12%), GETGLOBAL (10%),
-        //   SETTABLE (8%), RETURN (7%), LOADK (6%), TEST (5%)
         
         #define RA(i) GETARG_A(i)
         #define RB(i) GETARG_B(i)
@@ -522,711 +368,503 @@ static int __cdecl Hooked_luaV_execute(void* L, int nresults) {
             do { \
                 if (--t_opcodesRemaining <= 0) goto yield_back; \
                 InterlockedIncrement64(&g_stats.totalOpcodes); \
-                i = code[pcOffset++]; \
+                i = *pc++; \
                 op = GET_OPCODE(i); \
                 goto dispatch_table; \
             } while(0)
-        
+            
+        #define DELEGATE_AND_RETURN(pc_adj) \
+            do { \
+                *(Instruction**)((char*)L + 0x1C) = pc - 1 + (pc_adj); \
+                *(TValue**)((char*)L + 0x0C) = top; \
+                t_inOptimizedExecution = false; \
+                int res = g_orig_luaV_execute(L, nexeccalls); \
+                t_currentL = nullptr; \
+                return res; \
+            } while(0)
+            
         Instruction i;
         int op;
         
         // Initial fetch
-        i = code[pcOffset++];
+        i = *pc++;
         op = GET_OPCODE(i);
         
-dispatch_table:
+    dispatch_table:
         switch (op) {
-        
-        // ===== HOT OPCODES (most frequent) =====
-        
-        case OP_MOVE: {
-            // MOVE A B: R(A) := R(B)
-            TValueCopy(&base[RA(i)], &base[RB(i)]);
-            DISPATCH();
-        }
-        
-        case OP_LOADK: {
-            // LOADK A Bx: R(A) := Kst(Bx)
-            TValueCopy(&base[RA(i)], KBx(i));
-            DISPATCH();
-        }
-        
-        case OP_GETTABLE: {
-            // GETTABLE A B C: R(A) := R(B)[RK(C)]
-            TValue* rb = &base[RB(i)];
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            
-            // Fast path: table with string key -> inline cache
-            if (rb->tt == LUA_TTABLE && rkc->tt == LUA_TSTRING) {
-                FastGetTable(L, rb, rkc, ra);
-            } else {
-                g_orig_luaV_gettable((int)L, (int*)rb, (int*)rkc, ra);
+            case OP_MOVE: {
+                TValueCopy(&base[RA(i)], &base[RB(i)]);
+                DISPATCH();
             }
-            DISPATCH();
-        }
-        
-        case OP_GETGLOBAL: {
-            // GETGLOBAL A Bx: R(A) := Gbl[Kst(Bx)]
-            TValue* ra = &base[RA(i)];
-            TValue* kstr = KBx(i);
-            
-            // Get globals table from lua_State
-            // In WoW, _G is at a fixed location relative to lua_State
-            // We use the original gettable through the global environment
-            
-            // Build a temporary TValue for the global table
-            // The global environment is stored in the closure's first upvalue
-            // or accessible via L->l_G->gt
-            
-            // For safety, fall back to original implementation
-            // but with our optimized gettable hook active
-            TValue globalKey;
-            TValueCopy(&globalKey, kstr);
-            
-            // Access global table through the function's environment
-            // In WoW Lua 5.1, each function has an 'env' upvalue pointing to _G
-            void* envUpval = *(void**)((char*)closure + 16);  // First upvalue
-            if (envUpval && (uintptr_t)envUpval >= 0x10000) {
-                // UpValue structure: [+0]=v (TValue*), [+4]=closed
-                TValue* envVal = *(TValue**)((char*)envUpval + 0);
-                if (envVal && envVal->tt == LUA_TTABLE) {
-                    FastGetTable(L, envVal, &globalKey, ra);
-                } else {
-                    // Fallback: use standard gettable path
-                    g_orig_luaV_gettable((int)L, (int*)envVal, (int*)&globalKey, ra);
+            case OP_LOADK: {
+                TValueCopy(&base[RA(i)], KBx(i));
+                DISPATCH();
+            }
+            case OP_LOADBOOL: {
+                int a = RA(i);
+                int b = RB(i);
+                int c = RC(i);
+                base[a].value.b = b;
+                base[a].tt = LUA_TBOOLEAN;
+                base[a].taint = 0;
+                if (c) pc++;
+                DISPATCH();
+            }
+            case OP_LOADNIL: {
+                int a = RA(i);
+                int b = RB(i);
+                for (int j = a; j <= b; j++) {
+                    SetNilValue(&base[j]);
                 }
-            } else {
-                SetNilValue(ra);
+                DISPATCH();
             }
-            DISPATCH();
-        }
-        
-        case OP_SETTABLE: {
-            // SETTABLE A B C: R(A)[RK(B)] := RK(C)
-            TValue* ra = &base[RA(i)];
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            
-            FastSetTable(L, ra, rkb, rkc);
-            DISPATCH();
-        }
-        
-        case OP_CALL: {
-            // CALL A B C: R(A),...,R(A+C-2) := R(A)(R(A+1),...,R(A+B-1))
-            int a = RA(i);
-            int b = RB(i);
-            int c = RC(i);
-            
-            InterlockedIncrement64(&g_stats.callFastPath);
-            
-            // Save state back to lua_State before calling
-            *(Instruction**)((char*)L + 0x1C) = &code[pcOffset];
-            *(TValue**)((char*)L + 0x0C) = top;
-            
-            // For complex calls, delegate to original executor
-            // Our hooks on individual functions will still apply
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            
-            // Restore state after call returns
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            top = *(TValue**)((char*)L + 0x0C);
-            
-            t_opcodesRemaining = MAX_OPCODES_PER_SLICE;  // Reset budget
-            
-            if (c != 1) {
-                // Adjust top based on results
-                if (c == 0) {
-                    // Variable results - top already set by callee
-                } else {
-                    *(TValue**)((char*)L + 0x0C) = &base[a + c - 1];
-                }
-            }
-            
-            // Fetch next instruction
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++];
-                op = GET_OPCODE(i);
-                goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_RETURN: {
-            // RETURN A B: return R(A),...,R(A+B-2)
-            int a = RA(i);
-            int b = RB(i);
-            
-            // Save return values info
-            *(Instruction**)((char*)L + 0x1C) = &code[pcOffset - 1];
-            
-            // Delegate to original for proper stack unwinding
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            goto exit_interpreter;
-        }
-        
-        case OP_TEST: {
-            // TEST A C: if not (R(A) <=> C) then pc++
-            int a = RA(i);
-            int c = RC(i);
-            TValue* ra = &base[a];
-            
-            bool cond;
-            switch (ra->tt) {
-                case LUA_TNIL: cond = false; break;
-                case LUA_TBOOLEAN: cond = ra->value.b != 0; break;
-                default: cond = true; break;
-            }
-            
-            if (cond == (c != 0)) {
-                pcOffset++;  // Skip next JMP
-            }
-            DISPATCH();
-        }
-        
-        case OP_JMP: {
-            // JMP sBx: pc += sBx
-            int sbx = GETARG_sBx(i);
-            pcOffset += sbx;
-            
-            // Bounds check
-            if (pcOffset < 0 || pcOffset >= sizecode) {
-                goto exit_interpreter;
-            }
-            
-            // No DISPATCH macro - we already advanced pcOffset
-            if (--t_opcodesRemaining <= 0) goto yield_back;
-            InterlockedIncrement64(&g_stats.totalOpcodes);
-            i = code[pcOffset++];
-            op = GET_OPCODE(i);
-            goto dispatch_table;
-        }
-        
-        case OP_EQ: {
-            // EQ A B C: if ((RK(B) == RK(C)) ~= A) then pc++
-            int a = RA(i);
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            
-            bool equal;
-            if (rkb->tt != rkc->tt) {
-                equal = false;
-            } else if (rkb->tt == LUA_TNUMBER) {
-                equal = (rkb->value.n == rkc->value.n);
-            } else if (rkb->tt == LUA_TSTRING) {
-                // String comparison: same TString* means equal (interned)
-                equal = (rkb->value.gc == rkc->value.gc);
-            } else if (rkb->tt == LUA_TBOOLEAN) {
-                equal = (rkb->value.b == rkc->value.b);
-            } else {
-                equal = (rkb->value.gc == rkc->value.gc);
-            }
-            
-            if (equal != (a != 0)) {
-                pcOffset++;  // Skip next JMP
-            }
-            DISPATCH();
-        }
-        
-        case OP_ADD: {
-            // ADD A B C: R(A) := RK(B) + RK(C)
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                ra->value.n = rkb->value.n + rkc->value.n;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
-                // Metamethod fallback
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++];
-                    op = GET_OPCODE(i);
-                    goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_SUB: {
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                ra->value.n = rkb->value.n - rkc->value.n;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_MUL: {
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                ra->value.n = rkb->value.n * rkc->value.n;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_DIV: {
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                ra->value.n = rkb->value.n / rkc->value.n;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_MOD: {
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                double d1 = rkb->value.n, d2 = rkc->value.n;
-                ra->value.n = d1 - floor(d1/d2)*d2;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_UNM: {
-            TValue* rb = &base[RB(i)];
-            TValue* ra = &base[RA(i)];
-            if (rb->tt == LUA_TNUMBER) {
-                ra->value.n = -rb->value.n;
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rb->taint;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            DISPATCH();
-        }
-        
-        case OP_NOT: {
-            TValue* rb = &base[RB(i)];
-            TValue* ra = &base[RA(i)];
-            bool isFalse = (rb->tt == LUA_TNIL) || 
-                          (rb->tt == LUA_TBOOLEAN && rb->value.b == 0);
-            ra->value.b = isFalse ? 1 : 0;
-            ra->tt = LUA_TBOOLEAN;
-            ra->taint = rb->taint;
-            DISPATCH();
-        }
-        
-        case OP_LEN: {
-            // Delegate to original - requires metamethod handling
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_CONCAT: {
-            // Delegate to original - complex string concatenation
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_LOADBOOL: {
-            int a = RA(i);
-            int b = RB(i);
-            int c = RC(i);
-            base[a].value.b = b;
-            base[a].tt = LUA_TBOOLEAN;
-            base[a].taint = 0;
-            if (c) pcOffset++;  // Skip next instruction
-            DISPATCH();
-        }
-        
-        case OP_LOADNIL: {
-            int a = RA(i);
-            int b = RB(i);
-            for (int j = a; j <= b; j++) {
-                SetNilValue(&base[j]);
-            }
-            DISPATCH();
-        }
-        
-        case OP_NEWTABLE: {
-            // Delegate to original - memory allocation involved
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_SELF: {
-            // SELF A B C: R(A+1) := R(B); R(A) := R(B)[RK(C)]
-            int a = RA(i);
-            TValueCopy(&base[a+1], &base[RB(i)]);
-            TValue* rkc = RKC(i);
-            FastGetTable(L, &base[a+1], rkc, &base[a]);
-            DISPATCH();
-        }
-        
-        case OP_LT: {
-            int a = RA(i);
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            bool result = false;
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                result = (rkb->value.n < rkc->value.n);
-            } else {
-                // Delegate for metamethods
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            if (result != (a != 0)) pcOffset++;
-            DISPATCH();
-        }
-        
-        case OP_LE: {
-            int a = RA(i);
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            bool result = false;
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                result = (rkb->value.n <= rkc->value.n);
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-                }
-                goto exit_interpreter;
-            }
-            if (result != (a != 0)) pcOffset++;
-            DISPATCH();
-        }
-        
-        case OP_TESTSET: {
-            int a = RA(i);
-            int b = RB(i);
-            int c = RC(i);
-            TValue* rb = &base[b];
-            bool cond;
-            switch (rb->tt) {
-                case LUA_TNIL: cond = false; break;
-                case LUA_TBOOLEAN: cond = rb->value.b != 0; break;
-                default: cond = true; break;
-            }
-            if (cond == (c != 0)) {
-                TValueCopy(&base[a], rb);
-            } else {
-                pcOffset++;
-            }
-            DISPATCH();
-        }
-        
-        case OP_TAILCALL: {
-            // Delegate to original for proper tail call handling
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            goto exit_interpreter;
-        }
-        
-        case OP_FORLOOP: {
-            int a = RA(i);
-            int sbx = GETARG_sBx(i);
-            
-            // Numeric for loop: R(A) += R(A+2); if R(A) <?= R(A+1) then pc+=sBx; R(A+3)=R(A)
-            if (base[a].tt == LUA_TNUMBER && base[a+1].tt == LUA_TNUMBER && base[a+2].tt == LUA_TNUMBER) {
-                double step = base[a+2].value.n;
-                double limit = base[a+1].value.n;
-                double idx = base[a].value.n + step;
-                
-                base[a].value.n = idx;
-                
-                bool continueLoop;
-                if (step > 0) {
-                    continueLoop = (idx <= limit);
-                } else {
-                    continueLoop = (idx >= limit);
-                }
-                
-                if (continueLoop) {
-                    pcOffset += sbx;
-                    TValueCopy(&base[a+3], &base[a]);
-                }
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-            }
-            DISPATCH();
-        }
-        
-        case OP_FORPREP: {
-            int a = RA(i);
-            int sbx = GETARG_sBx(i);
-            
-            if (base[a].tt == LUA_TNUMBER && base[a+1].tt == LUA_TNUMBER && base[a+2].tt == LUA_TNUMBER) {
-                base[a].value.n -= base[a+2].value.n;
-                pcOffset += sbx;
-            } else {
-                t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
-                t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-            }
-            DISPATCH();
-        }
-        
-        case OP_TFORLOOP: {
-            // Delegate to original - complex iterator protocol
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_SETLIST: {
-            // Delegate to original - table array initialization
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
-            }
-            goto exit_interpreter;
-        }
-        
-        case OP_GETUPVAL: {
-            int a = RA(i);
-            int b = RB(i);
-            // Get upvalue from closure
-            void* upval = *(void**)((char*)closure + 16 + b * 4);
-            if (upval && (uintptr_t)upval >= 0x10000) {
-                TValue* uv = *(TValue**)((char*)upval + 0);
-                if (uv) {
-                    TValueCopy(&base[a], uv);
+            case OP_GETUPVAL: {
+                int a = RA(i);
+                int b = RB(i);
+                void* upval = *(void**)((char*)closure + 28 + b * 4);
+                if (upval && (uintptr_t)upval >= 0x10000) {
+                    TValue* uv = *(TValue**)((char*)upval + 12);
+                    if (uv) {
+                        TValueCopy(&base[a], uv);
+                    } else {
+                        SetNilValue(&base[a]);
+                    }
                 } else {
                     SetNilValue(&base[a]);
                 }
-            } else {
-                SetNilValue(&base[a]);
+                DISPATCH();
             }
-            DISPATCH();
-        }
-        
-        case OP_SETUPVAL: {
-            int a = RA(i);
-            int b = RB(i);
-            void* upval = *(void**)((char*)closure + 16 + b * 4);
-            if (upval && (uintptr_t)upval >= 0x10000) {
-                TValue* uv = *(TValue**)((char*)upval + 0);
-                if (uv) {
-                    TValueCopy(uv, &base[a]);
+            case OP_GETGLOBAL: {
+                TValue* ra = &base[RA(i)];
+                TValue* kstr = KBx(i);
+                
+                void* envTable = *(void**)((char*)closure + 16);
+                if (envTable && (uintptr_t)envTable >= 0x10000) {
+                    TValue envVal;
+                    envVal.value.gc = envTable;
+                    envVal.tt = LUA_TTABLE;
+                    envVal.taint = *(uint32_t*)0x00D4139C;
+                    
+                    TValue globalKey;
+                    TValueCopy(&globalKey, kstr);
+                    
+                    FastGetTable(L, &envVal, &globalKey, ra);
+                } else {
+                    SetNilValue(ra);
+                }
+                DISPATCH();
+            }
+            case OP_GETTABLE: {
+                TValue* rb = &base[RB(i)];
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                
+                if (rb->tt == LUA_TTABLE && rkc->tt == LUA_TSTRING) {
+                    FastGetTable(L, rb, rkc, ra);
+                } else {
+                    g_orig_luaV_gettable((int)L, (int*)rb, (int*)rkc, ra);
+                }
+                DISPATCH();
+            }
+            case OP_SETGLOBAL: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_SETUPVAL: {
+                int a = RA(i);
+                int b = RB(i);
+                void* upval = *(void**)((char*)closure + 28 + b * 4);
+                if (upval && (uintptr_t)upval >= 0x10000) {
+                    TValue* uv = *(TValue**)((char*)upval + 12);
+                    if (uv) {
+                        TValueCopy(uv, &base[a]);
+                        LuaC_Barrier(L, upval, &base[a]);
+                    }
+                }
+                DISPATCH();
+            }
+            case OP_SETTABLE: {
+                TValue* ra = &base[RA(i)];
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                FastSetTable(L, ra, rkb, rkc);
+                DISPATCH();
+            }
+            case OP_NEWTABLE: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_SELF: {
+                int a = RA(i);
+                TValueCopy(&base[a+1], &base[RB(i)]);
+                TValue* rkc = RKC(i);
+                FastGetTable(L, &base[a+1], rkc, &base[a]);
+                DISPATCH();
+            }
+            case OP_ADD: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    ra->value.n = rkb->value.n + rkc->value.n;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
                 }
             }
-            DISPATCH();
-        }
-        
-        case OP_SETGLOBAL: {
-            // Delegate to original - modifies global state
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
+            case OP_SUB: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    ra->value.n = rkb->value.n - rkc->value.n;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
             }
-            goto exit_interpreter;
-        }
-        
-        case OP_CLOSURE: {
-            // Delegate to original - creates new closure object
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
+            case OP_MUL: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    ra->value.n = rkb->value.n * rkc->value.n;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
             }
-            goto exit_interpreter;
-        }
-        
-        case OP_VARARG: {
-            // Delegate to original - vararg handling is complex
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
+            case OP_DIV: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    ra->value.n = rkb->value.n / rkc->value.n;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
             }
-            goto exit_interpreter;
-        }
-        
-        case OP_CLOSE: {
-            // Delegate to original - upvalue closing
-            t_inOptimizedExecution = false;
-            g_orig_luaV_execute(L, nresults);
-            t_inOptimizedExecution = true;
-            pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-            base = *(TValue**)((char*)L + 0x10);
-            if (pcOffset >= 0 && pcOffset < sizecode) {
-                i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
+            case OP_MOD: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    double d1 = rkb->value.n, d2 = rkc->value.n;
+                    ra->value.n = d1 - floor(d1/d2)*d2;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
             }
-            goto exit_interpreter;
-        }
-        
-        case OP_POW: {
-            TValue* rkb = RKB(i);
-            TValue* rkc = RKC(i);
-            TValue* ra = &base[RA(i)];
-            if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
-                ra->value.n = pow(rkb->value.n, rkc->value.n);
-                ra->tt = LUA_TNUMBER;
-                ra->taint = rkb->taint | rkc->taint;
-            } else {
+            case OP_POW: {
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                TValue* ra = &base[RA(i)];
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    ra->value.n = pow(rkb->value.n, rkc->value.n);
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rkb->taint | rkc->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_UNM: {
+                TValue* rb = &base[RB(i)];
+                TValue* ra = &base[RA(i)];
+                if (rb->tt == LUA_TNUMBER) {
+                    ra->value.n = -rb->value.n;
+                    ra->tt = LUA_TNUMBER;
+                    ra->taint = rb->taint;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_NOT: {
+                TValue* rb = &base[RB(i)];
+                TValue* ra = &base[RA(i)];
+                bool isFalse = (rb->tt == LUA_TNIL) || 
+                              (rb->tt == LUA_TBOOLEAN && rb->value.b == 0);
+                ra->value.b = isFalse ? 1 : 0;
+                ra->tt = LUA_TBOOLEAN;
+                ra->taint = rb->taint;
+                DISPATCH();
+            }
+            case OP_LEN: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_CONCAT: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_JMP: {
+                int sbx = GETARG_sBx(i);
+                pc += sbx;
+                DISPATCH();
+            }
+            case OP_EQ: {
+                int a = RA(i);
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                
+                bool equal;
+                if (rkb->tt != rkc->tt) {
+                    equal = false;
+                } else if (rkb->tt == LUA_TNUMBER) {
+                    equal = (rkb->value.n == rkc->value.n);
+                } else if (rkb->tt == LUA_TSTRING) {
+                    equal = (rkb->value.gc == rkc->value.gc);
+                } else if (rkb->tt == LUA_TBOOLEAN) {
+                    equal = (rkb->value.b == rkc->value.b);
+                } else {
+                    equal = (rkb->value.gc == rkc->value.gc);
+                }
+                
+                if (equal != (a != 0)) {
+                    pc++;
+                }
+                DISPATCH();
+            }
+            case OP_LT: {
+                int a = RA(i);
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                bool result = false;
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    result = (rkb->value.n < rkc->value.n);
+                    if (result != (a != 0)) pc++;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_LE: {
+                int a = RA(i);
+                TValue* rkb = RKB(i);
+                TValue* rkc = RKC(i);
+                bool result = false;
+                if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
+                    result = (rkb->value.n <= rkc->value.n);
+                    if (result != (a != 0)) pc++;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_TEST: {
+                int a = RA(i);
+                int c = RC(i);
+                TValue* ra = &base[a];
+                
+                bool cond;
+                switch (ra->tt) {
+                    case LUA_TNIL: cond = false; break;
+                    case LUA_TBOOLEAN: cond = ra->value.b != 0; break;
+                    default: cond = true; break;
+                }
+                
+                if (cond == (c != 0)) {
+                    pc++;
+                }
+                DISPATCH();
+            }
+            case OP_TESTSET: {
+                int a = RA(i);
+                int b = RB(i);
+                int c = RC(i);
+                TValue* rb = &base[b];
+                bool cond;
+                switch (rb->tt) {
+                    case LUA_TNIL: cond = false; break;
+                    case LUA_TBOOLEAN: cond = rb->value.b != 0; break;
+                    default: cond = true; break;
+                }
+                if (cond == (c != 0)) {
+                    TValueCopy(&base[a], rb);
+                } else {
+                    pc++;
+                }
+                DISPATCH();
+            }
+            case OP_CALL: {
+                int a = RA(i);
+                int b = RB(i);
+                int c = RC(i);
+                TValue* ra = &base[a];
+                int nresults_val = c - 1;
+                
+                if (b != 0) {
+                    top = ra + b;
+                }
+                
+                *(Instruction**)((char*)L + 0x1C) = pc;
+                *(TValue**)((char*)L + 0x0C) = top;
+                
+                __int64 startTime = g_get_cycles();
+                __int64 endTime = startTime;
+                
                 t_inOptimizedExecution = false;
-                g_orig_luaV_execute(L, nresults);
+                int precall_res = g_orig_luaD_precall(L, ra, nresults_val, startTime, &endTime);
                 t_inOptimizedExecution = true;
-                pcOffset = (int)(*(Instruction**)((char*)L + 0x1C) - code);
-                base = *(TValue**)((char*)L + 0x10);
-                if (pcOffset >= 0 && pcOffset < sizecode) {
-                    i = code[pcOffset++]; op = GET_OPCODE(i); goto dispatch_table;
+                
+                if (precall_res == 0) {
+                    // Enter new Lua frame
+                    ci = *(void**)((char*)L + 0x18);
+                    funcSlot = *(TValue**)((char*)ci + 0x00);
+                    closure = funcSlot->value.gc;
+                    proto = *(void**)((char*)closure + 24);
+                    k = *(TValue**)((char*)proto + 12);
+                    
+                    pc = *(Instruction**)((char*)L + 0x1C);
+                    base = *(TValue**)((char*)L + 0x10);
+                    top = *(TValue**)((char*)L + 0x0C);
+                    
+                    t_opcodesRemaining = MAX_OPCODES_PER_SLICE;
+                } else if (precall_res == 1) {
+                    // C function returned
+                    base = *(TValue**)((char*)L + 0x10);
+                    top = *(TValue**)((char*)L + 0x0C);
+                } else {
+                    // Yield or error
+                    t_inOptimizedExecution = false;
+                    t_currentL = nullptr;
+                    return precall_res;
                 }
-                goto exit_interpreter;
+                
+                DISPATCH();
             }
-            DISPATCH();
+            case OP_TAILCALL: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_RETURN: {
+                int a = RA(i);
+                int b = RB(i);
+                TValue* ra = &base[a];
+                
+                if (b != 0) {
+                    top = ra + b - 1;
+                    *(TValue**)((char*)L + 0x0C) = top;
+                }
+                
+                void* openupval = *(void**)((char*)L + 104);
+                if (openupval) {
+                    g_orig_luaF_close(L, base);
+                }
+                
+                *(Instruction**)((char*)L + 0x1C) = pc - 1;
+                
+                t_inOptimizedExecution = false;
+                int poscall_res = g_orig_luaD_poscall(L, ra);
+                t_inOptimizedExecution = true;
+                
+                nexeccalls--;
+                if (nexeccalls == 0) {
+                    t_inOptimizedExecution = false;
+                    t_currentL = nullptr;
+                    return poscall_res;
+                }
+                
+                if (poscall_res != 0) {
+                    t_inOptimizedExecution = false;
+                    t_currentL = nullptr;
+                    return poscall_res;
+                }
+                
+                // Continue in caller
+                ci = *(void**)((char*)L + 0x18);
+                funcSlot = *(TValue**)((char*)ci + 0x00);
+                closure = funcSlot->value.gc;
+                proto = *(void**)((char*)closure + 24);
+                k = *(TValue**)((char*)proto + 12);
+                
+                base = *(TValue**)((char*)L + 0x10);
+                top = *(TValue**)((char*)L + 0x0C);
+                pc = *(Instruction**)((char*)L + 0x1C);
+                
+                t_opcodesRemaining = MAX_OPCODES_PER_SLICE;
+                DISPATCH();
+            }
+            case OP_FORLOOP: {
+                int a = RA(i);
+                int sbx = GETARG_sBx(i);
+                
+                if (base[a].tt == LUA_TNUMBER && base[a+1].tt == LUA_TNUMBER && base[a+2].tt == LUA_TNUMBER) {
+                    double step = base[a+2].value.n;
+                    double limit = base[a+1].value.n;
+                    double idx = base[a].value.n + step;
+                    
+                    base[a].value.n = idx;
+                    
+                    bool continueLoop;
+                    if (step > 0) {
+                        continueLoop = (idx <= limit);
+                    } else {
+                        continueLoop = (idx >= limit);
+                    }
+                    
+                    if (continueLoop) {
+                        pc += sbx;
+                        TValueCopy(&base[a+3], &base[a]);
+                    }
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_FORPREP: {
+                int a = RA(i);
+                int sbx = GETARG_sBx(i);
+                
+                if (base[a].tt == LUA_TNUMBER && base[a+1].tt == LUA_TNUMBER && base[a+2].tt == LUA_TNUMBER) {
+                    base[a].value.n -= base[a+2].value.n;
+                    pc += sbx;
+                    DISPATCH();
+                } else {
+                    DELEGATE_AND_RETURN(0);
+                }
+            }
+            case OP_TFORLOOP: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_SETLIST: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_CLOSE: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_CLOSURE: {
+                DELEGATE_AND_RETURN(0);
+            }
+            case OP_VARARG: {
+                DELEGATE_AND_RETURN(0);
+            }
+            default: {
+                DELEGATE_AND_RETURN(0);
+            }
         }
         
-        default:
-            // Unknown opcode - delegate to original
-            InterlockedIncrement64(&g_stats.fallbackExecutions);
-            t_inOptimizedExecution = false;
-            *(Instruction**)((char*)L + 0x1C) = &code[pcOffset - 1];
-            g_orig_luaV_execute(L, nresults);
-            goto exit_interpreter;
-        }
-        
-yield_back:
-        // Save state and return to WoW's scheduler
-        *(Instruction**)((char*)L + 0x1C) = &code[pcOffset];
+    yield_back:
+        *(Instruction**)((char*)L + 0x1C) = pc;
         *(TValue**)((char*)L + 0x0C) = top;
-        goto exit_interpreter;
-        
-exit_interpreter:
-        ;  // Exit point
+        t_inOptimizedExecution = false;
+        t_currentL = nullptr;
+        return 0;
         
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         InterlockedIncrement64(&g_stats.fallbackExecutions);
         t_inOptimizedExecution = false;
-        return g_orig_luaV_execute(L, nresults);
+        t_currentL = nullptr;
+        return g_orig_luaV_execute(L, nexeccalls);
     }
-    
-    t_inOptimizedExecution = false;
-    t_currentL = nullptr;
-    return 0;
 }
 #pragma warning(pop)
 
@@ -1235,23 +873,8 @@ exit_interpreter:
 // ================================================================
 bool InstallLuaVMEngine()
 {
-    // DISABLED: this hooks luaV_execute (0x00859160), WoW's core Lua interpreter
-    // loop, and runs a custom opcode dispatch. Any mismatch with the client's
-    // exact opcode/Proto/TValue layout corrupts execution -> "attempt to compare
-    // number with nil" spam in FrameXML (UIParent.lua:2469) and hangs on world
-    // transitions (RDF queue freeze). Far too high-risk for the marginal gain;
-    // the individual fast paths (getstr/rawgeti/gettable, lua_fastpath) already
-    // cover the hot cases safely. Let WoW's own interpreter run.
-    (void)&Hooked_luaV_execute;
-    Log("[VMEngine] DISABLED (custom interpreter caused Lua corruption + world-transition freeze)");
-    return false;
-
-#if 0
-    // Hook luaV_execute at 0x00859160
-    // NOTE: 0x00855B33 is luaD_rawrunprotected wrapper, NOT the interpreter
     void* target = (void*)0x00859160;
 
-    // Verify prologue: push ebp; mov ebp, esp
     unsigned char* p = (unsigned char*)target;
     if (p[0] != 0x55 || p[1] != 0x8B) {
         Log("[VMEngine] BAD PROLOGUE at 0x%08X (expected 55 8B, got %02X %02X)",
@@ -1259,9 +882,8 @@ bool InstallLuaVMEngine()
         return false;
     }
     
-    // Resolve helper functions
     g_orig_luaV_gettable = (luaV_gettable_fn)0x00857250;
-    g_orig_luaV_settable = (luaV_settable_fn)0x008573C0;  // Was incorrectly 0x857CA0
+    g_orig_luaV_settable = (luaV_settable_fn)0x008573C0;
     g_orig_luaH_getstr = (luaH_getstr_fn)0x0085C430;
     
     if (MH_CreateHook(target, (void*)Hooked_luaV_execute, (void**)&g_orig_luaV_execute) != MH_OK) {
@@ -1273,9 +895,18 @@ bool InstallLuaVMEngine()
         return false;
     }
     
+    // Hook luaH_resize (0x0085C6F0) to invalidate inline cache on table resizing
+    if (MH_CreateHook((void*)0x0085C6F0, (void*)Hooked_luaH_resize, (void**)&g_orig_luaH_resize) != MH_OK) {
+        Log("[VMEngine] MH_CreateHook FAILED for luaH_resize");
+        return false;
+    }
+    if (MH_EnableHook((void*)0x0085C6F0) != MH_OK) {
+        Log("[VMEngine] MH_EnableHook FAILED for luaH_resize");
+        return false;
+    }
+    
     // Initialize caches
     memset(g_inlineCache, 0, sizeof(g_inlineCache));
-    memset(g_globalCache, 0, sizeof(g_globalCache));
     
     CrashDumper::RegisterFeature("LuaVMEngine");
     CrashDumper::FeatureSetActive("LuaVMEngine", true);
@@ -1283,18 +914,19 @@ bool InstallLuaVMEngine()
     Log("[VMEngine] ACTIVE: Direct-threaded Lua VM interpreter");
     Log("[VMEngine]   - Inline cache: %d sites x %d ways = %d entries",
         IC_TOTAL_SITES, IC_ENTRIES_PER_SITE, IC_TOTAL_SITES * IC_ENTRIES_PER_SITE);
-    Log("[VMEngine]   - Global cache: %d entries", IC_GLOBAL_SIZE);
     Log("[VMEngine]   - SSE2 TValue operations enabled");
     Log("[VMEngine]   - Max %d opcodes per execution slice", MAX_OPCODES_PER_SLICE);
 
     return true;
-#endif
 }
 
 void UninstallLuaVMEngine()
 {
     MH_DisableHook((void*)0x00859160);
     MH_RemoveHook((void*)0x00859160);
+    
+    MH_DisableHook((void*)0x0085C6F0);
+    MH_RemoveHook((void*)0x0085C6F0);
     
     LuaVMEngineStats s = g_stats;
     if (s.totalOpcodes > 0) {

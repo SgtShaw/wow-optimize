@@ -15,6 +15,8 @@
 
 bool InstallLuaVMEngine();
 void UninstallLuaVMEngine();
+void ClearLuaVMEngineCaches();
+void LuaVMEngine_FrameTick();
 
 // Statistics
 struct LuaVMEngineStats {
