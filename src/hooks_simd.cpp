@@ -992,11 +992,16 @@ static float* __cdecl Hooked_Vec3Cross(float* result, float* a, float* b) {
 
 // ================================================================
 // CFrustum::IsSphereVisible Hook (0x00983D20)
+// IDA-verified: __thiscall(float* this, float* sphere).
+// On x86, MinHook hooks __thiscall via __fastcall: self maps to ecx (this),
+// edx is a don't-care dummy, sphere is the first stack arg.
+// Engine walks 6 planes at this+{0,4,8,12,16,20}; sphere={x,y,z,r}.
+// Returns 0=culled / 3=visible. Gated by TEST_DISABLE_SPHERE_VISIBLE_SSE2.
 // ================================================================
-typedef int (__fastcall* IsSphereVisible_t)(void* self, void* edx, float* sphere);
+typedef int (__fastcall* IsSphereVisible_t)(float* self, void* edx, float* sphere);
 static IsSphereVisible_t orig_IsSphereVisible = nullptr;
 
-static int __fastcall Hooked_IsSphereVisible(void* self, void* edx, float* sphere) {
+static int __fastcall Hooked_IsSphereVisible(float* self, void* edx, float* sphere) {
     __try {
         if (self && sphere &&
             (uintptr_t)self > 0x10000 && (uintptr_t)self < 0xBFFF0000 &&
@@ -1048,6 +1053,11 @@ static int __fastcall Hooked_IsSphereVisible(void* self, void* edx, float* spher
 
 // ================================================================
 // CQuaternion::FromAngleAxis Hook (0x00982400)
+// IDA-verified: __thiscall(float* this, float angle, float* axis).
+// On x86 MinHook hooks __thiscall via __fastcall: self=ecx, edx=dummy,
+// angle=first stack arg, axis=second stack arg.
+// self[3]=cos(0.5*angle), self[0..2]=axis*sin(0.5*angle).
+// Gated by TEST_DISABLE_FROM_ANGLE_AXIS_SSE2.
 // ================================================================
 typedef float* (__fastcall* FromAngleAxis_t)(float* self, void* edx, float angle, float* axis);
 static FromAngleAxis_t orig_FromAngleAxis = nullptr;
@@ -1073,6 +1083,11 @@ static float* __fastcall Hooked_FromAngleAxis(float* self, void* edx, float angl
 
 // ================================================================
 // CQuaternion::Slerp Hook (0x00982460)
+// IDA-verified: __cdecl(result, t, q1, q2) — convention correct.
+// Standard spherical-linear quaternion interpolation with the short-path
+// flip (factor = -1 when cosTheta < 0). Hook replicates with fast scalar
+// math (sinf/cosf/atan2f); close-quaternion linear fallback when sinTheta
+// is sub-epsilon. Gated by TEST_DISABLE_QUAT_SLERP_SSE2.
 // ================================================================
 typedef float* (__cdecl* QuatSlerp_t)(float* result, float t, float* q1, float* q2);
 static QuatSlerp_t orig_QuatSlerp = nullptr;
@@ -1230,28 +1245,44 @@ bool InstallSimdHooks(void) {
 #endif
 
     // Hooking 3D Vector Cross Product (0x005FEC70)
+#if !TEST_DISABLE_VEC3_CROSS_SSE2
     if (WineSafe_CreateHook((void*)0x005FEC70, (void*)Hooked_Vec3Cross, (void**)&orig_Vec3Cross) == MH_OK) {
         WO_EnableHook((void*)0x005FEC70);
         Log("[SimdHooks] C3Vector::Cross hook ACTIVE");
     }
+#else
+    Log("[SimdHooks] C3Vector::Cross DISABLED by TEST_DISABLE_VEC3_CROSS_SSE2");
+#endif
 
     // Hooking CFrustum::IsSphereVisible (0x00983D20)
+#if !TEST_DISABLE_SPHERE_VISIBLE_SSE2
     if (WineSafe_CreateHook((void*)0x00983D20, (void*)Hooked_IsSphereVisible, (void**)&orig_IsSphereVisible) == MH_OK) {
         WO_EnableHook((void*)0x00983D20);
         Log("[SimdHooks] CFrustum::IsSphereVisible hook ACTIVE");
     }
+#else
+    Log("[SimdHooks] CFrustum::IsSphereVisible DISABLED by TEST_DISABLE_SPHERE_VISIBLE_SSE2");
+#endif
 
     // Hooking CQuaternion::FromAngleAxis (0x00982400)
+#if !TEST_DISABLE_FROM_ANGLE_AXIS_SSE2
     if (WineSafe_CreateHook((void*)0x00982400, (void*)Hooked_FromAngleAxis, (void**)&orig_FromAngleAxis) == MH_OK) {
         WO_EnableHook((void*)0x00982400);
         Log("[SimdHooks] CQuaternion::FromAngleAxis hook ACTIVE");
     }
+#else
+    Log("[SimdHooks] CQuaternion::FromAngleAxis DISABLED by TEST_DISABLE_FROM_ANGLE_AXIS_SSE2");
+#endif
 
     // Hooking CQuaternion::Slerp (0x00982460)
+#if !TEST_DISABLE_QUAT_SLERP_SSE2
     if (WineSafe_CreateHook((void*)0x00982460, (void*)Hooked_QuatSlerp, (void**)&orig_QuatSlerp) == MH_OK) {
         WO_EnableHook((void*)0x00982460);
         Log("[SimdHooks] CQuaternion::Slerp hook ACTIVE");
     }
+#else
+    Log("[SimdHooks] CQuaternion::Slerp DISABLED by TEST_DISABLE_QUAT_SLERP_SSE2");
+#endif
 
     return true;
 }

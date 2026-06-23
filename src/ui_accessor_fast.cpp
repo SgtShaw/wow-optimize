@@ -467,30 +467,43 @@ static int __cdecl hook_Frame_GetFrameLevel(uintptr_t L) {
 bool InstallUIAccessorFast() {
     int installed = 0;
     
-    #define INSTALL(fn_t, orig_ptr, hook_ptr, addr, name) \
-        if (WineSafe_CreateHook((void*)(addr), (void*)(hook_ptr), (void**)&(orig_ptr)) == MH_OK) { \
-            if (WO_EnableHook((void*)(addr)) == MH_OK) { \
-                installed++; \
-                Log("[UIAccessorFast] Hooked " name " at 0x%08X", (DWORD)(addr)); \
-            } else { \
-                Log("[UIAccessorFast] Enable " name " FAILED"); \
-            } \
+#define INSTALL(fn_t, orig_ptr, hook_ptr, addr, name) \
+    if (WineSafe_CreateHook((void*)(addr), (void*)(hook_ptr), (void**)&(orig_ptr)) == MH_OK) { \
+        if (WO_EnableHook((void*)(addr)) == MH_OK) { \
+            installed++; \
+            Log("[UIAccessorFast] Hooked " name " at 0x%08X", (DWORD)(addr)); \
         } else { \
-            Log("[UIAccessorFast] Create " name " FAILED"); \
-        }
+            Log("[UIAccessorFast] Enable " name " FAILED"); \
+        } \
+    } else { \
+        Log("[UIAccessorFast] Create " name " FAILED"); \
+    }
+#define INSTALL_GATED(fn_t, orig_ptr, hook_ptr, addr, name, flag) \
+    do { \
+        if (!(flag)) { \
+            INSTALL(fn_t, orig_ptr, hook_ptr, addr, name) \
+        } else { \
+            Log("[UIAccessorFast] " name " DISABLED by flag (0x%08X)", (DWORD)(flag)); \
+        } \
+    } while(0)
 
     INSTALL(IsShown_t,    orig_IsShown,    hook_IsShown,    0x0048C610, "IsShown");
     INSTALL(IsVisible_t,  orig_IsVisible,  hook_IsVisible,  0x0048C5B0, "IsVisible");
     INSTALL(GetAlpha_t,   orig_GetAlpha,   hook_GetAlpha,   0x0048C4C0, "GetAlpha");
     INSTALL(GetScale_t,   orig_GetScale,   hook_GetScale,   0x0049F7D0, "GetScale");
-    INSTALL(GetWidth_t,   orig_GetWidth,   hook_GetWidth,   0x0049D3B0, "GetWidth");
-    INSTALL(GetHeight_t,  orig_GetHeight,  hook_GetHeight,  0x0049D550, "GetHeight");
-    INSTALL(Frame_IsShown_t, orig_Frame_IsShown, hook_Frame_IsShown, 0x0049FE90, "Frame_IsShown");
-    INSTALL(Frame_IsVisible_t, orig_Frame_IsVisible, hook_Frame_IsVisible, 0x0049FE30, "Frame_IsVisible");
-    INSTALL(Frame_GetAlpha_t, orig_Frame_GetAlpha, hook_Frame_GetAlpha, 0x0049F980, "Frame_GetAlpha");
-    INSTALL(Frame_GetFrameLevel_t, orig_Frame_GetFrameLevel, hook_Frame_GetFrameLevel, 0x0049E980, "Frame_GetFrameLevel");
 
-    #undef INSTALL
+    // NEW Frame XML accessor hooks (IDA-verified __cdecl, gated)
+    INSTALL_GATED(Frame_IsShown_t,      orig_Frame_IsShown,      hook_Frame_IsShown,      0x0049FE90, "Frame_IsShown",      TEST_DISABLE_FRAME_ACCESSOR_FAST);
+    INSTALL_GATED(Frame_IsVisible_t,    orig_Frame_IsVisible,    hook_Frame_IsVisible,    0x0049FE30, "Frame_IsVisible",    TEST_DISABLE_FRAME_ACCESSOR_FAST);
+    INSTALL_GATED(Frame_GetAlpha_t,     orig_Frame_GetAlpha,     hook_Frame_GetAlpha,     0x0049F980, "Frame_GetAlpha",     TEST_DISABLE_FRAME_ACCESSOR_FAST);
+    INSTALL_GATED(Frame_GetFrameLevel_t,orig_Frame_GetFrameLevel,hook_Frame_GetFrameLevel, 0x0049E980, "Frame_GetFrameLevel",TEST_DISABLE_FRAME_ACCESSOR_FAST);
+
+    // Layout accessor hooks (IDA-verified __usercall — DISABLED until naked-asm trampoline)
+    INSTALL_GATED(GetWidth_t,  orig_GetWidth,  hook_GetWidth,  0x0049D3B0, "GetWidth",  TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
+    INSTALL_GATED(GetHeight_t, orig_GetHeight, hook_GetHeight, 0x0049D550, "GetHeight", TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
+
+#undef INSTALL_GATED
+#undef INSTALL
 
     Log("[UIAccessorFast] %d/10 hooks installed", installed);
     return installed > 0;

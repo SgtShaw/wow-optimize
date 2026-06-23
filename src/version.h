@@ -456,6 +456,32 @@
 // Set to 1 to disable.
 #define TEST_DISABLE_FONT_METRICS_FAST 0
 
+// ================================================================
+// NEW COLOSSAL HOOKS (commit 670012c) — IDA-verified + gated
+// ================================================================
+//
+// SIMD geometry hooks (hooks_simd.cpp):
+//  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
+//  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
+//  calling-convention bugs fixed (IDA-verified). Default ENABLED.
+#define TEST_DISABLE_VEC3_CROSS_SSE2       0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2   0
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2  0
+#define TEST_DISABLE_QUAT_SLERP_SSE2       0
+//
+// UI Frame XML accessor hooks (ui_accessor_fast.cpp):
+//  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
+//  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
+//  Default ENABLED.
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST   0
+//
+// UI Layout accessors (ui_accessor_fast.cpp):
+//  GetWidth 0x49D3B0, GetHeight 0x49D550.
+//  WARNING: IDA-verified __usercall — MinHook CANNOT safely hook non-standard
+//  calling conventions. These are DISABLED by default (flag=1) until a naked-asm
+//  trampoline is written (CONTEXT lesson 10). Set to 0 only with a trampoline.
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST  1
+
 
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.
