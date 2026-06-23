@@ -307,6 +307,8 @@ volatile long g_hookBatchMode = 0;
 extern bool InstallCrtMemFastPaths();
 extern bool InstallUIAccessorFast();
 extern void ShutdownUIAccessorFast();
+extern bool InstallFontMetricsFast();
+extern void ShutdownFontMetricsFast();
 
 
 // Forward declarations
@@ -5843,6 +5845,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[UIAccessorFast] DISABLED via TEST_DISABLE_UI_ACCESSOR_FAST");
 #endif
 
+    Log("--- Font Metrics Fast Paths ---");
+#if !TEST_DISABLE_FONT_METRICS_FAST
+    bool fontMetricsOk = InstallFontMetricsFast();
+    CrashDumper::RegisterFeature("FontMetricsFast");
+    CrashDumper::FeatureSetActive("FontMetricsFast", fontMetricsOk);
+#else
+    Log("[FontMetricsFast] DISABLED via TEST_DISABLE_FONT_METRICS_FAST");
+#endif
+
 
     Log("--- Render State Deduplication ---");
     bool renderDedupOk = InstallRenderStateDedup();
@@ -8082,6 +8093,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownComputeCaches();
             ShutdownLuaStackFast();
             ShutdownUIAccessorFast();
+            ShutdownFontMetricsFast();
             ShutdownRenderStateDedup();
 
             ShutdownEventNameHash();

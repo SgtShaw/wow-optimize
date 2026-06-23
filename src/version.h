@@ -451,6 +451,11 @@
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
 #define TEST_DISABLE_UI_ACCESSOR_FAST 0
 
+// Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
+// Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
+// Set to 1 to disable.
+#define TEST_DISABLE_FONT_METRICS_FAST 0
+
 
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.

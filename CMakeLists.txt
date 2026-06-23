@@ -235,6 +235,8 @@ add_library(wow_optimize SHARED
     src/lua_stack_fast.h
     src/ui_accessor_fast.cpp
     src/ui_accessor_fast.h
+    src/font_metrics_fast.cpp
+    src/font_metrics_fast.h
     src/sampling_profiler.cpp
 
     src/sampling_profiler.h
