@@ -446,6 +446,12 @@
 // Fixes the xrefs≠runtime-frequency blind spot. Set to 1 to disable.
 #define TEST_DISABLE_SAMPLING_PROFILER  0
 
+// Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
+// Direct access to C++ object fields from Lua table index 0 with type-checking validation.
+// Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
+#define TEST_DISABLE_UI_ACCESSOR_FAST 0
+
+
 // ================================================================
 // Wine detection - ntdll exports wine_get_version only under Wine.
 // Used by crash_dumper (text vs minidump), GetProcAddress cache

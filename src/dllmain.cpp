@@ -305,6 +305,9 @@ volatile long g_hookBatchMode = 0;
 
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
+extern bool InstallUIAccessorFast();
+extern void ShutdownUIAccessorFast();
+
 
 // Forward declarations
 static bool IsExecutableMemory(uintptr_t addr);
@@ -5827,6 +5830,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[LuaStackFast] DISABLED via TEST_DISABLE_LUA_STACK_FAST");
 #endif
 
+    Log("--- UI Accessor Fast Paths ---");
+#if !TEST_DISABLE_UI_ACCESSOR_FAST
+    bool uiAccessorOk = InstallUIAccessorFast();
+    CrashDumper::RegisterFeature("UIAccessorFast");
+    CrashDumper::FeatureSetActive("UIAccessorFast", uiAccessorOk);
+#else
+    Log("[UIAccessorFast] DISABLED via TEST_DISABLE_UI_ACCESSOR_FAST");
+#endif
+
+
     Log("--- Render State Deduplication ---");
     bool renderDedupOk = InstallRenderStateDedup();
 
@@ -8064,7 +8077,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownDataCaches();
             ShutdownComputeCaches();
             ShutdownLuaStackFast();
+            ShutdownUIAccessorFast();
             ShutdownRenderStateDedup();
+
             ShutdownEventNameHash();
             ShutdownCDataStoreBatch();
             UninstallMemcpyFast();

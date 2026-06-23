@@ -233,7 +233,10 @@ add_library(wow_optimize SHARED
     src/lua_numconv_fast.h
     src/lua_stack_fast.cpp
     src/lua_stack_fast.h
+    src/ui_accessor_fast.cpp
+    src/ui_accessor_fast.h
     src/sampling_profiler.cpp
+
     src/sampling_profiler.h
 )
 
