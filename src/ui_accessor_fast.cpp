@@ -81,6 +81,12 @@ static volatile long g_isshown_calls = 0;
 static volatile long g_isvisible_calls = 0;
 static volatile long g_getalpha_calls = 0;
 static volatile long g_getscale_calls = 0;
+static volatile long g_getwidth_calls = 0;
+static volatile long g_getheight_calls = 0;
+static volatile long g_frame_isshown_calls = 0;
+static volatile long g_frame_isvisible_calls = 0;
+static volatile long g_frame_getalpha_calls = 0;
+static volatile long g_frame_getframelevel_calls = 0;
 
 // Type checking helper
 static __forceinline bool ValidateObjectType(void* obj, int typeId) {
@@ -229,6 +235,234 @@ static int __cdecl hook_GetScale(uintptr_t L) {
     return orig_GetScale(L);
 }
 
+// 5. GetWidth — 0x0049D3B0
+typedef int (__cdecl* GetWidth_t)(uintptr_t L);
+static GetWidth_t orig_GetWidth = nullptr;
+
+static int __cdecl hook_GetWidth(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_GetWidth(L);
+
+    ++g_getwidth_calls;
+    __try {
+        uintptr_t base = *(uintptr_t*)(L + 0x10);
+        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        if (IsValidPtr(base) && IsValidPtr(top)) {
+            int nargs = (top - base) / 16;
+            if (nargs < 2) {
+                int typeId = *(int*)0x00B49978;
+                if (typeId != 0) {
+                    void* obj = GetCFrameFromLuaTable(L, 1);
+                    if (obj && ValidateObjectType(obj, typeId)) {
+                        void* layoutFrame = (void*)((uintptr_t)obj + 32);
+                        uintptr_t vtable = *(uintptr_t*)layoutFrame;
+                        if (IsValidPtr(vtable)) {
+                            typedef double (__thiscall* LayoutFrame_GetWidth_t)(void*);
+                            LayoutFrame_GetWidth_t getWidthFn = *(LayoutFrame_GetWidth_t*)(vtable + 40);
+                            if (IsValidPtr((uintptr_t)getWidthFn)) {
+                                double w = getWidthFn(layoutFrame);
+                                if (w != 0.0) {
+                                    typedef double (*sub_47BFE0_t)();
+                                    typedef double (*sub_47C050_t)(float);
+                                    double scale = ((sub_47BFE0_t)0x0047BFE0)();
+                                    double v7 = scale * 1024.0 * w;
+                                    double final_w = ((sub_47C050_t)0x0047C050)((float)v7);
+
+                                    typedef int (__cdecl* lua_pushnumber_t)(uintptr_t, double);
+                                    ((lua_pushnumber_t)0x0084E2A0)(L, final_w);
+                                    return 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_GetWidth(L);
+}
+
+// 6. GetHeight — 0x0049D550
+typedef int (__cdecl* GetHeight_t)(uintptr_t L);
+static GetHeight_t orig_GetHeight = nullptr;
+
+static int __cdecl hook_GetHeight(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_GetHeight(L);
+
+    ++g_getheight_calls;
+    __try {
+        uintptr_t base = *(uintptr_t*)(L + 0x10);
+        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        if (IsValidPtr(base) && IsValidPtr(top)) {
+            int nargs = (top - base) / 16;
+            if (nargs < 2) {
+                int typeId = *(int*)0x00B49978;
+                if (typeId != 0) {
+                    void* obj = GetCFrameFromLuaTable(L, 1);
+                    if (obj && ValidateObjectType(obj, typeId)) {
+                        void* layoutFrame = (void*)((uintptr_t)obj + 32);
+                        uintptr_t vtable = *(uintptr_t*)layoutFrame;
+                        if (IsValidPtr(vtable)) {
+                            typedef double (__thiscall* LayoutFrame_GetHeight_t)(void*);
+                            LayoutFrame_GetHeight_t getHeightFn = *(LayoutFrame_GetHeight_t*)(vtable + 44);
+                            if (IsValidPtr((uintptr_t)getHeightFn)) {
+                                double h = getHeightFn(layoutFrame);
+                                if (h != 0.0) {
+                                    typedef double (*sub_47BFE0_t)();
+                                    typedef double (*sub_47C050_t)(float);
+                                    double scale = ((sub_47BFE0_t)0x0047BFE0)();
+                                    double v7 = scale * 1024.0 * h;
+                                    double final_h = ((sub_47C050_t)0x0047C050)((float)v7);
+
+                                    typedef int (__cdecl* lua_pushnumber_t)(uintptr_t, double);
+                                    ((lua_pushnumber_t)0x0084E2A0)(L, final_h);
+                                    return 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_GetHeight(L);
+}
+
+// 7. Frame_IsShown — 0x0049FE90
+typedef int (__cdecl* Frame_IsShown_t)(uintptr_t L);
+static Frame_IsShown_t orig_Frame_IsShown = nullptr;
+
+static int __cdecl hook_Frame_IsShown(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_Frame_IsShown(L);
+
+    ++g_frame_isshown_calls;
+    __try {
+        int typeId = *(int*)0x00B49984;
+        if (typeId != 0) {
+            void* obj = GetCFrameFromLuaTable(L, 1);
+            if (obj && ValidateObjectType(obj, typeId)) {
+                bool isShown = *(int*)((uintptr_t)obj + 220) != 0;
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (IsValidPtr(top)) {
+                    uint32_t taint = *(uint32_t*)TAINT_CELL;
+                    if (isShown) {
+                        *(uint32_t*)(top + 0) = 0;
+                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
+                        *(int*)(top + 8) = 3; // LUA_TNUMBER
+                        *(uint32_t*)(top + 12) = taint;
+                    } else {
+                        *(uint32_t*)(top + 0) = 0;
+                        *(uint32_t*)(top + 4) = 0;
+                        *(int*)(top + 8) = 0; // LUA_TNIL
+                        *(uint32_t*)(top + 12) = taint;
+                    }
+                    *(uintptr_t*)(L + 0x0C) = top + 16;
+                    return 1;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_Frame_IsShown(L);
+}
+
+// 8. Frame_IsVisible — 0x0049FE30
+typedef int (__cdecl* Frame_IsVisible_t)(uintptr_t L);
+static Frame_IsVisible_t orig_Frame_IsVisible = nullptr;
+
+static int __cdecl hook_Frame_IsVisible(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_Frame_IsVisible(L);
+
+    ++g_frame_isvisible_calls;
+    __try {
+        int typeId = *(int*)0x00B49984;
+        if (typeId != 0) {
+            void* obj = GetCFrameFromLuaTable(L, 1);
+            if (obj && ValidateObjectType(obj, typeId)) {
+                bool isVisible = *(int*)((uintptr_t)obj + 224) != 0;
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (IsValidPtr(top)) {
+                    uint32_t taint = *(uint32_t*)TAINT_CELL;
+                    if (isVisible) {
+                        *(uint32_t*)(top + 0) = 0;
+                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
+                        *(int*)(top + 8) = 3;
+                        *(uint32_t*)(top + 12) = taint;
+                    } else {
+                        *(uint32_t*)(top + 0) = 0;
+                        *(uint32_t*)(top + 4) = 0;
+                        *(int*)(top + 8) = 0;
+                        *(uint32_t*)(top + 12) = taint;
+                    }
+                    *(uintptr_t*)(L + 0x0C) = top + 16;
+                    return 1;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_Frame_IsVisible(L);
+}
+
+// 9. Frame_GetAlpha — 0x0049F980
+typedef int (__cdecl* Frame_GetAlpha_t)(uintptr_t L);
+static Frame_GetAlpha_t orig_Frame_GetAlpha = nullptr;
+
+static int __cdecl hook_Frame_GetAlpha(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_Frame_GetAlpha(L);
+
+    ++g_frame_getalpha_calls;
+    __try {
+        int typeId = *(int*)0x00B49984;
+        if (typeId != 0) {
+            void* obj = GetCFrameFromLuaTable(L, 1);
+            if (obj && ValidateObjectType(obj, typeId)) {
+                double alpha_val = (double)*(unsigned __int8 *)((uintptr_t)obj + 188) * 0.00392156862745098;
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (IsValidPtr(top)) {
+                    *(double*)(top + 0) = alpha_val;
+                    *(int*)(top + 8) = 3; // LUA_TNUMBER
+                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+                    *(uintptr_t*)(L + 0x0C) = top + 16;
+                    return 1;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_Frame_GetAlpha(L);
+}
+
+// 10. Frame_GetFrameLevel — 0x0049E980
+typedef int (__cdecl* Frame_GetFrameLevel_t)(uintptr_t L);
+static Frame_GetFrameLevel_t orig_Frame_GetFrameLevel = nullptr;
+
+static int __cdecl hook_Frame_GetFrameLevel(uintptr_t L) {
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+        return orig_Frame_GetFrameLevel(L);
+
+    ++g_frame_getframelevel_calls;
+    __try {
+        int typeId = *(int*)0x00B49984;
+        if (typeId != 0) {
+            void* obj = GetCFrameFromLuaTable(L, 1);
+            if (obj && ValidateObjectType(obj, typeId)) {
+                double level = (double)*(int*)((uintptr_t)obj + 212);
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (IsValidPtr(top)) {
+                    *(double*)(top + 0) = level;
+                    *(int*)(top + 8) = 3; // LUA_TNUMBER
+                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+                    *(uintptr_t*)(L + 0x0C) = top + 16;
+                    return 1;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_Frame_GetFrameLevel(L);
+}
+
 // Install / Shutdown
 bool InstallUIAccessorFast() {
     int installed = 0;
@@ -249,10 +483,16 @@ bool InstallUIAccessorFast() {
     INSTALL(IsVisible_t,  orig_IsVisible,  hook_IsVisible,  0x0048C5B0, "IsVisible");
     INSTALL(GetAlpha_t,   orig_GetAlpha,   hook_GetAlpha,   0x0048C4C0, "GetAlpha");
     INSTALL(GetScale_t,   orig_GetScale,   hook_GetScale,   0x0049F7D0, "GetScale");
+    INSTALL(GetWidth_t,   orig_GetWidth,   hook_GetWidth,   0x0049D3B0, "GetWidth");
+    INSTALL(GetHeight_t,  orig_GetHeight,  hook_GetHeight,  0x0049D550, "GetHeight");
+    INSTALL(Frame_IsShown_t, orig_Frame_IsShown, hook_Frame_IsShown, 0x0049FE90, "Frame_IsShown");
+    INSTALL(Frame_IsVisible_t, orig_Frame_IsVisible, hook_Frame_IsVisible, 0x0049FE30, "Frame_IsVisible");
+    INSTALL(Frame_GetAlpha_t, orig_Frame_GetAlpha, hook_Frame_GetAlpha, 0x0049F980, "Frame_GetAlpha");
+    INSTALL(Frame_GetFrameLevel_t, orig_Frame_GetFrameLevel, hook_Frame_GetFrameLevel, 0x0049E980, "Frame_GetFrameLevel");
 
     #undef INSTALL
 
-    Log("[UIAccessorFast] %d/4 hooks installed", installed);
+    Log("[UIAccessorFast] %d/10 hooks installed", installed);
     return installed > 0;
 }
 
@@ -261,6 +501,13 @@ void ShutdownUIAccessorFast() {
     MH_DisableHook((void*)0x0048C5B0);
     MH_DisableHook((void*)0x0048C4C0);
     MH_DisableHook((void*)0x0049F7D0);
-    Log("[UIAccessorFast] Stats: IsShown=%ld IsVisible=%ld GetAlpha=%ld GetScale=%ld",
-        g_isshown_calls, g_isvisible_calls, g_getalpha_calls, g_getscale_calls);
+    MH_DisableHook((void*)0x0049D3B0);
+    MH_DisableHook((void*)0x0049D550);
+    MH_DisableHook((void*)0x0049FE90);
+    MH_DisableHook((void*)0x0049FE30);
+    MH_DisableHook((void*)0x0049F980);
+    MH_DisableHook((void*)0x0049E980);
+    Log("[UIAccessorFast] Stats: IsShown=%ld IsVisible=%ld GetAlpha=%ld GetScale=%ld GetWidth=%ld GetHeight=%ld FrameIsShown=%ld FrameIsVisible=%ld FrameGetAlpha=%ld FrameGetFrameLevel=%ld",
+        g_isshown_calls, g_isvisible_calls, g_getalpha_calls, g_getscale_calls,
+        g_getwidth_calls, g_getheight_calls, g_frame_isshown_calls, g_frame_isvisible_calls, g_frame_getalpha_calls, g_frame_getframelevel_calls);
 }

@@ -16,6 +16,7 @@
 #endif
 #include <windows.h>
 #include <cstdint>
+#include <cmath>
 #include <xmmintrin.h>
 #include <emmintrin.h>
 #include "crash_dumper.h"
@@ -956,6 +957,164 @@ static int __fastcall Hooked_SimulateParticle(void* self, void* edx, int particl
 }
 #endif
 
+// ================================================================
+// C3Vector::Cross Hook (0x005FEC70)
+// ================================================================
+typedef float* (__cdecl* Vec3Cross_t)(float* result, float* a, float* b);
+static Vec3Cross_t orig_Vec3Cross = nullptr;
+
+static float* __cdecl Hooked_Vec3Cross(float* result, float* a, float* b) {
+    __try {
+        if (result && a && b &&
+            (uintptr_t)result > 0x10000 && (uintptr_t)result < 0xBFFF0000 &&
+            (uintptr_t)a > 0x10000 && (uintptr_t)a < 0xBFFF0000 &&
+            (uintptr_t)b > 0x10000 && (uintptr_t)b < 0xBFFF0000) {
+            
+            __m128 va = _mm_setr_ps(a[0], a[1], a[2], 0.0f);
+            __m128 vb = _mm_setr_ps(b[0], b[1], b[2], 0.0f);
+
+            __m128 a_yzx = _mm_shuffle_ps(va, va, _MM_SHUFFLE(3,0,2,1)); // ay, az, ax, 0
+            __m128 b_yzx = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(3,0,2,1)); // by, bz, bx, 0
+            __m128 a_zxy = _mm_shuffle_ps(va, va, _MM_SHUFFLE(3,1,0,2)); // az, ax, ay, 0
+            __m128 b_zxy = _mm_shuffle_ps(vb, vb, _MM_SHUFFLE(3,1,0,2)); // bz, bx, by, 0
+
+            __m128 cross = _mm_sub_ps(_mm_mul_ps(a_yzx, b_zxy),
+                                       _mm_mul_ps(a_zxy, b_yzx));
+
+            _mm_store_ss(result,     cross);
+            _mm_store_ss(result + 1, _mm_shuffle_ps(cross, cross, _MM_SHUFFLE(1, 1, 1, 1)));
+            _mm_store_ss(result + 2, _mm_shuffle_ps(cross, cross, _MM_SHUFFLE(2, 2, 2, 2)));
+            return result;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_Vec3Cross(result, a, b);
+}
+
+// ================================================================
+// CFrustum::IsSphereVisible Hook (0x00983D20)
+// ================================================================
+typedef int (__fastcall* IsSphereVisible_t)(void* self, void* edx, float* sphere);
+static IsSphereVisible_t orig_IsSphereVisible = nullptr;
+
+static int __fastcall Hooked_IsSphereVisible(void* self, void* edx, float* sphere) {
+    __try {
+        if (self && sphere &&
+            (uintptr_t)self > 0x10000 && (uintptr_t)self < 0xBFFF0000 &&
+            (uintptr_t)sphere > 0x10000 && (uintptr_t)sphere < 0xBFFF0000) {
+            
+            float* planes = (float*)self;
+            __m128 sx = _mm_set1_ps(sphere[0]);
+            __m128 sy = _mm_set1_ps(sphere[1]);
+            __m128 sz = _mm_set1_ps(sphere[2]);
+            __m128 sr = _mm_set1_ps(sphere[3]);
+
+            // Load planes 0 to 3
+            __m128 r0 = _mm_loadu_ps(planes + 0);  // n0_x, n0_y, n0_z, d0
+            __m128 r1 = _mm_loadu_ps(planes + 4);  // n1_x, n1_y, n1_z, d1
+            __m128 r2 = _mm_loadu_ps(planes + 8);  // n2_x, n2_y, n2_z, d2
+            __m128 r3 = _mm_loadu_ps(planes + 12); // n3_x, n3_y, n3_z, d3
+
+            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+
+            __m128 dp = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, sx), _mm_mul_ps(r1, sy)), 
+                                   _mm_add_ps(_mm_mul_ps(r2, sz), r3));
+
+            __m128 cull_mask = _mm_cmplt_ps(dp, _mm_sub_ps(_mm_setzero_ps(), sr)); // dp < -sr
+            if (_mm_movemask_ps(cull_mask) != 0) {
+                return 0; // Culled by at least one of planes 0..3
+            }
+
+            // Load planes 4 and 5, with dummy planes for 6 and 7
+            __m128 r4 = _mm_loadu_ps(planes + 16); // n4_x, n4_y, n4_z, d4
+            __m128 r5 = _mm_loadu_ps(planes + 20); // n5_x, n5_y, n5_z, d5
+            __m128 r6 = _mm_setzero_ps();
+            __m128 r7 = _mm_setzero_ps();
+
+            _MM_TRANSPOSE4_PS(r4, r5, r6, r7);
+
+            __m128 dp2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r4, sx), _mm_mul_ps(r5, sy)), 
+                                    _mm_add_ps(_mm_mul_ps(r6, sz), r7));
+
+            __m128 cull_mask2 = _mm_cmplt_ps(dp2, _mm_sub_ps(_mm_setzero_ps(), sr));
+            if ((_mm_movemask_ps(cull_mask2) & 3) != 0) {
+                return 0; // Culled by plane 4 or 5
+            }
+
+            return 3; // Visible
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_IsSphereVisible(self, edx, sphere);
+}
+
+// ================================================================
+// CQuaternion::FromAngleAxis Hook (0x00982400)
+// ================================================================
+typedef float* (__fastcall* FromAngleAxis_t)(float* self, void* edx, float angle, float* axis);
+static FromAngleAxis_t orig_FromAngleAxis = nullptr;
+
+static float* __fastcall Hooked_FromAngleAxis(float* self, void* edx, float angle, float* axis) {
+    __try {
+        if (self && axis &&
+            (uintptr_t)self > 0x10000 && (uintptr_t)self < 0xBFFF0000 &&
+            (uintptr_t)axis > 0x10000 && (uintptr_t)axis < 0xBFFF0000) {
+            
+            float half_angle = angle * 0.5f;
+            float s = sinf(half_angle);
+            float c = cosf(half_angle);
+            self[3] = c;
+            self[0] = axis[0] * s;
+            self[1] = axis[1] * s;
+            self[2] = axis[2] * s;
+            return axis;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_FromAngleAxis(self, edx, angle, axis);
+}
+
+// ================================================================
+// CQuaternion::Slerp Hook (0x00982460)
+// ================================================================
+typedef float* (__cdecl* QuatSlerp_t)(float* result, float t, float* q1, float* q2);
+static QuatSlerp_t orig_QuatSlerp = nullptr;
+
+static float* __cdecl Hooked_QuatSlerp(float* result, float t, float* q1, float* q2) {
+    __try {
+        if (result && q1 && q2 &&
+            (uintptr_t)result > 0x10000 && (uintptr_t)result < 0xBFFF0000 &&
+            (uintptr_t)q1 > 0x10000 && (uintptr_t)q1 < 0xBFFF0000 &&
+            (uintptr_t)q2 > 0x10000 && (uintptr_t)q2 < 0xBFFF0000) {
+            
+            float cosTheta = q1[0]*q2[0] + q1[1]*q2[1] + q1[2]*q2[2] + q1[3]*q2[3];
+            float factor = 1.0f;
+            if (cosTheta < 0.0f) {
+                factor = -1.0f;
+                cosTheta = -cosTheta;
+            }
+            
+            float sinThetaSq = 1.0f - cosTheta * cosTheta;
+            if (sinThetaSq > 0.000000000227373675f) {
+                float sinTheta = sqrtf(sinThetaSq);
+                float theta = atan2f(sinTheta, cosTheta);
+                float invSinTheta = 1.0f / sinTheta;
+                float r1 = sinf((1.0f - t) * theta) * invSinTheta;
+                float r2 = sinf(t * theta) * invSinTheta * factor;
+                
+                result[0] = q1[0] * r1 + q2[0] * r2;
+                result[1] = q1[1] * r1 + q2[1] * r2;
+                result[2] = q1[2] * r1 + q2[2] * r2;
+                result[3] = q1[3] * r1 + q2[3] * r2;
+            } else {
+                result[0] = q1[0];
+                result[1] = q1[1];
+                result[2] = q1[2];
+                result[3] = q1[3];
+            }
+            return result;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_QuatSlerp(result, t, q1, q2);
+}
+
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
         "frustum cull, BGRA/ARGB, premultiplied alpha ready");
@@ -1038,8 +1197,6 @@ bool InstallSimdHooks(void) {
         } else {
             Log("[SimdHooks] Ray-Triangle 32-bit hook FAILED");
         }
-#else
-        Log("[SimdHooks] Ray-Triangle 32-bit hook DISABLED by TEST_DISABLE_RAY_TRIANGLE_SSE2");
 #endif
     } else {
         Log("[SimdHooks] Ray-Triangle 32-bit: fill ADDR_WOW_RAY_TRIANGLE_32BIT");
@@ -1054,8 +1211,6 @@ bool InstallSimdHooks(void) {
         } else {
             Log("[SimdHooks] Ray-Triangle 16-bit hook FAILED");
         }
-#else
-        Log("[SimdHooks] Ray-Triangle 16-bit hook DISABLED by TEST_DISABLE_RAY_TRIANGLE_SSE2");
 #endif
     } else {
         Log("[SimdHooks] Ray-Triangle 16-bit: fill ADDR_WOW_RAY_TRIANGLE_16BIT");
@@ -1074,10 +1229,38 @@ bool InstallSimdHooks(void) {
     }
 #endif
 
+    // Hooking 3D Vector Cross Product (0x005FEC70)
+    if (WineSafe_CreateHook((void*)0x005FEC70, (void*)Hooked_Vec3Cross, (void**)&orig_Vec3Cross) == MH_OK) {
+        WO_EnableHook((void*)0x005FEC70);
+        Log("[SimdHooks] C3Vector::Cross hook ACTIVE");
+    }
+
+    // Hooking CFrustum::IsSphereVisible (0x00983D20)
+    if (WineSafe_CreateHook((void*)0x00983D20, (void*)Hooked_IsSphereVisible, (void**)&orig_IsSphereVisible) == MH_OK) {
+        WO_EnableHook((void*)0x00983D20);
+        Log("[SimdHooks] CFrustum::IsSphereVisible hook ACTIVE");
+    }
+
+    // Hooking CQuaternion::FromAngleAxis (0x00982400)
+    if (WineSafe_CreateHook((void*)0x00982400, (void*)Hooked_FromAngleAxis, (void**)&orig_FromAngleAxis) == MH_OK) {
+        WO_EnableHook((void*)0x00982400);
+        Log("[SimdHooks] CQuaternion::FromAngleAxis hook ACTIVE");
+    }
+
+    // Hooking CQuaternion::Slerp (0x00982460)
+    if (WineSafe_CreateHook((void*)0x00982460, (void*)Hooked_QuatSlerp, (void**)&orig_QuatSlerp) == MH_OK) {
+        WO_EnableHook((void*)0x00982460);
+        Log("[SimdHooks] CQuaternion::Slerp hook ACTIVE");
+    }
+
     return true;
 }
 
 void ShutdownSimdHooks(void) {
+    MH_DisableHook((void*)0x005FEC70);
+    MH_DisableHook((void*)0x00983D20);
+    MH_DisableHook((void*)0x00982400);
+    MH_DisableHook((void*)0x00982460);
     Log("[SimdHooks] Stats: matMul=%lld, ... frustum=%lld (culled=%lld, %.1f%%), rayTri=%lld (hit=%lld, %.1f%%)",
         g_matMulCalls,
         g_frustumCalls, g_frustumCulled,
