@@ -558,6 +558,75 @@ fallback:
 }
 
 // ================================================================
+// 15. lua_setfenv — 0x0084EB40
+// ================================================================
+typedef int (__cdecl* lua_setfenv_fn)(uintptr_t L, int idx);
+static lua_setfenv_fn orig_lua_setfenv = nullptr;
+
+static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
+    if (IsTeardownState()) return orig_lua_setfenv(L, idx);
+    __try {
+        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        uintptr_t base = *(uintptr_t*)(L + 0x10);
+        if (IsValidPtr(top) && IsValidPtr(base)) {
+            bool defer = false;
+            uintptr_t tv = ResolveTValue(L, idx, &defer);
+            if (!defer && tv && tv != NIL_OBJECT) {
+                uintptr_t env_tv = top - 16;
+                uintptr_t env = 0;
+                if (*(int*)(env_tv + 8) == LUA_TTABLE) {
+                    env = *(uintptr_t*)(env_tv + 0);
+                } else {
+                    goto fallback;
+                }
+
+                int tt = *(int*)(tv + 8);
+                int result = 1;
+                if (tt == LUA_TFUNCTION) {
+                    uintptr_t cl = *(uintptr_t*)(tv + 0);
+                    if (IsValidPtr(cl)) {
+                        if (env && (*(uint8_t*)(env + 9) & 3) != 0 && (*(uint8_t*)(cl + 9) & 4) != 0) {
+                            goto fallback;
+                        }
+                        *(uintptr_t*)(cl + 16) = env;
+                        if (!*(uint8_t*)(cl + 10) && !*(uintptr_t*)(cl + 4)) {
+                            *(uintptr_t*)(cl + 4) = *(uintptr_t*)TAINT_CELL;
+                        }
+                    }
+                } else if (tt == LUA_TUSERDATA) {
+                    uintptr_t udata = *(uintptr_t*)(tv + 0);
+                    if (IsValidPtr(udata)) {
+                        if (env && (*(uint8_t*)(env + 9) & 3) != 0 && (*(uint8_t*)(udata + 9) & 4) != 0) {
+                            goto fallback;
+                        }
+                        *(uintptr_t*)(udata + 16) = env;
+                    }
+                } else if (tt == LUA_TTHREAD) {
+                    uintptr_t th = *(uintptr_t*)(tv + 0);
+                    if (IsValidPtr(th)) {
+                        if (env && (*(uint8_t*)(env + 9) & 3) != 0 && (*(uint8_t*)(th + 9) & 4) != 0) {
+                            goto fallback;
+                        }
+                        uintptr_t th_env = th + 72;
+                        *(uintptr_t*)(th_env + 12) = *(uintptr_t*)TAINT_CELL;
+                        *(uintptr_t*)(th_env + 0) = env;
+                        *(int*)(th_env + 8) = LUA_TTABLE;
+                    }
+                } else {
+                    result = 0;
+                }
+
+                *(uintptr_t*)(L + 0x0C) = top - 16;
+                return result;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+fallback:
+    return orig_lua_setfenv(L, idx);
+}
+
+// ================================================================
 // Install / Shutdown
 // ================================================================
 
@@ -575,6 +644,7 @@ static void* const ADDR_LUA_REPLACE       = (void*)0x0084DD70;
 static void* const ADDR_LUA_TOUSERDATA    = (void*)0x0084E1C0;
 static void* const ADDR_LUA_GETMETATABLE  = (void*)0x0084E730;
 static void* const ADDR_LUA_SETMETATABLE  = (void*)0x0084EA90;
+static void* const ADDR_LUA_SETFENV       = (void*)0x0084EB40;
 
 bool InstallLuaStackFast() {
     int installed = 0;
@@ -588,7 +658,7 @@ bool InstallLuaStackFast() {
 
     INSTALL(pushnil_t,           orig_pushnil,           hook_pushnil,           ADDR_PUSHNIL,           "lua_pushnil");
     INSTALL(pushinteger_t,       orig_pushinteger,       hook_pushinteger,       ADDR_PUSHINTEGER,       "lua_pushinteger");
-    INSTALL(pushboolean_t,       orig_pushboolean,       hook_pushboolean,       ADDR_PUSHBOOLEAN,       "lua_pushboolean");
+    INSTALL(pushboolean_t,       orig_pushboolean,       hook_pushboolean,       ADDR_PUSHBOOLEAN,       "ADDR_PUSHBOOLEAN");
     INSTALL(pushlightuserdata_t, orig_pushlightuserdata, hook_pushlightuserdata, ADDR_PUSHLIGHTUSERDATA, "lua_pushlightuserdata");
     INSTALL(lua_type_t,         orig_lua_type,          hook_lua_type,          ADDR_LUA_TYPE,          "lua_type");
     INSTALL(lua_isfunc_t,       orig_lua_isfunction,    hook_lua_isfunction,    ADDR_LUA_ISFUNCTION,    "lua_isfunction");
@@ -600,10 +670,11 @@ bool InstallLuaStackFast() {
     INSTALL(lua_touserdata_fn,  orig_lua_touserdata,    hook_lua_touserdata,    ADDR_LUA_TOUSERDATA,    "lua_touserdata");
     INSTALL(lua_getmetatable_fn,orig_lua_getmetatable,  hook_lua_getmetatable,  ADDR_LUA_GETMETATABLE,  "lua_getmetatable");
     INSTALL(lua_setmetatable_fn,orig_lua_setmetatable,  hook_lua_setmetatable,  ADDR_LUA_SETMETATABLE,  "lua_setmetatable");
+    INSTALL(lua_setfenv_fn,     orig_lua_setfenv,       hook_lua_setfenv,       ADDR_LUA_SETFENV,       "lua_setfenv");
 
     #undef INSTALL
 
-    Log("[LuaStackFast] %d/14 hooks installed", installed);
+    Log("[LuaStackFast] %d/15 hooks installed", installed);
     return installed > 0;
 }
 
@@ -622,4 +693,5 @@ void ShutdownLuaStackFast() {
     MH_DisableHook(ADDR_LUA_TOUSERDATA);
     MH_DisableHook(ADDR_LUA_GETMETATABLE);
     MH_DisableHook(ADDR_LUA_SETMETATABLE);
+    MH_DisableHook(ADDR_LUA_SETFENV);
 }
