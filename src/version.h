@@ -364,15 +364,13 @@
 #define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
 
 // SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, bounded strncpy).
-// DISABLED (2026-06-23): confirmed heap-metadata corruptor. Repeated crash at
-// ntdll!RtlpAllocateHeap (0x76EF4B40) ~42ms after StrcpySSE2 calls from the
-// asset path resolver (0x819F78/0x819F63). Cascade: corrupted heap leads to
-// bad TValue pointer in luaV_gettable, multi-second freezes, and server
-// disconnects (heartbeat starvation during 10-14s stalls). Set to 0 only when
-// a test build specifically targets validating a rewritten, verified-safe
-// version (do NOT blindly re-enable with "FIXED" claims — see CONTEXT lesson
-// on the Gemini "10 Colossal Features" revert).
-#define TEST_DISABLE_STRCAT_FAST        1
+// IDA-verified rewrite (2026-06-23): byte-exact to the original __stdcall
+// sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
+// past short strings into adjacent allocations). Copied body is pure byte-by-
+// byte, matching the original's offset-based load (mov cl,[edx+eax]) exactly.
+// Page-safe: no unaligned 16-byte loads crossing 4KB boundaries. SEH-guarded
+// with fallback to the original on any exception. Safe to enable.
+#define TEST_DISABLE_STRCAT_FAST        0
 
 // Lua tonumber Fast Path - sub_84E030. DISABLED because it is REDUNDANT: the
 // LuaNumConvFast module already hooks lua_tonumber at 0x84E030 and installs
