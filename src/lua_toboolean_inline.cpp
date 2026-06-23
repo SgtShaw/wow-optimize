@@ -11,44 +11,52 @@ static volatile long g_tobooleanCalls = 0;
 static volatile long g_tobooleanFast  = 0;
 
 // Original function pointer
-typedef int (__cdecl *lua_toboolean_fn)(int L, int idx);
+typedef int (__cdecl *lua_toboolean_fn)(uintptr_t L, int idx);
 static lua_toboolean_fn orig_toboolean = nullptr;
 
-// WoW's lua_toboolean (0x84E0B0): reads tt from the indexed TValue,
-// returns 1 if tt != 0 (nil/false = 0, everything else = 1).
-// Replacement: inline the TValue-type check, skip the engine dispatch.
-static int __cdecl Hooked_Toboolean(int L, int idx) {
+static int __cdecl Hooked_Toboolean(uintptr_t L, int idx) {
     ++g_tobooleanCalls;
     __try {
-        int* base = *(int**)(L + 0x10);  // L->base
-        int* top  = *(int**)(L + 0x0C);  // L->top
-
-        int* slot = nullptr;
         if (idx > 0) {
-            slot = base + (idx - 1) * 4;
-            if (slot >= top) goto fallback;
-        } else if (idx >= -10000) {
-            slot = top + idx * 4;
-            if (slot < base) goto fallback;
-        } else if (idx == -10002) {
-            slot = base + 18 * 4;  // GLOBALSINDEX
+            uintptr_t base = *(uintptr_t*)(L + 0x10);
+            if (base > 0x10000 && base < 0xBFFF0000) {
+                uintptr_t tv = base + (uintptr_t)(idx - 1) * 16;
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (tv < top) {
+                    int tt = *(int*)(tv + 8);
+                    if (tt == 0) { // LUA_TNIL
+                        ++g_tobooleanFast;
+                        return 0;
+                    }
+                    if (tt == 1) { // LUA_TBOOLEAN
+                        ++g_tobooleanFast;
+                        return *(int*)(tv + 0) != 0;
+                    }
+                    ++g_tobooleanFast;
+                    return 1; // all other types are truthy
+                }
+            }
+        } else if (idx > -10000) {
+            uintptr_t top = *(uintptr_t*)(L + 0x0C);
+            if (top > 0x10000 && top < 0xBFFF0000) {
+                uintptr_t tv = top + (uintptr_t)idx * 16;
+                uintptr_t base = *(uintptr_t*)(L + 0x10);
+                if (tv >= base) {
+                    int tt = *(int*)(tv + 8);
+                    if (tt == 0) {
+                        ++g_tobooleanFast;
+                        return 0;
+                    }
+                    if (tt == 1) {
+                        ++g_tobooleanFast;
+                        return *(int*)(tv + 0) != 0;
+                    }
+                    ++g_tobooleanFast;
+                    return 1;
+                }
+            }
         }
-
-        if (!slot || (uintptr_t)slot < 0x10000 || (uintptr_t)slot > 0xBFFF0000)
-            goto fallback;
-
-        int tt = slot[2];        // TValue.tt at +8
-        int taint = slot[3];     // TValue.taint at +12
-
-        ++g_tobooleanFast;
-        // Original: returns 1 if tt != 0 (any non-nil type), 0 otherwise
-        // Also propagates taint (if taint != 0 and byte_D413A0 set, store it)
-        if (taint && *(int*)0x00D413A0 && !*(int*)0x00D413A4)
-            *(int*)0x00D4139C = taint;
-
-        return (tt != 0) ? 1 : 0;
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
-fallback:
     return orig_toboolean(L, idx);
 }
 
