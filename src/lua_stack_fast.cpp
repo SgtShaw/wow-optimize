@@ -432,6 +432,77 @@ static int __cdecl hook_lua_replace(uintptr_t L, int idx) {
 }
 
 // ================================================================
+// 12. lua_touserdata — 0x0084E1C0
+// ================================================================
+typedef void* (__cdecl *lua_touserdata_fn)(uintptr_t L, int idx);
+static lua_touserdata_fn orig_lua_touserdata = nullptr;
+
+static void* __cdecl hook_lua_touserdata(uintptr_t L, int idx) {
+    if (IsTeardownState()) return orig_lua_touserdata(L, idx);
+    __try {
+        bool defer = false;
+        uintptr_t tv = ResolveTValue(L, idx, &defer);
+        if (defer) return orig_lua_touserdata(L, idx);
+        if (tv && tv != NIL_OBJECT) {
+            int tt = *(int*)(tv + 8);
+            if (tt == LUA_TLIGHTUSERDATA) {
+                return *(void**)(tv + 0);
+            }
+            if (tt == LUA_TUSERDATA) {
+                uintptr_t udata = *(uintptr_t*)(tv + 0);
+                if (IsValidPtr(udata)) {
+                    return (void*)(udata + 24);
+                }
+            }
+        }
+        return nullptr;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_lua_touserdata(L, idx);
+}
+
+// ================================================================
+// 13. lua_getmetatable — 0x0084E730
+// ================================================================
+typedef int (__cdecl *lua_getmetatable_fn)(uintptr_t L, int idx);
+static lua_getmetatable_fn orig_lua_getmetatable = nullptr;
+
+static int __cdecl hook_lua_getmetatable(uintptr_t L, int idx) {
+    if (IsTeardownState()) return orig_lua_getmetatable(L, idx);
+    __try {
+        bool defer = false;
+        uintptr_t tv = ResolveTValue(L, idx, &defer);
+        if (!defer && tv && tv != NIL_OBJECT) {
+            int tt = *(int*)(tv + 8);
+            uintptr_t mt = 0;
+            if (tt == LUA_TTABLE || tt == LUA_TUSERDATA) {
+                uintptr_t obj = *(uintptr_t*)(tv + 0);
+                if (IsValidPtr(obj)) {
+                    mt = *(uintptr_t*)(obj + 12);
+                }
+            } else {
+                uintptr_t g = *(uintptr_t*)(L + 0x14);
+                if (IsValidPtr(g)) {
+                    mt = *(uintptr_t*)(g + 4 * tt + 160);
+                }
+            }
+
+            if (mt) {
+                uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                if (IsValidPtr(top)) {
+                    *(uintptr_t*)(top + 0) = mt;
+                    *(int*)(top + 8) = LUA_TTABLE;
+                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+                    *(uintptr_t*)(L + 0x0C) = top + 16;
+                    return 1;
+                }
+            }
+            return 0;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_lua_getmetatable(L, idx);
+}
+
+// ================================================================
 // Install / Shutdown
 // ================================================================
 
@@ -446,6 +517,8 @@ static void* const ADDR_LUA_TOTHREAD      = (void*)0x0084E1F0;
 static void* const ADDR_LUA_REMOVE        = (void*)0x0084DC50;
 static void* const ADDR_LUA_INSERT        = (void*)0x0084DCC0;
 static void* const ADDR_LUA_REPLACE       = (void*)0x0084DD70;
+static void* const ADDR_LUA_TOUSERDATA    = (void*)0x0084E1C0;
+static void* const ADDR_LUA_GETMETATABLE  = (void*)0x0084E730;
 
 bool InstallLuaStackFast() {
     int installed = 0;
@@ -468,10 +541,12 @@ bool InstallLuaStackFast() {
     INSTALL(lua_remove_t,       orig_lua_remove,        hook_lua_remove,        ADDR_LUA_REMOVE,        "lua_remove");
     INSTALL(lua_insert_t,       orig_lua_insert,        hook_lua_insert,        ADDR_LUA_INSERT,        "lua_insert");
     INSTALL(lua_replace_t,      orig_lua_replace,       hook_lua_replace,       ADDR_LUA_REPLACE,       "lua_replace");
+    INSTALL(lua_touserdata_fn,  orig_lua_touserdata,    hook_lua_touserdata,    ADDR_LUA_TOUSERDATA,    "lua_touserdata");
+    INSTALL(lua_getmetatable_fn,orig_lua_getmetatable,  hook_lua_getmetatable,  ADDR_LUA_GETMETATABLE,  "lua_getmetatable");
 
     #undef INSTALL
 
-    Log("[LuaStackFast] %d/11 hooks installed", installed);
+    Log("[LuaStackFast] %d/13 hooks installed", installed);
     return installed > 0;
 }
 
@@ -487,4 +562,6 @@ void ShutdownLuaStackFast() {
     MH_DisableHook(ADDR_LUA_REMOVE);
     MH_DisableHook(ADDR_LUA_INSERT);
     MH_DisableHook(ADDR_LUA_REPLACE);
+    MH_DisableHook(ADDR_LUA_TOUSERDATA);
+    MH_DisableHook(ADDR_LUA_GETMETATABLE);
 }
