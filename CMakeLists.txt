@@ -82,6 +82,8 @@ add_library(wow_optimize SHARED
     src/lua_hget_fast.h
     src/lua_checknumber_fast.cpp
     src/lua_checknumber_fast.h
+    src/lua_checkstring_fast.cpp
+    src/lua_checkstring_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h
