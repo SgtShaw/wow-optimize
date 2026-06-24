@@ -126,6 +126,16 @@ add_library(wow_optimize SHARED
     src/lua_rawseti_fast.h
     src/lua_setfield_fast.cpp
     src/lua_setfield_fast.h
+    src/lua_getupvalue_fast.cpp
+    src/lua_getupvalue_fast.h
+    src/lua_buffinit_fast.cpp
+    src/lua_buffinit_fast.h
+    src/lua_prepbuffer_fast.cpp
+    src/lua_prepbuffer_fast.h
+    src/lua_pushresult_fast.cpp
+    src/lua_pushresult_fast.h
+    src/lua_addlstring_fast.cpp
+    src/lua_addlstring_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h
@@ -305,6 +315,16 @@ add_library(wow_optimize SHARED
     src/lua_createtable_fast.h
     src/lua_pushstring_fast.cpp
     src/lua_pushstring_fast.h
+    src/lua_register_fast.cpp
+    src/lua_register_fast.h
+    src/lua_ref_fast.cpp
+    src/lua_ref_fast.h
+    src/lua_unref_fast.cpp
+    src/lua_unref_fast.h
+    src/lua_callmeta_fast.cpp
+    src/lua_callmeta_fast.h
+    src/lua_checktype_fast.cpp
+    src/lua_checktype_fast.h
     src/ui_accessor_fast.cpp
     src/ui_accessor_fast.h
     src/font_metrics_fast.cpp

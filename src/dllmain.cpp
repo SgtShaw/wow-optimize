@@ -63,6 +63,11 @@
 #include "tooltip_cache.h"
 #include "regex_cache.h"
 #include "texcache_tuning.h"
+#include "lua_register_fast.h"
+#include "lua_ref_fast.h"
+#include "lua_unref_fast.h"
+#include "lua_callmeta_fast.h"
+#include "lua_checktype_fast.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -273,6 +278,11 @@ static void StopFreezeWatchdog() {
 #include "lua_createtable_fast.h"
 #include "lua_pushstring_fast.h"
 #include "lua_pushfstring_fast.h"
+#include "lua_getupvalue_fast.h"
+#include "lua_buffinit_fast.h"
+#include "lua_prepbuffer_fast.h"
+#include "lua_pushresult_fast.h"
+#include "lua_addlstring_fast.h"
 #include "wow_subsystem_hooks.h"
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
@@ -6001,6 +6011,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool pushCClosureFastOk = InstallLuaPushCClosureFast();
     bool createTableFastOk = InstallLuaCreateTableFast();
     bool pushStringFastOk = InstallLuaPushStringFast();
+    bool luaRegisterFastOk = InstallLuaRegisterFast();
+    bool luaRefFastOk = InstallLuaRefFast();
+    bool luaUnrefFastOk = InstallLuaUnrefFast();
+    bool luaCallMetaFastOk = InstallLuaCallMetaFast();
+    bool luaCheckTypeFastOk = InstallLuaCheckTypeFast();
+    bool getUpvalueFastOk = InstallLuaGetUpvalueFast();
+    bool buffInitFastOk = InstallLuaBuffinitFast();
+    bool prepBufferFastOk = InstallLuaPrepbufferFast();
+    bool pushResultFastOk = InstallLuaPushresultFast();
+    bool addLStringFastOk = InstallLuaAddlstringFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
