@@ -90,6 +90,8 @@ add_library(wow_optimize SHARED
     src/lua_optstring_fast.h
     src/lua_tolstring_fast.cpp
     src/lua_tolstring_fast.h
+    src/lua_argcheck_fast.cpp
+    src/lua_argcheck_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h
