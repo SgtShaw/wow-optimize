@@ -26,18 +26,42 @@ struct CvarWatchEntry {
 };
 
 static CvarWatchEntry g_watch[] = {
-    // Render init globals (crash at 0x87307D)
+    // ---- Render init globals (crash at 0x87307D) ----
     { 0x00D43024, "dword_D43024 (render init)",     0, false },
     { 0x00C5DF88, "dword_C5DF88 (render init)",     0, false },
-    // Sound CVars (crash at 0x4C5E7B, 0x4D1D53)
-    { 0x00B4A3A4, "Sound_EnableSoundWhenGameIsInBG", 0, true  },
-    { 0x00B4AEFC, "Sound_EnableReverb",              0, true  },
-    // Visual alert (crash at 0x5E90D0)
+
+    // ---- Sound CVars (crash at 0x4C5E7B, 0x4D1D53) ----
+    { 0x00B4A3A4, "Sound_EnableSoundWhenGameIsInBG",      0, true  },
+    { 0x00B4AEFC, "Sound_EnableReverb pointer",            0, true  },
+    { 0x009F22CC, "Sound_EnableSoundWhenGameIsInBG (2)",   0, true  },
+    { 0x009F23B0, "Sound_OutputDriverIndex",               0, true  },
+    { 0x009F2488, "Sound_EnableAmbience",                  0, true  },
+    { 0x009F24A0, "Sound_EnableMusic",                     0, true  },
+    { 0x009F24C8, "Sound_EnableSFX",                       0, true  },
+    { 0x009F24DC, "Sound_EnableAllSound",                  0, true  },
+    { 0x009F2544, "Sound_ChaosMode",                       0, true  },
+    { 0x009F2554, "Sound_EnableDSPEffects",                0, true  },
+    { 0x009F256C, "Sound_MasterVolume",                    0, true  },
+    { 0x009F2580, "Sound_OutputDriverName",                0, true  },
+    { 0x009F2598, "Sound_NumChannels",                     0, true  },
+    { 0x009F25AC, "Sound_EnableSoftwareHRTF",              0, true  },
+    { 0x009F25C8, "Sound_EnableReverb",                    0, true  },
+    { 0x009F25F0, "Sound_ZoneMusicNoDelay",                0, true  },
+    { 0x009F2820, "Sound_ListenerAtCharacter",             0, true  },
+
+    // ---- Visual alert (crash at 0x5E90D0) ----
     { 0x00C24238, "dword_C24238 (visual alert)",     0, false },
-    // Global Lua state (GC checks)
-    { 0x00D3F78C, "lua_State* (global Lua state)",   0, true  },
-    // CVar pointer table (Sound_NumChannels etc.)
-    { 0x00B31684, "_crtheap (CRT heap handle)",      0, false },
+
+    // ---- Taint system (secure execution) ----
+    { 0x00D4139C, "Taint cell (secure execution)",    0, false },
+    { 0x00D413A0, "Taint check flag",                 0, false },
+
+    // ---- Lua state ----
+    { 0x00D3F78C, "lua_State* (global Lua state)",    0, true  },
+    { 0x00D3F790, "lua_State stack pointer (L+4)",    0, true  },
+
+    // ---- CRT heap ----
+    { 0x00B31684, "_crtheap (CRT heap handle)",       0, false },
 };
 
 static bool g_initialized = false;
