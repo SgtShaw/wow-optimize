@@ -191,6 +191,12 @@ static void StopFreezeWatchdog() {
 #include "lua_tolstring_fast.h"
 #include "lua_argcheck_fast.h"
 #include "lua_typename_fast.h"
+#include "lua_getlocal_fast.h"
+#include "lua_setlocal_fast.h"
+#include "lua_setupvalue_fast.h"
+#include "lua_getinfo_fast.h"
+#include "lua_error_fast.h"
+#include "lua_lessthan_fast.h"
 #include "cvar_null_guard.h"
 #include "d3d_evict_patch.h"
 #include "strncmp_null_guard.h"
@@ -5949,6 +5955,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tolstrOk = InstallLuaTolstringFast();
     bool argchkOk = InstallLuaArgcheckFast();
     bool tnameOk = InstallLuaTypeNameFast();
+    bool getlocalOk = InstallLuaGetLocalFast();
+    bool setlocalOk = InstallLuaSetLocalFast();
+    bool setupvalOk = InstallLuaSetUpvalFast();
+    bool getinfoOk = InstallLuaGetInfoFast();
+    bool errorfastOk = InstallLuaErrorFast();
+    bool lessthanOk = InstallLuaLessThanFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 

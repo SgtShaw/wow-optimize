@@ -94,6 +94,18 @@ add_library(wow_optimize SHARED
     src/lua_argcheck_fast.h
     src/lua_typename_fast.cpp
     src/lua_typename_fast.h
+    src/lua_getlocal_fast.cpp
+    src/lua_getlocal_fast.h
+    src/lua_setlocal_fast.cpp
+    src/lua_setlocal_fast.h
+    src/lua_setupvalue_fast.cpp
+    src/lua_setupvalue_fast.h
+    src/lua_getinfo_fast.cpp
+    src/lua_getinfo_fast.h
+    src/lua_error_fast.cpp
+    src/lua_error_fast.h
+    src/lua_lessthan_fast.cpp
+    src/lua_lessthan_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h
