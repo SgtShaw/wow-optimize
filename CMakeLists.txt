@@ -116,6 +116,8 @@ add_library(wow_optimize SHARED
     src/lua_where_fast.h
     src/lua_settable_fast.cpp
     src/lua_settable_fast.h
+    src/lua_pushfstring_fast.cpp
+    src/lua_pushfstring_fast.h
     src/lua_gettable_fast.cpp
     src/lua_gettable_fast.h
     src/lua_concat_fast.cpp

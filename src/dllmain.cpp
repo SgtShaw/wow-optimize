@@ -263,6 +263,7 @@ static void StopFreezeWatchdog() {
 #include "lua_concat_fast.h"
 #include "lua_rawseti_fast.h"
 #include "lua_setfield_fast.h"
+#include "lua_pushfstring_fast.h"
 #include "wow_subsystem_hooks.h"
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
@@ -5979,6 +5980,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool concatFastOk = InstallLuaConcatFast();
     bool rawSetIFastOk = InstallLuaRawSetIFast();
     bool setFieldFastOk = InstallLuaSetFieldFast();
+    bool pushfstrFastOk = InstallLuaPushfstringFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
