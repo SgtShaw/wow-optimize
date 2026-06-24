@@ -186,6 +186,9 @@ static void StopFreezeWatchdog() {
 #include "lua_hget_fast.h"
 #include "lua_checknumber_fast.h"
 #include "lua_checkstring_fast.h"
+#include "lua_optnumber_fast.h"
+#include "lua_optstring_fast.h"
+#include "lua_tolstring_fast.h"
 #include "cvar_null_guard.h"
 #include "d3d_evict_patch.h"
 #include "strncmp_null_guard.h"
@@ -5939,6 +5942,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool hgetFastOk = InstallLuaHgetFast();
     bool checknumOk = InstallLuaCheckNumberFast();
     bool checkstrOk = InstallLuaCheckStringFast();
+    bool optnumOk = InstallLuaOptnumberFast();
+    bool optstrOk = InstallLuaOptstringFast();
+    bool tolstrOk = InstallLuaTolstringFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
