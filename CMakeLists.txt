@@ -325,6 +325,18 @@ add_library(wow_optimize SHARED
     src/lua_callmeta_fast.h
     src/lua_checktype_fast.cpp
     src/lua_checktype_fast.h
+    src/lua_iscfunction_fast.cpp
+    src/lua_iscfunction_fast.h
+    src/lua_isnumber_fast.cpp
+    src/lua_isnumber_fast.h
+    src/lua_rawequal_fast.cpp
+    src/lua_rawequal_fast.h
+    src/lua_loadstring_fast.cpp
+    src/lua_loadstring_fast.h
+    src/lua_yield_fast.cpp
+    src/lua_yield_fast.h
+    src/lua_getn_fast.cpp
+    src/lua_getn_fast.h
     src/ui_accessor_fast.cpp
     src/ui_accessor_fast.h
     src/font_metrics_fast.cpp

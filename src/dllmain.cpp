@@ -68,6 +68,12 @@
 #include "lua_unref_fast.h"
 #include "lua_callmeta_fast.h"
 #include "lua_checktype_fast.h"
+#include "lua_iscfunction_fast.h"
+#include "lua_isnumber_fast.h"
+#include "lua_rawequal_fast.h"
+#include "lua_loadstring_fast.h"
+#include "lua_yield_fast.h"
+#include "lua_getn_fast.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -6021,6 +6027,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool prepBufferFastOk = InstallLuaPrepbufferFast();
     bool pushResultFastOk = InstallLuaPushresultFast();
     bool addLStringFastOk = InstallLuaAddlstringFast();
+    bool iscfuncFastOk = InstallLuaIsCFuncFast();
+    bool isnumFastOk = InstallLuaIsNumberFast();
+    bool raweqFastOk = InstallLuaRawEqualFast();
+    bool loadstrFastOk = InstallLuaLoadStringFast();
+    bool yieldFastOk = InstallLuaYieldFast();
+    bool getnFastOk = InstallLuaGetnFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
