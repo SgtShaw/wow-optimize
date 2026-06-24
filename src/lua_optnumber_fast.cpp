@@ -6,18 +6,18 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-// luaL_optnumber at 0x84FB60 — validate optional number argument.
-// 13 static callers. Same pattern as luaL_checknumber but with default value.
-// Fast path: call lua_tonumber inline, if non-zero return it, else fall through.
-
 typedef double(__cdecl *optnum_fn)(uintptr_t L, int narg, double def);
 static optnum_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static double __cdecl hook(uintptr_t L, int narg, double def) {
-    typedef double(__cdecl *tonumber_fn)(uintptr_t, int);
-    double d = ((tonumber_fn)0x0084E030)(L, narg);
-    if (d != 0.0) {
+    typedef uintptr_t(__cdecl *index2adr_fn)(int, uintptr_t);
+    uintptr_t tv = ((index2adr_fn)0x0084D9C0)(narg, L);
+    if (tv < 0x10000) return orig(L, narg, def);
+
+    int tt = *(int*)(tv + 8);
+    if (tt == 3) {
+        double d = *(double*)(tv + 0);
         g_hits++;
         return d;
     }
@@ -26,10 +26,10 @@ static double __cdecl hook(uintptr_t L, int narg, double def) {
 }
 
 bool InstallLuaOptnumberFast() {
-    void* t = (void*)0x0084FB60;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[OptNum] ACTIVE — luaL_optnumber inline at 0x84FB60");
+    void* t = (void*)0x0084FB30;
+    if (WineSafe_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
+    if (WO_EnableHook(t) != MH_OK) return false;
+    Log("[OptNum] ACTIVE — luaL_optnumber inline at 0x84FB30");
     CrashDumper::RegisterFeature("OptNum");
     CrashDumper::FeatureSetActive("OptNum", true);
     return true;
