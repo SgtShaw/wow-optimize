@@ -310,8 +310,16 @@ add_library(wow_optimize SHARED
     src/font_metrics_fast.cpp
     src/font_metrics_fast.h
     src/sampling_profiler.cpp
+    src/sound_driver_guard.cpp
+    src/sound_emitter_guard.cpp
+    src/sound_buffer_guard.cpp
+    src/sound_update_guard.cpp
 
     src/sampling_profiler.h
+    src/sound_driver_guard.h
+    src/sound_emitter_guard.h
+    src/sound_buffer_guard.h
+    src/sound_update_guard.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

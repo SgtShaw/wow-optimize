@@ -456,6 +456,14 @@
 // Set to 1 to disable.
 #define TEST_DISABLE_FONT_METRICS_FAST 0
 
+// Sound system protection guards — SEH-wrapped crash protection for
+// sound driver init (sub_508260), emitter registration (sub_5093F0),
+// buffer/update ops (sub_508320). Default ENABLED (0 = active).
+#define TEST_DISABLE_SOUND_DRIVER_GUARD    0
+#define TEST_DISABLE_SOUND_EMITTER_GUARD   0
+#define TEST_DISABLE_SOUND_BUFFER_GUARD    0
+#define TEST_DISABLE_SOUND_UPDATE_GUARD    0
+
 // ================================================================
 // NEW COLOSSAL HOOKS (commit 670012c) — IDA-verified + gated
 // ================================================================

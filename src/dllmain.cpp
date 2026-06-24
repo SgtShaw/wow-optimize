@@ -240,6 +240,10 @@ static void StopFreezeWatchdog() {
 #include "lua_rawgeti_inline.h"
 #include "lua_gettable_safety.h"
 #include "lua_newkey_safety.h"
+#include "sound_driver_guard.h"
+#include "sound_emitter_guard.h"
+#include "sound_buffer_guard.h"
+#include "sound_update_guard.h"
 #include "lua_vm_engine.h"
 #include "lua_vm_phase3.h"
 #include "lua_gettable_cache.h"
@@ -5616,6 +5620,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallCvarNullGuard();
     InstallD3DEvictPatch();
     bool strncmpGuardOk = InstallStrncmpNullGuard();
+
+    Log("--- Sound System Protection Guards ---");
+    InstallSoundDriverGuard();
+    InstallSoundEmitterGuard();
+    InstallSoundBufferGuard();
+    InstallSoundUpdateGuard();
 #if !TEST_DISABLE_EVENT_COALESCER
     EventCoalescer::Init();
 #endif
