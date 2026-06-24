@@ -182,6 +182,8 @@ static void StopFreezeWatchdog() {
 #include "render_null_guard.h"
 #include "cvar_watchdog.h"
 #include "lua_precall_cache.h"
+#include "lua_table_fast.h"
+#include "lua_hget_fast.h"
 #include "cvar_null_guard.h"
 #include "d3d_evict_patch.h"
 #include "strncmp_null_guard.h"
@@ -5931,6 +5933,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- luaD_precall Dispatch Cache ---");
     bool precallCacheOk = InstallLuaPrecallCache();
+    bool tableFastOk = InstallLuaTableFast();
+    bool hgetFastOk = InstallLuaHgetFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 

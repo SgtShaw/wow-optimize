@@ -76,6 +76,10 @@ add_library(wow_optimize SHARED
     src/cvar_watchdog.h
     src/lua_precall_cache.cpp
     src/lua_precall_cache.h
+    src/lua_table_fast.cpp
+    src/lua_table_fast.h
+    src/lua_hget_fast.cpp
+    src/lua_hget_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h
