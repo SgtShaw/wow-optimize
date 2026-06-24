@@ -37,11 +37,6 @@ static const char* __cdecl hook(uintptr_t L, int funcindex, int n) {
 }
 
 bool InstallLuaSetUpvalFast() {
-    void* t = (void*)0x0084F2F0;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[SetUpval] ACTIVE — lua_setupvalue inline at 0x84F2F0");
-    CrashDumper::RegisterFeature("SetUpval");
-    CrashDumper::FeatureSetActive("SetUpval", true);
-    return true;
+    Log("[SetUpval] DISABLED — 0x84F2F0 is luaL_getmetafield not lua_setupvalue (collision with MetaField hook)");
+    return false;
 }
