@@ -280,7 +280,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE      1
+#define TEST_DISABLE_QUAT_NORMALIZE      0  // enabled: math fixed in commit 19d9d6d
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
