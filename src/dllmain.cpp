@@ -258,6 +258,11 @@ static void StopFreezeWatchdog() {
 #include "matrix_copy_sse2.h"
 #include "lua_numconv_fast.h"
 #include "lua_stack_fast.h"
+#include "lua_settable_fast.h"
+#include "lua_gettable_fast.h"
+#include "lua_concat_fast.h"
+#include "lua_rawseti_fast.h"
+#include "lua_setfield_fast.h"
 #include "wow_subsystem_hooks.h"
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
@@ -5969,6 +5974,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool xpcallFastOk = InstallLuaXPCallFast();
     bool metaFieldFastOk = InstallLuaGetMetaFieldFast();
     bool whereFastOk = InstallLuaWhereFast();
+    bool setTableFastOk = InstallLuaSetTableFast();
+    bool getTableFastOk = InstallLuaGetTableFast();
+    bool concatFastOk = InstallLuaConcatFast();
+    bool rawSetIFastOk = InstallLuaRawSetIFast();
+    bool setFieldFastOk = InstallLuaSetFieldFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
