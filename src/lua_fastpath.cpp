@@ -2160,7 +2160,7 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
             if (sepSlot->tt == LUA_TSTRING) {
                 void* ts = sepSlot->value.gc;
                 if (ts) {
-                    sepLen = (size_t)*(uint32_t*)((char*)ts + 8);
+                    sepLen = (size_t)*(uint32_t*)((char*)ts + 16);
                     sep = (const char*)((char*)ts + 16);
                     if (!sep) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
                 }

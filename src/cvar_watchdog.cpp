@@ -26,11 +26,18 @@ struct CvarWatchEntry {
 };
 
 static CvarWatchEntry g_watch[] = {
-    { 0x00D43024, "dword_D43024 (render init)", 0, false },
-    { 0x00C5DF88, "dword_C5DF88 (render init)", 0, false },
+    // Render init globals (crash at 0x87307D)
+    { 0x00D43024, "dword_D43024 (render init)",     0, false },
+    { 0x00C5DF88, "dword_C5DF88 (render init)",     0, false },
+    // Sound CVars (crash at 0x4C5E7B, 0x4D1D53)
     { 0x00B4A3A4, "Sound_EnableSoundWhenGameIsInBG", 0, true  },
-    { 0x00C24238, "dword_C24238 (visual alert)", 0, false },
-    { 0x00D3F78C, "lua_State* (global Lua state)", 0, true  },
+    { 0x00B4AEFC, "Sound_EnableReverb",              0, true  },
+    // Visual alert (crash at 0x5E90D0)
+    { 0x00C24238, "dword_C24238 (visual alert)",     0, false },
+    // Global Lua state (GC checks)
+    { 0x00D3F78C, "lua_State* (global Lua state)",   0, true  },
+    // CVar pointer table (Sound_NumChannels etc.)
+    { 0x00B31684, "_crtheap (CRT heap handle)",      0, false },
 };
 
 static bool g_initialized = false;
