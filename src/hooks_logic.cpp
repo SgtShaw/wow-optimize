@@ -1,4 +1,4 @@
-﻿// ================================================================
+// ================================================================
 // hooks_logic.cpp — Logic Optimization & Loop Bypassing
 // ================================================================
 // Combat text batching, UI layout traversal caching,
@@ -302,6 +302,9 @@ static volatile LONG64     g_uiScriptMisses = 0;
 #ifndef ADDR_LUA_UNITCLASS
 #define ADDR_LUA_UNITCLASS     0x0060FEC0  // UnitClass
 #endif
+#ifndef ADDR_LUA_UNITMAXHEALTH
+#define ADDR_LUA_UNITMAXHEALTH 0x0060EC60  // UnitHealthMax
+#endif
 #ifndef ADDR_LUA_GETINSTANCEINFO
 #define ADDR_LUA_GETINSTANCEINFO 0x00000000  // pending
 #endif
@@ -310,6 +313,7 @@ static bool IsInvariantLuaFunc(uintptr_t funcPtr) {
     return funcPtr == ADDR_LUA_UNITHEALTH
         || funcPtr == ADDR_LUA_UNITPOWER
         || funcPtr == ADDR_LUA_UNITCLASS
+        || funcPtr == ADDR_LUA_UNITMAXHEALTH
         || funcPtr == ADDR_LUA_GETINSTANCEINFO;
 }
 
@@ -359,6 +363,134 @@ static void InvalidateScriptCache() {
 }
 
 // ================================================================
+// Lua function cache hooks
+// ================================================================
+static inline bool IsTeardownState() {
+    uintptr_t gL = *(uintptr_t*)0x00D3F78C;
+    return (gL < 0x10000 || gL > 0xBFFF0000);
+}
+
+typedef int (__cdecl* LuaFunc_t)(uintptr_t L);
+static LuaFunc_t orig_UnitHealth = nullptr;
+static LuaFunc_t orig_UnitPower = nullptr;
+static LuaFunc_t orig_UnitMaxHealth = nullptr;
+
+typedef const char* (__cdecl* lua_tolstring_t)(uintptr_t L, int idx, size_t* len);
+static const lua_tolstring_t lua_tolstring_ = (lua_tolstring_t)0x0084E0E0;
+
+typedef double (__cdecl* lua_tonumber_t)(uintptr_t L, int idx);
+static const lua_tonumber_t lua_tonumber_ = (lua_tonumber_t)0x0084E030;
+
+typedef void (__cdecl* lua_pushnumber_t)(uintptr_t L, double n);
+static const lua_pushnumber_t lua_pushnumber_ = (lua_pushnumber_t)0x0084E2A0;
+
+typedef int (__cdecl* lua_gettop_t)(uintptr_t L);
+static const lua_gettop_t lua_gettop_ = (lua_gettop_t)0x0084DBD0;
+
+static int __cdecl Hooked_UnitHealth(uintptr_t L) {
+    __try {
+        if (L && !IsTeardownState()) {
+            size_t len = 0;
+            const char* unit = lua_tolstring_(L, 1, &len);
+            if (unit && len < 32) {
+                uint32_t argHash = 2166136261u;
+                for (size_t i = 0; i < len; ++i) {
+                    argHash ^= (uint8_t)unit[i];
+                    argHash *= 16777619u;
+                }
+                
+                double val = 0.0;
+                if (LookupInvariantScript(ADDR_LUA_UNITHEALTH, argHash, &val)) {
+                    lua_pushnumber_(L, val);
+                    return 1;
+                }
+                
+                int results = orig_UnitHealth(L);
+                if (results == 1) {
+                    double actualVal = lua_tonumber_(L, -1);
+                    StoreInvariantScript(ADDR_LUA_UNITHEALTH, argHash, actualVal, 3);
+                }
+                return results;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_UnitHealth(L);
+}
+
+static int __cdecl Hooked_UnitPower(uintptr_t L) {
+    __try {
+        if (L && !IsTeardownState()) {
+            size_t len = 0;
+            const char* unit = lua_tolstring_(L, 1, &len);
+            if (unit && len < 32) {
+                int top = lua_gettop_(L);
+                uint32_t argHash = 2166136261u;
+                for (size_t i = 0; i < len; ++i) {
+                    argHash ^= (uint8_t)unit[i];
+                    argHash *= 16777619u;
+                }
+                
+                if (top >= 2) {
+                    double typeVal = lua_tonumber_(L, 2);
+                    uint64_t typeBits = *reinterpret_cast<uint64_t*>(&typeVal);
+                    argHash ^= (uint32_t)(typeBits & 0xFFFFFFFF);
+                    argHash *= 16777619u;
+                    argHash ^= (uint32_t)(typeBits >> 32);
+                    argHash *= 16777619u;
+                } else {
+                    argHash ^= 0xFFFFFFFF;
+                    argHash *= 16777619u;
+                }
+                
+                double val = 0.0;
+                if (LookupInvariantScript(ADDR_LUA_UNITPOWER, argHash, &val)) {
+                    lua_pushnumber_(L, val);
+                    return 1;
+                }
+                
+                int results = orig_UnitPower(L);
+                if (results == 1) {
+                    double actualVal = lua_tonumber_(L, -1);
+                    StoreInvariantScript(ADDR_LUA_UNITPOWER, argHash, actualVal, 3);
+                }
+                return results;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_UnitPower(L);
+}
+
+static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
+    __try {
+        if (L && !IsTeardownState()) {
+            size_t len = 0;
+            const char* unit = lua_tolstring_(L, 1, &len);
+            if (unit && len < 32) {
+                uint32_t argHash = 2166136261u;
+                for (size_t i = 0; i < len; ++i) {
+                    argHash ^= (uint8_t)unit[i];
+                    argHash *= 16777619u;
+                }
+                double val = 0.0;
+                if (LookupInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, &val)) {
+                    lua_pushnumber_(L, val);
+                    return 1;
+                }
+                int results = orig_UnitMaxHealth(L);
+                if (results == 1) {
+                    double actualVal = lua_tonumber_(L, -1);
+                    StoreInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, actualVal, 3);
+                }
+                return results;
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_UnitMaxHealth(L);
+}
+
+// ================================================================
+// Public API
+// ================================================================
 // Public API
 // ================================================================
 
@@ -387,8 +519,29 @@ bool InstallLogicHooks(void) {
     if (!ADDR_NETSEND_PACKET)
         Log("[LogicHooks] Network heartbeat: address placeholder — fill ADDR_NETSEND_PACKET");
 
+    // Install invariant Lua script cache hooks
+    int installed = 0;
+    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITHEALTH, (void*)Hooked_UnitHealth, (void**)&orig_UnitHealth) == MH_OK) {
+        if (WO_EnableHook((void*)ADDR_LUA_UNITHEALTH) == MH_OK) {
+            installed++;
+            Log("[LogicHooks] Hooked UnitHealth at 0x%08X", ADDR_LUA_UNITHEALTH);
+        }
+    }
+    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITPOWER, (void*)Hooked_UnitPower, (void**)&orig_UnitPower) == MH_OK) {
+        if (WO_EnableHook((void*)ADDR_LUA_UNITPOWER) == MH_OK) {
+            installed++;
+            Log("[LogicHooks] Hooked UnitPower at 0x%08X", ADDR_LUA_UNITPOWER);
+        }
+    }
+    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITMAXHEALTH, (void*)Hooked_UnitMaxHealth, (void**)&orig_UnitMaxHealth) == MH_OK) {
+        if (WO_EnableHook((void*)ADDR_LUA_UNITMAXHEALTH) == MH_OK) {
+            installed++;
+            Log("[LogicHooks] Hooked UnitMaxHealth at 0x%08X", ADDR_LUA_UNITMAXHEALTH);
+        }
+    }
+
     Log("[LogicHooks] Initialized — combat text batching, UI layout cache, "
-        "network heartbeat filter, invariant script cache");
+        "network heartbeat filter, invariant script cache (%d hooks active)", installed);
 
     return true;
 }
@@ -396,6 +549,10 @@ bool InstallLogicHooks(void) {
 void ShutdownLogicHooks(void) {
     // Flush any remaining combat text entries
     FlushCombatTextBatch();
+
+    MH_DisableHook((void*)ADDR_LUA_UNITHEALTH);
+    MH_DisableHook((void*)ADDR_LUA_UNITPOWER);
+    MH_DisableHook((void*)ADDR_LUA_UNITMAXHEALTH);
 
     Log("[LogicHooks] Stats: Combat text — %lld batched, %lld flushed, %lld overflow",
         g_ctBatched, g_ctFlushed, g_ctOverflow);

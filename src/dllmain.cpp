@@ -179,6 +179,10 @@ static void StopFreezeWatchdog() {
 #include "lua_global_cache.h"
 #include "hot_functions.h"
 #include "fast_strncmp.h"
+#include "render_null_guard.h"
+#include "cvar_null_guard.h"
+#include "d3d_evict_patch.h"
+#include "strncmp_null_guard.h"
 #include "crt_free_hook.h"
 #include "lock_tuning.h"
 #include "texcache_tuning.h"
@@ -3411,7 +3415,7 @@ static void TryRemoveFPSCap() {
     if (addr) {
         DWORD old;
         if (VirtualProtect((void*)(addr + 1), 4, PAGE_EXECUTE_READWRITE, &old)) {
-            *(uint32_t*)(addr + 1) = 999;
+            *(uint32_t*)(addr + 1) = 200;  // stock cap — 999 breaks camera interpolation
             VirtualProtect((void*)(addr + 1), 4, old, &old);
             Log("FPS cap: changed from 200 to 999 at 0x%08X", (unsigned)addr);
         }
@@ -5574,7 +5578,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("MatrixMultiply");
     CrashDumper::RegisterFeature("SamplingProfiler");
 
-    Log("--- Colossal Optimizations ---");
+    Log("--- Engine Stability Guards ---");
+    InstallRenderNullGuard();
+    InstallCvarNullGuard();
+    InstallD3DEvictPatch();
+    bool strncmpGuardOk = InstallStrncmpNullGuard();
 #if !TEST_DISABLE_EVENT_COALESCER
     EventCoalescer::Init();
 #endif
@@ -5842,7 +5850,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool uiAccessorOk = InstallUIAccessorFast();
     CrashDumper::RegisterFeature("UIAccessorFast");
     CrashDumper::FeatureSetActive("UIAccessorFast", uiAccessorOk);
-    // 10 new colossal hooks (commit 670012c) — SIMD and UI Frame XML accessors
+    // SIMD and UI Frame XML accessors (commit 670012c)
     CrashDumper::RegisterFeature("Vec3CrossSSE2");
     CrashDumper::RegisterFeature("IsSphereVisibleSSE2");
     CrashDumper::RegisterFeature("FromAngleAxisSSE2");

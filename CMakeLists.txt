@@ -71,6 +71,14 @@ add_library(wow_optimize SHARED
     src/lua_internals.cpp
     src/lua_internals.h
     src/crash_dumper.cpp
+    src/render_null_guard.cpp
+    src/render_null_guard.h
+    src/cvar_null_guard.cpp
+    src/cvar_null_guard.h
+    src/d3d_evict_patch.cpp
+    src/d3d_evict_patch.h
+    src/strncmp_null_guard.cpp
+    src/strncmp_null_guard.h
     src/frame_throttle.cpp
     src/frame_throttle.h
     src/ui_frame_batch.cpp
