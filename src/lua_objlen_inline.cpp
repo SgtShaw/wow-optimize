@@ -10,91 +10,94 @@ extern "C" void Log(const char* fmt, ...);
 static volatile long g_objlenCalls = 0;
 static volatile long g_objlenFast  = 0;
 
-typedef int (__cdecl *lua_objlen_fn)(int L, int idx);
+#define LUA_TNUMBER   3
+#define LUA_TSTRING   4
+#define LUA_TTABLE    5
+#define LUA_TUSERDATA 7
+#define NIL_OBJECT    0x00A46F78
+
+static inline bool IsTeardownState() {
+    uintptr_t gL = *(uintptr_t*)0x00D3F78C;
+    return (gL < 0x10000);
+}
+
+static bool IsValidPtr(uintptr_t p) {
+    return p > 0x10000;
+}
+
+static uintptr_t ResolveTValue(uintptr_t L, int idx, bool* defer) {
+    *defer = false;
+    if (idx > 0) {
+        uintptr_t base = *(uintptr_t*)(L + 0x10);
+        if (!IsValidPtr(base)) return 0;
+        uintptr_t tv = base + (idx - 1) * 16;
+        if (tv >= *(uintptr_t*)(L + 0x0C)) return 0;
+        return tv;
+    }
+    if (idx > -10000) {
+        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        if (!IsValidPtr(top)) return 0;
+        uintptr_t tv = top + idx * 16;
+        if (tv < *(uintptr_t*)(L + 0x10)) return 0;
+        return tv;
+    }
+    *defer = true;
+    return 0;
+}
+
+typedef int (__cdecl *lua_objlen_fn)(uintptr_t L, int idx);
 static lua_objlen_fn orig_objlen = nullptr;
 
-// lua_objlen at 0x84E1C0: reads table->sizearray, pushes it as a number.
-// Called by the # operator on every addon array-length check.
-static int __cdecl Hooked_ObjLen(int L, int idx) {
+static int __cdecl Hooked_ObjLen(uintptr_t L, int idx) {
     ++g_objlenCalls;
     __try {
-        int* base = *(int**)(L + 0x10);
-        int* top  = *(int**)(L + 0x0C);
-        int* slot = nullptr;
-
-        if (idx > 0) {
-            slot = base + (idx - 1) * 4;
-            if (slot >= top) goto fallback;
-        } else if (idx >= -10000) {
-            slot = top + idx * 4;
-            if (slot < base) goto fallback;
-        } else if (idx == -10002) {
-            slot = base + 18 * 4;
+        if (IsTeardownState()) goto fallback;
+        bool defer = false;
+        uintptr_t tv = ResolveTValue(L, idx, &defer);
+        if (!defer && tv && tv != NIL_OBJECT) {
+            int tt = *(int*)(tv + 8);
+            uintptr_t gc = *(uintptr_t*)(tv + 0);
+            if (tt == LUA_TNUMBER) {
+                typedef int (__cdecl *tostring_fn)(uintptr_t, uintptr_t);
+                if (((tostring_fn)0x00856EA0)(L, tv)) {
+                    gc = *(uintptr_t*)(tv + 0);
+                    if (IsValidPtr(gc)) { ++g_objlenFast; return *(int*)(gc + 16); }
+                }
+                ++g_objlenFast; return 0;
+            }
+            if (tt == LUA_TSTRING && IsValidPtr(gc))
+                { ++g_objlenFast; return *(int*)(gc + 16); }
+            if (tt == LUA_TUSERDATA && IsValidPtr(gc))
+                { ++g_objlenFast; return *(int*)(gc + 20); }
+            if (tt == LUA_TTABLE && IsValidPtr(gc)) {
+                ++g_objlenFast;
+                typedef unsigned (__cdecl *getn_fn)(uintptr_t);
+                return ((getn_fn)0x0085C690)(gc);
+            }
         }
-
-        if (!slot || (uintptr_t)slot < 0x10000 || (uintptr_t)slot > 0xBFFF0000)
-            goto fallback;
-
-        int tt = slot[2];
-        if (tt != 5) goto fallback;  // not a table
-
-        int table = slot[0];
-        if (table < 0x10000 || table > 0xBFFF0000) goto fallback;
-
-        int sizearray = *(int*)(table + 32);  // table->sizearray
-        int taint     = slot[3];
-        ++g_objlenFast;
-
-        // Push the sizearray as a number
-        DWORD* topPtr = *(DWORD**)(L + 0x0C);
-        if (!topPtr || (uintptr_t)topPtr < 0x10000 || (uintptr_t)topPtr > 0xBFFF0000)
-            goto fallback;
-
-        double* num = (double*)topPtr;
-        *num = (double)sizearray;
-        topPtr[2] = 3;      // tt = LUA_TNUMBER
-        topPtr[3] = taint;  // taint propagation
-        *(DWORD**)(L + 0x0C) = topPtr + 4;
-
-        if (taint && *(int*)0x00D413A0 && !*(int*)0x00D413A4)
-            *(int*)0x00D4139C = taint;
-
-        return 1;
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     return orig_objlen(L, idx);
 }
 
 bool InstallLuaObjLenInline() {
-    void* target = (void*)0x0084E1C0;
-    unsigned char* p = (unsigned char*)target;
-    if (p[0] != 0x55 || p[1] != 0x8B) {
+    void* target = (void*)0x0084E150;
+    if (*(unsigned char*)target != 0x55 || *((unsigned char*)target + 1) != 0x8B) {
         Log("[LuaObjLen] BAD PROLOGUE at 0x%08X", (uintptr_t)target);
         return false;
     }
-    if (MH_CreateHook(target, (void*)Hooked_ObjLen, (void**)&orig_objlen) != MH_OK) {
+    if (MH_CreateHook(target, Hooked_ObjLen, (void**)&orig_objlen) != MH_OK) {
         Log("[LuaObjLen] MH_CreateHook FAILED");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[LuaObjLen] MH_EnableHook FAILED");
-        return false;
-    }
-    Log("[LuaObjLen] ACTIVE: inline lua_objlen (0x84E1C0)");
+    MH_EnableHook(target);
+    Log("[LuaObjLen] ACTIVE: lua_objlen at 0x84E150 (returns length in EAX)");
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", true);
     return true;
 }
 
 void UninstallLuaObjLenInline() {
-    MH_DisableHook((void*)0x0084E1C0);
-    MH_RemoveHook((void*)0x0084E1C0);
-    CrashDumper::FeatureSetActive("LuaObjLen", false);
-    LONG64 total = g_objlenCalls;
-    LONG64 fast  = g_objlenFast;
-    if (total > 0) {
-        Log("[LuaObjLen] Stats: %lld calls, %lld inline (%.1f%%)",
-            (long long)total, (long long)fast,
-            100.0 * (double)fast / (double)total);
-    }
+    MH_DisableHook((void*)0x0084E150);
+    MH_RemoveHook((void*)0x0084E150);
 }

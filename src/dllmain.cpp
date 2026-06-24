@@ -180,6 +180,8 @@ static void StopFreezeWatchdog() {
 #include "hot_functions.h"
 #include "fast_strncmp.h"
 #include "render_null_guard.h"
+#include "cvar_watchdog.h"
+#include "lua_precall_cache.h"
 #include "cvar_null_guard.h"
 #include "d3d_evict_patch.h"
 #include "strncmp_null_guard.h"
@@ -5579,6 +5581,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("SamplingProfiler");
 
     Log("--- Engine Stability Guards ---");
+    InitCvarWatchdog();
     InstallRenderNullGuard();
     InstallCvarNullGuard();
     InstallD3DEvictPatch();
@@ -5924,13 +5927,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
 
     Log("--- lua_objlen Inline Optimization ---");
-    // DISABLED: 0x84E1C0 is lua_touserdata, NOT lua_objlen (verified: returns the
-    // userdata pointer for tt 2/7, else 0; pushes nothing). The hook, when probed on
-    // a table, PUSHED a number onto the Lua stack and returned 1 -> stack corruption
-    // plus a bogus non-NULL "userdata pointer" handed to C callers. Misidentified
-    // target, catastrophic; the engine function is left intact.
-    bool objlenOk = false;
-    Log("[LuaObjLen] DISABLED (0x84E1C0 is lua_touserdata, not lua_objlen; stack corruption)");
+    bool objlenOk = InstallLuaObjLenInline();
+
+    Log("--- luaD_precall Dispatch Cache ---");
+    bool precallCacheOk = InstallLuaPrecallCache();
+    CrashDumper::RegisterFeature("LuaObjLen");
+    CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
     Log("--- lua_rawgeti Inline Optimization ---");
 #if TEST_DISABLE_RAWGETI_INLINE
