@@ -106,6 +106,14 @@ add_library(wow_optimize SHARED
     src/lua_error_fast.h
     src/lua_lessthan_fast.cpp
     src/lua_lessthan_fast.h
+    src/lua_gc_fast.cpp
+    src/lua_gc_fast.h
+    src/lua_xpcall_fast.cpp
+    src/lua_xpcall_fast.h
+    src/lua_getmetafield_fast.cpp
+    src/lua_getmetafield_fast.h
+    src/lua_where_fast.cpp
+    src/lua_where_fast.h
     src/render_null_guard.h
     src/cvar_null_guard.cpp
     src/cvar_null_guard.h

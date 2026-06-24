@@ -197,6 +197,10 @@ static void StopFreezeWatchdog() {
 #include "lua_getinfo_fast.h"
 #include "lua_error_fast.h"
 #include "lua_lessthan_fast.h"
+#include "lua_gc_fast.h"
+#include "lua_xpcall_fast.h"
+#include "lua_getmetafield_fast.h"
+#include "lua_where_fast.h"
 #include "cvar_null_guard.h"
 #include "d3d_evict_patch.h"
 #include "strncmp_null_guard.h"
@@ -5961,6 +5965,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool getinfoOk = InstallLuaGetInfoFast();
     bool errorfastOk = InstallLuaErrorFast();
     bool lessthanOk = InstallLuaLessThanFast();
+    bool gcFastOk = InstallLuaGCFast();
+    bool xpcallFastOk = InstallLuaXPCallFast();
+    bool metaFieldFastOk = InstallLuaGetMetaFieldFast();
+    bool whereFastOk = InstallLuaWhereFast();
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
