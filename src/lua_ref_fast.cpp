@@ -21,42 +21,37 @@ static int __cdecl hook(uintptr_t L, int t) {
 
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        // Check top value: if nil, it's a free (complex path — defer)
+        // If the value to reference is nil, the engine returns LUA_REFNIL — defer.
         uint32_t topTT = *(uint32_t*)(top - 8);
         if (!topTT) { g_misses++; return orig(L, t); }
 
-        // Resolve table via rawgeti(L, t, 0) to get freelist
+        // Read the freelist head t[0]. rawgeti pushes it; we leave the stack as we
+        // found it before either fast-pathing or deferring.
         typedef int(__cdecl *rawgeti_fn)(uintptr_t, int, int);
         ((rawgeti_fn)0x0084E670)(L, t, 0);
-
-        // Read freelist integer from top
         uintptr_t newTop = *(uintptr_t*)(L + 0x0C);
         uint32_t tt2 = *(uint32_t*)(newTop - 8);
-        int ref = 0;
-        if (tt2 == 3) {
-            // Freelist has a value: read it as integer
-            ref = (int)*(double*)(newTop - 16);
-            // Pop freelist value; we'll consume the ref
-            *(uintptr_t*)(L + 0x0C) = newTop - 16;
-        }
+        int head = (tt2 == 3) ? (int)*(double*)(newTop - 16) : 0;
+        *(uintptr_t*)(L + 0x0C) = newTop - 16;   // pop the freelist head
 
-        if (ref <= 0) {
-            // No freelist entry — get objlen + 1
-            typedef int(__cdecl *objlen_fn)(uintptr_t, int);
-            ref = ((objlen_fn)0x0084E150)(L, t) + 1;
-        }
+        // Non-empty freelist requires unlinking t[0] = t[head] — defer that to the
+        // engine. With the head popped, the stack is back to its original shape, so
+        // the original runs correctly. Only the "fresh ref" (objlen+1) path is
+        // inlined here.
+        if (head != 0) { g_misses++; return orig(L, t); }
 
-        // Save/restore taint for secure execution
+        typedef int(__cdecl *objlen_fn)(uintptr_t, int);
+        int ref = ((objlen_fn)0x0084E150)(L, t) + 1;
+
+        // Engine clears taint around the registry write so referencing never taints.
         int32_t savedTaintFlag = *(int32_t*)TAINT_FLAG;
         int32_t savedTaintCell = *(int32_t*)TAINT_CELL;
         *(int32_t*)TAINT_FLAG = 0;
         *(int32_t*)TAINT_CELL = 0;
 
-        // rawseti(L, t, ref) — store value at table[ref]
         typedef int(__cdecl *rawseti_fn)(uintptr_t, int, int);
-        ((rawseti_fn)0x0084EA00)(L, t, ref);
+        ((rawseti_fn)0x0084EA00)(L, t, ref);     // t[ref] = value (pops it)
 
-        // Restore taint
         *(int32_t*)TAINT_CELL = savedTaintCell;
         *(int32_t*)TAINT_FLAG = savedTaintFlag;
 

@@ -41,22 +41,23 @@ static int __cdecl hook(uintptr_t L, int n) {
         size_t len2 = *(size_t*)(s2 + 16);
         size_t total = len1 + len2;
 
-        // Guard against overflow — engine raises "string length overflow" beyond 0x1000000
-        if (total > 0xFFFFFF) { g_misses++; return orig(L, n); }
+        // Only short concatenations take the fast path so a fixed stack buffer is
+        // always large enough. Anything bigger defers to the engine, which manages
+        // its own growable string buffer. (Avoids depending on the exact offset of
+        // the inline Mbuffer in global_State, which the old code dereferenced
+        // incorrectly.)
+        if (total == 0 || total > 4000) { g_misses++; return orig(L, n); }
 
-        // Allocate buffer via engine's allocator
-        typedef void*(__cdecl *alloc_fn)(uintptr_t, uintptr_t, size_t);
-        void* buf = ((alloc_fn)0x0085D170)(L, *(uintptr_t*)(*(uintptr_t*)(L + 0x14) + 52), total);
-        if (!buf) { g_misses++; return orig(L, n); }
-
+        char buf[4000];
         const char* data1 = (const char*)(s1 + 20);
         const char* data2 = (const char*)(s2 + 20);
         memcpy(buf, data1, len1);
-        memcpy((char*)buf + len1, data2, len2);
+        memcpy(buf + len1, data2, len2);
 
-        // Create TString via luaS_newlstr
+        // Create TString via luaS_newlstr (interns + copies out of buf)
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const void*, size_t);
         uintptr_t new_ts = ((newlstr_fn)0x00856C80)(L, buf, total);
+        if (new_ts < 0x10000) { g_misses++; return orig(L, n); }
 
         // Pop both strings, push result
         uint32_t taint = *(uint32_t*)TAINT_CELL;

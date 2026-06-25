@@ -27,11 +27,16 @@ static const char* __cdecl hook(
         const char* s1 = (const char*)a3;
         if (s1 && (uintptr_t)s1 > 0x10000) {
             __try {
-                typedef const char*(__cdecl *pushstr_fn)(uintptr_t, const char*);
-                const char* result = ((pushstr_fn)0x0084E300)(L, s1);
-                if (result) {
+                // lua_pushstring (0x84E350) interns s1 and returns the new TString*.
+                // (The previous code called lua_pushlstring at 0x84E300, which needs
+                // an explicit length — passing only two args left len as stack
+                // garbage.) lua_pushfstring must return the interned char* data,
+                // which lives at TString+20.
+                typedef uintptr_t(__cdecl *pushstr_fn)(uintptr_t, const char*);
+                uintptr_t ts = ((pushstr_fn)0x0084E350)(L, s1);
+                if (ts > 0x10000) {
                     g_hits++;
-                    return result;
+                    return (const char*)(ts + 20);
                 }
             } __except (EXCEPTION_EXECUTE_HANDLER) {}
         }

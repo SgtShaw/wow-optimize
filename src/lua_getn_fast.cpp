@@ -78,11 +78,12 @@ fallback:
 }
 
 bool InstallLuaGetnFast() {
-    void* t = (void*)0x0084F6C0;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    WO_EnableHook(t);
-    Log("[GetnFast] ACTIVE — luaL_getn inline at 0x84F6C0");
-    CrashDumper::RegisterFeature("GetnFast");
-    CrashDumper::FeatureSetActive("GetnFast", true);
-    return true;
+    // 0x84F6C0 is luaL_ref, NOT luaL_getn. In Lua 5.1 luaL_getn is a macro that
+    // expands to lua_objlen (already hooked at 0x84E150), so there is no distinct
+    // function to optimize here. Hooking 0x84F6C0 with this getn logic would
+    // replace luaL_ref and corrupt the reference freelist; it previously avoided
+    // that only by losing the MinHook collision to lua_ref_fast. Do not install.
+    Log("[GetnFast] Inert: luaL_getn is a macro over lua_objlen (0x84E150); 0x84F6C0 is luaL_ref");
+    (void)&hook; (void)&orig;
+    return false;
 }

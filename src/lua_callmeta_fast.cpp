@@ -18,42 +18,25 @@ static int __cdecl hook(uintptr_t L, int obj, const char* event) {
     if (!event) { g_misses++; return orig(L, obj, event); }
 
     __try {
-        // getmetatable(L, obj) — push metatable or return 0
-        typedef int(__cdecl *getmeta_fn)(uintptr_t, int);
-        int hasMeta = ((getmeta_fn)0x0084E730)(L, obj);
-        if (!hasMeta) { g_misses++; return orig(L, obj, event); }
+        // Mirror the engine (sub_84F350): normalize obj to an absolute index so
+        // lua_pushvalue still targets it after getmetafield grows the stack, then
+        // luaL_getmetafield(L, obj, event) which leaves ONLY the metamethod on top
+        // (it removes the metatable itself — the previous hand-rolled version left
+        // the metatable orphaned on the stack, corrupting the stack on every hit).
+        typedef int(__cdecl *gettop_fn)(uintptr_t);
+        int v3 = obj;
+        if ((uint32_t)obj >= 0xFFFFD8F1u || obj == 0)
+            v3 = obj + ((gettop_fn)0x0084DBD0)(L) + 1;
 
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        // Check metatable is a table
-        if (*(uint32_t*)(top - 8) != 5) {
-            *(uintptr_t*)(L + 0x0C) = top - 16;
-            g_misses++;
-            return orig(L, obj, event);
-        }
+        typedef int(__cdecl *getmetafield_fn)(uintptr_t, int, const char*);
+        int hasMethod = ((getmetafield_fn)0x0084F2F0)(L, v3, event);
+        if (!hasMethod) { g_misses++; return 0; }   // no metafield: nothing pushed
 
-        // pushstring(L, event) — push event name
-        typedef uintptr_t(__cdecl *pushstr_fn)(uintptr_t, const char*);
-        ((pushstr_fn)0x0084E400)(L, event);
-
-        // rawget(L, -2) — get metatable[event]
-        typedef int(__cdecl *rawget_fn)(uintptr_t, int);
-        ((rawget_fn)0x0084E600)(L, -2);
-
-        top = *(uintptr_t*)(L + 0x0C);
-        if (!*(uint32_t*)(top - 8)) {
-            // nil result: pop metatable + nil (3 slots), return 0
-            *(uintptr_t*)(L + 0x0C) = top - 32; // pop key, nil value, metatable
-            g_misses++;
-            return orig(L, obj, event);
-        }
-
-        // Got a function: push obj, call it
         typedef void(__cdecl *pushvalue_fn)(uintptr_t, int);
-        ((pushvalue_fn)0x0084DE50)(L, obj);
+        ((pushvalue_fn)0x0084DE50)(L, v3);          // push the object as arg
 
-        // lua_call(L, 1, 1) — call the metamethod
         typedef void(__cdecl *call_fn)(uintptr_t, int, int);
-        ((call_fn)0x0084EBF0)(L, 1, 1);
+        ((call_fn)0x0084EBF0)(L, 1, 1);             // method(obj) -> 1 result
 
         g_hits++;
         return 1;
