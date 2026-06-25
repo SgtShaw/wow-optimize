@@ -25,26 +25,15 @@ int FastPath_MathAbs(lua_State* L) {
 }
 
 bool Init() {
-    Log("[LuaVM Phase3] Initializing Lua VM Phase 3 optimizations...");
-    
-    if (MH_Initialize() != MH_OK) {
-        Log("[LuaVM Phase3] Failed to initialize MinHook.");
-        return false;
-    }
-
-    if (MH_CreateHook((LPVOID)LUA_D_CALL_ADDR, &Hooked_luaD_call, reinterpret_cast<LPVOID*>(&Original_luaD_call)) != MH_OK) {
-        Log("[LuaVM Phase3] Failed to create hook for luaD_call at 0x%p", LUA_D_CALL_ADDR);
-        return false;
-    }
-
-    if (MH_EnableHook((LPVOID)LUA_D_CALL_ADDR) != MH_OK) {
-        Log("[LuaVM Phase3] Failed to enable hook for luaD_call.");
-        return false;
-    }
-
-    stats.active = true;
-    Log("[LuaVM Phase3] Hook installed successfully at 0x%p", LUA_D_CALL_ADDR);
-    return true;
+    // LUA_D_CALL_ADDR (0x84D9C0) is index2adr, NOT luaD_call — it is a __usercall
+    // leaf (idx in EAX, lua_State* in ECX), not a __cdecl(L, nResults) dispatcher.
+    // Hooking it with this signature corrupts every stack-index resolution in the
+    // VM. The fast-path cache here is also an unimplemented placeholder, so there is
+    // nothing to dispatch. Leave inert until a correct luaD_call address and a real
+    // handler exist.
+    Log("[LuaVM Phase3] Inert: no valid dispatch target (0x84D9C0 is index2adr, not luaD_call)");
+    stats.active = false;
+    return false;
 }
 
 void Shutdown() {

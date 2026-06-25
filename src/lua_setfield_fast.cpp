@@ -4,6 +4,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "crash_dumper.h"
+#include "lua_index2adr.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -33,8 +34,7 @@ static int __cdecl hook(uintptr_t L, int idx, const char* k) {
 
     __try {
         // Resolve table via index2adr
-        typedef uintptr_t(__cdecl *idx2adr_fn)(int, uintptr_t);
-        uintptr_t table_tv = ((idx2adr_fn)0x0084D9C0)(idx, L);
+        uintptr_t table_tv = WowIndex2Adr(idx, L);
         if (table_tv < 0x10000 || *(int*)(table_tv + 8) != 5) { g_misses++; return orig(L, idx, k); }
 
         uintptr_t table = *(uintptr_t*)table_tv;

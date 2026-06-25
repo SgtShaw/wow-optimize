@@ -1,6 +1,7 @@
 #include "lua_tonumber_cache.h"
 #include <windows.h>
 #include <MinHook.h>
+#include "lua_index2adr.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -17,13 +18,9 @@ struct TValue {
     int tt;                 // 4 bytes - type tag at offset 8
 };
 
-// Original helper function to get TValue* from stack index
-typedef TValue* (__cdecl* get_tvalue_t)(void* L, int idx);
-static get_tvalue_t orig_get_tvalue = (get_tvalue_t)0x0084D9C0;
-
 static double __cdecl hook_lua_tonumber(void* L, int idx) {
-    // Get TValue* from stack
-    TValue* tv = orig_get_tvalue(L, idx);
+    // Get TValue* from stack (index2adr is __usercall — see lua_index2adr.h)
+    TValue* tv = (TValue*)WowIndex2Adr(idx, (uintptr_t)L);
 
     // Fast path: if already a number, return directly
     if (tv && tv->tt == 3) {  // LUA_TNUMBER

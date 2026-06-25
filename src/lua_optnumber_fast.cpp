@@ -3,6 +3,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "crash_dumper.h"
+#include "lua_index2adr.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -11,8 +12,8 @@ static optnum_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static double __cdecl hook(uintptr_t L, int narg, double def) {
-    typedef uintptr_t(__cdecl *index2adr_fn)(int, uintptr_t);
-    uintptr_t tv = ((index2adr_fn)0x0084D9C0)(narg, L);
+    if (L < 0x10000 || L > 0xBFFF0000) return orig(L, narg, def);
+    uintptr_t tv = WowIndex2Adr(narg, L);
     if (tv < 0x10000) return orig(L, narg, def);
 
     int tt = *(int*)(tv + 8);
