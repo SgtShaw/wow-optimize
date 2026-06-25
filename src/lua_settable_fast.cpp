@@ -75,7 +75,7 @@ static int __cdecl hook(uintptr_t L, int idx) {
         *(uintptr_t*)(L + 0x0C) = top - 32;
 
         g_hits++;
-        return (int)L;
+        return (int)top;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     g_misses++;
@@ -83,10 +83,10 @@ static int __cdecl hook(uintptr_t L, int idx) {
 }
 
 bool InstallLuaSetTableFast() {
-    void* t = (void*)0x0084E970;
+    void* t = (void*)0x0084E8D0;
     if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
     WO_EnableHook(t);
-    Log("[SetTable] ACTIVE — lua_settable inline at 0x84E970");
+    Log("[SetTable] ACTIVE — lua_settable inline at 0x0084E8D0");
     CrashDumper::RegisterFeature("SetTable");
     CrashDumper::FeatureSetActive("SetTable", true);
     return true;

@@ -342,10 +342,16 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
+#ifndef TEST_DISABLE_RAWGETI_INLINE
 #define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 RE-ENABLED after root-causing vs sub_84E670: the array fast path omitted the engine's taint==0 branch (stamp pushed value with the global taint cell *0xD4139C, then return it), so values read in a tainted context came out untainted; and it resolved GLOBALSINDEX to a wrong slot (L_base+72). Fixed: taint logic now byte-exact to the engine (disasm-verified single-indirection store), pseudo-indices defer to index2adr. Array path only; hash part defers. SEH-guarded. (It was originally disabled as collateral with GetStrInline, not for a confirmed RawGetI bug — aura_env nil was the GetStr high-VA bail.)
+#endif
+#ifndef TEST_DISABLE_RAWGET_INLINE
 #define TEST_DISABLE_RAWGET_INLINE              0   // lua_rawget inline fast path using direct stack resolution and luaH_get (0x85C470) detour.
+#endif
 #define TEST_DISABLE_STRTOD_FAST                0   // Fast string-to-number parser (strtod hook)
+#ifndef TEST_DISABLE_GETSTR_INLINE
 #define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xBFFF0000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
+#endif
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
 // (TEST_ENABLE_WS_AGGRESSIVE_PIN lives in wow_memory_opt.cpp, where the working set is set.)
@@ -5637,6 +5643,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallD3DEvictPatch();
     bool strncmpGuardOk = InstallStrncmpNullGuard();
 
+    // Extend the Lua C-function pointer validation range to include this DLL.
+    // sub_86B5A0 validates pointers against wow.exe's .text section only
+    // (populated by sub_86B510 from the PE header), rejecting any C functions
+    // registered from external modules -> ERROR #134 "Invalid function pointer".
+    // Expand to full user-mode VA span — all callers discard sub_86B5A0's return.
+    *(uint32_t*)0x00D415B8 = 0x00400000;  // dword_D415B8 — range start
+    *(uint32_t*)0x00D415BC = 0xBFFF0000;  // dword_D415BC — range end
+
     Log("--- Sound System Protection Guards ---");
     InstallSoundDriverGuard();
     InstallSoundEmitterGuard();
@@ -5791,7 +5805,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool memcpyFastOk = InstallMemcpyFast();
 
     // FrameScript hash dispatch - 18 handlers, O(1) vs O(n)
+#if !TEST_DISABLE_FRAME_SCRIPT_DISPATCH
     bool fsDispatchOk = InstallFrameScriptDispatch();
+#else
+    bool fsDispatchOk = false;
+    Log("[FrameScriptDispatch] DISABLED via feature flag");
+#endif
 
     // Fast String Compare (strncmp) - 1013 callers
     bool fastStrncmpOk = InstallFastStrncmp();
@@ -5894,7 +5913,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool getTimeFastOk = InstallGetTimeFast();
 
     Log("--- lua_pushvalue Direct Stack Copy ---");
+#if !TEST_DISABLE_PUSHVALUE_FAST
     bool pushValueFastOk = InstallLuaPushValueFast();
+#else
+    bool pushValueFastOk = false;
+    Log("[PushValueFast] DISABLED via TEST_DISABLE_PUSHVALUE_FAST");
+#endif
 
     Log("--- Lua Stack Push/Query Fast Paths (8 hooks) ---");
 #if !TEST_DISABLE_LUA_STACK_FAST
@@ -5986,26 +6010,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool objlenOk = InstallLuaObjLenInline();
 
     Log("--- luaD_precall Dispatch Cache ---");
+#if !TEST_DISABLE_LUA_INLINE_BATCH
+    // --- Dangerous group: allocation / table writes / complex ---
+#if !TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS
     bool precallCacheOk = InstallLuaPrecallCache();
     bool tableFastOk = InstallLuaTableFast();
     bool hgetFastOk = InstallLuaHgetFast();
-    bool checknumOk = InstallLuaCheckNumberFast();
-    bool checkstrOk = InstallLuaCheckStringFast();
-    bool optnumOk = InstallLuaOptnumberFast();
-    bool optstrOk = InstallLuaOptstringFast();
-    bool tolstrOk = InstallLuaTolstringFast();
-    bool argchkOk = InstallLuaArgcheckFast();
-    bool tnameOk = InstallLuaTypeNameFast();
-    bool getlocalOk = InstallLuaGetLocalFast();
-    bool setlocalOk = InstallLuaSetLocalFast();
-    bool setupvalOk = InstallLuaSetUpvalFast();
-    bool getinfoOk = InstallLuaGetInfoFast();
-    bool errorfastOk = InstallLuaErrorFast();
-    bool lessthanOk = InstallLuaLessThanFast();
-    bool gcFastOk = InstallLuaGCFast();
-    bool xpcallFastOk = InstallLuaXPCallFast();
-    bool metaFieldFastOk = InstallLuaGetMetaFieldFast();
-    bool whereFastOk = InstallLuaWhereFast();
     bool setTableFastOk = InstallLuaSetTableFast();
     bool getTableFastOk = InstallLuaGetTableFast();
     bool concatFastOk = InstallLuaConcatFast();
@@ -6021,18 +6031,110 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaRefFastOk = InstallLuaRefFast();
     bool luaUnrefFastOk = InstallLuaUnrefFast();
     bool luaCallMetaFastOk = InstallLuaCallMetaFast();
+    bool pushResultFastOk = InstallLuaPushresultFast();
+    bool addLStringFastOk = InstallLuaAddlstringFast();
+    bool loadstrFastOk = InstallLuaLoadStringFast();
+    bool yieldFastOk = InstallLuaYieldFast();
+#else
+    bool precallCacheOk = false, tableFastOk = false, hgetFastOk = false;
+    bool setTableFastOk = false, getTableFastOk = false, concatFastOk = false;
+    bool rawSetIFastOk = false, setFieldFastOk = false, pushfstrFastOk = false;
+    bool pushThreadFastOk = false, rawSetFastOk = false, pushCClosureFastOk = false;
+    bool createTableFastOk = false, pushStringFastOk = false, luaRegisterFastOk = false;
+    bool luaRefFastOk = false, luaUnrefFastOk = false, luaCallMetaFastOk = false;
+    bool pushResultFastOk = false, addLStringFastOk = false;
+    bool loadstrFastOk = false, yieldFastOk = false;
+    Log("[LuaInlineBatch] DANGEROUS hooks DISABLED");
+#endif
+
+    // --- Safe group 1: string/number validation ---
+#if !TEST_DISABLE_LUA_SAFE_G1
+    bool checknumOk = InstallLuaCheckNumberFast();
+    bool checkstrOk = InstallLuaCheckStringFast();
+    bool optnumOk = InstallLuaOptnumberFast();
+    bool optstrOk = InstallLuaOptstringFast();
+    bool tolstrOk = InstallLuaTolstringFast();
+    bool argchkOk = InstallLuaArgcheckFast();
+    bool tnameOk = InstallLuaTypeNameFast();
+#else
+    bool checknumOk = false, checkstrOk = false, optnumOk = false, optstrOk = false;
+    bool tolstrOk = false, argchkOk = false, tnameOk = false;
+#endif
+
+    // --- Safe group 2: debug / execution control ---
+#if !TEST_DISABLE_LUA_SAFE_G2
+#if !TEST_DISABLE_LUA_SAFE_G2A
+#if !TEST_DISABLE_LUA_SAFE_G2AL
+    bool getlocalOk = InstallLuaGetLocalFast();
+#else
+    bool getlocalOk = false;
+#endif
+#if !TEST_DISABLE_LUA_SETLOCAL_FAST
+    bool setlocalOk = InstallLuaSetLocalFast();
+#else
+    bool setlocalOk = false;
+    Log("[LuaInline] SetLocal DISABLED: confirmed ntdll heap corruption on login");
+#endif
+#if !TEST_DISABLE_LUA_SAFE_G2AI
+    bool getinfoOk = InstallLuaGetInfoFast();
+#else
+    bool getinfoOk = false;
+#endif
+#else
+    bool getlocalOk = false, setlocalOk = false, getinfoOk = false;
+#endif
+#if !TEST_DISABLE_LUA_SAFE_G2B
+    bool errorfastOk = InstallLuaErrorFast();
+    bool lessthanOk = InstallLuaLessThanFast();
+#else
+    bool errorfastOk = false, lessthanOk = false;
+#endif
+#if !TEST_DISABLE_LUA_SAFE_G2C
+    bool gcFastOk = InstallLuaGCFast();
+    bool xpcallFastOk = InstallLuaXPCallFast();
+#else
+    bool gcFastOk = false, xpcallFastOk = false;
+#endif
+#else
+    bool getlocalOk = false, setlocalOk = false, getinfoOk = false;
+    bool errorfastOk = false, lessthanOk = false;
+    bool gcFastOk = false, xpcallFastOk = false;
+#endif
+
+    // --- Safe group 3: metatable / type checks / buffers ---
+#if !TEST_DISABLE_LUA_SAFE_G3
+    bool metaFieldFastOk = InstallLuaGetMetaFieldFast();
+    bool whereFastOk = InstallLuaWhereFast();
     bool luaCheckTypeFastOk = InstallLuaCheckTypeFast();
     bool getUpvalueFastOk = InstallLuaGetUpvalueFast();
     bool buffInitFastOk = InstallLuaBuffinitFast();
     bool prepBufferFastOk = InstallLuaPrepbufferFast();
-    bool pushResultFastOk = InstallLuaPushresultFast();
-    bool addLStringFastOk = InstallLuaAddlstringFast();
     bool iscfuncFastOk = InstallLuaIsCFuncFast();
     bool isnumFastOk = InstallLuaIsNumberFast();
     bool raweqFastOk = InstallLuaRawEqualFast();
-    bool loadstrFastOk = InstallLuaLoadStringFast();
-    bool yieldFastOk = InstallLuaYieldFast();
-    bool getnFastOk = InstallLuaGetnFast();
+#else
+    bool metaFieldFastOk = false, whereFastOk = false, luaCheckTypeFastOk = false;
+    bool getUpvalueFastOk = false, buffInitFastOk = false, prepBufferFastOk = false;
+    bool iscfuncFastOk = false, isnumFastOk = false, raweqFastOk = false;
+#endif
+#else
+    bool precallCacheOk = false, tableFastOk = false, hgetFastOk = false;
+    bool checknumOk = false, checkstrOk = false, optnumOk = false, optstrOk = false;
+    bool tolstrOk = false, argchkOk = false, tnameOk = false;
+    bool getlocalOk = false, setlocalOk = false, setupvalOk = false;
+    bool getinfoOk = false, errorfastOk = false, lessthanOk = false;
+    bool gcFastOk = false, xpcallFastOk = false, metaFieldFastOk = false, whereFastOk = false;
+    bool setTableFastOk = false, getTableFastOk = false, concatFastOk = false;
+    bool rawSetIFastOk = false, setFieldFastOk = false, pushfstrFastOk = false;
+    bool pushThreadFastOk = false, rawSetFastOk = false, pushCClosureFastOk = false;
+    bool createTableFastOk = false, pushStringFastOk = false, luaRegisterFastOk = false;
+    bool luaRefFastOk = false, luaUnrefFastOk = false, luaCallMetaFastOk = false;
+    bool luaCheckTypeFastOk = false, getUpvalueFastOk = false, buffInitFastOk = false;
+    bool prepBufferFastOk = false, pushResultFastOk = false, addLStringFastOk = false;
+    bool iscfuncFastOk = false, isnumFastOk = false, raweqFastOk = false;
+    bool loadstrFastOk = false, yieldFastOk = false, getnFastOk = false;
+    Log("[LuaInlineBatch] ALL DISABLED via TEST_DISABLE_LUA_INLINE_BATCH");
+#endif
     CrashDumper::RegisterFeature("LuaObjLen");
     CrashDumper::FeatureSetActive("LuaObjLen", objlenOk);
 
@@ -6067,7 +6169,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallLuaNewKeySafety();
 
     Log("--- Lua VM Engine (Direct-Threaded Interpreter) ---");
+#if !TEST_DISABLE_LUA_VM_ENGINE
     bool vmEngineOk = InstallLuaVMEngine();
+#else
+    bool vmEngineOk = false;
+    Log("[VMEngine] DISABLED via feature flag");
+#endif
     CrashDumper::RegisterFeature("LuaVMEngine");
     CrashDumper::FeatureSetActive("LuaVMEngine", vmEngineOk);
 

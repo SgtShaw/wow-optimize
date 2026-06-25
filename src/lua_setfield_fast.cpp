@@ -79,7 +79,7 @@ static int __cdecl hook(uintptr_t L, int idx, const char* k) {
         *(uintptr_t*)(L + 0x0C) = top - 16;
 
         g_hits++;
-        return (int)L;
+        return (int)val12;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     g_misses++;

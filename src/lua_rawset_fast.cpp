@@ -69,7 +69,7 @@ static int __cdecl hook(uintptr_t L, int idx) {
         *(uintptr_t*)(L + 0x0C) = top - 32;
 
         g_hits++;
-        return (int)L;
+        return (int)top;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     g_misses++;
@@ -77,10 +77,10 @@ static int __cdecl hook(uintptr_t L, int idx) {
 }
 
 bool InstallLuaRawSetFast() {
-    void* t = (void*)0x0084E8D0;
+    void* t = (void*)0x0084E970;
     if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
     WO_EnableHook(t);
-    Log("[RawSet] ACTIVE — lua_rawset inline at 0x84E8D0");
+    Log("[RawSet] ACTIVE — lua_rawset inline at 0x0084E970");
     CrashDumper::RegisterFeature("RawSet");
     CrashDumper::FeatureSetActive("RawSet", true);
     return true;

@@ -52,12 +52,12 @@ static fn_lua_toboolean   lua_toboolean_   = (fn_lua_toboolean)0x0084E0B0;
 static fn_lua_pushboolean lua_pushboolean_ = (fn_lua_pushboolean)0x0084E4D0;
 static fn_lua_settop      lua_settop_      = (fn_lua_settop)0x0084DBF0;
 static fn_lua_getfield    lua_getfield_    = (fn_lua_getfield)0x0084E590;
-static fn_lua_pushcclosure lua_pushcclosure_ = (fn_lua_pushcclosure)0x0084E980;
-static fn_lua_replace     lua_replace_     = (fn_lua_replace)0x0084E850;
-static fn_lua_insert      lua_insert_      = (fn_lua_insert)0x0084E8C0;
-static fn_lua_remove      lua_remove_      = (fn_lua_remove)0x0084E880;
-static fn_lua_topointer   lua_topointer_   = (fn_lua_topointer)0x0084E0A0;
-static fn_lua_pushvalue   lua_pushvalue_   = (fn_lua_pushvalue)0x0084E630;
+static fn_lua_pushcclosure lua_pushcclosure_ = (fn_lua_pushcclosure)0x0084E400;
+static fn_lua_replace     lua_replace_     = (fn_lua_replace)0x0084DD70;
+static fn_lua_insert      lua_insert_      = (fn_lua_insert)0x0084DCC0;
+static fn_lua_remove      lua_remove_      = (fn_lua_remove)0x0084DC50;
+static fn_lua_topointer   lua_topointer_   = (fn_lua_topointer)0x0084E070;
+static fn_lua_pushvalue   lua_pushvalue_   = (fn_lua_pushvalue)0x0084DE50;
 
 typedef void* (__cdecl *fn_luaH_get)(void* t, const void* key);
 typedef void* (__cdecl *fn_luaH_getnum)(void* t, int key);
@@ -3040,7 +3040,7 @@ static FuncHookEntry g_funcHooks[] = {
     {"string", "gsub",     (void*)Hooked_StrGsub,          &orig_str_gsub,         0, false},
 #endif
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
-    {nullptr, "sort", (void*)Hooked_TableSort, &orig_table_sort, 0x00851E00, false},
+    {"table", "sort", (void*)Hooked_TableSort, &orig_table_sort, 0, false},
 #endif    
 #if 0  // UnitAPI DMA disabled — STACK_OVERFLOW (1.9B recursive calls)
     {nullptr, "UnitHealth",   (void*)Hooked_UnitHealth,    &orig_UnitHealth,    0x0060EB60, false},
@@ -3049,12 +3049,12 @@ static FuncHookEntry g_funcHooks[] = {
     {nullptr, "UnitPowerMax", (void*)Hooked_UnitPowerMax,  &orig_UnitPowerMax,  0x0060EF40, false},
 #endif    
 #if !TEST_DISABLE_HOOK_MATH_RANDOM
-    {"math",   "random",   (void*)Hooked_Math_Random,      &orig_math_random,      0x00851100, false},
+    {"math",   "random",   (void*)Hooked_Math_Random,      &orig_math_random,      0, false},
 #endif
 #if !TEST_DISABLE_HOOK_MATH_SQRT
-    {"math",   "sqrt",     (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0x00851360, false},
+    {"math",   "sqrt",     (void*)Hooked_Math_Sqrt,        &orig_math_sqrt,        0, false},
 #endif
-    {"string", "rep",      (void*)Hooked_StrRep,           &orig_str_rep,          0x00852780, false},
+    {"string", "rep",      (void*)Hooked_StrRep,           &orig_str_rep,          0, false},
     {nullptr,  "strsplit", (void*)Hooked_StrSplit,         &orig_str_split,        0, false},
     {nullptr,  "strtrim",  (void*)Hooked_StrTrim,          &orig_str_trim,         0, false},
     {nullptr,  "strjoin",  (void*)Hooked_StrJoin,          &orig_str_join,         0, false},

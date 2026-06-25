@@ -301,7 +301,7 @@ static int __cdecl hook_lua_remove(uintptr_t L, int idx) {
                 }
 
                 *(uintptr_t*)(L + 0x0C) = top - 16;
-                return (int)L;
+                return (int)top;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}

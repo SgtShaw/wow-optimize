@@ -128,7 +128,7 @@ static void BuildKnownFuncTable() {
         { 0x0084E1C0, "lua_touserdata" },
         { 0x0084E2A0, "lua_pushnumber" },
         { 0x0084E670, "lua_rawgeti" },
-        { 0x0084E8D0, "lua_rawget" },
+        { 0x0084E8D0, "lua_settable" },
         { 0x0084EBF0, "lua_pcall" },
         { 0x0084F9F0, "luaL_checklstring" },
 
@@ -195,14 +195,14 @@ static void BuildKnownFuncTable() {
         { 0x0084E350, "lua_pushstring" },
         { 0x0084E590, "lua_getfield" },
         { 0x0084E900, "lua_setfield" },
-        { 0x0084E970, "lua_settable" },
+        { 0x0084E970, "lua_rawset" },
         { 0x0084EC30, "lua_call" },
         { 0x0084ED50, "lua_gc" },
 
         // --- Lua VM dispatch / tables ---
         { 0x00856760, "luaD_call" },
-        { 0x00857250, "lua_gettable_raw" },
-        { 0x008573C0, "lua_rawset" },
+        { 0x00857250, "luaV_gettable" },
+        { 0x008573C0, "luaV_settable" },
 
         // --- Lua base / conversion / table lib ---
         { 0x00851C30, "table.concat" },

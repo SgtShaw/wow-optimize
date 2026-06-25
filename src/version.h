@@ -181,6 +181,12 @@
 // Force high-precision timing & block timingtesterror fallback
 #define TEST_DISABLE_TIMING_FIX         1
 
+// Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
+#define TEST_DISABLE_LUA_VM_ENGINE        1
+
+// FrameScript hash dispatch - wrong offsets crash on login/world entry
+#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
+
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
 #define TEST_DISABLE_UI_FRAME_BATCH     0
@@ -414,7 +420,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  0
+#define TEST_DISABLE_LUA_STACK_FAST  0  // re-enabled: basic stack ops, IDA-verified
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -427,14 +433,53 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0  // re-enabled: dead-string offsets fixed
+
+// Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
+// These ~47 hooks were never validated in-game and are suspected of causing
+// the ntdll.dll heap-corruption crash during world entry (0x778BAAB6).
+// Set to 1 to surgically remove all of them; set to 0 to test individually.
+// Re-enable all safe batch hooks (individually tested working).
+// Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1  0  // CheckNum/CheckStr/OptNum/OptStr/TolStr/ArgCheck/TypeName
+#define TEST_DISABLE_LUA_SAFE_G2  0
+#define TEST_DISABLE_LUA_SAFE_G2AL 1  // GetLocal — untested, disable for now
+#define TEST_DISABLE_LUA_SAFE_G2AI 1  // GetInfo — untested, disable for now
+#define TEST_DISABLE_LUA_SAFE_G2B 0  // ErrorFast/LessThan
+#define TEST_DISABLE_LUA_SAFE_G2C 0  // GCFast/XPCall
+#define TEST_DISABLE_LUA_SAFE_G3  0  // MetaField/Where/CheckType/GetUpval/BufInit/PrepBuf/IsCFunc/IsNum/RawEqual
+
+// lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
+// causes ntdll.dll heap corruption during login screen (bisected to this hook).
+// Permanently disabled until the write-offset bug is fixed.
+#define TEST_DISABLE_LUA_SETLOCAL_FAST  1
+
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
+
+// lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
+// Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
+#define TEST_DISABLE_RAWGETI_INLINE  0
+
+// lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
+// Copies TValue from luaH_get result, taint logic matches the engine exactly.
+#define TEST_DISABLE_RAWGET_INLINE    0
+
+// luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
+// Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
 // the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
 // *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
 // custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
 // ~5M times/session (combat log, bars, timers) -- elides the call overhead.
-#define TEST_DISABLE_PUSHNUMBER_FAST    0
+#define TEST_DISABLE_PUSHNUMBER_FAST    0  // re-enabled: IDA-verified byte-exact
+
+// lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
+// Fixed: taint propagation now matches engine term-for-term.
+#define TEST_DISABLE_PUSHVALUE_FAST     0  // re-enabled
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.

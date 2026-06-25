@@ -46,6 +46,9 @@ static int __cdecl hook(uintptr_t L, int idx) {
         uintptr_t node = ((getstr_fn)0x0085C430)(table, key_str);
         if (node < 0x10000 || node == 0x00A46F78) { g_misses++; return orig(L, idx); }
 
+        // If the value in the table is nil, defer to the engine to check metatables / __index
+        if (*(int*)(node + 8) == 0) { g_misses++; return orig(L, idx); }
+
         // Copy the found value into the key's stack slot (in-place replacement)
         *(uint64_t*)(key_tv + 0) = *(uint64_t*)(node + 0);
         *(uint32_t*)(key_tv + 8) = *(uint32_t*)(node + 8);
@@ -57,7 +60,7 @@ static int __cdecl hook(uintptr_t L, int idx) {
             *(uint32_t*)TAINT_CELL = val_taint;
 
         g_hits++;
-        return (int)L;
+        return (int)key_tv;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     g_misses++;
