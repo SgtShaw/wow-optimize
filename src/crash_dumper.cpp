@@ -553,3 +553,24 @@ void RecordHookCall(const char* hookName, uintptr_t addr) {
 }
 
 } // namespace CrashDumper
+
+// Called from lua_error_diag to dump hook trace on Lua errors
+void CrashDumper_DumpHookTrace(int count) {
+    if (count > HOOK_TRACE_SIZE) count = HOOK_TRACE_SIZE;
+    LONG hpos = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+    DWORD now = GetTickCount();
+    int printed = 0;
+    for (int i = 0; i < count && i < hpos; i++) {
+        int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
+        HookTraceEntry& e = s_hookTrace[idx];
+        if (e.hookName && e.hookName[0]) {
+            Log("    [%d] %s @ 0x%08X  TID=%lu  %ums ago",
+                i, e.hookName, (unsigned)e.addr, e.threadId,
+                (unsigned)(now - e.tick));
+            printed++;
+        }
+    }
+    if (printed == 0) {
+        Log("    (no hook trace entries recorded)");
+    }
+}

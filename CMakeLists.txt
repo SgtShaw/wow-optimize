@@ -240,6 +240,8 @@ add_library(wow_optimize SHARED
     src/lua_rawget_inline.cpp
     src/lua_toboolean_inline.cpp
     src/lua_objlen_inline.cpp
+    src/lua_error_diag.cpp
+    src/lua_error_diag.h
     src/lua_getstr_inline.h
     src/lua_rawget_inline.h
     src/lua_toboolean_inline.h

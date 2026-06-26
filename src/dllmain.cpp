@@ -57,6 +57,7 @@
 #include "lua_toboolean_inline.h"
 #include "strtod_fast.h"
 #include "lua_objlen_inline.h"
+#include "lua_error_diag.h"
 #include "hooks_memory.h"
 #include "data_caches.h"
 #include "compute_caches.h"
@@ -6188,6 +6189,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- luaH_newkey Safety Patch (0x85CB43 crash fix) ---");
     InstallLuaNewKeySafety();
+
+    Log("--- Lua Error Diagnostics ---");
+    InstallLuaErrorDiag();  // always-on: logs every Lua error to this file
 
     Log("--- Lua VM Engine (Direct-Threaded Interpreter) ---");
 #if !TEST_DISABLE_LUA_VM_ENGINE
