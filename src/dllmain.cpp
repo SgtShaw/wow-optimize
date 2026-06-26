@@ -5996,7 +5996,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool dbcLookupOk = InstallDbcLookupCache();
 
     Log("--- Event Dispatch Cache ---");
+#if !TEST_DISABLE_UNIT_API_FASTPATH
     bool eventDispatchOk = InstallEventDispatchCache();
+#else
+    bool eventDispatchOk = false;
+    Log("[EventDispatchCache] DISABLED via TEST_DISABLE_UNIT_API_FASTPATH — stale node crash at 0x5565E9");
+#endif
 
     Log("--- Event Name Cache ---");
     bool eventNameOk = InstallEventNameCache();
