@@ -182,7 +182,7 @@
 #define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE        0  // disabled: 70+ pages Lua errors + freeze
+#define TEST_DISABLE_LUA_VM_ENGINE        1  // disabled: 0x8591D5 crash in VM interpreter loop + ElvUI load failure
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
 #define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
