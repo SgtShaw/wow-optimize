@@ -24,7 +24,7 @@ void PrecallCache_Invalidate() { memset(g_cache, 0, sizeof(g_cache)); }
 
 static bool CanInline() {
     if (g_startTime == 0) g_startTime = GetTickCount64();
-    return !LuaOpt::IsLoadingMode() && (GetTickCount64() - g_startTime) > 60000;
+    return !LuaOpt::IsLoadingMode() && (GetTickCount64() - g_startTime) > 30000;
 }
 
 static int __cdecl hook(uintptr_t L, uintptr_t tv, int nres, uint64_t tin, uint64_t* tout)

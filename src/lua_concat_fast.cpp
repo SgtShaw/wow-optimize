@@ -23,45 +23,33 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
     if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, total, last); }
 
     __try {
-        // Only optimize the common two-string concatenation.
-        if (total != 2 || last < 1) { g_misses++; return orig(L, total, last); }
+        if (total < 2 || total > 4 || last < total - 1) { g_misses++; return orig(L, total, last); }
 
         uintptr_t base = *(uintptr_t*)(L + 0x10);
         if (base < 0x10000) { g_misses++; return orig(L, total, last); }
 
-        uintptr_t s1_tv = base + (uintptr_t)(last - 1) * 16;  // left operand
-        uintptr_t s2_tv = base + (uintptr_t)last * 16;        // right operand
+        char buf[4096];
+        size_t tlen = 0;
+        uintptr_t s1_tv = base + (uintptr_t)(last - total + 1) * 16;
 
-        if (*(int*)(s1_tv + 8) != LUA_TSTRING || *(int*)(s2_tv + 8) != LUA_TSTRING) {
-            g_misses++; return orig(L, total, last);
+        for (int i = 0; i < total; ++i) {
+            uintptr_t tv = base + (uintptr_t)(last - total + 1 + i) * 16;
+            if (*(int*)(tv + 8) != LUA_TSTRING) { g_misses++; return orig(L, total, last); }
+            uintptr_t ts = *(uintptr_t*)tv;
+            if (ts < 0x10000) { g_misses++; return orig(L, total, last); }
+            size_t slen = *(size_t*)(ts + 16);
+            if (slen == 0) continue;
+            tlen += slen;
+            if (tlen > 4000) { g_misses++; return orig(L, total, last); }
+            memcpy(buf + tlen - slen, (const char*)(ts + 20), slen);
         }
 
-        uintptr_t s1 = *(uintptr_t*)s1_tv;
-        uintptr_t s2 = *(uintptr_t*)s2_tv;
-        if (s1 < 0x10000 || s2 < 0x10000) { g_misses++; return orig(L, total, last); }
+        if (tlen == 0) { g_misses++; return orig(L, total, last); }
 
-        size_t len1 = *(size_t*)(s1 + 16);
-        size_t len2 = *(size_t*)(s2 + 16);
-        size_t tlen = len1 + len2;
-
-        // Only short concatenations take the fast path so a fixed stack buffer is
-        // always large enough. Anything bigger defers to the engine, which manages
-        // its own growable string buffer.
-        if (tlen == 0 || tlen > 4000) { g_misses++; return orig(L, total, last); }
-
-        char buf[4000];
-        memcpy(buf, (const char*)(s1 + 20), len1);
-        memcpy(buf + len1, (const char*)(s2 + 20), len2);
-
-        // Create TString via luaS_newlstr (interns + copies out of buf)
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const void*, size_t);
         uintptr_t new_ts = ((newlstr_fn)0x00856C80)(L, buf, tlen);
         if (new_ts < 0x10000) { g_misses++; return orig(L, total, last); }
 
-        // Write the result into the left operand's slot, exactly like the engine
-        // (value/tt/taint at s1_tv). luaV_concat itself does NOT touch L->top — the
-        // caller (the VM's OP_CONCAT or lua_concat) adjusts the stack afterwards, so
-        // the hook must leave L->top alone to avoid a double pop.
         uint32_t taint = *(uint32_t*)TAINT_CELL;
         *(uintptr_t*)(s1_tv + 0) = new_ts;
         *(uint32_t*)(s1_tv + 8) = LUA_TSTRING;
