@@ -12,7 +12,7 @@ extern "C" void Log(const char* fmt, ...);
 #define TAINT_A0   0x00D413A0
 #define TAINT_A4   0x00D413A4
 
-// lua_rawset at 0x84E8D0 — table[idx] = value (no metamethods)
+// lua_rawset at 0x84E970 — table[idx] = value (no metamethods)
 // key at L->top-32, value at L->top-16
 typedef int(__cdecl *rawset_fn)(uintptr_t L, int idx);
 static rawset_fn orig = nullptr;
@@ -65,6 +65,8 @@ static int __cdecl hook(uintptr_t L, int idx) {
                 ((barrier_fn)0x0085BA90)(L, table);
             }
         }
+
+        *(uint8_t*)(table + 10) = 0;
 
         *(uintptr_t*)(L + 0x0C) = top - 32;
 

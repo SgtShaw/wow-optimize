@@ -11,9 +11,10 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
-#define TAINT_A0   0x00D413A0
-#define TAINT_A4   0x00D413A4
+#define TAINT_CELL     0x00D4139C
+#define TAINT_A0       0x00D413A0
+#define TAINT_A4       0x00D413A4
+#define TAINT_CALLBACK 0x00D413B0
 
 typedef int(__cdecl *settable_fn)(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt);
 static settable_fn orig = nullptr;
@@ -29,6 +30,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt)
 
     int key_tt = *(int*)(kt + 8);
     uintptr_t val0 = *(uintptr_t*)(vt + 0);
+    uint32_t val1 = *(uint32_t*)(vt + 4);
     uint32_t val2 = *(uint32_t*)(vt + 8);
     uint32_t val3 = *(uint32_t*)(vt + 12);
 
@@ -40,15 +42,25 @@ static int __cdecl hook(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt)
             typedef uintptr_t(__cdecl *getstr_fn)(uintptr_t, uintptr_t);
             uintptr_t node = ((getstr_fn)0x0085C430)(table, key_str);
             if (node < 0x10000 || node == 0x00A46F78) goto fallback;
+            uint32_t old_tt = *(uint32_t*)(node + 8);
+            uint32_t old_taint = *(uint32_t*)(node + 12);
             *(uintptr_t*)(node + 0) = val0;
+            *(uint32_t*)(node + 4) = val1;
             *(uint32_t*)(node + 8) = val2;
             *(uint32_t*)(node + 12) = val3;
+            if (*(uintptr_t*)TAINT_CALLBACK) {
+                if (table == *(uintptr_t*)(L + 0x48) && val3) {
+                    if (!old_tt || old_taint != val3)
+                        ((void(__cdecl*)(uintptr_t,int,const char*,uint32_t))*(uintptr_t*)TAINT_CALLBACK)(L, 1, (const char*)(key_str + 20), val3);
+                }
+            }
         } else if (key_tt == 3) {  // Numeric key — array write
             int idx = (int)*(double*)kt;
             if ((double)idx != *(double*)kt || idx < 1) goto fallback;
             if ((unsigned)(idx - 1) >= *(uint32_t*)(table + 32)) goto fallback;
             uintptr_t slot = *(uintptr_t*)(table + 16) + (idx - 1) * 16;
             *(uintptr_t*)(slot + 0) = val0;
+            *(uint32_t*)(slot + 4) = val1;
             *(uint32_t*)(slot + 8) = val2;
             *(uint32_t*)(slot + 12) = val3;
         } else {

@@ -53,19 +53,8 @@ static int __cdecl hook(uintptr_t L) {
             len < sizeof(g_cachedSource) - 1 &&
             memcmp(s, g_cachedSource, len) == 0 &&
             g_cachedSource[len] == 0) {
-            g_hits++;
-            uintptr_t cl = g_cachedClosure;
-            if (cl > 0x10000) {
-                typedef int (__cdecl *pcall_fn)(uintptr_t L, int nargs, int nresults, int errfunc);
-                pcall_fn pcall = (pcall_fn)0x0084EC50;
-                if (pcall(L, 0, 1, -2))
-                    return 1;
-                g_cachedClosure = 0;
-                g_cachedSource[0] = 0;
-                goto fallback;
-            }
-            g_cachedClosure = 0;
-            g_cachedSource[0] = 0;
+            // Cache disabled: raw Closure* pointer cached without GC validation
+            // can become stale (mimalloc recycling). Defer to original.
             goto fallback;
         }
 

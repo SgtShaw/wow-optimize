@@ -12,7 +12,7 @@ extern "C" void Log(const char* fmt, ...);
 #define TAINT_A0   0x00D413A0
 #define TAINT_A4   0x00D413A4
 
-// lua_settable at 0x84E970 — table[idx] = value
+// lua_settable at 0x84E8D0 — table[idx] = value (with metamethods)
 // key at L->top-32, value at L->top-16
 typedef int(__cdecl *settable_fn)(uintptr_t L, int idx);
 static settable_fn orig = nullptr;
@@ -70,6 +70,8 @@ static int __cdecl hook(uintptr_t L, int idx) {
                 ((barrier_fn)0x0085BA90)(L, table);
             }
         }
+
+        *(uint8_t*)(table + 10) = 0;
 
         // Pop key + value from Lua stack
         *(uintptr_t*)(L + 0x0C) = top - 32;

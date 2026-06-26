@@ -41,6 +41,8 @@ static int __cdecl hook(uintptr_t L, uintptr_t tv, int nres, uint64_t tin, uint6
         int nups = g_cache[s].nups;
 
         if (CanInline()) {
+            uintptr_t proto = *(uintptr_t*)(obj + 24);
+            if (*(unsigned char*)(proto + 78) & 1) goto fallback2;
             uintptr_t base = tv + 16;
             uintptr_t newtop = base + 16 * nups;
             if (*(uintptr_t*)(L + 0x20) <= newtop) goto fallback2;

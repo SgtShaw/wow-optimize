@@ -35,7 +35,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
         if (ci == *(uintptr_t*)(L + 0x2C))
             env = *(uintptr_t*)(L + 0x48);
         else
-            env = *(uintptr_t*)(*(uintptr_t*)(ci + 4) + 16);
+            env = *(uintptr_t*)(*(uintptr_t*)(*(uintptr_t*)(ci + 4)) + 16);
 
         // Allocate via the real luaF_newCclosure so the closure header (isC=1,
         // nupvalues, env, gclist) is set up correctly; then store the C function
