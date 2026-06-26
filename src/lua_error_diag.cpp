@@ -7,6 +7,11 @@
 extern "C" void Log(const char* fmt, ...);
 extern void LogFlushImmediate();
 
+// lua_error: 0x84EF30 = sub_84EF30. IDA-verified: __cdecl __noreturn sub_84EF30(_DWORD *a1)
+// { sub_850830(a1); } — directly calls luaD_throw. 12 bytes, prologue: 55 8B EC.
+// The old address 0x84F610 was sub_84F610(size_t Size) = luaL_addvalue, NOT lua_error.
+// Using 0x84F610 caused all error reads to show <unable to read> (arg is size_t, not L).
+
 // Max errors to log before stopping (prevents recursive error flooding)
 #define MAX_DIAG_ERRORS 50
 
@@ -69,16 +74,18 @@ static int __cdecl DiagLuaError(uintptr_t L) {
 }
 
 bool InstallLuaErrorDiag() {
-    void* target = (void*)0x0084F610;
+    // IDA-verified: 0x84EF30 = sub_84EF30 = lua_error. Prologue: 55 8B EC (push ebp; mov ebp,esp).
+    // Calls sub_850830 (luaD_throw) directly. __cdecl(lua_State*), __noreturn.
+    void* target = (void*)0x0084EF30;
     unsigned char* p = (unsigned char*)target;
     if (p[0] != 0x55 || p[1] != 0x8B) {
-        Log("[LuaErrorDiag] BAD PROLOGUE at 0x%08X (expected 55 8B, got %02X %02X) — likely __usercall, skipping",
+        Log("[LuaErrorDiag] BAD PROLOGUE at 0x%08X (expected 55 8B, got %02X %02X) — skipping",
             (uintptr_t)target, p[0], p[1]);
         return false;
     }
     if (MH_CreateHook(target, DiagLuaError, (void**)&s_origLuaError) != MH_OK) return false;
     MH_EnableHook(target);
-    Log("[LuaErrorDiag] ACTIVE: logging first %d Lua errors to this log file", MAX_DIAG_ERRORS);
+    Log("[LuaErrorDiag] ACTIVE at 0x84EF30 (lua_error): logging first %d Lua errors", MAX_DIAG_ERRORS);
     CrashDumper::RegisterFeature("LuaErrorDiag");
     CrashDumper::FeatureSetActive("LuaErrorDiag", true);
     return true;

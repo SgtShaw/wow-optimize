@@ -66,6 +66,11 @@ static int __cdecl hook(uintptr_t L, uintptr_t tv, int nres, uint64_t tin, uint6
             *(uintptr_t*)(L + 0x10) = base;  // CRITICAL: Update L->base
             
             uintptr_t ci = *(uintptr_t*)(L + 0x18);
+            
+            // CRITICAL: Save L->savedpc to caller's ci->savedpc before pushing new ci!
+            // If we don't do this, luaD_poscall restores garbage, causing infinite loops/freezes.
+            *(uintptr_t*)(ci + 12) = *(uintptr_t*)(L + 0x1C);
+            
             if (ci == *(uintptr_t*)(L + 0x28)) goto fallback2;
             ci += 24;
             

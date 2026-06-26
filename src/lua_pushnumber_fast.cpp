@@ -35,7 +35,7 @@ static volatile LONG64 g_pushnum_calls = 0;
 static volatile LONG64 g_pushnum_hits = 0;
 
 // Original function pointer
-typedef void (__cdecl *lua_pushnumber_fn)(void* L, double n);
+typedef int (__cdecl *lua_pushnumber_fn)(void* L, double n);
 static lua_pushnumber_fn g_orig_pushnumber = nullptr;
 
 // Taint globals
@@ -44,30 +44,29 @@ static constexpr uintptr_t ADDR_taint_enabled = 0x00D413A0;
 static constexpr uintptr_t ADDR_taint_skip    = 0x00D413A4;
 
 // Optimized replacement
-static void __cdecl Optimized_PushNumber(void* L, double n)
+static int __cdecl Optimized_PushNumber(void* L, double n)
 {
     ++g_pushnum_calls;
 
     // Bail out during lua_State swap — L->top is being torn down
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
-        g_orig_pushnumber(L, n);
-        return;
+        return g_orig_pushnumber(L, n);
     }
 
     // Validate L pointer
     uintptr_t L_addr = (uintptr_t)L;
     if (L_addr < 0x10000 || L_addr > 0xBFFF0000) {
-        g_orig_pushnumber(L, n);
-        return;
+        return g_orig_pushnumber(L, n);
     }
 
     __try {
         // Read L->top
         DWORD* top = *(DWORD**)(L_addr + 0x0C);
         if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
-            g_orig_pushnumber(L, n);
-            return;
+            return g_orig_pushnumber(L, n);
         }
+        
+        int old_top = (int)top;
 
         // Write TValue directly: value (8 bytes) + tt (4 bytes) + taint (4 bytes)
         uint64_t value_bits;
@@ -82,8 +81,9 @@ static void __cdecl Optimized_PushNumber(void* L, double n)
         *(DWORD**)(L_addr + 0x0C) = top + 4;
 
         ++g_pushnum_hits;
+        return old_top;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        g_orig_pushnumber(L, n);
+        return g_orig_pushnumber(L, n);
     }
 }
 
