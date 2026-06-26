@@ -420,7 +420,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  0  // re-enabled: exonerated for GM bug
+#define TEST_DISABLE_LUA_STACK_FAST  1  // disabled: CVar values return nil (lua_isstring hook at 0x84DF60)
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -487,7 +487,7 @@
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
 // Fixed: taint propagation now matches engine term-for-term.
-#define TEST_DISABLE_PUSHVALUE_FAST     0  // re-enabled
+#define TEST_DISABLE_PUSHVALUE_FAST     1  // disabled: stack copy may corrupt CVar reads
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
