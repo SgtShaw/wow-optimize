@@ -508,7 +508,7 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST 0
+#define TEST_DISABLE_UI_ACCESSOR_FAST 1  // disabled: FrameIsShown fires before every Lua error (stale frame ptr during addon init)
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
