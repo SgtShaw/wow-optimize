@@ -234,3 +234,77 @@ void UninstallEventDispatchCache()
     }
 }
 
+static bool g_preWarmDone = false;
+
+void ClearEventDispatchCache()
+{
+    for (auto& pair : g_eventCache) {
+        pair.second.valid = false;
+        pair.second.ref_ids.clear();
+    }
+    g_preWarmDone = false;
+}
+
+void PreWarmEventDispatchCache()
+{
+    if (g_preWarmDone) return;
+    g_preWarmDone = true;
+
+    static const char* hotEvents[] = {
+        "PLAYER_ENTERING_WORLD",
+        "PLAYER_LEAVING_WORLD",
+        "PLAYER_TARGET_CHANGED",
+        "PLAYER_REGEN_DISABLED",
+        "PLAYER_REGEN_ENABLED",
+        "UNIT_HEALTH",
+        "UNIT_POWER",
+        "UNIT_MAXHEALTH",
+        "UNIT_MAXPOWER",
+        "UNIT_AURA",
+        "UNIT_NAME_UPDATE",
+        "COMBAT_LOG_EVENT_UNFILTERED",
+        "COMBAT_TEXT_UPDATE",
+        "BAG_UPDATE",
+        "UNIT_INVENTORY_CHANGED",
+        "ACTIONBAR_SLOT_CHANGED",
+        "UPDATE_BINDINGS",
+        "PARTY_MEMBERS_CHANGED",
+        "RAID_ROSTER_UPDATE",
+        "CHAT_MSG_ADDON",
+    };
+    static constexpr int hotEventCount = sizeof(hotEvents) / sizeof(hotEvents[0]);
+
+    typedef uintptr_t (__cdecl *EventResolve_t)(const char* name);
+    EventResolve_t resolve = (EventResolve_t)0x0081B510;
+
+    int warmed = 0;
+    __try {
+        for (int i = 0; i < hotEventCount; ++i) {
+            const char* event_name = hotEvents[i];
+            uintptr_t v3 = resolve(event_name);
+            if (v3 < 0x10000 || v3 > 0xBFFF0000) continue;
+
+            uintptr_t event_ptr = v3 - 24;
+
+            auto& entry = g_eventCache[event_ptr];
+            if (entry.valid) continue;  // already cached by lazy miss path
+
+            entry.ref_ids.clear();
+            uintptr_t list_head = *(uintptr_t*)(event_ptr + 32);
+            while ((list_head & 1) == 0 && list_head) {
+                uintptr_t frame = *(uintptr_t*)(list_head + 8);
+                if (frame > 0x10000 && frame < 0xBFFF0000) {
+                    int ref_id = *(int*)(frame + 8);
+                    entry.ref_ids.push_back(ref_id);
+                }
+                list_head = *(uintptr_t*)(list_head + 4);
+            }
+            entry.valid = true;
+            ++warmed;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    if (warmed > 0) {
+        Log("[EventDispatchCache] Pre-warmed %d hot event caches", warmed);
+    }
+}
