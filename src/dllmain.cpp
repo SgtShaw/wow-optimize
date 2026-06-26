@@ -6523,7 +6523,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Logic Hooks (combat text, UI cache, heartbeat) ---");
-    bool logicHooksOk = InstallLogicHooks(); // BISECT
+#if !TEST_DISABLE_UNIT_API_FASTPATH
+    bool logicHooksOk = InstallLogicHooks();
+#else
+    bool logicHooksOk = false;
+    Log("[LogicHooks] DISABLED via TEST_DISABLE_UNIT_API_FASTPATH");
+#endif
 
     Log("");
     Log("--- Memory Hooks (aligned slabs, GUID hash) ---");
