@@ -308,9 +308,6 @@ static volatile LONG64     g_uiScriptMisses = 0;
 #ifndef ADDR_LUA_UNITLEVEL
 #define ADDR_LUA_UNITLEVEL     0x0060F9E0  // UnitLevel
 #endif
-#ifndef ADDR_LUA_UNITAURA
-#define ADDR_LUA_UNITAURA      0x00614D40  // UnitAura
-#endif
 #ifndef ADDR_LUA_GETINSTANCEINFO
 #define ADDR_LUA_GETINSTANCEINFO 0x00000000  // pending
 #endif
@@ -321,7 +318,6 @@ static bool IsInvariantLuaFunc(uintptr_t funcPtr) {
         || funcPtr == ADDR_LUA_UNITCLASS
         || funcPtr == ADDR_LUA_UNITMAXHEALTH
         || funcPtr == ADDR_LUA_UNITLEVEL
-        || funcPtr == ADDR_LUA_UNITAURA
         || funcPtr == ADDR_LUA_GETINSTANCEINFO;
 }
 
@@ -371,72 +367,6 @@ static void InvalidateScriptCache() {
 }
 
 // ================================================================
-// UnitAura frame-scoped table reference cache
-// ================================================================
-// UnitAura returns a Lua table of aura entries; caching it saves
-// expensive C++ aura iteration. We store a luaL_ref reference to
-// the returned table and push it back via lua_rawgeti on hit.
-
-typedef int (__cdecl* luaL_ref_t)(uintptr_t L, int t);
-typedef void(__cdecl* luaL_unref_t)(uintptr_t L, int t, int ref);
-typedef void(__cdecl* lua_rawgeti_t)(uintptr_t L, int idx, int n);
-
-static const luaL_ref_t luaL_ref_ = (luaL_ref_t)0x0084F6C0;
-static const luaL_unref_t luaL_unref_ = (luaL_unref_t)0x0084F7A0;
-static const lua_rawgeti_t lua_rawgeti_ = (lua_rawgeti_t)0x0084E670;
-
-static constexpr int AURA_CACHE_SIZE = 64;
-static constexpr int AURA_CACHE_MASK = AURA_CACHE_SIZE - 1;
-
-struct UnitAuraCacheEntry {
-    uint32_t  key;
-    uintptr_t funcPtr;
-    uint32_t  frameGen;
-    int       tableRef;
-    uintptr_t luaState;
-};
-
-static UnitAuraCacheEntry g_auraCache[AURA_CACHE_SIZE] = {};
-static volatile bool g_auraCacheDirty = false;
-
-static void InvalidateAuraCache() {
-    if (!g_auraCacheDirty) return;
-    for (int i = 0; i < AURA_CACHE_SIZE; ++i) {
-        UnitAuraCacheEntry& e = g_auraCache[i];
-        if (e.tableRef != 0 && e.frameGen == g_uiScriptGen) {
-            if (e.luaState > 0x10000 && e.luaState < 0xBFFF0000)
-                luaL_unref_(e.luaState, -10000, e.tableRef);
-            e.tableRef = 0;
-        }
-    }
-    g_auraCacheDirty = false;
-}
-
-static bool LookupAuraCache(uintptr_t funcPtr, uint32_t argHash, uintptr_t L) {
-    uint32_t slot = argHash & AURA_CACHE_MASK;
-    UnitAuraCacheEntry& e = g_auraCache[slot];
-    if (e.key == argHash && e.funcPtr == funcPtr && e.frameGen == g_uiScriptGen && e.tableRef != 0) {
-        uintptr_t realL = (L < 0x10000 || L > 0xBFFF0000) ? 0 : L;
-        if (realL && e.luaState == realL) {
-            lua_rawgeti_(realL, -10000, e.tableRef);
-            return true;
-        }
-    }
-    return false;
-}
-
-static void StoreAuraCache(uintptr_t funcPtr, uint32_t argHash, uintptr_t L, int ref) {
-    uint32_t slot = argHash & AURA_CACHE_MASK;
-    UnitAuraCacheEntry& e = g_auraCache[slot];
-    e.key      = argHash;
-    e.funcPtr  = funcPtr;
-    e.frameGen = g_uiScriptGen;
-    e.tableRef = ref;
-    e.luaState = L;
-    g_auraCacheDirty = true;
-}
-
-// ================================================================
 // Lua function cache hooks
 // ================================================================
 static inline bool IsTeardownState() {
@@ -449,7 +379,6 @@ static LuaFunc_t orig_UnitHealth = nullptr;
 static LuaFunc_t orig_UnitPower = nullptr;
 static LuaFunc_t orig_UnitMaxHealth = nullptr;
 static LuaFunc_t orig_UnitLevel = nullptr;
-static LuaFunc_t orig_UnitAura = nullptr;
 
 typedef const char* (__cdecl* lua_tolstring_t)(uintptr_t L, int idx, size_t* len);
 static const lua_tolstring_t lua_tolstring_ = (lua_tolstring_t)0x0084E0E0;
@@ -592,62 +521,6 @@ static int __cdecl Hooked_UnitLevel(uintptr_t L) {
     return orig_UnitLevel(L);
 }
 
-static int __cdecl Hooked_UnitAura(uintptr_t L) {
-    __try {
-        if (L && !IsTeardownState()) {
-            size_t len = 0;
-            const char* unit = lua_tolstring_(L, 1, &len);
-            if (unit && len < 32) {
-                uint32_t argHash = 2166136261u;
-                for (size_t i = 0; i < len; ++i) {
-                    argHash ^= (uint8_t)unit[i];
-                    argHash *= 16777619u;
-                }
-                int top = lua_gettop_(L);
-                if (top >= 2) {
-                    size_t len2 = 0;
-                    const char* filter = lua_tolstring_(L, 2, &len2);
-                    if (filter && len2 < 64) {
-                        for (size_t i = 0; i < len2; ++i) {
-                            argHash ^= (uint8_t)filter[i];
-                            argHash *= 16777619u;
-                        }
-                    } else {
-                        double fv = lua_tonumber_(L, 2);
-                        uint64_t fb = *reinterpret_cast<uint64_t*>(&fv);
-                        argHash ^= (uint32_t)(fb & 0xFFFFFFFF);
-                        argHash *= 16777619u;
-                    }
-                }
-                if (top >= 3) {
-                    size_t len3 = 0;
-                    const char* rank = lua_tolstring_(L, 3, &len3);
-                    if (rank && len3 < 64) {
-                        for (size_t i = 0; i < len3; ++i) {
-                            argHash ^= (uint8_t)rank[i];
-                            argHash *= 16777619u;
-                        }
-                    }
-                }
-
-                if (LookupAuraCache(ADDR_LUA_UNITAURA, argHash, L))
-                    return 1;
-
-                int results = orig_UnitAura(L);
-                if (results == 1) {
-                    int ref = luaL_ref_(L, -10000);
-                    if (ref != -1) {
-                        lua_rawgeti_(L, -10000, ref);
-                        StoreAuraCache(ADDR_LUA_UNITAURA, argHash, L, ref);
-                    }
-                }
-                return results;
-            }
-        }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_UnitAura(L);
-}
-
 // ================================================================
 // Public API
 // ================================================================
@@ -705,12 +578,6 @@ bool InstallLogicHooks(void) {
             Log("[LogicHooks] Hooked UnitLevel at 0x%08X", ADDR_LUA_UNITLEVEL);
         }
     }
-    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITAURA, (void*)Hooked_UnitAura, (void**)&orig_UnitAura) == MH_OK) {
-        if (WO_EnableHook((void*)ADDR_LUA_UNITAURA) == MH_OK) {
-            installed++;
-            Log("[LogicHooks] Hooked UnitAura at 0x%08X", ADDR_LUA_UNITAURA);
-        }
-    }
 
     Log("[LogicHooks] Initialized — combat text batching, UI layout cache, "
         "network heartbeat filter, invariant script cache (%d hooks active)", installed);
@@ -726,7 +593,6 @@ void ShutdownLogicHooks(void) {
     MH_DisableHook((void*)ADDR_LUA_UNITPOWER);
     MH_DisableHook((void*)ADDR_LUA_UNITMAXHEALTH);
     MH_DisableHook((void*)ADDR_LUA_UNITLEVEL);
-    MH_DisableHook((void*)ADDR_LUA_UNITAURA);
 
     Log("[LogicHooks] Stats: Combat text — %lld batched, %lld flushed, %lld overflow",
         g_ctBatched, g_ctFlushed, g_ctOverflow);
@@ -754,6 +620,5 @@ void OnFrameLogicHooks(DWORD mainThreadId) {
 
     // Invalidate frame-scoped caches
     InvalidateUILayoutCache();
-    InvalidateAuraCache();
     InvalidateScriptCache();
 }

@@ -3155,8 +3155,7 @@ static void TryEnableLargePages() {
     // Privilege held + enabled. mimalloc will now back arenas with large pages.
     SIZE_T lp = GetLargePageMinimum();  // 0 if unsupported; typically 2MB on x86
     mi_option_set(mi_option_allow_large_os_pages, 1);
-    Log("Large pages: ENABLED for mimalloc (large-page unit = %u KB; watch LargestFreeBlock on 32-bit VA)",
-        (unsigned)(lp / 1024));
+    Log("Large pages: configured (mimalloc will use 2MB segments if OS supports)");
 #endif
 }
 
@@ -3356,41 +3355,6 @@ static void ConfigureMimalloc() {
     // confirms the privilege). Off here when disabled so mimalloc never even attempts
     // 2MB reservations on a VA-tight 32-bit client.
     mi_option_set(mi_option_allow_large_os_pages, TEST_ENABLE_LARGE_PAGES ? 1 : 0);
-
-    // Large-page advisory: check if the OS supports 2MB pages and whether the
-    // account holds SeLockMemoryPrivilege. The actual privilege enablement happens
-    // in TryEnableLargePages (called before this), so this is a diagnostic echo.
-    if (TEST_ENABLE_LARGE_PAGES) {
-        SIZE_T lpMin = GetLargePageMinimum();
-        if (lpMin == 0) {
-            Log("mimalloc: large pages NOT supported by this OS (GetLargePageMinimum=0)");
-        } else {
-            // Check if the privilege was actually granted
-            HANDLE hToken;
-            if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-                TOKEN_PRIVILEGES tp = {};
-                tp.PrivilegeCount = 1;
-                if (LookupPrivilegeValueA(NULL, "SeLockMemoryPrivilege", &tp.Privileges[0].Luid)) {
-                    PRIVILEGE_SET ps = {};
-                    ps.PrivilegeCount = 1;
-                    ps.Control = PRIVILEGE_SET_ALL_NECESSARY;
-                    ps.Privilege[0].Luid = tp.Privileges[0].Luid;
-                    ps.Privilege[0].Attributes = SE_PRIVILEGE_ENABLED;
-                    BOOL bResult = FALSE;
-                    PrivilegeCheck(hToken, &ps, &bResult);
-                    if (bResult) {
-                        Log("mimalloc: large pages ENABLED (%u KB segments)",
-                            (unsigned)(lpMin / 1024));
-                    } else {
-                        Log("mimalloc: large pages NOT available — grant 'Lock pages in memory'");
-                        Log("  via secpol.msc -> Local Policies -> User Rights Assignment,");
-                        Log("  add this account, then log off/on. Fallback: 4 KB pages.");
-                    }
-                }
-                CloseHandle(hToken);
-            }
-        }
-    }
 
     // v3.3.x: eager commit arenas on Windows for faster allocation
     // Commits entire arena at once instead of page-by-page
