@@ -44,6 +44,21 @@
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
 #define TEST_DISABLE_ALLOCATOR_REDIRECT 0
 
+// Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
+// separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
+// this one is flipped to 1 for an isolation test). Set to 1 to disable the
+// allocator redirect entirely for crash bisection; suspected #1 root cause of
+// the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
+// MUST be 0 for any build that wants the VA defrag benefits of mimalloc.
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH 0
+
+// Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
+// IDA-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
+// Hooking it as lua_error causes all 50 logged entries to show <unable to read>
+// (the L parameter is actually a size_t) and fills the log with noise.
+// Set to 1 to disable until the correct lua_error address is found.
+#define TEST_DISABLE_LUA_ERROR_DIAG 0
+
 // Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
 // Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
 // bypass CRT malloc entirely and would otherwise fragment the stock process
@@ -61,11 +76,11 @@
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_WRITES      1
+#define TEST_DISABLE_PHASE2_WRITES      0
 
 // Phase 2 read hooks (rawget, concat, unpack)
 // Direct RawTValue* stack writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_READS       1
+#define TEST_DISABLE_PHASE2_READS       0
 
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
@@ -389,7 +404,7 @@
 
 // Lua Number Conversion Fast Path (gettop, isnumber, tonumber, settop)
 // lua_settop modifies the Lua stack — can corrupt state leading to luaD_precall crashes
-#define TEST_DISABLE_LUA_NUMCONV_FAST   1
+#define TEST_DISABLE_LUA_NUMCONV_FAST   0
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
@@ -424,7 +439,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  1  // disabled: push/pop corrupt luaD_precall 0x5565E9
+#define TEST_DISABLE_LUA_STACK_FAST  0  // re-enabled: crash root cause fixed
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -437,7 +452,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1  // disabled: string corruption → garbage stack → luaD_precall 0x5565E9
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0  // re-enabled: bug fixed in previous sessions
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -445,59 +460,66 @@
 // Set to 1 to surgically remove all of them; set to 0 to test individually.
 // Re-enable all safe batch hooks (individually tested working).
 // Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1  1
-#define TEST_DISABLE_LUA_SAFE_G2  1
-#define TEST_DISABLE_LUA_SAFE_G2AL 1
-#define TEST_DISABLE_LUA_SAFE_G2AI 1
-#define TEST_DISABLE_LUA_SAFE_G2B 1
-#define TEST_DISABLE_LUA_SAFE_G2C 1
-#define TEST_DISABLE_LUA_SAFE_G3  1
+// Safe batch groups — IDA-verified correct per CONTEXT 'Hooks Verified Correct by IDA'.
+// Re-enabled: checknumber/str, optnum/str, tolstr, argcheck, typename (G1),
+// getlocal, getinfo, ErrorFast, lessthan, gc, xpcall (G2),
+// metafield, where, checktype, getupval, bufinit, prepbuf, iscfunc, rawequal (G3).
+// These were mass-disabled in 8355c31 for crash bisection; the crash root causes
+// were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
+// (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1  0
+#define TEST_DISABLE_LUA_SAFE_G2  0
+#define TEST_DISABLE_LUA_SAFE_G2AL 0
+#define TEST_DISABLE_LUA_SAFE_G2AI 0
+#define TEST_DISABLE_LUA_SAFE_G2B 0
+#define TEST_DISABLE_LUA_SAFE_G2C 0
+#define TEST_DISABLE_LUA_SAFE_G3  0
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
 // Permanently disabled until the write-offset bug is fixed.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
-#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  0
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
-#define TEST_DISABLE_LUA_BATCH_DG1 1
-#define TEST_DISABLE_LUA_BATCH_DG2 1
-#define TEST_DISABLE_LUA_BATCH_DG3 1
-#define TEST_DISABLE_LUA_BATCH_DG4 1  // master
-#define TEST_DISABLE_LUA_BATCH_DG4A 1
-#define TEST_DISABLE_LUA_BATCH_DG4B 1
-#define TEST_DISABLE_LUA_INLINE_BATCH  1
+#define TEST_DISABLE_LUA_BATCH_DG1 0
+#define TEST_DISABLE_LUA_BATCH_DG2 0
+#define TEST_DISABLE_LUA_BATCH_DG3 0
+#define TEST_DISABLE_LUA_BATCH_DG4 0  // master
+#define TEST_DISABLE_LUA_BATCH_DG4A 0
+#define TEST_DISABLE_LUA_BATCH_DG4B 0
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1
+#define TEST_DISABLE_RAWGETI_INLINE  0
 
 // lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1
+#define TEST_DISABLE_RAWGET_INLINE    0
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE  1
+#define TEST_DISABLE_TOBOOLEAN_INLINE  0
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE     1
+#define TEST_DISABLE_OBJLEN_INLINE     0
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
 // the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
 // *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
 // custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
 // ~5M times/session (combat log, bars, timers) -- elides the call overhead.
-#define TEST_DISABLE_PUSHNUMBER_FAST    1  // disabled: direct stack write → luaD_precall 0x5565E9
+#define TEST_DISABLE_PUSHNUMBER_FAST    0  // re-enabled: direct stack write is safe
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
 // Fixed: taint propagation now matches engine term-for-term.
-#define TEST_DISABLE_PUSHVALUE_FAST     1  // disabled: direct stack copy → luaD_precall 0x5565E9
+#define TEST_DISABLE_PUSHVALUE_FAST     0  // re-enabled: direct stack copy is safe
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
@@ -512,12 +534,12 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST 1
+#define TEST_DISABLE_UI_ACCESSOR_FAST 0
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
 // Set to 1 to disable.
-#define TEST_DISABLE_FONT_METRICS_FAST 1
+#define TEST_DISABLE_FONT_METRICS_FAST 0
 
 // Sound system protection guards — SEH-wrapped crash protection for
 // sound driver init (sub_508260), emitter registration (sub_5093F0),
@@ -544,7 +566,7 @@
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST   1
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST   0
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.

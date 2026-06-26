@@ -2016,6 +2016,14 @@ static int __cdecl Hooked_TableInsert(lua_State* L) {
             return orig_tbl_insert(L);
         }
 
+        // RE-FETCH stack pointers in case luaH_setnum_ triggered GC and relocated the stack
+        base = GetStackBaseFast(L);
+        if (!base) {
+            NoteTableInsertFallback();
+            return orig_tbl_insert(L);
+        }
+        valueSlot = base + 1;
+
         *dst = *valueSlot;
 
         if (valueSlot->taint) {
@@ -2113,7 +2121,13 @@ static int __cdecl Hooked_TableRemove(lua_State* L) {
             return orig_tbl_remove(L);
         }
 
-        RawTValue* resultSlot = (nargs == 1) ? tableSlot : (base + 1);
+        base = GetStackBaseFast(L);
+        if (!base) {
+            NoteTableRemoveFallback();
+            return orig_tbl_remove(L);
+        }
+        
+        RawTValue* resultSlot = (nargs == 1) ? base : (base + 1);
         *resultSlot = *src;
 
         if (resultSlot->taint) {
