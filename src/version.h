@@ -444,8 +444,8 @@
 #define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
 #define TEST_DISABLE_LUA_SAFE_G1  0  // CheckNum/CheckStr/OptNum/OptStr/TolStr/ArgCheck/TypeName
 #define TEST_DISABLE_LUA_SAFE_G2  0
-#define TEST_DISABLE_LUA_SAFE_G2AL 1  // GetLocal — WRONG SIGNATURE: actual fn is (L,n) not (L,ar,n), causes ntdll heap corruption
-#define TEST_DISABLE_LUA_SAFE_G2AI 1  // GetInfo — disabled until GetLocal is fixed and re-tested
+#define TEST_DISABLE_LUA_SAFE_G2AL 0  // GetLocal — fixed: correct 2-arg sig (L,n), thin wrapper calling orig
+#define TEST_DISABLE_LUA_SAFE_G2AI 0  // GetInfo (luaL_findfield) — fixed: correct 4-arg sig (L,idx,field,level)
 #define TEST_DISABLE_LUA_SAFE_G2B 0  // ErrorFast/LessThan
 #define TEST_DISABLE_LUA_SAFE_G2C 0  // GCFast/XPCall
 #define TEST_DISABLE_LUA_SAFE_G3  0  // MetaField/Where/CheckType/GetUpval/BufInit/PrepBuf/IsCFunc/IsNum/RawEqual

@@ -282,10 +282,15 @@ static void* __fastcall FastSetTable(void* L, TValue* table, TValue* key, TValue
     return g_orig_luaV_settable((int)L, (int*)table, (int*)key, (int*)val);
 }
 
-// Table resize hook to invalidate inline caches on rehash
-static void* __cdecl Hooked_luaH_resize(void* L, void* t, int nasize, int nhsize) {
-    ICInvalidate();
-    return g_orig_luaH_resize(L, t, nasize, nhsize);
+__declspec(naked) static void Hooked_luaH_resize() {
+    __asm {
+        pushad
+        pushfd
+        call ICInvalidate
+        popfd
+        popad
+        jmp g_orig_luaH_resize
+    }
 }
 
 // ================================================================

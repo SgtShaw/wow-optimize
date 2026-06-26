@@ -1,3 +1,22 @@
+// sub_84F3B0 — IDA-verified: this is NOT lua_getinfo.
+// It is luaL_findfield(L, idx, field, level) — walks a dotted field path
+// like "foo.bar.baz" through nested tables on the Lua stack.
+//
+// IDA decompile shows:
+//   sub_84DE50(L, idx)           → lua_pushvalue: pushes stack[idx] to top
+//   loop: strchr(Str, '.') to find next segment
+//     sub_84E300(L, Str, len)    → lua_pushlstring: push segment key
+//     sub_84E600(L, -2)          → lua_rawget: look up key in table at -2
+//     if type == 0 (nil): create new table sub_84E6E0, set field, continue
+//     if type != 5 (table): break (not a table, fail)
+//     sub_84DC50(L, -2)          → lua_remove: remove the old table
+//   returns pointer to remaining path (past last '.') or nullptr on failure
+//
+// Our hook was zeroing arbitrary offsets in 'ar' treating it as lua_Debug,
+// which it is NOT. The hook is replaced by a correct thin wrapper.
+// No inlining is attempted — the dotted-path walk is complex and correct
+// behavior requires the full engine path.
+
 #include <windows.h>
 #include <cstdint>
 #include "MinHook.h"
@@ -6,40 +25,21 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-typedef int(__cdecl *getinfo_fn)(uintptr_t L, const char* what, uintptr_t ar);
+// Correct signature: luaL_findfield(L, idx, field, level)
+typedef char*(__cdecl *getinfo_fn)(uintptr_t L, int idx, const char* field, int level);
 static getinfo_fn orig = nullptr;
-static volatile long g_hits = 0, g_misses = 0;
+static volatile long g_calls = 0;
 
-static int __cdecl hook(uintptr_t L, const char* what, uintptr_t ar) {
-    if (L > 0x10000 && L < 0xBFFF0000 && what > (const char*)0x10000 && what < (const char*)0xBFFF0000) {
-        __try {
-            if (what[0] == 'n' && what[1] == '\0') {
-                if (ar > 0x10000 && ar < 0xBFFF0000) {
-                    *(uint32_t*)(ar + 0x08) = 0;
-                    *(uint32_t*)(ar + 0x0C) = 0;
-                }
-                g_hits++;
-                return 1;
-            }
-            if (what[0] == 'S' && what[1] == '\0') {
-                if (ar > 0x10000 && ar < 0xBFFF0000) {
-                    *(uint32_t*)(ar + 0x04) = 0;
-                    *(uint32_t*)(ar + 0x08) = 0;
-                }
-                g_hits++;
-                return 1;
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    }
-    g_misses++;
-    return orig(L, what, ar);
+static char* __cdecl hook(uintptr_t L, int idx, const char* field, int level) {
+    g_calls++;
+    return orig(L, idx, field, level);
 }
 
 bool InstallLuaGetInfoFast() {
     void* t = (void*)0x0084F3B0;
     if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
     MH_EnableHook(t);
-    Log("[GetInfo] ACTIVE — lua_getinfo inline at 0x84F3B0");
+    Log("[GetInfo] ACTIVE — luaL_findfield inline at 0x84F3B0");
     CrashDumper::RegisterFeature("GetInfo");
     CrashDumper::FeatureSetActive("GetInfo", true);
     return true;
