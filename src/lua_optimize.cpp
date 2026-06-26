@@ -1384,17 +1384,6 @@ static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* sou
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_LOADED");
                 Api.lua_pushboolean(currentL, 1);
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_ACTIVE");
-                // Fix GMChatFrame.lastGM nil-index at UIParent.lua:476.
-                // Register VARIABLES_LOADED handler that sets a metatable
-                // after saved vars load (they reassign lastGM={}).
-                if (Api.FrameScript_Execute) {
-                    Api.FrameScript_Execute(
-                        "local f=CreateFrame'Frame'f:RegisterEvent'VARIABLES_LOADED'"
-                        "f:SetScript('OnEvent',function()local gm=GMChatFrame "
-                        "if gm and type(gm.lastGM)=='table' then "
-                        "setmetatable(gm.lastGM,{__index=function()return''end})end end)",
-                        "wow_optimize_gm_fix", 0);
-                }
                 Log("[LuaOpt] FrameScript hook: injected DLL markers before addon load on L=0x%08X",
                     (unsigned)(uintptr_t)currentL);
             }
