@@ -582,7 +582,6 @@ extern "C" void ClearLuaOptCaches() {
     ClearLuaPushStringCache();
     ClearAssetPathCache();
     ClearRawGetIInlineCache();
-    ClearEventDispatchCache();
 }
 
 // Stats for new hooks (defined with implementations below)

@@ -1046,7 +1046,6 @@ static void ReadAddonStateFromLua(lua_State* L) {
         }
         if (!Config.isLoading && wasLoading) {
             ReleaseLoadingArena(); // VA arena: return to gameplay
-            PreWarmEventDispatchCache();
         }
 
         const char* currentMode = GetGCModeName();

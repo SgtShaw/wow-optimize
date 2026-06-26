@@ -2,4 +2,3 @@
 
 bool InstallEventDispatchCache();
 void UninstallEventDispatchCache();
-void ClearEventDispatchCache();
