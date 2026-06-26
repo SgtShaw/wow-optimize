@@ -43,25 +43,41 @@ static int __cdecl hook(uintptr_t L, uintptr_t tv, int nres, uint64_t tin, uint6
         if (CanInline()) {
             uintptr_t proto = *(uintptr_t*)(obj + 24);
             if (*(unsigned char*)(proto + 78) & 1) goto fallback2;
+            
             uintptr_t base = tv + 16;
+            
+            // Truncate L->top if caller passed more arguments than numparams
+            uintptr_t expected_top = base + 16 * *(unsigned char*)(proto + 77);
+            uintptr_t orig_top = *(uintptr_t*)(L + 0x0C);
+            if (orig_top > expected_top) {
+                orig_top = expected_top;
+                *(uintptr_t*)(L + 0x0C) = orig_top;
+            }
+            
             uintptr_t newtop = base + 16 * nups;
             if (*(uintptr_t*)(L + 0x20) <= newtop) goto fallback2;
-            for (uintptr_t p = *(uintptr_t*)(L + 0x0C); p < newtop; p += 16) {
+            
+            for (uintptr_t p = orig_top; p < newtop; p += 16) {
                 *(uint32_t*)(p + 8) = 0;
                 *(uint32_t*)(p + 12) = *(uint32_t*)TAINT_CELL;
             }
+            
+            *(uintptr_t*)(L + 0x0C) = newtop;
+            *(uintptr_t*)(L + 0x10) = base;  // CRITICAL: Update L->base
+            
             uintptr_t ci = *(uintptr_t*)(L + 0x18);
             if (ci == *(uintptr_t*)(L + 0x28)) goto fallback2;
             ci += 24;
+            
             *(uintptr_t*)(L + 0x18) = ci;
-            *(uintptr_t*)(ci + 0) = base;
-            *(uintptr_t*)(ci + 4) = tv;
-            *(uintptr_t*)(ci + 8) = newtop;
-            *(uintptr_t*)(ci + 12) = *(uintptr_t*)(L + 0x1C);
-            *(uint32_t*)(ci + 16) = nres;
-            *(uint32_t*)(ci + 20) = 0;
-            *(uintptr_t*)(L + 0x10) = base;
-            *(uintptr_t*)(L + 0x0C) = newtop;
+            *(uintptr_t*)(ci + 0) = base;   // ci->base
+            *(uintptr_t*)(ci + 4) = tv;     // ci->func
+            *(uintptr_t*)(ci + 8) = newtop; // ci->top
+            *(uintptr_t*)(ci + 12) = 0;     // ci->savedpc
+            *(uint32_t*)(ci + 16) = nres;   // ci->nresults
+            *(uint32_t*)(ci + 20) = 0;      // ci->tailcalls
+            
+            *(uintptr_t*)(L + 0x1C) = *(uintptr_t*)(proto + 16);
             g_inline++;
             return 0;
         }

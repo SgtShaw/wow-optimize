@@ -64,18 +64,24 @@ static __forceinline uintptr_t ResolveTValue(
     *deferToOrig = false;
     if (idx > 0) {
         uintptr_t base = *(uintptr_t*)(L + 0x10);
-        if (!IsValidPtr(base)) return 0;
+        if (!IsValidPtr(base)) {
+            *deferToOrig = true;
+            return 0;
+        }
         uintptr_t tv = base + (uintptr_t)(idx - 1) * 16;
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (tv >= top) return 0;
+        if (tv >= top) return 0; // Truly out of bounds
         return tv;
     }
     if (idx > LUA_REGISTRYINDEX) {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (!IsValidPtr(top)) return 0;
+        if (!IsValidPtr(top)) {
+            *deferToOrig = true;
+            return 0;
+        }
         uintptr_t tv = top + (uintptr_t)idx * 16;
         uintptr_t base = *(uintptr_t*)(L + 0x10);
-        if (tv < base) return 0;
+        if (tv < base) return 0; // Truly out of bounds
         return tv;
     }
     // Pseudo-index — can't inline
