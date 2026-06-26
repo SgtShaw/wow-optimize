@@ -455,7 +455,7 @@
 // Permanently disabled until the write-offset bug is fixed.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
-#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  0  // fixed: lua_pushstring GC/stack-realloc ordering (commit e95d7fc+1)
 #define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.

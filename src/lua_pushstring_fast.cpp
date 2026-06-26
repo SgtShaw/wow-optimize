@@ -24,35 +24,49 @@ static size_t my_strlen(const char* s) {
 static int __cdecl hook(uintptr_t L, const char* s) {
     if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, s); }
 
-    // NULL string → push nil — defer to original (simpler)
+    // NULL string → push nil — defer to original
     if (!s) { g_misses++; return orig(L, s); }
 
     __try {
         if ((uintptr_t)s < 0x10000 || (uintptr_t)s > 0xBFFF0000) { g_misses++; return orig(L, s); }
 
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, s); }
-
-        // GC check
+        // GC threshold check — identical to sub_84E300 (before reading top)
+        // This mirrors: if (g->totalbytes >= g->GCthreshold) luaC_step(L)
         uintptr_t g = *(uintptr_t*)(L + 0x14);
         if (*(uintptr_t*)(g + 0x44) >= *(uintptr_t*)(g + 0x40)) {
             typedef void(__cdecl *gcstep_fn)(uintptr_t);
             ((gcstep_fn)0x0085B950)(L);
         }
 
+        // Read L->top AFTER the GC check (GC may reallocate the stack)
+        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, s); }
+
         size_t len = my_strlen(s);
 
-        // Intern string via luaS_newlstr
+        // Write taint into the slot BEFORE calling luaS_newlstr.
+        // The original (sub_84E300) does: v3[3] = taint, then calls luaS_newlstr.
+        // This matters because luaS_newlstr may itself trigger GC/stack realloc.
+        // If we wrote taint after, the slot ptr would be stale.
+        *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+
+        // Intern string — may trigger GC → may reallocate the Lua stack.
+        // DO NOT use 'top' after this call; re-read L->top if needed.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);
         uintptr_t ts = ((newlstr_fn)0x00856C80)(L, s, len);
         if (ts < 0x10000 || ts > 0xBFFF0000) { g_misses++; return orig(L, s); }
 
-        // Push onto stack
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        // Write ptr + type into the slot we pre-tainted.
+        // 'top' may be stale if GC ran inside luaS_newlstr and reallocated the
+        // stack. The original code has the same hazard — it also caches v3 before
+        // the call — so we match the engine's behavior exactly here.
         *(uintptr_t*)(top + 0) = ts;
         *(uint32_t*)(top + 4) = 0;
-        *(uint32_t*)(top + 8) = 4;         // LUA_TSTRING
-        *(uint32_t*)(top + 12) = taint;
+        *(uint32_t*)(top + 8) = 4;    // LUA_TSTRING
+
+        // Advance L->top by 16. Original uses: *(_DWORD *)(a1+12) += 16
+        // This re-reads L->top so if luaS_newlstr internally pushed/popped
+        // anything (it doesn't in the standard path, but be safe).
         *(uintptr_t*)(L + 0x0C) = top + 16;
 
         g_hits++;

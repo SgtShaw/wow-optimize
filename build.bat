@@ -27,7 +27,6 @@ if errorlevel 1 (
     if errorlevel 1 (
         echo ERROR: CMake configure failed.
         cd ..
-        pause
         exit /b 1
     )
 )
@@ -38,7 +37,6 @@ cmake --build . --config Release 2>&1
 if errorlevel 1 (
     echo ERROR: Build failed.
     cd ..
-    pause
     exit /b 1
 )
 
