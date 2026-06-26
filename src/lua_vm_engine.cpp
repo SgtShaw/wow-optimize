@@ -63,6 +63,14 @@ static constexpr int LUA_TFUNCTION     = 6;
 static constexpr int LUA_TUSERDATA     = 7;
 static constexpr int LUA_TTHREAD       = 8;
 
+static constexpr uintptr_t TAINT_GLOBAL  = 0x00D4139C;
+static constexpr uintptr_t TAINT_FLAG_A  = 0x00D413A0;
+static constexpr uintptr_t TAINT_FLAG_B  = 0x00D413A4;
+
+static inline uint32_t GetGlobalTaint() {
+    return *(uint32_t*)TAINT_GLOBAL;
+}
+
 // TValue layout (16 bytes)
 struct TValue {
     union {
@@ -206,7 +214,7 @@ static inline void LuaC_Barrier(void* L, void* p, const TValue* v) {
 // Optimized gettable with inline cache
 // ================================================================
 static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue* result) {
-    InterlockedIncrement64(&g_stats.gettableFastPath);
+    ++g_stats.gettableFastPath;
     
     if (table->tt != LUA_TTABLE || key->tt != LUA_TSTRING) {
         return g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
@@ -236,7 +244,7 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
                 uint32_t* np = (uint32_t*)node;
                 // Check key matches (np[6] is key.tt at +24, np[4] is key.value.gc at +16)
                 if (np[6] == LUA_TSTRING && np[4] == (uint32_t)tstringPtr) {
-                    InterlockedIncrement64(&g_stats.icHits);
+                    ++g_stats.icHits;
                     TValueCopy(result, (TValue*)node);
                     return result;
                 }
@@ -244,7 +252,7 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
         }
     }
     
-    InterlockedIncrement64(&g_stats.icMisses);
+    ++g_stats.icMisses;
     
     void* ret = g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
     
@@ -275,10 +283,7 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
 }
 
 static void* __fastcall FastSetTable(void* L, TValue* table, TValue* key, TValue* val) {
-    InterlockedIncrement64(&g_stats.settableFastPath);
-    if (table->tt == LUA_TTABLE) {
-        ICInvalidate();
-    }
+    ++g_stats.settableFastPath;
     return g_orig_luaV_settable((int)L, (int*)table, (int*)key, (int*)val);
 }
 
@@ -372,7 +377,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
         #define DISPATCH() \
             do { \
                 if (--t_opcodesRemaining <= 0) goto yield_back; \
-                InterlockedIncrement64(&g_stats.totalOpcodes); \
+                ++g_stats.totalOpcodes; \
                 i = *pc++; \
                 op = GET_OPCODE(i); \
                 goto dispatch_table; \
@@ -411,15 +416,17 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 int c = RC(i);
                 base[a].value.b = b;
                 base[a].tt = LUA_TBOOLEAN;
-                base[a].taint = 0;
+                base[a].taint = GetGlobalTaint();
                 if (c) pc++;
                 DISPATCH();
             }
             case OP_LOADNIL: {
                 int a = RA(i);
                 int b = RB(i);
+                uint32_t gTaint = GetGlobalTaint();
                 for (int j = a; j <= b; j++) {
                     SetNilValue(&base[j]);
+                    base[j].taint = gTaint;
                 }
                 DISPATCH();
             }
@@ -433,9 +440,14 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                         TValueCopy(&base[a], uv);
                     } else {
                         SetNilValue(&base[a]);
+                        base[a].taint = GetGlobalTaint();
                     }
                 } else {
                     SetNilValue(&base[a]);
+                    base[a].taint = GetGlobalTaint();
+                }
+                if (base[a].taint && *(uint32_t*)TAINT_FLAG_A && !*(uint32_t*)TAINT_FLAG_B) {
+                    *(uint32_t*)TAINT_GLOBAL = base[a].taint;
                 }
                 DISPATCH();
             }
@@ -448,7 +460,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                     TValue envVal;
                     envVal.value.gc = envTable;
                     envVal.tt = LUA_TTABLE;
-                    envVal.taint = *(uint32_t*)0x00D4139C;
+                    envVal.taint = GetGlobalTaint();
                     
                     TValue globalKey;
                     TValueCopy(&globalKey, kstr);
@@ -511,7 +523,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
                     ra->value.n = rkb->value.n + rkc->value.n;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -524,7 +536,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
                     ra->value.n = rkb->value.n - rkc->value.n;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -537,7 +549,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
                     ra->value.n = rkb->value.n * rkc->value.n;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -550,7 +562,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
                     ra->value.n = rkb->value.n / rkc->value.n;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -564,7 +576,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                     double d1 = rkb->value.n, d2 = rkc->value.n;
                     ra->value.n = d1 - floor(d1/d2)*d2;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -577,7 +589,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rkb->tt == LUA_TNUMBER && rkc->tt == LUA_TNUMBER) {
                     ra->value.n = pow(rkb->value.n, rkc->value.n);
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rkb->taint | rkc->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -589,7 +601,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (rb->tt == LUA_TNUMBER) {
                     ra->value.n = -rb->value.n;
                     ra->tt = LUA_TNUMBER;
-                    ra->taint = rb->taint;
+                    ra->taint = GetGlobalTaint();
                     DISPATCH();
                 } else {
                     DELEGATE_AND_RETURN(0);
@@ -602,7 +614,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                               (rb->tt == LUA_TBOOLEAN && rb->value.b == 0);
                 ra->value.b = isFalse ? 1 : 0;
                 ra->tt = LUA_TBOOLEAN;
-                ra->taint = rb->taint;
+                ra->taint = GetGlobalTaint();
                 DISPATCH();
             }
             case OP_LEN: {
@@ -630,6 +642,8 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                     equal = (rkb->value.gc == rkc->value.gc);
                 } else if (rkb->tt == LUA_TBOOLEAN) {
                     equal = (rkb->value.b == rkc->value.b);
+                } else if (rkb->tt >= LUA_TTABLE) {
+                    DELEGATE_AND_RETURN(0);
                 } else {
                     equal = (rkb->value.gc == rkc->value.gc);
                 }
@@ -865,7 +879,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
         return 0;
         
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        InterlockedIncrement64(&g_stats.fallbackExecutions);
+        ++g_stats.fallbackExecutions;
         t_inOptimizedExecution = false;
         t_currentL = nullptr;
         return g_orig_luaV_execute(L, nexeccalls);
