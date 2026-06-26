@@ -456,6 +456,14 @@
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
 #define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1  // DISABLED: 20 hook interaction causes TValue type tag corruption at 50% load
+
+// Bisection groups for dangerous batch hooks — find which causes TValue corruption
+#define TEST_DISABLE_LUA_BATCH_DG1 0  // TEST ONLY: PrecallCache, TableFast, HGetFast, PushCClosure, CreateTable
+#define TEST_DISABLE_LUA_BATCH_DG2 0  // TEST: PushString, RawSet, RawSetI, SetTable, SetField
+#define TEST_DISABLE_LUA_BATCH_DG3 0  // TEST: ConcatFast, LRegister, LRef, LUnref, CallMeta
+#define TEST_DISABLE_LUA_BATCH_DG4 1  // master: PushResult, AddLString, LoadStr, YieldFast, PushThread, PushFStr, GetTable
+#define TEST_DISABLE_LUA_BATCH_DG4A 0  // TEST: PushResult, AddLString, PushFStr, GetTable
+#define TEST_DISABLE_LUA_BATCH_DG4B 0  // TEST: LoadStr, YieldFast, PushThread
 #define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
