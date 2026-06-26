@@ -171,8 +171,7 @@
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 1
-
+#define TEST_DISABLE_UNIT_API_FASTPATH 0
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths

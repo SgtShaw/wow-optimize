@@ -3108,10 +3108,10 @@ static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
 static constexpr uintptr_t CGUNIT_POWER_TYPE_OFFS = 0x47;
 static constexpr uintptr_t CGUNIT_FLAGS_OFFS = 0x124;
 
-static constexpr int UNIT_FIELD_HEALTH      = 73;
+static constexpr int UNIT_FIELD_HEALTH      = 18;
 static constexpr int UNIT_FIELD_MAXHEALTH   = 26;
-static constexpr int UNIT_FIELD_POWER_BASE  = 19;
-static constexpr int UNIT_FIELD_MAXPOWER_BASE = 27;
+static constexpr int UNIT_FIELD_POWER1      = 19;
+static constexpr int UNIT_FIELD_MAXPOWER1   = 27;
 
 static long g_unitHealthHits = 0;
 static long g_unitHealthFallbacks = 0;
