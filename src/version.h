@@ -441,14 +441,14 @@
 // Set to 1 to surgically remove all of them; set to 0 to test individually.
 // Re-enable all safe batch hooks (individually tested working).
 // Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
-#define TEST_DISABLE_LUA_SAFE_G1  0  // CheckNum/CheckStr/OptNum/OptStr/TolStr/ArgCheck/TypeName
-#define TEST_DISABLE_LUA_SAFE_G2  0
-#define TEST_DISABLE_LUA_SAFE_G2AL 0  // GetLocal
-#define TEST_DISABLE_LUA_SAFE_G2AI 0  // GetInfo
-#define TEST_DISABLE_LUA_SAFE_G2B 0  // ErrorFast/LessThan
-#define TEST_DISABLE_LUA_SAFE_G2C 0  // GCFast/XPCall
-#define TEST_DISABLE_LUA_SAFE_G3  0  // MetaField/Where/CheckType/GetUpval/BufInit/PrepBuf/IsCFunc/IsNum/RawEqual
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1  // DISABLED: cumulative error cascade across all batch hooks
+#define TEST_DISABLE_LUA_SAFE_G1  1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G2  1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G2AL 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G2AI 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G2B 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G2C 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_SAFE_G3  1  // DISABLED: cumulative
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
@@ -459,12 +459,12 @@
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
 #define TEST_DISABLE_LUA_BATCH_DG1 1  // HGetFast/TableFast corrupt VM state → all table hooks crash at 0x8591D5
-#define TEST_DISABLE_LUA_BATCH_DG2 0  // PushString, RawSet, RawSetI, SetTable, SetField
-#define TEST_DISABLE_LUA_BATCH_DG3 0  // ConcatFast, LRegister, LRef, LUnref, CallMeta
-#define TEST_DISABLE_LUA_BATCH_DG4 1  // PushResult, AddLString, LoadStr, YieldFast, PushThread, PushFStr, GetTable
-#define TEST_DISABLE_LUA_BATCH_DG4A 0  // PushResult, AddLString, PushFStr, GetTable
-#define TEST_DISABLE_LUA_BATCH_DG4B 0  // LoadStr, YieldFast, PushThread
-#define TEST_DISABLE_LUA_INLINE_BATCH  0
+#define TEST_DISABLE_LUA_BATCH_DG2 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_BATCH_DG3 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_BATCH_DG4 1  // master
+#define TEST_DISABLE_LUA_BATCH_DG4A 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_BATCH_DG4B 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_INLINE_BATCH  1  // DISABLED: cumulative
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
