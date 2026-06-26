@@ -349,7 +349,7 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef TEST_DISABLE_RAWGET_INLINE
 #define TEST_DISABLE_RAWGET_INLINE              0   // lua_rawget inline fast path using direct stack resolution and luaH_get (0x85C470) detour.
 #endif
-#define TEST_DISABLE_STRTOD_FAST                1   // disabled: crash 0x84D540 NULL TString from bad interning
+#define TEST_DISABLE_STRTOD_FAST                0   // disabled: crash 0x84D540 NULL TString from bad interning
 #ifndef TEST_DISABLE_GETSTR_INLINE
 #define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xBFFF0000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
 #endif

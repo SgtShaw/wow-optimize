@@ -182,10 +182,10 @@
 #define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE        1  // disabled: 70+ pages Lua errors + freeze
+#define TEST_DISABLE_LUA_VM_ENGINE        0  // disabled: 70+ pages Lua errors + freeze
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
-#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
+#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
@@ -230,13 +230,13 @@
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2     1
+#define TEST_DISABLE_MATRIX_EXT_SSE2     0
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -245,13 +245,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2  1
+#define TEST_DISABLE_MATRIX_INVERT_SSE2  0
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2    1
+#define TEST_DISABLE_MATRIX_MISC_SSE2    0
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -259,7 +259,7 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2  1
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2  0
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
@@ -286,7 +286,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE      1  // DISABLED: crash triage
+#define TEST_DISABLE_QUAT_NORMALIZE      0  // enabled: math fixed
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -420,7 +420,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  1  // disabled: CVar values return nil (lua_isstring hook at 0x84DF60)
+#define TEST_DISABLE_LUA_STACK_FAST  0  // disabled: CVar values return nil (lua_isstring hook at 0x84DF60)
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -433,7 +433,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1  // DISABLED: string interning corruption
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0  // DISABLED: string interning corruption
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -441,14 +441,14 @@
 // Set to 1 to surgically remove all of them; set to 0 to test individually.
 // Re-enable all safe batch hooks (individually tested working).
 // Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1  1  // CheckNum/CheckStr/OptNum/OptStr/TolStr/ArgCheck/TypeName
-#define TEST_DISABLE_LUA_SAFE_G2  1
-#define TEST_DISABLE_LUA_SAFE_G2AL 1  // GetLocal
-#define TEST_DISABLE_LUA_SAFE_G2AI 1  // GetInfo
-#define TEST_DISABLE_LUA_SAFE_G2B 1  // ErrorFast/LessThan
-#define TEST_DISABLE_LUA_SAFE_G2C 1  // GCFast/XPCall
-#define TEST_DISABLE_LUA_SAFE_G3  1  // MetaField/Where/CheckType/GetUpval/BufInit/PrepBuf/IsCFunc/IsNum/RawEqual
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1  0  // CheckNum/CheckStr/OptNum/OptStr/TolStr/ArgCheck/TypeName
+#define TEST_DISABLE_LUA_SAFE_G2  0
+#define TEST_DISABLE_LUA_SAFE_G2AL 0  // GetLocal
+#define TEST_DISABLE_LUA_SAFE_G2AI 0  // GetInfo
+#define TEST_DISABLE_LUA_SAFE_G2B 0  // ErrorFast/LessThan
+#define TEST_DISABLE_LUA_SAFE_G2C 0  // GCFast/XPCall
+#define TEST_DISABLE_LUA_SAFE_G3  0  // MetaField/Where/CheckType/GetUpval/BufInit/PrepBuf/IsCFunc/IsNum/RawEqual
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
@@ -458,13 +458,13 @@
 #define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1  // DISABLED: 20 hook interaction causes TValue type tag corruption at 50% load
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
-#define TEST_DISABLE_LUA_BATCH_DG1 1  // PrecallCache, TableFast, HGetFast, PushCClosure, CreateTable
-#define TEST_DISABLE_LUA_BATCH_DG2 1  // PushString, RawSet, RawSetI, SetTable, SetField
-#define TEST_DISABLE_LUA_BATCH_DG3 1  // ConcatFast, LRegister, LRef, LUnref, CallMeta
+#define TEST_DISABLE_LUA_BATCH_DG1 0  // PrecallCache, TableFast, HGetFast, PushCClosure, CreateTable
+#define TEST_DISABLE_LUA_BATCH_DG2 0  // PushString, RawSet, RawSetI, SetTable, SetField
+#define TEST_DISABLE_LUA_BATCH_DG3 0  // ConcatFast, LRegister, LRef, LUnref, CallMeta
 #define TEST_DISABLE_LUA_BATCH_DG4 1  // PushResult, AddLString, LoadStr, YieldFast, PushThread, PushFStr, GetTable
-#define TEST_DISABLE_LUA_BATCH_DG4A 1  // PushResult, AddLString, PushFStr, GetTable
-#define TEST_DISABLE_LUA_BATCH_DG4B 1  // LoadStr, YieldFast, PushThread
-#define TEST_DISABLE_LUA_INLINE_BATCH  1
+#define TEST_DISABLE_LUA_BATCH_DG4A 0  // PushResult, AddLString, PushFStr, GetTable
+#define TEST_DISABLE_LUA_BATCH_DG4B 0  // LoadStr, YieldFast, PushThread
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
@@ -483,11 +483,11 @@
 // *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
 // custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
 // ~5M times/session (combat log, bars, timers) -- elides the call overhead.
-#define TEST_DISABLE_PUSHNUMBER_FAST    1  // DISABLED: crash triage
+#define TEST_DISABLE_PUSHNUMBER_FAST    0  // DISABLED: crash triage
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
 // Fixed: taint propagation now matches engine term-for-term.
-#define TEST_DISABLE_PUSHVALUE_FAST     1  // disabled: stack copy may corrupt CVar reads
+#define TEST_DISABLE_PUSHVALUE_FAST     0  // disabled: stack copy may corrupt CVar reads
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
