@@ -184,8 +184,8 @@
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
 #define TEST_DISABLE_LUA_VM_ENGINE        1
 
-// FrameScript hash dispatch - wrong offsets crash on login/world entry
-#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
+// FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
+#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
