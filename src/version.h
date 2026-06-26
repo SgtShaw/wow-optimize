@@ -420,7 +420,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  0  // disabled: CVar values return nil (lua_isstring hook at 0x84DF60)
+#define TEST_DISABLE_LUA_STACK_FAST  1  // disabled: push/pop corrupt luaD_precall 0x5565E9
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -433,7 +433,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  0  // DISABLED: string interning corruption
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1  // disabled: string corruption → garbage stack → luaD_precall 0x5565E9
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -489,11 +489,11 @@
 // *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
 // custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
 // ~5M times/session (combat log, bars, timers) -- elides the call overhead.
-#define TEST_DISABLE_PUSHNUMBER_FAST    0  // DISABLED: crash triage
+#define TEST_DISABLE_PUSHNUMBER_FAST    1  // disabled: direct stack write → luaD_precall 0x5565E9
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
 // Fixed: taint propagation now matches engine term-for-term.
-#define TEST_DISABLE_PUSHVALUE_FAST     0  // disabled: stack copy may corrupt CVar reads
+#define TEST_DISABLE_PUSHVALUE_FAST     1  // disabled: direct stack copy → luaD_precall 0x5565E9
 
 // luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
 // that fires when the engine walks a desynced table hash chain on login/exit.
