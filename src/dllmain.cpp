@@ -6010,12 +6010,22 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- lua_toboolean Inline Optimization ---");
+#if !TEST_DISABLE_TOBOOLEAN_INLINE
     bool tobooleanOk = InstallLuaTobooleanInline();
+#else
+    bool tobooleanOk = false;
+    Log("[LuaTBool] DISABLED via TEST_DISABLE_TOBOOLEAN_INLINE");
+#endif
     CrashDumper::RegisterFeature("LuaTBoolean");
     CrashDumper::FeatureSetActive("LuaTBoolean", tobooleanOk);
 
     Log("--- lua_objlen Inline Optimization ---");
+#if !TEST_DISABLE_OBJLEN_INLINE
     bool objlenOk = InstallLuaObjLenInline();
+#else
+    bool objlenOk = false;
+    Log("[LuaObjLen] DISABLED via TEST_DISABLE_OBJLEN_INLINE");
+#endif
 
     Log("--- luaD_precall Dispatch Cache ---");
 #if !TEST_DISABLE_LUA_INLINE_BATCH

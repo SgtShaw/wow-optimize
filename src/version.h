@@ -474,6 +474,12 @@
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
 #define TEST_DISABLE_RAWGET_INLINE    1  // disabled: returns bad TValue → crash at 0x8591D5 in luaV_execute
 
+// lua_toboolean inline (0x84E0B0) — fast path for truthiness check
+#define TEST_DISABLE_TOBOOLEAN_INLINE  1  // disabled: error log shows lua_toboolean fires before every Lua error
+
+// lua_objlen inline (0x84E150) — fast path for length check
+#define TEST_DISABLE_OBJLEN_INLINE     1  // disabled: error log shows lua_objlen fires before every Lua error
+
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
 #define TEST_DISABLE_GETSTR_INLINE    1  // disabled: stale bucket-index cache returns bad node → crash at 0x8591D5
