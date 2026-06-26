@@ -39,6 +39,7 @@
 #include "lua_vm_cache.h"
 #include "lua_bytecode_cache.h"
 #include "addon_preload.h"
+#include "event_dispatch_cache.h"
 
 // VA Arena helpers (defined in dllmain.cpp)
 extern "C" void ReserveLoadingArena();
@@ -1045,6 +1046,7 @@ static void ReadAddonStateFromLua(lua_State* L) {
         }
         if (!Config.isLoading && wasLoading) {
             ReleaseLoadingArena(); // VA arena: return to gameplay
+            PreWarmEventDispatchCache();
         }
 
         const char* currentMode = GetGCModeName();

@@ -943,7 +943,15 @@ static void PreciseSleep(double milliseconds) {
             else
                 orig_Sleep(0);
         } else {
-            // Single client: precise busy-wait for sub-ms accuracy
+            // Single client: precise busy-wait for sub-ms accuracy.
+            // < 100us: pure RDTSC spin — calling Sleep(0) or SwitchToThread()
+            // would round up to the OS quantum (~1ms) and ruin frame pacing.
+            if (remainingMs < 0.1) {
+                do {
+                    _mm_pause();
+                } while ((double)(__rdtsc() - startRDTSC) < targetCycles);
+                return;
+            }
             if (remainingMs > 2.0)
                 orig_Sleep(1);
             else if (remainingMs > 0.3)
@@ -2714,7 +2722,7 @@ static BOOL WINAPI hooked_QPC(LARGE_INTEGER* lpPerformanceCount) {
 }
 
 static bool InstallQPCHook() {
-    // Calibrate RDTSC threshold for 50 microseconds
+    // Calibrate RDTSC threshold for 25 microseconds
     LARGE_INTEGER freq, start, end;
     QueryPerformanceFrequency(&freq);
     
@@ -2731,8 +2739,8 @@ static bool InstallQPCHook() {
     // Calculate RDTSC cycles per QPC tick
     double rdtscPerQpc = (double)rdtscElapsed / (double)qpcElapsed;
     
-    // 50us coalescing window in QPC ticks
-    LONGLONG qpcWindow = freq.QuadPart / 20000;  // 50us
+    // 25us coalescing window in QPC ticks
+    LONGLONG qpcWindow = freq.QuadPart / 40000;  // 25us
     if (qpcWindow < 1) qpcWindow = 1;
     
     // Convert to RDTSC cycles
@@ -2746,7 +2754,7 @@ static bool InstallQPCHook() {
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_QPC, (void**)&orig_QPC) != MH_OK) return false;
     if (WO_EnableHook(p) != MH_OK) return false;
-    Log("QPC hook: ACTIVE (50us coalescing, %llu RDTSC cycles, RDTSC fast path)", g_rdtscThreshold);
+    Log("QPC hook: ACTIVE (25us coalescing, %llu RDTSC cycles, RDTSC fast path)", g_rdtscThreshold);
     return true;
 }
 
@@ -3348,6 +3356,41 @@ static void ConfigureMimalloc() {
     // confirms the privilege). Off here when disabled so mimalloc never even attempts
     // 2MB reservations on a VA-tight 32-bit client.
     mi_option_set(mi_option_allow_large_os_pages, TEST_ENABLE_LARGE_PAGES ? 1 : 0);
+
+    // Large-page advisory: check if the OS supports 2MB pages and whether the
+    // account holds SeLockMemoryPrivilege. The actual privilege enablement happens
+    // in TryEnableLargePages (called before this), so this is a diagnostic echo.
+    if (TEST_ENABLE_LARGE_PAGES) {
+        SIZE_T lpMin = GetLargePageMinimum();
+        if (lpMin == 0) {
+            Log("mimalloc: large pages NOT supported by this OS (GetLargePageMinimum=0)");
+        } else {
+            // Check if the privilege was actually granted
+            HANDLE hToken;
+            if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
+                TOKEN_PRIVILEGES tp = {};
+                tp.PrivilegeCount = 1;
+                if (LookupPrivilegeValueA(NULL, "SeLockMemoryPrivilege", &tp.Privileges[0].Luid)) {
+                    PRIVILEGE_SET ps = {};
+                    ps.PrivilegeCount = 1;
+                    ps.Control = PRIVILEGE_SET_ALL_NECESSARY;
+                    ps.Privilege[0].Luid = tp.Privileges[0].Luid;
+                    ps.Privilege[0].Attributes = SE_PRIVILEGE_ENABLED;
+                    BOOL bResult = FALSE;
+                    PrivilegeCheck(hToken, &ps, &bResult);
+                    if (bResult) {
+                        Log("mimalloc: large pages ENABLED (%u KB segments)",
+                            (unsigned)(lpMin / 1024));
+                    } else {
+                        Log("mimalloc: large pages NOT available — grant 'Lock pages in memory'");
+                        Log("  via secpol.msc -> Local Policies -> User Rights Assignment,");
+                        Log("  add this account, then log off/on. Fallback: 4 KB pages.");
+                    }
+                }
+                CloseHandle(hToken);
+            }
+        }
+    }
 
     // v3.3.x: eager commit arenas on Windows for faster allocation
     // Commits entire arena at once instead of page-by-page
