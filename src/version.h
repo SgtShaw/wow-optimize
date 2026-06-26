@@ -458,7 +458,7 @@
 #define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1  // DISABLED: 20 hook interaction causes TValue type tag corruption at 50% load
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
-#define TEST_DISABLE_LUA_BATCH_DG1 0  // PrecallCache, TableFast, HGetFast, PushCClosure, CreateTable
+#define TEST_DISABLE_LUA_BATCH_DG1 1  // HGetFast/TableFast corrupt VM state → all table hooks crash at 0x8591D5
 #define TEST_DISABLE_LUA_BATCH_DG2 0  // PushString, RawSet, RawSetI, SetTable, SetField
 #define TEST_DISABLE_LUA_BATCH_DG3 0  // ConcatFast, LRegister, LRef, LUnref, CallMeta
 #define TEST_DISABLE_LUA_BATCH_DG4 1  // PushResult, AddLString, LoadStr, YieldFast, PushThread, PushFStr, GetTable
@@ -472,7 +472,7 @@
 
 // lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    0
+#define TEST_DISABLE_RAWGET_INLINE    1  // disabled: returns bad TValue → crash at 0x8591D5 in luaV_execute
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
