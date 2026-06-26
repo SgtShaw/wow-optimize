@@ -468,7 +468,7 @@
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  0
+#define TEST_DISABLE_RAWGETI_INLINE  1  // disabled: stale array cache → crash at 0x8591D5 in luaV_execute
 
 // lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
@@ -476,7 +476,7 @@
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    0
+#define TEST_DISABLE_GETSTR_INLINE    1  // disabled: stale bucket-index cache returns bad node → crash at 0x8591D5
 
 // lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
 // the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
