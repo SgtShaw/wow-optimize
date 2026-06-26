@@ -76,11 +76,11 @@
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_WRITES      0
+#define TEST_DISABLE_PHASE2_WRITES      1
 
 // Phase 2 read hooks (rawget, concat, unpack)
 // Direct RawTValue* stack writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_READS       0
+#define TEST_DISABLE_PHASE2_READS       1
 
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
@@ -171,7 +171,7 @@
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 0
+#define TEST_DISABLE_UNIT_API_FASTPATH 1
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths

@@ -56,8 +56,24 @@ static int __cdecl hook(uintptr_t L, int idx) {
 
         // Taint propagation from the value
         uint32_t val_taint = *(uint32_t*)(node + 12);
-        if (val_taint && *(uint32_t*)TAINT_A0 && !*(uint32_t*)TAINT_A4)
-            *(uint32_t*)TAINT_CELL = val_taint;
+        
+        // Execute the engine's taint callback if it's the global table (_G == LUA_GLOBALSINDEX = -10002)
+        if (*(void**)0x00D413B0 != nullptr) {
+            if (table == *(uintptr_t*)(L + 72)) {
+                if (val_taint && !*(uint32_t*)TAINT_A4) {
+                    typedef void(__cdecl *taint_cb)(uintptr_t, int, uintptr_t, uint32_t);
+                    ((taint_cb)*(void**)0x00D413B0)(L, 2, key_str + 20, val_taint);
+                }
+            }
+        }
+
+        if (val_taint) {
+            if (*(uint32_t*)TAINT_A0 && !*(uint32_t*)TAINT_A4)
+                *(uint32_t*)TAINT_CELL = val_taint;
+        } else {
+            // Apply global taint to the value if value is untainted
+            *(uint32_t*)(key_tv + 12) = *(uint32_t*)TAINT_CELL;
+        }
 
         g_hits++;
         return (int)key_tv;
