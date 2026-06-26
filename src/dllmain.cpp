@@ -5901,7 +5901,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallMatrixCopySSE2();
 
     Log("--- Lua Number Conversion Fast Path ---");
+#if !TEST_DISABLE_LUA_NUMCONV_FAST
     InstallLuaNumConvFast();
+#else
+    Log("[LuaNumConvFast] DISABLED via TEST_DISABLE_LUA_NUMCONV_FAST");
+#endif
 
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
@@ -6000,7 +6004,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool eventDispatchOk = InstallEventDispatchCache();
 #else
     bool eventDispatchOk = false;
-    Log("[EventDispatchCache] DISABLED via TEST_DISABLE_UNIT_API_FASTPATH — stale node crash at 0x5565E9");
+    Log("[EventDispatchCache] DISABLED via TEST_DISABLE_UNIT_API_FASTPATH");
 #endif
 
     Log("--- Event Name Cache ---");

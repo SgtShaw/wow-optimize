@@ -182,10 +182,10 @@
 #define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE        1  // disabled: 0x8591D5 crash in VM interpreter loop + ElvUI load failure
+#define TEST_DISABLE_LUA_VM_ENGINE        1
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
-#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
+#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
@@ -387,6 +387,10 @@
 // the old 0x84E0E0=lua_tolstring was still a correct fix, just superseded here.)
 #define TEST_DISABLE_LUA_TONUMBER_FAST  1
 
+// Lua Number Conversion Fast Path (gettop, isnumber, tonumber, settop)
+// lua_settop modifies the Lua stack — can corrupt state leading to luaD_precall crashes
+#define TEST_DISABLE_LUA_NUMCONV_FAST   1
+
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
 // Hook nameplate update functions (health, text, color, visibility)
@@ -441,48 +445,48 @@
 // Set to 1 to surgically remove all of them; set to 0 to test individually.
 // Re-enable all safe batch hooks (individually tested working).
 // Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1  // DISABLED: cumulative error cascade across all batch hooks
-#define TEST_DISABLE_LUA_SAFE_G1  1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G2  1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G2AL 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G2AI 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G2B 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G2C 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_SAFE_G3  1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
+#define TEST_DISABLE_LUA_SAFE_G1  1
+#define TEST_DISABLE_LUA_SAFE_G2  1
+#define TEST_DISABLE_LUA_SAFE_G2AL 1
+#define TEST_DISABLE_LUA_SAFE_G2AI 1
+#define TEST_DISABLE_LUA_SAFE_G2B 1
+#define TEST_DISABLE_LUA_SAFE_G2C 1
+#define TEST_DISABLE_LUA_SAFE_G3  1
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
 // Permanently disabled until the write-offset bug is fixed.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
-#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1  // DISABLED: 20 hook interaction causes TValue type tag corruption at 50% load
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
-#define TEST_DISABLE_LUA_BATCH_DG1 1  // HGetFast/TableFast corrupt VM state → all table hooks crash at 0x8591D5
-#define TEST_DISABLE_LUA_BATCH_DG2 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_BATCH_DG3 1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_BATCH_DG1 1
+#define TEST_DISABLE_LUA_BATCH_DG2 1
+#define TEST_DISABLE_LUA_BATCH_DG3 1
 #define TEST_DISABLE_LUA_BATCH_DG4 1  // master
-#define TEST_DISABLE_LUA_BATCH_DG4A 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_BATCH_DG4B 1  // DISABLED: cumulative
-#define TEST_DISABLE_LUA_INLINE_BATCH  1  // DISABLED: cumulative
+#define TEST_DISABLE_LUA_BATCH_DG4A 1
+#define TEST_DISABLE_LUA_BATCH_DG4B 1
+#define TEST_DISABLE_LUA_INLINE_BATCH  1
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1  // disabled: stale array cache → crash at 0x8591D5 in luaV_execute
+#define TEST_DISABLE_RAWGETI_INLINE  1
 
 // lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1  // disabled: returns bad TValue → crash at 0x8591D5 in luaV_execute
+#define TEST_DISABLE_RAWGET_INLINE    1
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE  1  // disabled: error log shows lua_toboolean fires before every Lua error
+#define TEST_DISABLE_TOBOOLEAN_INLINE  1
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE     1  // disabled: error log shows lua_objlen fires before every Lua error
+#define TEST_DISABLE_OBJLEN_INLINE     1
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1  // disabled: stale bucket-index cache returns bad node → crash at 0x8591D5
+#define TEST_DISABLE_GETSTR_INLINE    1
 
 // lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
 // the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
@@ -508,12 +512,12 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST 1  // disabled: FrameIsShown fires before every Lua error (stale frame ptr during addon init)
+#define TEST_DISABLE_UI_ACCESSOR_FAST 1
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
 // Set to 1 to disable.
-#define TEST_DISABLE_FONT_METRICS_FAST 0
+#define TEST_DISABLE_FONT_METRICS_FAST 1
 
 // Sound system protection guards — SEH-wrapped crash protection for
 // sound driver init (sub_508260), emitter registration (sub_5093F0),
@@ -540,7 +544,7 @@
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST   0
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST   1
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
