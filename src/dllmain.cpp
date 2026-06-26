@@ -5529,7 +5529,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     g_nextMiCollectTick = 0;
 
     Log("--- Memory Allocator (early, pre-load) ---");
-#if !TEST_DISABLE_ALLOCATOR_REDIRECT
+#if !TEST_DISABLE_ALLOCATOR_REDIRECT && !TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
     // Redirect WoW's STATIC CRT allocator to mimalloc to defragment the 32-bit VA
     // space (the prior failure hooked the dynamic CRT exports WoW doesn't use; see
     // InstallAllocatorHooks). Closed set, atomic activation, transition-guarded.
@@ -5538,6 +5538,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // the startup VA footprint and cause the early-fragmentation wall.
     bool allocOk = InstallAllocatorHooks();
     if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
+#elif TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
+    bool allocOk = false;
+    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH (crash bisection)");
 #else
     bool allocOk = false;
     Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT");
@@ -6211,7 +6214,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallLuaNewKeySafety();
 
     Log("--- Lua Error Diagnostics ---");
-    InstallLuaErrorDiag();  // always-on: logs every Lua error to this file
+#if !TEST_DISABLE_LUA_ERROR_DIAG
+    InstallLuaErrorDiag();  // logs every Lua error: hook verified against IDA prologue
+#else
+    Log("[LuaErrorDiag] DISABLED via TEST_DISABLE_LUA_ERROR_DIAG (0x84F610 = luaL_addvalue, not lua_error)");
+#endif
 
     Log("--- Lua VM Engine (Direct-Threaded Interpreter) ---");
 #if !TEST_DISABLE_LUA_VM_ENGINE
@@ -6461,7 +6468,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool vmCacheOk = InstallLuaVMCache();
 
     Log("--- luaV_gettable Cache ---");
-    bool getTableCacheOk = InstallLuaGetTableCache();
+    bool getTableCacheOk = false; // InstallLuaGetTableCache(); // DISABLED: completely broken cache that never invalidates on table mutations
 
     Log("--- SavedVariables Async Writer ---");
     bool savedVarsAsyncOk = InstallSavedVarsAsync();
