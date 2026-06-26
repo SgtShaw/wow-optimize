@@ -13,6 +13,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "hooks_logic.h"
+#include "crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -393,6 +394,7 @@ typedef int (__cdecl* lua_gettop_t)(uintptr_t L);
 static const lua_gettop_t lua_gettop_ = (lua_gettop_t)0x0084DBD0;
 
 static int __cdecl Hooked_UnitHealth(uintptr_t L) {
+    CrashDumper::RecordHookCall("UnitHealth", (uintptr_t)L);
     __try {
         if (L && !IsTeardownState()) {
             size_t len = 0;
@@ -423,6 +425,7 @@ static int __cdecl Hooked_UnitHealth(uintptr_t L) {
 }
 
 static int __cdecl Hooked_UnitPower(uintptr_t L) {
+    CrashDumper::RecordHookCall("UnitPower", (uintptr_t)L);
     __try {
         if (L && !IsTeardownState()) {
             size_t len = 0;
@@ -466,6 +469,7 @@ static int __cdecl Hooked_UnitPower(uintptr_t L) {
 }
 
 static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
+    CrashDumper::RecordHookCall("UnitMaxHealth", (uintptr_t)L);
     __try {
         if (L && !IsTeardownState()) {
             size_t len = 0;
@@ -494,6 +498,7 @@ static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
 }
 
 static int __cdecl Hooked_UnitLevel(uintptr_t L) {
+    CrashDumper::RecordHookCall("UnitLevel", (uintptr_t)L);
     __try {
         if (L && !IsTeardownState()) {
             size_t len = 0;

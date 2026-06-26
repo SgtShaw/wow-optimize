@@ -56,6 +56,7 @@ static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
 // Hooked lua_rawget (0x84E600): reads table at idx, lookup using key at L->top - 1,
 // replaces the key at L->top - 1 with the retrieved value. Stack height doesn't change.
 static int __cdecl Hooked_RawGet(uintptr_t L, int idx) {
+    CrashDumper::RecordHookCall("LuaRawGet", (uintptr_t)L);
     ++g_rawgetCalls;
 
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {

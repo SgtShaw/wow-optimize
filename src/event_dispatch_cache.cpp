@@ -18,6 +18,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "lua_optimize.h"
+#include "crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -73,6 +74,7 @@ typedef uintptr_t (__cdecl *EventRegister_t)(uintptr_t frame, uintptr_t event_pt
 static EventRegister_t orig_EventRegister = nullptr;
 
 static uintptr_t __cdecl Hooked_EventRegister(uintptr_t frame, uintptr_t event_ptr) {
+    CrashDumper::RecordHookCall("EventDispatchCache_Register", (uintptr_t)event_ptr);
     uintptr_t res = orig_EventRegister(frame, event_ptr);
     if (event_ptr > 0x10000 && event_ptr < 0xBFFF0000) {
         InvalidateCache(event_ptr);
@@ -87,6 +89,7 @@ typedef uintptr_t (__cdecl *EventUnregister_t)(uintptr_t frame, uintptr_t event_
 static EventUnregister_t orig_EventUnregister = nullptr;
 
 static uintptr_t __cdecl Hooked_EventUnregister(uintptr_t frame, uintptr_t event_ptr) {
+    CrashDumper::RecordHookCall("EventDispatchCache_Unregister", (uintptr_t)event_ptr);
     uintptr_t res = orig_EventUnregister(frame, event_ptr);
     if (event_ptr > 0x10000 && event_ptr < 0xBFFF0000) {
         InvalidateCache(event_ptr);
@@ -101,6 +104,7 @@ typedef int (__cdecl *GetFramesRegistered_t)(uintptr_t L);
 static GetFramesRegistered_t orig_GetFramesRegistered = nullptr;
 
 static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
+    CrashDumper::RecordHookCall("EventDispatchCache", (uintptr_t)L);
     ++g_cacheCalls;
 
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
