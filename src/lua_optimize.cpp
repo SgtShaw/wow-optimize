@@ -1244,6 +1244,13 @@ static void SetupLuaInterface(lua_State* L) {
         // Also inject via FrameScript_Execute for addon-side visibility
         if (Api.FrameScript_Execute) {
             __try {
+                // Fix GMChatFrame.lastGM nil crash — stock WoW bug:
+                // UIParent.lua:476 concatenates lastTalkedToGM which is nil
+                // when no GM conversation history exists.
+                Api.FrameScript_Execute(
+                    "if GMChatFrame and not GMChatFrame.lastGM then "
+                    "GMChatFrame.lastGM = {lastTalkedToGM = ''} end",
+                    "wow_optimize_gmfix", 0);
                 Api.FrameScript_Execute(
                     "LUABOOST_DLL_LOADED=true "
                     "LUABOOST_DLL_GC_ACTIVE=true "
@@ -1380,6 +1387,17 @@ static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* sou
         InterlockedCompareExchange(&g_frameScriptInjected, 1, 0) == 0) {
         __try {
             if (Api.lua_pushnil && Api.lua_setfield && Api.lua_pushboolean) {
+                // Fix GMChatFrame.lastGM nil crash — stock WoW bug:
+                // UIParent.lua:476 concatenates lastTalkedToGM which is nil
+                // when no GM conversation history exists. Inject an empty
+                // lastGM table via FrameScript_Execute so the window stays closed.
+                if (g_origFrameScript) {
+                    g_origFrameScript(
+                        "if GMChatFrame and not GMChatFrame.lastGM then "
+                        "GMChatFrame.lastGM = {lastTalkedToGM = ''} end",
+                        "wow_optimize_gmfix", 0);
+                }
+
                 Api.lua_pushnil(currentL);
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_LOADED");
                 Api.lua_pushboolean(currentL, 1);
