@@ -73,7 +73,7 @@ static __forceinline uintptr_t ResolveTValue(
         if (tv >= top) return 0; // Truly out of bounds
         return tv;
     }
-    if (idx > LUA_REGISTRYINDEX) {
+    if (idx < 0 && idx > LUA_REGISTRYINDEX) {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) {
             *deferToOrig = true;
@@ -84,7 +84,7 @@ static __forceinline uintptr_t ResolveTValue(
         if (tv < base) return 0; // Truly out of bounds
         return tv;
     }
-    // Pseudo-index — can't inline
+    // Pseudo-index or 0 — can't inline
     *deferToOrig = true;
     return 0;
 }
@@ -333,8 +333,15 @@ static int __cdecl hook_lua_insert(uintptr_t L, int idx) {
                 uint32_t a4 = *(uint32_t*)TAINT_A4;
                 uint32_t current_taint = *(uint32_t*)TAINT_CELL;
 
-                // Shift elements up from target to top - 16
-                uintptr_t curr = top;
+                // Copy original top element (now at top - 16) to temp
+                uintptr_t src_top = top - 16;
+                uint32_t t_val0 = *(uint32_t*)(src_top + 0);
+                uint32_t t_val1 = *(uint32_t*)(src_top + 4);
+                uint32_t t_val2 = *(uint32_t*)(src_top + 8);
+                uint32_t t_val3 = *(uint32_t*)(src_top + 12);
+
+                // Shift elements up from target to top - 32
+                uintptr_t curr = top - 16;
                 while (curr > target) {
                     uintptr_t src = curr - 16;
                     uint32_t val0 = *(uint32_t*)(src + 0);
@@ -356,12 +363,6 @@ static int __cdecl hook_lua_insert(uintptr_t L, int idx) {
                     }
                     curr -= 16;
                 }
-
-                // Copy original top element (now at top) to target
-                uint32_t t_val0 = *(uint32_t*)(top + 0);
-                uint32_t t_val1 = *(uint32_t*)(top + 4);
-                uint32_t t_val2 = *(uint32_t*)(top + 8);
-                uint32_t t_val3 = *(uint32_t*)(top + 12);
 
                 *(uint32_t*)(target + 0) = t_val0;
                 *(uint32_t*)(target + 4) = t_val1;
