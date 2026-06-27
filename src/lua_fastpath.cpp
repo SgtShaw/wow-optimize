@@ -1429,17 +1429,9 @@ static int __cdecl Hooked_ToString(lua_State* L) {
         }
 
         case LUA_TSTRING: {
-            size_t len = 0;
-            const char* s = lua_tolstring_(L, 1, &len);
-            if (s && len <= 4096) {
-                for (size_t i = 0; i < len; i++) {
-                    if (s[i] == '\0') goto tostring_fallback;
-                }
-                lua_pushstring_(L, s);
-                g_tostringHits++;
-                return 1;
-            }
-            break;
+            lua_pushvalue_(L, 1);
+            g_tostringHits++;
+            return 1;
         }
 
         default:
@@ -1458,7 +1450,7 @@ static int __cdecl Hooked_ToNumber_Global(lua_State* L) {
     if (nargs != 1) return orig_luaB_tonumber(L);
 
     if (lua_type_(L, 1) == LUA_TNUMBER) {
-        lua_pushnumber_(L, lua_tonumber_(L, 1));
+        lua_pushvalue_(L, 1);
         g_tonumberHits++;
         return 1;
     }
@@ -2359,71 +2351,46 @@ fallback:
 }
 
 static int __cdecl Hooked_Select(lua_State* L) {
-    int nargs = lua_gettop_(L);
-    if (nargs < 1) goto fallback;
-
-    if (lua_type_(L, 1) == LUA_TSTRING) {
+    int n = lua_gettop_(L);
+    if (n >= 1 && lua_type_(L, 1) == LUA_TSTRING) {
         size_t len = 0;
         const char* s = lua_tolstring_(L, 1, &len);
-        if (len == 1 && s[0] == '#') {
-            lua_pushnumber_(L, (double)(nargs - 1));
+        if (s && s[0] == '#' && len == 1) {
+            // Push exact float value using engine's pushnumber
+            lua_pushnumber_(L, (double)(n - 1));
             g_selectHits++;
             return 1;
         }
-        // Non-'#' string index is an error in Lua — fall through to original
-        goto fallback;
     }
-
-    if (lua_type_(L, 1) == LUA_TNUMBER) {
-        double nd = lua_tonumber_(L, 1);
-        int n = (int)nd;
-        if (nd != n) goto fallback;
-
-        // Negative index: select(-1, a, b, c) returns last argument
-        // Lua spec: negative n counts from the end of the argument list
-        if (n < 0) {
-            n = nargs + n; // e.g. nargs=4, n=-1 -> n=3 (select from index 3)
-            if (n < 1) goto fallback; // e.g. select(-999, ...) out of range
-        }
-
-        if (n < 1 || n >= nargs) goto fallback;
-
-        // Return values at indices n+1 through nargs.
-        // The VM copies these from the stack automatically.
-        int ret = nargs - n;
-        g_selectHits++;
-        return ret;
-    }
-
-fallback:
     g_selectFallbacks++;
     return orig_luaB_select(L);
 }
 
 static int __cdecl Hooked_RawEqual(lua_State* L) {
-    if (lua_gettop_(L) != 2) goto fallback;
-
+    if (lua_gettop_(L) < 2) return orig_luaB_rawequal(L);
+    
     int t1 = lua_type_(L, 1);
     int t2 = lua_type_(L, 2);
-
-    // Type mismatch -> not equal
+    
     if (t1 != t2) {
         lua_pushboolean_(L, 0);
         g_rawequalHits++;
         return 1;
     }
-
-    // Type match — nil is always equal
-    if (t1 == LUA_TNIL) {
-        lua_pushboolean_(L, 1);
+    
+    // Only safely handle primitives
+    if (t1 == LUA_TNUMBER) {
+        lua_pushboolean_(L, lua_tonumber_(L, 1) == lua_tonumber_(L, 2));
         g_rawequalHits++;
         return 1;
     }
-
-    // All other types — fallback to original for safety
-    goto fallback;
-
-fallback:
+    
+    if (t1 == LUA_TBOOLEAN) {
+        lua_pushboolean_(L, lua_toboolean_(L, 1) == lua_toboolean_(L, 2));
+        g_rawequalHits++;
+        return 1;
+    }
+    
     g_rawequalFallbacks++;
     return orig_luaB_rawequal(L);
 }
