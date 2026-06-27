@@ -33,7 +33,7 @@ static const char* ReadErrorString(uintptr_t L) {
     }
 }
 
-static int __cdecl hook(uintptr_t L) {
+__declspec(noinline) static void IncrementHitsSafe(uintptr_t L) {
     if (L > 0x10000 && L < 0xBFFF0000) {
         __try {
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
@@ -48,6 +48,10 @@ static int __cdecl hook(uintptr_t L) {
             }
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
+}
+
+static int __cdecl hook(uintptr_t L) {
+    IncrementHitsSafe(L);
 
     LONG errNum = InterlockedIncrement(&g_errorCount);
     if (errNum <= MAX_LOG_ERRORS) {

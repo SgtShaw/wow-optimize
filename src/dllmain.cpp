@@ -785,6 +785,9 @@ extern "C" void Log(const char* fmt, ...) {
 
     InterlockedExchange(&g_logRing[slot].ready, 1);
     SetEvent(g_logEvent);
+
+    // Sync flush for real-time logging (requested by user to catch crash)
+    LogFlushImmediate();
 }
 
 // 1. Memory allocator replacement (mimalloc).
