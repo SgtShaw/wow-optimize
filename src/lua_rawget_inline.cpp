@@ -42,7 +42,7 @@ static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
         if (tv >= top) return 0;
         return tv;
     }
-    if (idx > -10000) { // LUA_REGISTRYINDEX (-10000)
+    if (idx < 0 && idx > -10000) { // LUA_REGISTRYINDEX (-10000)
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) return 0;
         uintptr_t tv = top + (uintptr_t)idx * 16;

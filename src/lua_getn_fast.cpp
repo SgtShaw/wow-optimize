@@ -25,7 +25,7 @@ static inline uintptr_t index2adr_raw(uintptr_t L, int idx) {
         uintptr_t base = get_base(L);
         return base + (idx - 1) * 16;
     }
-    if (idx > -10000) {
+    if (idx < 0 && idx > -10000) {
         uintptr_t top = get_top(L);
         return top + idx * 16;
     }

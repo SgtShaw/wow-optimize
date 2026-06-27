@@ -53,7 +53,7 @@ double __cdecl hooked_lua_tonumber(void* L, int idx) {
         if (idx > 0) {
             o = base + (idx - 1) * 16;
             if (o >= top) o = nullptr;          // engine returns nilobject -> defer
-        } else if (idx > -10000) {
+        } else if (idx < 0 && idx > -10000) {
             o = top + idx * 16;
             if (o < base) o = nullptr;          // invalid negative index -> defer
         }

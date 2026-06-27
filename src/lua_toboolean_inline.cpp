@@ -38,7 +38,7 @@ static int __cdecl Hooked_Toboolean(uintptr_t L, int idx) {
                     return 1; // all other types are truthy
                 }
             }
-        } else if (idx > -10000) {
+        } else if (idx < 0 && idx > -10000) {
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
             if (top > 0x10000 && top < 0xBFFF0000) {
                 uintptr_t tv = top + (uintptr_t)idx * 16;

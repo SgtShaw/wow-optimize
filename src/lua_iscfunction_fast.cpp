@@ -26,7 +26,7 @@ static inline uintptr_t index2adr(uintptr_t L, int idx) {
         if (tv >= top) return 0;
         return tv;
     }
-    if (idx > -10000) {
+    if (idx < 0 && idx > -10000) {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (top < 0x10000) return 0;
         uintptr_t tv = top + idx * 16;
@@ -41,7 +41,7 @@ static int __cdecl hook(uintptr_t L, int idx) {
     if (L < 0x10000 || L > 0xBFFF0000)
         return orig(L, idx);
     __try {
-        if (idx > -10000 && idx <= 0) {
+        if (idx < 0 && idx > -10000) {
             uintptr_t tv = index2adr(L, idx);
             if (tv && tv != NIL_ADDR) {
                 int tt = *(int*)(tv + 8);
