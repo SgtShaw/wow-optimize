@@ -13,7 +13,7 @@ typedef const char*(__cdecl *tname_fn)(uintptr_t L, int tt);
 static tname_fn orig = nullptr;
 
 static const char* g_tnames[] = {
-    "no value", "boolean", "userdata", "number",
+    "nil", "boolean", "userdata", "number",
     "string", "table", "function", "userdata",
     "thread", "proto", "upval", "no value"
 };

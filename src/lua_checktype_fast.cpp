@@ -21,14 +21,23 @@ static int __cdecl hook(uintptr_t L, int arg, int expectedType) {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         uintptr_t base = *(uintptr_t*)(L + 0x10);
 
-        if ((uint32_t)arg >= 0x0000270F) {
+        if ((uint32_t)arg >= 0x0000270F && arg > 0) {
             // Pseudo-index — defer to engine
             g_misses++;
             return orig(L, arg, expectedType);
         }
 
-        uintptr_t slot = top - 16 * (arg + 1);
-        if (slot < base) { g_misses++; return orig(L, arg, expectedType); }
+        uintptr_t slot;
+        if (arg > 0) {
+            slot = base + 16 * (arg - 1);
+        } else if (arg < 0 && arg > -10000) {
+            slot = top + 16 * arg;
+        } else {
+            g_misses++;
+            return orig(L, arg, expectedType);
+        }
+
+        if (slot < base || slot >= top) { g_misses++; return orig(L, arg, expectedType); }
 
         int actualType = *(int32_t*)(slot + 8);
 
