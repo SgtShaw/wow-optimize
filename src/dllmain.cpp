@@ -334,7 +334,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache - ENABLED (tested stable by Morbent + Billy Hoyle)
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED - tested bad, crashes WoW)
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
-#define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path
+#define CRASH_TEST_DISABLE_LSTRCMP              1   // lstrcmp/lstrcmpiA fast path - DISABLED: buggy length comparison instead of dictionary order broke CVar sorting/registry
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
@@ -358,7 +358,7 @@ extern "C" void IncrementParticleFrameCount();
 // (TEST_ENABLE_WS_AGGRESSIVE_PIN lives in wow_memory_opt.cpp, where the working set is set.)
 #define TEST_ENABLE_LARGE_PAGES         1   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
-#define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - RE-ENABLED (SSE2 replacement)
+#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - DISABLED (SSE2 replacement was unsafe without SEH backstop)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
 
 // Definition for the WO_EnableHook batching wrapper declared in version.h.
@@ -2342,8 +2342,8 @@ static int WINAPI hooked_CompareStringA(LCID Locale, DWORD dwCmpFlags,
         int i1 = 0, i2 = 0;
 
         while (true) {
-            bool end1 = (cchCount1 == -1) ? (lpString1[i1] == '\0') : (i1 >= cchCount1);
-            bool end2 = (cchCount2 == -1) ? (lpString2[i2] == '\0') : (i2 >= cchCount2);
+            bool end1 = (lpString1[i1] == '\0') || (cchCount1 >= 0 && i1 >= cchCount1);
+            bool end2 = (lpString2[i2] == '\0') || (cchCount2 >= 0 && i2 >= cchCount2);
 
             if (end1 && end2) { g_compareAsciiHits++; return CSTR_EQUAL; }
             if (end1)         { g_compareAsciiHits++; return CSTR_LESS_THAN; }
@@ -6781,11 +6781,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
 // sub_47B3C0: _DWORD* __thiscall StreamRead(_DWORD* this, _DWORD* out)
 //   *(this+4) = cursor, *(this+1)=base, *(this+2)=delta, *(this+3)=size
 //   if (bounds_ok) { *out = *(base - delta + cursor); cursor += 4; }
-typedef void* (__fastcall* StreamRead_fn)(void*, void*);
+typedef void* (__thiscall* StreamRead_fn)(void*, void*);
 static StreamRead_fn orig_StreamRead = nullptr;
 long g_streamReadHits = 0, g_streamReadFallbacks = 0;
 
-static void* __fastcall hooked_StreamRead(void* This, void* out) {
+static void* __fastcall hooked_StreamRead(void* This, void* edx, void* out) {
 #if CRASH_TEST_DISABLE_STREAM_FASTPATH
     return orig_StreamRead(This, out);
 #else
@@ -6815,11 +6815,11 @@ static void* __fastcall hooked_StreamRead(void* This, void* out) {
 
 // sub_47B0A0: unsigned int* __thiscall StreamWrite(unsigned int* this, int val)
 //   Same buffer layout as StreamRead.  Writes val at cursor, advances.
-typedef void* (__fastcall* StreamWrite_fn)(void*, int);
+typedef void* (__thiscall* StreamWrite_fn)(void*, int);
 static StreamWrite_fn orig_StreamWrite = nullptr;
 long g_streamWriteHits = 0, g_streamWriteFallbacks = 0;
 
-static void* __fastcall hooked_StreamWrite(void* This, int val) {
+static void* __fastcall hooked_StreamWrite(void* This, void* edx, int val) {
 #if CRASH_TEST_DISABLE_STREAM_FASTPATH
     return orig_StreamWrite(This, val);
 #else

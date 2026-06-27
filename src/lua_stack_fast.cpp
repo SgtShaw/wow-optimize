@@ -417,17 +417,11 @@ static int __cdecl hook_lua_replace(uintptr_t L, int idx) {
                 *(uint32_t*)(target + 4) = val1;
                 *(uint32_t*)(target + 8) = val2;
 
+                *(uint32_t*)(target + 12) = val3;
                 if (val3 != 0) {
-                    *(uint32_t*)(target + 12) = val3;
                     if (a0 && !a4) {
-                        current_taint = val3;
+                        *(uint32_t*)TAINT_CELL = val3;
                     }
-                } else {
-                    *(uint32_t*)(target + 12) = current_taint;
-                }
-
-                if (a0 && !a4) {
-                    *(uint32_t*)TAINT_CELL = current_taint;
                 }
 
                 *(uintptr_t*)(L + 0x0C) = top - 16;

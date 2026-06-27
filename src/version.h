@@ -175,7 +175,7 @@
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 0
+#define TEST_DISABLE_DATASTORE_FASTPATH 1
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -232,12 +232,12 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY     0
+#define TEST_DISABLE_MATRIX_MULTIPLY     1
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
@@ -278,12 +278,12 @@
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        0
+#define TEST_DISABLE_FRUSTUM_CULL        1
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -665,3 +665,8 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 }
 #endif
 #endif
+
+
+
+
+

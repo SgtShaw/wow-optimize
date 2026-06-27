@@ -40,8 +40,8 @@ static void* g_nil_object = (void*)0x00A46F78;
 
 // Maximum valid TValue type tag. WoW Lua types: 0=nil, 1=boolean, 
 // 2=lightuserdata, 3=number, 4=string, 5=table, 6=function, 
-// 7=userdata, 8=thread. Types above 15 are definitely invalid.
-static constexpr uint32_t MAX_VALID_TYPE = 15;
+// 7=userdata, 8=thread. Types above 8 are invalid and cause out-of-bounds reads.
+static constexpr uint32_t MAX_VALID_TYPE = 8;
 
 // Statistics (diagnostic only; plain increments -- Lua is single-threaded,
 // so a locked cmpxchg8b per table index was wasted on this hot path)
