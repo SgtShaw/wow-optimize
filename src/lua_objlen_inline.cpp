@@ -58,14 +58,6 @@ static int __cdecl Hooked_ObjLen(uintptr_t L, int idx) {
         if (!defer && tv && tv != NIL_OBJECT) {
             int tt = *(int*)(tv + 8);
             uintptr_t gc = *(uintptr_t*)(tv + 0);
-            if (tt == LUA_TNUMBER) {
-                typedef int (__cdecl *tostring_fn)(uintptr_t, uintptr_t);
-                if (((tostring_fn)0x00856EA0)(L, tv)) {
-                    gc = *(uintptr_t*)(tv + 0);
-                    if (IsValidPtr(gc)) { ++g_objlenFast; return *(int*)(gc + 16); }
-                }
-                ++g_objlenFast; return 0;
-            }
             if (tt == LUA_TSTRING && IsValidPtr(gc))
                 { ++g_objlenFast; return *(int*)(gc + 16); }
             if (tt == LUA_TUSERDATA && IsValidPtr(gc))

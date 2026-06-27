@@ -6006,7 +6006,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool dbcLookupOk = InstallDbcLookupCache();
 
     Log("--- Event Dispatch Cache ---");
-#if !TEST_DISABLE_UNIT_API_FASTPATH
+#if 0
     bool eventDispatchOk = InstallEventDispatchCache();
 #else
     bool eventDispatchOk = false;
