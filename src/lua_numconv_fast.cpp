@@ -141,18 +141,7 @@ static int __cdecl hook_lua_settop(uintptr_t L, int idx) {
                     *(uintptr_t*)(L + 12) = target_top;
                     return (int)L;
                 } else {
-                    size_t growth = (target_top - top) / 16;
-                    if (growth <= 10) {
-                        uint32_t taint = *(uint32_t*)TAINT_CELL;
-                        uintptr_t curr = top;
-                        for (size_t i = 0; i < growth; ++i) {
-                            *(uint32_t*)(curr + 8) = 0; // tt = LUA_TNIL
-                            *(uint32_t*)(curr + 12) = taint;
-                            curr += 16;
-                        }
-                        *(uintptr_t*)(L + 12) = target_top;
-                        return (int)L;
-                    }
+                    return orig_lua_settop(L, idx);
                 }
             }
         }

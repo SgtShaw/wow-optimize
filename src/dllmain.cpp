@@ -6155,8 +6155,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool errorfastOk = false, lessthanOk = false;
 #endif
 #if !TEST_DISABLE_LUA_SAFE_G2C
-    bool gcFastOk = InstallLuaGCFast();
-    bool xpcallFastOk = InstallLuaXPCallFast();
+    // bool gcFastOk = InstallLuaGCFast(); // DISABLED: returning 1 for LUA_GCSTEP 0 skips GC work and lies about cycle completion
+    // bool xpcallFastOk = InstallLuaXPCallFast(); // DISABLED: Hooked lua_call instead of lua_xpcall, corrupts stack!
 #else
     bool gcFastOk = false, xpcallFastOk = false;
 #endif
