@@ -1,6 +1,5 @@
 // ================================================================
 // CRT Memory/String Fast Paths - SSE2 optimized msvcrt hooks
-//
 // ================================================================
 
 #include <windows.h>
@@ -19,9 +18,7 @@ extern long g_crtMemcmpHits, g_crtMemcmpFallbacks;
 extern long g_crtMemcpyHits, g_crtMemcpyFallbacks;
 extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 
-// Thread-local recursion guard - prevents circular re-entry between
-// mimalloc and CRT hooks. mimalloc may call memset/memcpy while holding
-// internal locks; if our hook then triggers another allocation, deadlock.
+// Thread-local recursion guard
 static __declspec(thread) volatile LONG g_crtInHook = 0;
 
 #define CRT_ENTER() do { \
@@ -35,27 +32,31 @@ typedef int   (__cdecl* strcmp_fn)(const char*, const char*);
 typedef int   (__cdecl* memcmp_fn)(const void*, const void*, size_t);
 typedef void* (__cdecl* memcpy_fn)(void*, const void*, size_t);
 typedef void* (__cdecl* memset_fn)(void*, int, size_t);
+typedef int (__cdecl* strncmp_fn)(const char*, const char*, size_t);
 
 static strlen_fn  orig_strlen  = nullptr;
 static strcmp_fn  orig_strcmp  = nullptr;
 static memcmp_fn  orig_memcmp  = nullptr;
 static memcpy_fn  orig_memcpy  = nullptr;
 static memset_fn  orig_memset  = nullptr;
+static strncmp_fn orig_strncmp = nullptr;
 
 // ================================================================
-// strlen - SSE2 null-terminator scan
+// strlen - SSE2 null-terminator scan with in-loop page boundary guard
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
     CrashDumper::RecordHookCall("CRT_strlen", (uintptr_t)_ReturnAddress());
     CRT_ENTER();
     if (!s) { CRT_LEAVE(); goto fallback; }
-    // Page-boundary guard: if within 16 bytes of 4KB boundary,
-    // SSE2 16-byte load would cross into unmapped page → fallback
-    if (((uintptr_t)s & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t len = 0;
         while (true) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)(s + len) & 0xFFF) > 0xFF0) {
+                CRT_LEAVE();
+                goto fallback;
+            }
             __m128i v = _mm_loadu_si128((const __m128i*)(s + len));
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
             if (mask) {
@@ -75,31 +76,46 @@ fallback:
 }
 
 // ================================================================
-// strcmp - SSE2 byte-wise compare (ASCII-safe)
+// strcmp - SSE2 byte-wise compare with termination-index checking
 // ================================================================
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     CRT_ENTER();
     if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
-    if (((uintptr_t)s1 & 0xFFF) > 0xFF0 || ((uintptr_t)s2 & 0xFFF) > 0xFF0)
-        { CRT_LEAVE(); goto fallback; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
         while (true) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)(s1 + i) & 0xFFF) > 0xFF0 || ((uintptr_t)(s2 + i) & 0xFFF) > 0xFF0) {
+                CRT_LEAVE();
+                goto fallback;
+            }
             __m128i a = _mm_loadu_si128((const __m128i*)(s1 + i));
             __m128i b = _mm_loadu_si128((const __m128i*)(s2 + i));
+
             int diff = _mm_movemask_epi8(_mm_cmpeq_epi8(a, b));
+            int nullA = _mm_movemask_epi8(_mm_cmpeq_epi8(a, zero));
+            int nullB = _mm_movemask_epi8(_mm_cmpeq_epi8(b, zero));
+
+            unsigned long diff_idx = 16;
             if (diff != 0xFFFF) {
-                unsigned long idx;
-                _BitScanForward(&idx, (unsigned long)(~diff & 0xFFFF));
-                int result = (unsigned char)s1[i + idx] - (unsigned char)s2[i + idx];
+                _BitScanForward(&diff_idx, (unsigned long)(~diff & 0xFFFF));
+            }
+
+            unsigned long null_idx = 16;
+            int nullMask = nullA | nullB;
+            if (nullMask != 0) {
+                _BitScanForward(&null_idx, (unsigned long)nullMask);
+            }
+
+            if (diff_idx <= null_idx) {
+                int result = (unsigned char)s1[i + diff_idx] - (unsigned char)s2[i + diff_idx];
                 CRT_LEAVE();
                 g_crtStrcmpHits++;
                 return result;
             }
-            int nullA = _mm_movemask_epi8(_mm_cmpeq_epi8(a, zero));
-            int nullB = _mm_movemask_epi8(_mm_cmpeq_epi8(b, zero));
-            if (nullA || nullB) {
+
+            if (nullMask != 0) {
                 CRT_LEAVE();
                 g_crtStrcmpHits++;
                 return 0;
@@ -112,31 +128,63 @@ fallback:
     return orig_strcmp(s1, s2);
 }
 
-// strncmp SSE2
-typedef int (__cdecl* strncmp_fn)(const char*, const char*, size_t);
-static strncmp_fn orig_strncmp = nullptr;
-
+// ================================================================
+// strncmp - SSE2 byte-wise compare with size limit n
+// ================================================================
 static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
     CRT_ENTER();
     if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
-    if (((uintptr_t)s1 & 0xFFF) > 0xFF0 || ((uintptr_t)s2 & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
     __try {
-        const __m128i zero = _mm_setzero_si128(); size_t i = 0;
+        const __m128i zero = _mm_setzero_si128();
+        size_t i = 0;
         while (i + 16 <= n) {
-            __m128i a = _mm_loadu_si128((const __m128i*)(s1+i));
-            __m128i b = _mm_loadu_si128((const __m128i*)(s2+i));
-            int eq = _mm_movemask_epi8(_mm_cmpeq_epi8(a,b));
-            if (eq != 0xFFFF) { unsigned long idx; _BitScanForward(&idx,(~eq&0xFFFF));
-                CRT_LEAVE(); return i+idx<n ? (unsigned char)s1[i+idx]-(unsigned char)s2[i+idx] : 0; }
-            if (_mm_movemask_epi8(_mm_cmpeq_epi8(a,zero))) { CRT_LEAVE(); return 0; }
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)(s1 + i) & 0xFFF) > 0xFF0 || ((uintptr_t)(s2 + i) & 0xFFF) > 0xFF0) {
+                CRT_LEAVE();
+                goto fallback;
+            }
+            __m128i a = _mm_loadu_si128((const __m128i*)(s1 + i));
+            __m128i b = _mm_loadu_si128((const __m128i*)(s2 + i));
+
+            int diff = _mm_movemask_epi8(_mm_cmpeq_epi8(a, b));
+            int nullA = _mm_movemask_epi8(_mm_cmpeq_epi8(a, zero));
+            int nullB = _mm_movemask_epi8(_mm_cmpeq_epi8(b, zero));
+
+            unsigned long diff_idx = 16;
+            if (diff != 0xFFFF) {
+                _BitScanForward(&diff_idx, (unsigned long)(~diff & 0xFFFF));
+            }
+
+            unsigned long null_idx = 16;
+            int nullMask = nullA | nullB;
+            if (nullMask != 0) {
+                _BitScanForward(&null_idx, (unsigned long)nullMask);
+            }
+
+            if (diff_idx <= null_idx) {
+                int result = (unsigned char)s1[i + diff_idx] - (unsigned char)s2[i + diff_idx];
+                CRT_LEAVE();
+                return result;
+            }
+
+            if (nullMask != 0) {
+                CRT_LEAVE();
+                return 0;
+            }
             i += 16;
         }
-        while (i < n) { int d=(unsigned char)s1[i]-(unsigned char)s2[i]; if(d){CRT_LEAVE();return d;} if(!s1[i]){CRT_LEAVE();return 0;} i++; }
-        CRT_LEAVE(); return 0;
+        while (i < n) {
+            int d = (unsigned char)s1[i] - (unsigned char)s2[i];
+            if (d) { CRT_LEAVE(); return d; }
+            if (!s1[i]) { CRT_LEAVE(); return 0; }
+            i++;
+        }
+        CRT_LEAVE();
+        return 0;
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
-fallback: return orig_strncmp(s1,s2,n);
+fallback:
+    return orig_strncmp(s1, s2, n);
 }
-
 
 // ================================================================
 // memcmp - SSE2 vectorized comparison
@@ -180,7 +228,6 @@ fallback:
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     CRT_ENTER();
     if (!dst || !src || n == 0) { CRT_LEAVE(); goto fallback; }
-    // Page-boundary guard: SSE2 16-byte stores/loads near page end
     if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0)
         { CRT_LEAVE(); goto fallback; }
     __try {
@@ -257,10 +304,10 @@ bool InstallCrtMemFastPaths() {
     tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp);
     tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
     tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
-    // tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp); // disabled
+    tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp);
 
     if (ok > 0) {
-        Log("[CRT] Fast paths: ACTIVE (%d/5 hooked, SSE2 optimized)", ok);
+        Log("[CRT] Fast paths: ACTIVE (%d/6 hooked, SSE2 optimized)", ok);
         return true;
     }
     Log("[CRT] Fast paths: FAILED (no hooks installed)");
