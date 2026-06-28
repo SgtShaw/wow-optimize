@@ -5991,12 +5991,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
 
-#if !TEST_DISABLE_RENDER_STATE_DEDUP
     Log("--- Render State Deduplication ---");
     bool renderDedupOk = InstallRenderStateDedup();
-#else
-    Log("[RenderDedup] DISABLED via TEST_DISABLE_RENDER_STATE_DEDUP");
-#endif
 
     Log("--- Lua SetTable Cache ---");
     bool setTableCacheOk = InstallLuaSetTableCache();
