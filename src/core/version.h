@@ -164,7 +164,7 @@
 // replacement at sub_76ED20; the last 5 hook calls before the crash were all
 // StrcpySSE2 from asset resolver paths). Reverting to original CRT until the
 // SSE2 strncpy hook can be fixed and validated in-game.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -177,7 +177,7 @@
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
-#define TEST_DISABLE_HARDWARE_CURSOR    1
+#define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE         1
@@ -193,7 +193,7 @@
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
-#define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
+#define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
 #define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
@@ -218,7 +218,7 @@
 #define TEST_DISABLE_COMBATLOG_PARSER   1
 
 // Force high-precision timing & block timingtesterror fallback
-#define TEST_DISABLE_TIMING_FIX         1
+#define TEST_DISABLE_TIMING_FIX         0
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
 #define TEST_DISABLE_LUA_VM_ENGINE         1
@@ -252,7 +252,7 @@
 // DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
 // reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
-#define TEST_DISABLE_CRT_CHAR_SSE2       1
+#define TEST_DISABLE_CRT_CHAR_SSE2       0
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -430,7 +430,7 @@
 // byte, matching the original's offset-based load (mov cl,[edx+eax]) exactly.
 // Page-safe: no unaligned 16-byte loads crossing 4KB boundaries. SEH-guarded
 // with fallback to the original on any exception. Safe to enable.
-#define TEST_DISABLE_STRCAT_FAST         1
+#define TEST_DISABLE_STRCAT_FAST         0
 
 // Lua tonumber Fast Path - sub_84E030. DISABLED because it is REDUNDANT: the
 // LuaNumConvFast module already hooks lua_tonumber at 0x84E030 and installs
