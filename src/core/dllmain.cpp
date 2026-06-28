@@ -63,6 +63,7 @@ extern "C" void Log(const char* fmt, ...);
 static volatile DWORD g_lastMainThreadTick = 0;
 static volatile bool  g_freezeWatchdogActive = false;
 static HANDLE         g_freezeWatchdogThread = NULL;
+static DWORD          g_mainThreadId = 0;
 
 // Forward-declared here because the watchdog (below) is defined before
 // lua_optimize.h is included; definitions match that header.
@@ -502,9 +503,8 @@ extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
     while (head != tail) {
-        if (g_fieldQueue[head].unit == unit) {
-            g_fieldQueue[head].unit = nullptr;
-        }
+        // Use atomic compare-exchange to safely nullify the unit pointer
+        InterlockedCompareExchangePointer((volatile PVOID*)&g_fieldQueue[head].unit, nullptr, unit);
         head = (head + 1) & FIELD_QUEUE_MASK;
     }
 #endif
@@ -512,18 +512,23 @@ extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
 
 static void FlushFieldUpdates() {
 #if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
+    // Thread safety: Flush must only run on the main thread
+    if (g_mainThreadId != 0 && GetCurrentThreadId() != g_mainThreadId) return;
+
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
     if (head == tail) return;
 
     while (head != tail) {
         FieldTask& task = g_fieldQueue[head];
-        if (task.unit != nullptr) {
+        // Claim task ownership atomically to prevent use-after-free or race conditions with invalidate
+        void* unit = InterlockedExchangePointer((volatile PVOID*)&task.unit, nullptr);
+        if (unit != nullptr) {
             __try {
-                // Validate pointer lifetime before calling original
-                uintptr_t p = (uintptr_t)task.unit;
-                if (p > 0x10000 && p < 0xBFFF0000) {
-                    orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
+                // Validate pointer lifetime before calling original (4GB LAA boundaries)
+                uintptr_t p = (uintptr_t)unit;
+                if (p > 0x10000 && p < 0xFFE00000) {
+                    orig_OnFieldUpdate(unit, task.fieldId, task.value);
                 }
             } __except(EXCEPTION_EXECUTE_HANDLER) {}
         }
@@ -909,7 +914,6 @@ static bool InstallAllocatorHooks() {
 
 // 2. Sleep hook + frame pacing, GC stepping, combat log cleanup.
 //
-static DWORD g_mainThreadId = 0;
 
 typedef void (WINAPI* Sleep_fn)(DWORD);
 static Sleep_fn orig_Sleep = nullptr;
