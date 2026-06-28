@@ -364,7 +364,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
             return g_orig_luaV_execute(L, nexeccalls);
         }
         
-        TValue* funcSlot = *(TValue**)((char*)ci + 0x00);
+        TValue* funcSlot = *(TValue**)((char*)ci + 0x04);
         if (!funcSlot || funcSlot->tt != LUA_TFUNCTION) {
             t_inOptimizedExecution = false;
             return g_orig_luaV_execute(L, nexeccalls);
@@ -739,7 +739,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 if (precall_res == 0) {
                     // Enter new Lua frame
                     ci = *(void**)((char*)L + 0x18);
-                    funcSlot = *(TValue**)((char*)ci + 0x00);
+                    funcSlot = *(TValue**)((char*)ci + 0x04);
                     closure = funcSlot->value.gc;
                     proto = *(void**)((char*)closure + 24);
                     k = *(TValue**)((char*)proto + 12);
@@ -801,7 +801,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 
                 // Continue in caller
                 ci = *(void**)((char*)L + 0x18);
-                funcSlot = *(TValue**)((char*)ci + 0x00);
+                funcSlot = *(TValue**)((char*)ci + 0x04);
                 closure = funcSlot->value.gc;
                 proto = *(void**)((char*)closure + 24);
                 k = *(TValue**)((char*)proto + 12);
