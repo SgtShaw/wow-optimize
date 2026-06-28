@@ -462,20 +462,20 @@ static float* __fastcall Hooked_MatInvertRigid(float* self, void* edx, float* ou
             __m128 orig2 = _mm_loadu_ps(self + 8);   // M8..M11  (row 2)
             float tx = self[12], ty = self[13], tz = self[14];   // translation row
 
-            // Compute the correct translation components before transpose:
-            // trans = orig0*(-tx) + orig1*(-ty) + orig2*(-tz)
-            __m128 trans = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(orig0, _mm_set1_ps(-tx)),
-                           _mm_mul_ps(orig1, _mm_set1_ps(-ty))),
-                _mm_mul_ps(orig2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
-            trans = _mm_add_ps(trans, _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)); // out15=1
-
-            // Now transpose rotation matrix
+            // Now transpose rotation matrix first
             __m128 r0 = orig0;
             __m128 r1 = orig1;
             __m128 r2 = orig2;
             __m128 r3 = _mm_setzero_ps();         // forces transposed lane3 -> 0
             _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
+
+            // Compute translation vector using transposed rows:
+            // trans = r0*(-tx) + r1*(-ty) + r2*(-tz)
+            __m128 trans = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(r0, _mm_set1_ps(-tx)),
+                           _mm_mul_ps(r1, _mm_set1_ps(-ty))),
+                _mm_mul_ps(r2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
+            trans = _mm_add_ps(trans, _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)); // out15=1
 
             _mm_storeu_ps(out,      r0);
             _mm_storeu_ps(out + 4,  r1);

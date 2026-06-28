@@ -480,14 +480,14 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
-#define TEST_DISABLE_LUA_SAFE_G1         0  // enabled: arg checkers
-#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: stack queries
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
+#define TEST_DISABLE_LUA_SAFE_G1         1  // enabled: arg checkers
+#define TEST_DISABLE_LUA_SAFE_G2         1  // enabled: stack queries
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
 #define TEST_DISABLE_LUA_SAFE_G2AI 0
 #define TEST_DISABLE_LUA_SAFE_G2B 0
 #define TEST_DISABLE_LUA_SAFE_G2C 0
-#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops
+#define TEST_DISABLE_LUA_SAFE_G3         1  // enabled: buffer ops
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
