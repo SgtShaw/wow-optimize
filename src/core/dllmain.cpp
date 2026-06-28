@@ -295,7 +295,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
-#define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache
+#define CRASH_TEST_DISABLE_READFILE        1   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_QPC_CACHE       1   // QPC coalescing cache (DISABLED to fix random stutters under DXVK)
