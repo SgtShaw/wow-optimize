@@ -34,6 +34,9 @@ static bool g_deviceHooksInstalled = false;
 typedef HRESULT (STDMETHODCALLTYPE *SetRenderState_t)(IDirect3DDevice9*, D3DRENDERSTATETYPE, DWORD);
 static SetRenderState_t g_orig_SetRenderState = nullptr;
 
+typedef HRESULT (STDMETHODCALLTYPE *Reset_t)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+static Reset_t g_orig_Reset = nullptr;
+
 // ================================================================
 // SetRenderState — compare-before-set dedup
 // ================================================================
@@ -59,11 +62,23 @@ static HRESULT STDMETHODCALLTYPE Hooked_SetRenderState(
 }
 
 // ================================================================
+// Reset — clear cache on device reset to prevent stale states
+// ================================================================
+static HRESULT STDMETHODCALLTYPE Hooked_Reset(
+    IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* pParams)
+{
+    // Clear caches: D3D device reset restores default render states on the GPU
+    memset(g_rsCache, 0, sizeof(g_rsCache));
+    memset(g_rsValid, 0, sizeof(g_rsValid));
+
+    if (g_orig_Reset) {
+        return g_orig_Reset(device, pParams);
+    }
+    return S_OK;
+}
+
+// ================================================================
 // IDirect3D9::CreateDevice — intercept device creation
-// vtable index 16: HRESULT CreateDevice(UINT Adapter, D3DDEVTYPE,
-//   HWND hFocusWindow, DWORD BehaviorFlags,
-//   D3DPRESENT_PARAMETERS* pPresentationParameters,
-//   IDirect3DDevice9** ppReturnedDeviceInterface)
 // ================================================================
 typedef HRESULT (STDMETHODCALLTYPE *CreateDevice_t)(
     IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD,
@@ -79,52 +94,73 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
     HRESULT hr = g_orig_CreateDevice(self, Adapter, DeviceType,
         hFocusWindow, BehaviorFlags, pParams, ppDevice);
 
-    if (SUCCEEDED(hr) && ppDevice && *ppDevice && !g_deviceHooksInstalled) {
-        __try {
-            IDirect3DDevice9* dev = *ppDevice;
-            uintptr_t* vtable = *(uintptr_t**)dev;
-            if (!vtable || (uintptr_t)vtable < 0x10000 ||
-                (uintptr_t)vtable > 0xBFFF0000) {
-                return hr;
+    if (SUCCEEDED(hr) && ppDevice && *ppDevice) {
+        // Clear caches on new device creation to start clean
+        memset(g_rsCache, 0, sizeof(g_rsCache));
+        memset(g_rsValid, 0, sizeof(g_rsValid));
+
+        if (!g_deviceHooksInstalled) {
+            __try {
+                IDirect3DDevice9* dev = *ppDevice;
+                uintptr_t* vtable = *(uintptr_t**)dev;
+                if (!vtable || (uintptr_t)vtable < 0x10000 ||
+                    (uintptr_t)vtable > 0xBFFF0000) {
+                    return hr;
+                }
+
+                // vtable index 57 = SetRenderState
+                uintptr_t setRS = vtable[57];
+                if (!setRS || setRS < 0x10000 || setRS > 0xBFFF0000) {
+                    Log("[RenderDedup] SetRenderState vtable entry invalid (0x%08X) — "
+                        "wrapper device, skipping hook", (unsigned)setRS);
+                    return hr;
+                }
+
+                // Hook SetRenderState
+                SetRenderState_t origRS = nullptr;
+                MH_STATUS st = MH_CreateHook(
+                    (void*)setRS,
+                    (void*)Hooked_SetRenderState,
+                    (void**)&origRS);
+                if (st != MH_OK) {
+                    Log("[RenderDedup] MH_CreateHook SetRenderState FAILED (status %d) "
+                        "— skipping", (int)st);
+                    return hr;
+                }
+
+                st = MH_EnableHook((void*)setRS);
+                if (st != MH_OK) {
+                    Log("[RenderDedup] MH_EnableHook SetRenderState FAILED (status %d) "
+                        "— removing", (int)st);
+                    MH_RemoveHook((void*)setRS);
+                    return hr;
+                }
+                g_orig_SetRenderState = origRS;
+
+                // Hook Reset (vtable index 16)
+                uintptr_t reset = vtable[16];
+                if (reset && reset >= 0x10000 && reset <= 0xBFFF0000) {
+                    Reset_t origReset = nullptr;
+                    st = MH_CreateHook(
+                        (void*)reset,
+                        (void*)Hooked_Reset,
+                        (void**)&origReset);
+                    if (st == MH_OK) {
+                        st = MH_EnableHook((void*)reset);
+                        if (st == MH_OK) {
+                            g_orig_Reset = origReset;
+                        } else {
+                            MH_RemoveHook((void*)reset);
+                        }
+                    }
+                }
+
+                g_deviceHooksInstalled = true;
+                Log("[RenderDedup] Hooks installed on device (SetRenderState + Reset)");
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                Log("[RenderDedup] Exception reading device vtable — wrapper device, "
+                    "skipping hook");
             }
-
-            // vtable index 57 = SetRenderState
-            uintptr_t setRS = vtable[57];
-            if (!setRS || setRS < 0x10000 || setRS > 0xBFFF0000) {
-                Log("[RenderDedup] SetRenderState vtable entry invalid (0x%08X) — "
-                    "wrapper device, skipping hook", (unsigned)setRS);
-                return hr;
-            }
-
-            // Hook the function directly (MinHook patches prologue,
-            // works for any device type — native or wrapper).
-            SetRenderState_t orig = nullptr;
-            MH_STATUS st = MH_CreateHook(
-                (void*)setRS,
-                (void*)Hooked_SetRenderState,
-                (void**)&orig);
-            if (st != MH_OK) {
-                Log("[RenderDedup] MH_CreateHook SetRenderState FAILED (status %d) "
-                    "— skipping", (int)st);
-                return hr;
-            }
-
-            st = MH_EnableHook((void*)setRS);
-            if (st != MH_OK) {
-                Log("[RenderDedup] MH_EnableHook SetRenderState FAILED (status %d) "
-                    "— removing", (int)st);
-                MH_RemoveHook((void*)setRS);
-                return hr;
-            }
-
-            g_orig_SetRenderState = orig;
-            g_deviceHooksInstalled = true;
-
-            Log("[RenderDedup] SetRenderState hook ACTIVE (%d-slot compare-before-set)",
-                RS_CACHE_SIZE);
-        } __except(EXCEPTION_EXECUTE_HANDLER) {
-            Log("[RenderDedup] Exception reading device vtable — wrapper device, "
-                "skipping hook");
         }
     }
 
