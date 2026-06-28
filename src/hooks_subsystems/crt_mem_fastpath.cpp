@@ -25,18 +25,33 @@ extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 // or during early CRT initialization before originals are valid.
 static volatile LONG g_crtReady = 0;
 
-// Thread-local recursion guard.
-// __declspec(thread) is only accessible by the owning thread, so no
-// cross-thread atomic (InterlockedExchange) is needed. A plain volatile
-// read/write is correct and eliminates the lock-prefixed instruction
-// overhead on every strlen/memcpy/memset call.
-static __declspec(thread) volatile long g_crtInHook = 0;
+// Thread-local recursion guard using Win32 TLS and direct TEB lookup.
+// This completely avoids the compiler's implicit TLS helper calls which
+// can trigger recursion during thread initialization.
+static DWORD g_tlsIndex = TLS_OUT_OF_INDEXES;
+
+inline long GetCrtInHook() {
+    if (g_tlsIndex == TLS_OUT_OF_INDEXES) return 0;
+    if (g_tlsIndex < 64) {
+        return (long)__readfsdword(0xE10 + g_tlsIndex * 4);
+    }
+    return (long)TlsGetValue(g_tlsIndex);
+}
+
+inline void SetCrtInHook(long val) {
+    if (g_tlsIndex == TLS_OUT_OF_INDEXES) return;
+    if (g_tlsIndex < 64) {
+        __writefsdword(0xE10 + g_tlsIndex * 4, (unsigned long)val);
+    } else {
+        TlsSetValue(g_tlsIndex, (LPVOID)val);
+    }
+}
 
 #define CRT_ENTER() do { \
-    if (g_crtInHook) goto fallback; \
-    g_crtInHook = 1; \
+    if (GetCrtInHook()) goto fallback; \
+    SetCrtInHook(1); \
 } while(0)
-#define CRT_LEAVE() (g_crtInHook = 0)
+#define CRT_LEAVE() SetCrtInHook(0)
 
 // Page-safety check: returns true if a 16-byte SSE load/store at ptr
 // would cross a 4KB page boundary into a potentially unmapped page.
@@ -326,6 +341,12 @@ bool InstallCrtMemFastPaths() {
     Log("[CRT] Fast paths: DISABLED");
     return false;
 #else
+    g_tlsIndex = TlsAlloc();
+    if (g_tlsIndex == TLS_OUT_OF_INDEXES) {
+        Log("[CRT] TlsAlloc failed!");
+        return false;
+    }
+
     HMODULE hCRT = GetModuleHandleA("msvcrt.dll");
     if (!hCRT) { Log("[CRT] msvcrt.dll not found"); return false; }
 

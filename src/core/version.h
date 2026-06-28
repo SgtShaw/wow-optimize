@@ -159,15 +159,14 @@
 #define TEST_DISABLE_MBWC               0
 
 // CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths.
-// FIXED (3.12.0): (1) per-chunk page-boundary guards inside every SSE2 loop
-// (memcpy/memset/memcmp previously only checked the start address, so a long
-// op could cross a 4KB page boundary mid-loop and fault); (2) removed the
-// CrashDumper::RecordHookCall that fired BEFORE the recursion guard (any
-// compiler-emitted memset/memcpy in that call chain re-entered without the
-// guard); (3) added init-readiness gate so hooks cannot fire before all
-// originals are captured; (4) plain volatile read/write on the thread-local
-// guard (no InterlockedExchange overhead on the hot path); (5) null-safe
-// fallbacks.
+// DISABLED: the per-chunk page guard + recursion guard + init gate fixes
+// addressed the obvious bugs but the feature still crashes in-game
+// (STACK_OVERFLOW at 0x40BB77 on world load, ACCESS_VIOLATION in ntdll
+// on logout). Root cause is deeper — likely TLS-access recursion during
+// thread init or interaction with mimalloc's internal memcpy usage.
+// The 87% memcpy fallback rate (from page-boundary guard) also suggests
+// the guard is too aggressive, causing double-work on fallback. Keep
+// disabled until the TLS recursion root cause is fully diagnosed.
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  0
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
