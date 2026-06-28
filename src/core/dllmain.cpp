@@ -5656,9 +5656,29 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
     InstallD3DEvictPatch();
     bool strncmpGuardOk = InstallStrncmpNullGuard();
-
-    // Extend the Lua C-function pointer validation range if needed,
-    // but avoid modifying dword_D415B8/BC directly to prevent Warden detection.
+    // Hook sub_86B5A0 (Lua C-function pointer range validator) to skip the check.
+    // sub_86B5A0 validates that C function pointers passed to lua_pushcclosure are
+    // inside wow.exe's .text section — rejects any pointer from external DLLs with
+    // ERROR #134 "Invalid function pointer: %p". The old fix wrote to dword_D415B8/BC
+    // in .data (expanding the range), but Warden scans those globals. Hooking the
+    // function itself via MinHook only patches .text (which Warden does not scan for
+    // this address). The hook is a no-op: all 12 callers discard the return value.
+    {
+        void* pValidate = (void*)0x0086B5A0;
+        unsigned char* vb = (unsigned char*)pValidate;
+        if (vb[0] == 0x55 && vb[1] == 0x8B) { // push ebp; mov ebp, esp
+            typedef unsigned int (__cdecl* ValidateFnPtr_fn)(unsigned int);
+            static ValidateFnPtr_fn orig_ValidateFnPtr = nullptr;
+            auto hooked_ValidateFnPtr = [](unsigned int) -> unsigned int { return 0; };
+            if (WineSafe_CreateHook(pValidate, (void*)(unsigned int(__cdecl*)(unsigned int))hooked_ValidateFnPtr,
+                                    (void**)&orig_ValidateFnPtr) == MH_OK
+                && WO_EnableHook(pValidate) == MH_OK) {
+                Log("Lua C-function pointer validator: BYPASSED (sub_86B5A0 hooked)");
+            } else {
+                Log("Lua C-function pointer validator: HOOK FAILED — Error #134 may occur");
+            }
+        }
+    }
 
     Log("--- Sound System Protection Guards ---");
     InstallSoundDriverGuard();
