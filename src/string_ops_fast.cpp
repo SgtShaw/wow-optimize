@@ -34,58 +34,63 @@ static JenkinsHash_t  pOrigJenkins = nullptr;
 // ================================================================
 static uint32_t __cdecl HookJenkinsHash(const uint8_t* key, uint32_t length, uint32_t initval) {
 #if !TEST_DISABLE_STRING_OPS_FAST
-    ++g_jenkins_calls;   // diagnostic only
+    ++g_jenkins_calls;
 
-    if (!key || length == 0) return initval;
+    if (!key) return initval;
 
     uint32_t a, b, c;
-    a = b = c = 0xdeadbeef + length + initval;
+    a = b = 0x9E3779B9;
+    c = initval;
 
     uint32_t len = length;
 
     // Main loop: process 12-byte blocks
-    while (len > 12) {
-        a += key[0]  | ((uint32_t)key[1]  << 8)  | ((uint32_t)key[2]  << 16) | ((uint32_t)key[3]  << 24);
-        b += key[4]  | ((uint32_t)key[5]  << 8)  | ((uint32_t)key[6]  << 16) | ((uint32_t)key[7]  << 24);
-        c += key[8]  | ((uint32_t)key[9]  << 8)  | ((uint32_t)key[10] << 16) | ((uint32_t)key[11] << 24);
+    while (len >= 12) {
+        a += key[0] | ((uint32_t)key[1] << 8) | ((uint32_t)key[2] << 16) | ((uint32_t)key[3] << 24);
+        b += key[4] | ((uint32_t)key[5] << 8) | ((uint32_t)key[6] << 16) | ((uint32_t)key[7] << 24);
+        c += key[8] | ((uint32_t)key[9] << 8) | ((uint32_t)key[10] << 16) | ((uint32_t)key[11] << 24);
 
-        // mix() macro inlined
-        a -= c; a ^= (c << 4)  | (c >> 28); c += b;
-        b -= a; b ^= (a << 6)  | (a >> 26); a += c;
-        c -= b; c ^= (b << 8)  | (b >> 24); b += a;
-        a -= c; a ^= (c << 16) | (c >> 16); c += b;
-        b -= a; b ^= (a << 19) | (a >> 13); a += c;
-        c -= b; c ^= (b << 4)  | (b >> 28); b += a;
+        // mix2 macro
+        a -= b; a -= c; a ^= (c >> 13);
+        b -= c; b -= a; b ^= (a << 8);
+        c -= a; c -= b; c ^= (b >> 13);
+        a -= b; a -= c; a ^= (c >> 12);
+        b -= c; b -= a; b ^= (a << 16);
+        c -= a; c -= b; c ^= (b >> 5);
+        a -= b; a -= c; a ^= (c >> 3);
+        b -= c; b -= a; b ^= (a << 10);
+        c -= a; c -= b; c ^= (b >> 15);
 
         key += 12;
         len -= 12;
     }
 
-    // Handle remaining 0-12 bytes
+    c += length;
     switch (len) {
-        case 12: c += ((uint32_t)key[11] << 24); /* fall through */
-        case 11: c += ((uint32_t)key[10] << 16); /* fall through */
-        case 10: c += ((uint32_t)key[9]  << 8);  /* fall through */
-        case 9:  c += key[8];                     /* fall through */
-        case 8:  b += ((uint32_t)key[7]  << 24); /* fall through */
-        case 7:  b += ((uint32_t)key[6]  << 16); /* fall through */
-        case 6:  b += ((uint32_t)key[5]  << 8);  /* fall through */
-        case 5:  b += key[4];                     /* fall through */
-        case 4:  a += ((uint32_t)key[3]  << 24); /* fall through */
-        case 3:  a += ((uint32_t)key[2]  << 16); /* fall through */
-        case 2:  a += ((uint32_t)key[1]  << 8);  /* fall through */
+        case 11: c += ((uint32_t)key[10] << 24); /* fall through */
+        case 10: c += ((uint32_t)key[9] << 16);  /* fall through */
+        case 9:  c += ((uint32_t)key[8] << 8);   /* fall through */
+        case 8:  b += ((uint32_t)key[7] << 24);  /* fall through */
+        case 7:  b += ((uint32_t)key[6] << 16);  /* fall through */
+        case 6:  b += ((uint32_t)key[5] << 8);   /* fall through */
+        case 5:  b += key[4];                    /* fall through */
+        case 4:  a += ((uint32_t)key[3] << 24);  /* fall through */
+        case 3:  a += ((uint32_t)key[2] << 16);  /* fall through */
+        case 2:  a += ((uint32_t)key[1] << 8);   /* fall through */
         case 1:  a += key[0]; break;
-        case 0:  return c;
+        case 0:  break;
     }
 
-    // final() mix
-    c ^= b; c -= (b << 14) | (b >> 18);
-    a ^= c; a -= (c << 11) | (c >> 21);
-    b ^= a; b -= (a << 25) | (a >> 7);
-    c ^= b; c -= (b << 16) | (b >> 16);
-    a ^= c; a -= (c << 4)  | (c >> 28);
-    b ^= a; b -= (a << 14) | (a >> 18);
-    c ^= b; c -= (b << 24) | (b >> 8);
+    // final mix
+    a -= b; a -= c; a ^= (c >> 13);
+    b -= c; b -= a; b ^= (a << 8);
+    c -= a; c -= b; c ^= (b >> 13);
+    a -= b; a -= c; a ^= (c >> 12);
+    b -= c; b -= a; b ^= (a << 16);
+    c -= a; c -= b; c ^= (b >> 5);
+    a -= b; a -= c; a ^= (c >> 3);
+    b -= c; b -= a; b ^= (a << 10);
+    c -= a; c -= b; c ^= (b >> 15);
 
     ++g_jenkins_fast;
     return c;

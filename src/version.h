@@ -181,7 +181,7 @@
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
 // Likely bug in scalar fallback after SSE2 chunk processing
 // Keep disabled until rewritten with more careful null-terminator handling
-#define TEST_DISABLE_STRING_OPS_FAST         1
+#define TEST_DISABLE_STRING_OPS_FAST         0
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0
@@ -196,10 +196,10 @@
 #define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE         0
+#define TEST_DISABLE_LUA_VM_ENGINE         1
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
-#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
+#define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
