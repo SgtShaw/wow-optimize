@@ -95,16 +95,33 @@ static constexpr uintptr_t ADDR_taint_skip    = 0x00D413A4;
 #define LUA_GLOBALSINDEX (-10002)
 #define lua_upvalueindex(i) (LUA_GLOBALSINDEX - (i))
 
-union RawValue {
-    void*     gc;
-    uintptr_t ptr;
-    double    n;
-};
-
 struct RawTValue {
-    RawValue  value;
+    union {
+        void*     gc;
+        uintptr_t ptr;
+        double    n;
+        uint32_t  raw[2];
+    } value;
     int       tt;
     uint32_t  taint;
+
+    // Custom copy/assignment to avoid FPU NaN-quieting pointer corruption
+    RawTValue() = default;
+    RawTValue(const RawTValue& other) {
+        value.raw[0] = other.value.raw[0];
+        value.raw[1] = other.value.raw[1];
+        tt = other.tt;
+        taint = other.taint;
+    }
+    RawTValue& operator=(const RawTValue& other) {
+        if (this != &other) {
+            value.raw[0] = other.value.raw[0];
+            value.raw[1] = other.value.raw[1];
+            tt = other.tt;
+            taint = other.taint;
+        }
+        return *this;
+    }
 };
 
 static inline RawTValue* GetStackBaseFast(lua_State* L) {
