@@ -49,31 +49,44 @@ void SSE2_MatrixMultiply(const float* __restrict a,
 static const float kQuatNormEps = 0.00000023841858f;
 
 void SSE2_QuatNormalize(float* q) {
-    __m128 v = _mm_loadu_ps(q); // x, y, z, w
+    // Stage all inputs to local variables before any output writes
+    float qx = q[0];
+    float qy = q[1];
+    float qz = q[2];
+    float qw = q[3];
+
+    __m128 v = _mm_setr_ps(qx, qy, qz, qw);
     __m128 sq = _mm_mul_ps(v, v);
 
-    __m128 shuf = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(2,3,0,1));
-    __m128 sum1 = _mm_add_ps(sq, shuf);
-    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1,0,3,2));
-    __m128 mag2 = _mm_add_ps(sum1, shuf2);  // full sum in every lane
+    // Rewrite horizontal sum using proper _mm_shuffle_ps + _mm_add_ss pattern
+    __m128 y2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(1, 1, 1, 1));
+    __m128 sum1 = _mm_add_ss(sq, y2);
+    
+    __m128 z2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(2, 2, 2, 2));
+    __m128 sum2 = _mm_add_ss(sum1, z2);
+    
+    __m128 w2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(3, 3, 3, 3));
+    __m128 mag2 = _mm_add_ss(sum2, w2);
 
-    float m = mag2.m128_f32[0];
-    if (!(m > kQuatNormEps)) return;
+    float m = _mm_cvtss_f32(mag2);
+    // Magnitude guard matching the engine's original exactly (2^-22)
+    if (!(m > 0.00000023841858f)) return;
 
     __m128 inv = _mm_div_ss(_mm_set_ss(1.0f), _mm_sqrt_ss(mag2));
     __m128 invb = _mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0,0,0,0));
 
-    v = _mm_mul_ps(v, invb);
+    __m128 res = _mm_mul_ps(v, invb);
 
-    float out_x = v.m128_f32[0];
-    float out_y = v.m128_f32[1];
-    float out_z = v.m128_f32[2];
-    float out_w = v.m128_f32[3];
+    // Stage outputs to a local buffer before writing to q
+    float out_val[4];
+    _mm_storeu_ps(out_val, res);
 
-    q[0] = out_x;
-    q[1] = out_y;
-    q[2] = out_z;
-    q[3] = out_w;
+    _ReadWriteBarrier();
+
+    q[0] = out_val[0];
+    q[1] = out_val[1];
+    q[2] = out_val[2];
+    q[3] = out_val[3];
 }
 
 // ================================================================
