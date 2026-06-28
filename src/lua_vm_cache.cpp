@@ -1,7 +1,7 @@
-// Lua VM table lookup cache
-// Hooks luaV_gettable (0x857250). Caches all table[const] lookups.
-// Massive hit rate for global variables (UnitHealth, GetTime, etc.)
-// since they're looked up by the same TString* every call.
+// ================================================================
+// lua_vm_cache.cpp - Lua VM table lookup cache
+// Hooks luaV_gettable (0x857250) and luaV_settable (0x8573C0)
+// ================================================================
 
 #include "version.h"
 #include "lua_optimize.h"
@@ -36,30 +36,62 @@ static SRWLOCK  g_cacheLock = SRWLOCK_INIT;
 static volatile LONG64 g_hits   = 0;
 static volatile LONG64 g_misses = 0;
 
-typedef void (__cdecl *luaV_gettable_fn)(void*, void*, void*, void*);
+typedef struct lua_State lua_State;
+
+struct RawValue {
+    void*     gc;
+    uintptr_t ptr;
+    double    n;
+};
+
+struct TValue {
+    RawValue  value;
+    int       tt;
+    uint32_t  taint;
+};
+
+typedef void (__cdecl *luaV_gettable_fn)(lua_State*, void*, void*, void*);
 static luaV_gettable_fn orig_luaV_gettable = nullptr;
 
-static void __cdecl Hooked_luaV_gettable(void* L, void* table, void* key, void* result) {
-    // Skip cache during lua_State swap - old table/key pointers are stale
+typedef void (__cdecl *luaV_settable_fn)(lua_State*, void*, void*, void*);
+static luaV_settable_fn orig_luaV_settable = nullptr;
+
+static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, void* result) {
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
         orig_luaV_gettable(L, table, key, result);
         return;
     }
 
-    if (!key) { orig_luaV_gettable(L, table, key, result); return; }
+    if (!table || !key) {
+        orig_luaV_gettable(L, table, key, result);
+        return;
+    }
 
-    uintptr_t t = (uintptr_t)table;
-    uintptr_t k = (uintptr_t)key;
+    TValue* tv_table = (TValue*)table;
+    TValue* tv_key = (TValue*)key;
 
-    // Hash: XOR mix of table and key pointers
+    // Only cache lookups on actual tables with string keys
+    if (tv_table->tt != 5 || tv_key->tt != 4) {
+        orig_luaV_gettable(L, table, key, result);
+        return;
+    }
+
+    uintptr_t t = (uintptr_t)tv_table->value.gc;
+    uintptr_t k = (uintptr_t)tv_key->value.gc;
+
+    if (t < 0x10000 || t > 0xFFE00000 || k < 0x10000 || k > 0xFFE00000) {
+        orig_luaV_gettable(L, table, key, result);
+        return;
+    }
+
+    // Hash: XOR mix of table and key GC object pointers
     uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
     uint64_t combined = ((uint64_t)(uint32_t)t << 32) | (uint32_t)k;
 
     AcquireSRWLockShared(&g_cacheLock);
     if (g_cache[hash].combined == combined) {
         uint32_t tp = g_cache[hash].type_tag;
-        // Only cache GC-safe types: nil(0),bool(1),lightuserdata(2),number(3),string(4)
-        // Tables(5)/functions(6)/userdata(7)/thread(8) can be collected between calls.
+        // Only cache GC-safe primitive types: nil(0),bool(1),lightuserdata(2),number(3),string(4)
         if (tp <= 4) {
             *(uint32_t*)((char*)result)      = g_cache[hash].value.lo;
             *(uint32_t*)((char*)result + 4)  = g_cache[hash].value.hi;
@@ -87,18 +119,47 @@ static void __cdecl Hooked_luaV_gettable(void* L, void* table, void* key, void* 
     }
 }
 
+static void __cdecl Hooked_luaV_settable(lua_State* L, void* table, void* key, void* val) {
+    if (table && key) {
+        TValue* tv_table = (TValue*)table;
+        TValue* tv_key = (TValue*)key;
+        if (tv_table->tt == 5 && tv_key->tt == 4) {
+            uintptr_t t = (uintptr_t)tv_table->value.gc;
+            uintptr_t k = (uintptr_t)tv_key->value.gc;
+            if (t >= 0x10000 && t <= 0xFFE00000 && k >= 0x10000 && k <= 0xFFE00000) {
+                uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
+                AcquireSRWLockExclusive(&g_cacheLock);
+                g_cache[hash].combined = 0; // invalidate slot on write
+                ReleaseSRWLockExclusive(&g_cacheLock);
+            }
+        }
+    }
+    orig_luaV_settable(L, table, key, val);
+}
+
 bool InstallLuaVMCache() {
-    void* target = (void*)0x857250;
-    if (MH_CreateHook(target, (void*)Hooked_luaV_gettable,
-                      (void**)&orig_luaV_gettable) != MH_OK) {
-        Log("[GetTableCache] CreateHook failed at 0x857250");
+    void* target_get = (void*)0x857250;
+    void* target_set = (void*)0x8573C0;
+
+    if (MH_CreateHook(target_get, (void*)Hooked_luaV_gettable, (void**)&orig_luaV_gettable) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaV_gettable");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[GetTableCache] EnableHook failed");
+    if (MH_EnableHook(target_get) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaV_gettable");
         return false;
     }
-    Log("[GetTableCache] Active: %d-slot cache on luaV_gettable", CACHE_SIZE);
+
+    if (MH_CreateHook(target_set, (void*)Hooked_luaV_settable, (void**)&orig_luaV_settable) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaV_settable");
+        return false;
+    }
+    if (MH_EnableHook(target_set) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaV_settable");
+        return false;
+    }
+
+    Log("[GetTableCache] Active: %d-slot cache on luaV_gettable/luaV_settable", CACHE_SIZE);
     return true;
 }
 

@@ -87,7 +87,7 @@
 #define TEST_DISABLE_PHASE2_NEW_DMA     1
 
 // GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 0
+#define TEST_DISABLE_GETSPELLINFO_CACHE 1
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES
@@ -155,7 +155,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    1
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         1
+#define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
