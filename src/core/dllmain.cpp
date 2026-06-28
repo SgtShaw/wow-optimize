@@ -5657,13 +5657,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallD3DEvictPatch();
     bool strncmpGuardOk = InstallStrncmpNullGuard();
 
-    // Extend the Lua C-function pointer validation range to include this DLL.
-    // sub_86B5A0 validates pointers against wow.exe's .text section only
-    // (populated by sub_86B510 from the PE header), rejecting any C functions
-    // registered from external modules -> ERROR #134 "Invalid function pointer".
-    // Expand to full user-mode VA span — all callers discard sub_86B5A0's return.
-    *(uint32_t*)0x00D415B8 = 0x00400000;  // dword_D415B8 — range start
-    *(uint32_t*)0x00D415BC = 0xFFE00000;  // dword_D415BC — range end
+    // Extend the Lua C-function pointer validation range if needed,
+    // but avoid modifying dword_D415B8/BC directly to prevent Warden detection.
 
     Log("--- Sound System Protection Guards ---");
     InstallSoundDriverGuard();

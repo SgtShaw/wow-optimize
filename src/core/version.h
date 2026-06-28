@@ -67,7 +67,7 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
@@ -75,7 +75,7 @@
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
 // MUST be 0 for any build that wants the VA defrag benefits of mimalloc.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // IDA-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
@@ -164,7 +164,7 @@
 // replacement at sub_76ED20; the last 5 hook calls before the crash were all
 // StrcpySSE2 from asset resolver paths). Reverting to original CRT until the
 // SSE2 strncpy hook can be fixed and validated in-game.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -193,7 +193,7 @@
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
-#define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
+#define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
 #define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
