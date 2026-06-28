@@ -158,13 +158,17 @@
 // MultiByteToWideChar / WideCharToMultiByte SSE2 ASCII fast path
 #define TEST_DISABLE_MBWC               0
 
-// CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths
-// DISABLED: re-enabled in 3.11.0-session but caused instant ACCESS_VIOLATION
-// at 0x15401A98 on game start (corrupted return address from SSE2 strncpy
-// replacement at sub_76ED20; the last 5 hook calls before the crash were all
-// StrcpySSE2 from asset resolver paths). Reverting to original CRT until the
-// SSE2 strncpy hook can be fixed and validated in-game.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
+// CRT strlen/strcmp/memcmp/memcpy/memset SSE2 fast paths.
+// FIXED (3.12.0): (1) per-chunk page-boundary guards inside every SSE2 loop
+// (memcpy/memset/memcmp previously only checked the start address, so a long
+// op could cross a 4KB page boundary mid-loop and fault); (2) removed the
+// CrashDumper::RecordHookCall that fired BEFORE the recursion guard (any
+// compiler-emitted memset/memcpy in that call chain re-entered without the
+// guard); (3) added init-readiness gate so hooks cannot fire before all
+// originals are captured; (4) plain volatile read/write on the thread-local
+// guard (no InterlockedExchange overhead on the hot path); (5) null-safe
+// fallbacks.
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop

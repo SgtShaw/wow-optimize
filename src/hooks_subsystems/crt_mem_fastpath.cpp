@@ -20,13 +20,28 @@ extern long g_crtMemcmpHits, g_crtMemcmpFallbacks;
 extern long g_crtMemcpyHits, g_crtMemcpyFallbacks;
 extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 
-// Thread-local recursion guard
-static __declspec(thread) volatile LONG g_crtInHook = 0;
+// Init-readiness gate (set after all originals are captured).
+// Prevents hooks from firing during MinHook's own install sequence
+// or during early CRT initialization before originals are valid.
+static volatile LONG g_crtReady = 0;
+
+// Thread-local recursion guard.
+// __declspec(thread) is only accessible by the owning thread, so no
+// cross-thread atomic (InterlockedExchange) is needed. A plain volatile
+// read/write is correct and eliminates the lock-prefixed instruction
+// overhead on every strlen/memcpy/memset call.
+static __declspec(thread) volatile long g_crtInHook = 0;
 
 #define CRT_ENTER() do { \
-    if (InterlockedExchange(&g_crtInHook, 1) != 0) goto fallback; \
+    if (g_crtInHook) goto fallback; \
+    g_crtInHook = 1; \
 } while(0)
-#define CRT_LEAVE() InterlockedExchange(&g_crtInHook, 0)
+#define CRT_LEAVE() (g_crtInHook = 0)
+
+// Page-safety check: returns true if a 16-byte SSE load/store at ptr
+// would cross a 4KB page boundary into a potentially unmapped page.
+// ptr must be at page offset <= 0xFF0 for a safe 16-byte access.
+#define PAGE_NEAR_BOUNDARY(p) (((uintptr_t)(p) & 0xFFF) > 0xFF0)
 
 // Originals
 typedef size_t (__cdecl* strlen_fn)(const char*);
@@ -47,7 +62,7 @@ static strncmp_fn orig_strncmp = nullptr;
 // strlen - SSE2 null-terminator scan with in-loop page boundary guard
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
-    CrashDumper::RecordHookCall("CRT_strlen", (uintptr_t)_ReturnAddress());
+    if (!g_crtReady || !orig_strlen) goto fallback;
     CRT_ENTER();
     if (!s) { CRT_LEAVE(); goto fallback; }
     __try {
@@ -55,7 +70,7 @@ static size_t __cdecl hooked_strlen(const char* s) {
         size_t len = 0;
         while (true) {
             // Page-boundary guard inside the loop
-            if (((uintptr_t)(s + len) & 0xFFF) > 0xFF0) {
+            if (PAGE_NEAR_BOUNDARY(s + len)) {
                 CRT_LEAVE();
                 goto fallback;
             }
@@ -74,13 +89,14 @@ static size_t __cdecl hooked_strlen(const char* s) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtStrlenFallbacks++;
-    return orig_strlen(s);
+    return orig_strlen ? orig_strlen(s) : 0;
 }
 
 // ================================================================
 // strcmp - SSE2 byte-wise compare with termination-index checking
 // ================================================================
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
+    if (!g_crtReady || !orig_strcmp) goto fallback;
     CRT_ENTER();
     if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
     __try {
@@ -88,7 +104,7 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
         size_t i = 0;
         while (true) {
             // Page-boundary guard inside the loop
-            if (((uintptr_t)(s1 + i) & 0xFFF) > 0xFF0 || ((uintptr_t)(s2 + i) & 0xFFF) > 0xFF0) {
+            if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
                 CRT_LEAVE();
                 goto fallback;
             }
@@ -127,13 +143,14 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtStrcmpFallbacks++;
-    return orig_strcmp(s1, s2);
+    return orig_strcmp ? orig_strcmp(s1, s2) : 0;
 }
 
 // ================================================================
 // strncmp - SSE2 byte-wise compare with size limit n
 // ================================================================
 static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
+    if (!g_crtReady || !orig_strncmp) goto fallback;
     CRT_ENTER();
     if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
     __try {
@@ -141,7 +158,7 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
         size_t i = 0;
         while (i + 16 <= n) {
             // Page-boundary guard inside the loop
-            if (((uintptr_t)(s1 + i) & 0xFFF) > 0xFF0 || ((uintptr_t)(s2 + i) & 0xFFF) > 0xFF0) {
+            if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
                 CRT_LEAVE();
                 goto fallback;
             }
@@ -185,34 +202,42 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
         return 0;
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
-    return orig_strncmp(s1, s2, n);
+    return orig_strncmp ? orig_strncmp(s1, s2, n) : 0;
 }
 
 // ================================================================
-// memcmp - SSE2 vectorized comparison
+// memcmp - SSE2 vectorized comparison with per-chunk page guard
 // ================================================================
 static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
+    if (!g_crtReady || !orig_memcmp) goto fallback;
     CRT_ENTER();
     if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
     __try {
-        const __m128i* p1 = (const __m128i*)s1;
-        const __m128i* p2 = (const __m128i*)s2;
+        const unsigned char* p1 = (const unsigned char*)s1;
+        const unsigned char* p2 = (const unsigned char*)s2;
         size_t i = 0;
-        for (; i + 16 <= n; i += 16, p1++, p2++) {
-            __m128i a = _mm_loadu_si128(p1);
-            __m128i b = _mm_loadu_si128(p2);
+        for (; i + 16 <= n; i += 16) {
+            // Per-chunk page-boundary guard (was missing — caused
+            // ACCESS_VIOLATION when a long compare crossed into an
+            // unmapped page mid-loop)
+            if (PAGE_NEAR_BOUNDARY(p1 + i) || PAGE_NEAR_BOUNDARY(p2 + i)) {
+                CRT_LEAVE();
+                goto fallback;
+            }
+            __m128i a = _mm_loadu_si128((const __m128i*)(p1 + i));
+            __m128i b = _mm_loadu_si128((const __m128i*)(p2 + i));
             int eq = _mm_movemask_epi8(_mm_cmpeq_epi8(a, b));
             if (eq != 0xFFFF) {
                 unsigned long idx;
                 _BitScanForward(&idx, (unsigned long)(~eq & 0xFFFF));
-                int result = ((const unsigned char*)s1)[i + idx] - ((const unsigned char*)s2)[i + idx];
+                int result = p1[i + idx] - p2[i + idx];
                 CRT_LEAVE();
                 g_crtMemcmpHits++;
                 return result;
             }
         }
         for (; i < n; i++) {
-            int diff = ((const unsigned char*)s1)[i] - ((const unsigned char*)s2)[i];
+            int diff = p1[i] - p2[i];
             if (diff) { CRT_LEAVE(); g_crtMemcmpHits++; return diff; }
         }
         CRT_LEAVE();
@@ -221,29 +246,36 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemcmpFallbacks++;
-    return orig_memcmp(s1, s2, n);
+    return orig_memcmp ? orig_memcmp(s1, s2, n) : 0;
 }
 
 // ================================================================
-// memcpy - SSE2 unaligned copy (safe for overlapping regions)
+// memcpy - SSE2 unaligned copy with per-chunk page guard
 // ================================================================
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
+    if (!g_crtReady || !orig_memcpy) goto fallback;
     CRT_ENTER();
     if (!dst || !src || n == 0) { CRT_LEAVE(); goto fallback; }
-    if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0)
-        { CRT_LEAVE(); goto fallback; }
+    // Reject overlapping copies — fall back to original (which may
+    // use memmove semantics). Only check the forward-overlap case
+    // since memcpy with overlap is UB, but the original may handle it.
+    if (src < dst && (const char*)src + n > (char*)dst) { CRT_LEAVE(); goto fallback; }
     __try {
-        if (src < dst && (const char*)src + n > (char*)dst) { CRT_LEAVE(); goto fallback; }
-
-        __m128i* d = (__m128i*)dst;
-        const __m128i* s = (const __m128i*)src;
+        unsigned char* d = (unsigned char*)dst;
+        const unsigned char* s = (const unsigned char*)src;
         size_t i = 0;
-        for (; i + 16 <= n; i += 16, d++, s++) {
-            _mm_storeu_si128(d, _mm_loadu_si128(s));
+        for (; i + 16 <= n; i += 16) {
+            // Per-chunk page-boundary guard for BOTH load and store.
+            // The old code only checked the start address, so a copy
+            // longer than 16 bytes could cross a page boundary mid-loop
+            // and fault on _mm_loadu_si128 / _mm_storeu_si128.
+            if (PAGE_NEAR_BOUNDARY(s + i) || PAGE_NEAR_BOUNDARY(d + i)) {
+                CRT_LEAVE();
+                goto fallback;
+            }
+            _mm_storeu_si128((__m128i*)(d + i), _mm_loadu_si128((const __m128i*)(s + i)));
         }
-        unsigned char* d8 = (unsigned char*)d;
-        const unsigned char* s8 = (const unsigned char*)s;
-        for (size_t j = i; j < n; j++) *d8++ = *s8++;
+        for (size_t j = i; j < n; j++) d[j] = s[j];
 
         CRT_LEAVE();
         g_crtMemcpyHits++;
@@ -251,25 +283,31 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemcpyFallbacks++;
-    return orig_memcpy(dst, src, n);
+    return orig_memcpy ? orig_memcpy(dst, src, n) : dst;
 }
 
 // ================================================================
-// memset - SSE2 byte broadcast
+// memset - SSE2 byte broadcast with per-chunk page guard
 // ================================================================
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
+    if (!g_crtReady || !orig_memset) goto fallback;
     CRT_ENTER();
     if (!dst || n == 0) { CRT_LEAVE(); goto fallback; }
-    if (((uintptr_t)dst & 0xFFF) > 0xFF0) { CRT_LEAVE(); goto fallback; }
     __try {
         __m128i val = _mm_set1_epi8((char)c);
-        __m128i* d = (__m128i*)dst;
+        unsigned char* d = (unsigned char*)dst;
         size_t i = 0;
-        for (; i + 16 <= n; i += 16, d++) {
-            _mm_storeu_si128(d, val);
+        for (; i + 16 <= n; i += 16) {
+            // Per-chunk page-boundary guard for the store.
+            // The old code only checked the start address, so a fill
+            // longer than 16 bytes could cross a page boundary mid-loop.
+            if (PAGE_NEAR_BOUNDARY(d + i)) {
+                CRT_LEAVE();
+                goto fallback;
+            }
+            _mm_storeu_si128((__m128i*)(d + i), val);
         }
-        unsigned char* d8 = (unsigned char*)d;
-        for (size_t j = i; j < n; j++) *d8++ = (unsigned char)c;
+        for (size_t j = i; j < n; j++) d[j] = (unsigned char)c;
 
         CRT_LEAVE();
         g_crtMemsetHits++;
@@ -277,7 +315,7 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemsetFallbacks++;
-    return orig_memset(dst, c, n);
+    return orig_memset ? orig_memset(dst, c, n) : dst;
 }
 
 // ================================================================
@@ -294,7 +332,7 @@ bool InstallCrtMemFastPaths() {
     int ok = 0;
     auto tryHook = [&](const char* name, void* hook, void** orig) {
         void* p = GetProcAddress(hCRT, name);
-        if (p && MH_CreateHook(p, hook, orig) == MH_OK && MH_EnableHook(p) == MH_OK) {
+        if (p && MH_CreateHook(p, hook, orig) == MH_OK && WO_EnableHook(p) == MH_OK) {
             ok++;
             return true;
         }
@@ -307,6 +345,11 @@ bool InstallCrtMemFastPaths() {
     tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
     tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
     tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp);
+
+    // Set the init-readiness gate AFTER all originals are captured.
+    // This prevents hooks from firing during the install sequence
+    // itself (if a queued enable triggers a CRT call before we finish).
+    InterlockedExchange(&g_crtReady, 1);
 
     if (ok > 0) {
         Log("[CRT] Fast paths: ACTIVE (%d/6 hooked, SSE2 optimized)", ok);
