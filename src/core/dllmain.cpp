@@ -298,7 +298,8 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
-#define CRASH_TEST_DISABLE_QPC_CACHE       0   // QPC coalescing cache
+#define CRASH_TEST_DISABLE_QPC_CACHE       1   // QPC coalescing cache (DISABLED to fix random stutters under DXVK)
+#define CRASH_TEST_DISABLE_TICK_COUNT      1   // GetTickCount/timeGetTime redirection to QPC (DISABLED to fix random stutters and CPU overhead)
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
@@ -5688,9 +5689,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Frame Pacing ---");
     bool sleepOk = InstallSleepHook();
+#if !CRASH_TEST_DISABLE_TICK_COUNT
     Log("--- Timer Precision ---");
     bool tickOk = InstallGetTickCountHook();
     bool tgtOk  = InstallTimeGetTimeHook();
+#else
+    bool tickOk = false;
+    bool tgtOk  = false;
+    Log("--- Timer Precision ---");
+    Log("[TimerPrecision] GetTickCount/timeGetTime hooks: DISABLED");
+#endif
     Log("--- Heap Optimization ---");
     bool heapOk = InstallHeapOptimization();
 #if !TEST_DISABLE_HEAP_REDIRECT
