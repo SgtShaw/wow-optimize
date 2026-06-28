@@ -1714,13 +1714,13 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
     while (i < sLen) {
         if (count < maxN && s[i] == first && i + pLen <= sLen &&
             (pLen == 1 || memcmp(s + i, p, pLen) == 0)) {
-            if (outLen + rLen >= sizeof(out)) { g_gsubFallbacks++; return orig_str_gsub(L); }
+            if (outLen + rLen >= sizeof(out) - 1) { g_gsubFallbacks++; return orig_str_gsub(L); }
             memcpy(out + outLen, r, rLen);
             outLen += rLen;
             i += pLen;
             count++;
         } else {
-            if (outLen + 1 >= sizeof(out)) { g_gsubFallbacks++; return orig_str_gsub(L); }
+            if (outLen + 1 >= sizeof(out) - 1) { g_gsubFallbacks++; return orig_str_gsub(L); }
             out[outLen++] = s[i++];
         }
     }
