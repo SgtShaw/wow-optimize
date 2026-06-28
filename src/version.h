@@ -87,7 +87,7 @@
 #define TEST_DISABLE_PHASE2_NEW_DMA     1
 
 // GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 1
+#define TEST_DISABLE_GETSPELLINFO_CACHE 0
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES
@@ -193,7 +193,7 @@
 #define TEST_DISABLE_COMBATLOG_PARSER   1
 
 // Force high-precision timing & block timingtesterror fallback
-#define TEST_DISABLE_TIMING_FIX         0
+#define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
 #define TEST_DISABLE_LUA_VM_ENGINE         1

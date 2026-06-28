@@ -56,11 +56,11 @@ static inline const char* ReadTStringDirect(RawTValue* tv, size_t* out_len) {
     if (tv->tt != 4) return NULL;  // LUA_TSTRING
 
     void* ts_ptr = tv->value.gc;
-    if (!ts_ptr) return NULL;
+    if ((uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr > 0xFFE00000) return NULL;
 
     // Read length directly from TString header
     int len = *(int*)((char*)ts_ptr + 8);
-    if (len < 0) return NULL;
+    if (len < 0 || len > 1024) return NULL;
 
     char* str = (char*)ts_ptr + 16;
     if (out_len) *out_len = (size_t)len;
@@ -285,6 +285,7 @@ static inline void ReplaySpellCachedValues(lua_State* L, SpellCacheEntry* e) {
 // ================================================================
 
 static int __cdecl Hooked_GetItemInfo(lua_State* L) {
+    if (lua_gettop_(L) < 1) return orig_GetItemInfo(L);
     uint32_t keyHash;
     RawTValue* base = GetStackBase(L);
     RawTValue* arg1 = &base[0];  // Stack index 1 = base[0]
@@ -334,6 +335,7 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 // ================================================================
 
 static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
+    if (lua_gettop_(L) < 1) return orig_GetSpellInfo(L);
     uint32_t keyHash;
     RawTValue* base = GetStackBase(L);
     RawTValue* arg1 = &base[0];  // Stack index 1 = base[0]
