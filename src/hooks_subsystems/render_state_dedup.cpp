@@ -273,3 +273,8 @@ void ShutdownRenderStateDedup(void)
             "have been created)");
     }
 }
+
+void RenderStateDedup_ClearCache(void)
+{
+    memset(g_rsValid, 0, sizeof(g_rsValid));
+}

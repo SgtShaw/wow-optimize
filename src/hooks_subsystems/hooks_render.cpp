@@ -14,6 +14,7 @@
 #include "version.h"
 #include "hooks_render.h"
 #include "d3d9_state_manager.h"
+#include "render_state_dedup.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -120,4 +121,8 @@ void ShutdownRenderHooks(void) {
 void OnFrameRenderHooks(DWORD mainThreadId) {
     if (GetCurrentThreadId() != mainThreadId) return;
     g_animFrameIndex++;
+    
+    // Clear render state deduplication cache on frame boundaries to prevent 
+    // stale cached states during focus changes or driver state changes.
+    RenderStateDedup_ClearCache();
 }

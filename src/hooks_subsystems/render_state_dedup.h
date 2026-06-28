@@ -27,3 +27,4 @@
 
 bool InstallRenderStateDedup(void);
 void ShutdownRenderStateDedup(void);
+void RenderStateDedup_ClearCache(void);
