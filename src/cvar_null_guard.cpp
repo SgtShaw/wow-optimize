@@ -24,11 +24,11 @@ static Sub7668C0_t g_orig7668C0 = nullptr;
 static char __fastcall Hooked_7668C0(void* ecx, void* edx, char* Str1, char a3, char a4, char a5, char a6)
 {
     uintptr_t p = (uintptr_t)ecx;
-    if (p < 0x10000 || p > 0xBFFF0000) {
+    if (p < 0x10000 || p > 0xFFE00000) {
         return 1;
     }
     uintptr_t ptrAt104 = *(uintptr_t*)((char*)ecx + 104);
-    if (ptrAt104 < 0x10000 || ptrAt104 > 0xBFFF0000) {
+    if (ptrAt104 != 0 && (ptrAt104 < 0x10000 || ptrAt104 > 0xFFE00000)) {
         return 1;
     }
     return g_orig7668C0(ecx, edx, Str1, a3, a4, a5, a6);

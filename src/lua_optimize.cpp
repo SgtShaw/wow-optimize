@@ -1470,8 +1470,12 @@ static void DoMainThreadInit() {
     
     g_vmInitializedOnce = true;
 
+#if !TEST_DISABLE_FRAMESCRIPT_EXECUTE
     // Hook FrameScript_Execute for marker injection on future /reloads
     InstallFrameScriptInjectionHook();
+#else
+    Log("[LuaOpt] FrameScript injection hook: DISABLED via feature flag");
+#endif
 
     Log("[LuaOpt] ====================================");
     Log("[LuaOpt]  Init Complete");

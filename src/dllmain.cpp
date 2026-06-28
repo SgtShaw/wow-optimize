@@ -359,7 +359,7 @@ extern "C" void IncrementParticleFrameCount();
 #define TEST_ENABLE_LARGE_PAGES         1   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - DISABLED (SSE2 replacement was unsafe without SEH backstop)
-#define CRASH_TEST_DISABLE_STREAM_FASTPATH      0   // sub_47B3C0/sub_47B0A0 - RE-ENABLED (inline bounds check)
+#define CRASH_TEST_DISABLE_STREAM_FASTPATH      TEST_DISABLE_STREAM_FASTPATH   // sub_47B3C0/sub_47B0A0 - controlled by version.h
 
 // Definition for the WO_EnableHook batching wrapper declared in version.h.
 // While this is 1 (set across MainThread's install sequence), module enables
@@ -4356,7 +4356,7 @@ static GetStrCacheEntry g_getstrCache[GETSTR_CACHE_SIZE];
 // committed, readable page.  Avoids the ACCESS_VIOLATION that the
 // original cache hit on mimalloc-recycled table memory.
 static inline bool IsSafeRead4(uintptr_t addr) {
-    if (addr < 0x10000 || addr > 0xBFFF0000) return false;
+    if (addr < 0x10000 || addr > 0xFFE00000) return false;
     MEMORY_BASIC_INFORMATION mbi;
     if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
     return (mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)));
@@ -5653,7 +5653,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Engine Stability Guards ---");
     InitCvarWatchdog();
     InstallRenderNullGuard();
+#if !TEST_DISABLE_CVAR_NULL_GUARD
     InstallCvarNullGuard();
+#endif
     InstallD3DEvictPatch();
     bool strncmpGuardOk = InstallStrncmpNullGuard();
 
@@ -5663,7 +5665,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // registered from external modules -> ERROR #134 "Invalid function pointer".
     // Expand to full user-mode VA span — all callers discard sub_86B5A0's return.
     *(uint32_t*)0x00D415B8 = 0x00400000;  // dword_D415B8 — range start
-    *(uint32_t*)0x00D415BC = 0xBFFF0000;  // dword_D415BC — range end
+    *(uint32_t*)0x00D415BC = 0xFFE00000;  // dword_D415BC — range end
 
     Log("--- Sound System Protection Guards ---");
     InstallSoundDriverGuard();
@@ -5723,7 +5725,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Critical Sections ---");
     bool csOk = InstallCriticalSectionHook();
     Log("--- Network ---");
+#if !TEST_DISABLE_NETWORK_HOOKS
     bool netOk = InstallNetworkHooks();
+#else
+    bool netOk = false;
+#endif
     Log("--- File I/O ---");
     bool fileOk  = InstallFileHooks();
     bool readOk  = InstallReadFileHook();
@@ -5827,7 +5833,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     // Fast String Compare (strncmp) - 1013 callers
+#if !TEST_DISABLE_STRING_OPS_FAST
     bool fastStrncmpOk = InstallFastStrncmp();
+#else
+    bool fastStrncmpOk = false;
+#endif
 
     // CRT Free Hook - 2901 callers (#2 most called)
     bool crtFreeOk = InstallCrtFreeHook();
@@ -5898,10 +5908,18 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaHGetStrOk = InstallLuaHGetStrCache();
 
     Log("--- UnitAura Fast Path ---");
+#if !TEST_DISABLE_UNIT_AURA_FAST
     InstallUnitAuraFastPath();
+#else
+    Log("[UnitAuraFastPath] DISABLED via feature flag");
+#endif
 
     Log("--- Network GUID Fast Path ---");
+#if !TEST_DISABLE_NETWORK_GUID_SSE2
     InstallNetworkGuidSSE2Hooks();
+#else
+    Log("[NetworkGuid] DISABLED via feature flag");
+#endif
 
     Log("--- Matrix SSE2 Fast Path ---");
     InstallMatrixCopySSE2();
@@ -6211,10 +6229,19 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- luaV_gettable Safety Patch (crash fix) ---");
+#if !TEST_DISABLE_LUA_GETTABLE_SAFETY
     bool getTableSafetyOk = InstallLuaGetTableSafety();
+#else
+    bool getTableSafetyOk = false;
+    Log("[GetTableSafety] DISABLED via feature flag");
+#endif
 
     Log("--- luaH_newkey Safety Patch (0x85CB43 crash fix) ---");
+#if !TEST_DISABLE_LUA_NEWKEY_SAFETY
     InstallLuaNewKeySafety();
+#else
+    Log("[NewKeySafety] DISABLED via feature flag");
+#endif
 
     Log("--- Lua Error Diagnostics ---");
 #if !TEST_DISABLE_LUA_ERROR_DIAG

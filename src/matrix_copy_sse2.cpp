@@ -57,8 +57,8 @@ static float* __fastcall HookMatrixCopy(float* self, void* /*edx*/, float* src) 
 
     uintptr_t s = (uintptr_t)self;
     uintptr_t p = (uintptr_t)src;
-    if (s > 0x10000 && s < 0xBFFF0000 &&
-        p > 0x10000 && p < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000 &&
+        p > 0x10000 && p < 0xFFE00000) {
         __try {
             _mm_storeu_ps(self,      _mm_loadu_ps(src));
             _mm_storeu_ps(self + 4,  _mm_loadu_ps(src + 4));
@@ -82,7 +82,7 @@ static float* __fastcall HookMatrixIdentity(float* self, void* /*edx*/) {
     ++g_matident_calls;
 
     uintptr_t s = (uintptr_t)self;
-    if (s > 0x10000 && s < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000) {
         __try {
             _mm_storeu_ps(self,      kIdentityRow0);
             _mm_storeu_ps(self + 4,  kIdentityRow1);
@@ -111,9 +111,9 @@ static float* __cdecl HookMatrixMultiply(float* result, float* a, float* b) {
     ++g_matmul_calls;
 
     uintptr_t r = (uintptr_t)result, pa = (uintptr_t)a, pb = (uintptr_t)b;
-    if (r > 0x10000 && r < 0xBFFF0000 &&
-        pa > 0x10000 && pa < 0xBFFF0000 &&
-        pb > 0x10000 && pb < 0xBFFF0000) {
+    if (r > 0x10000 && r < 0xFFE00000 &&
+        pa > 0x10000 && pa < 0xFFE00000 &&
+        pb > 0x10000 && pb < 0xFFE00000) {
         __try {
             __m128 b0 = _mm_loadu_ps(b);
             __m128 b1 = _mm_loadu_ps(b + 4);
@@ -143,9 +143,9 @@ static float* __cdecl Hooked_MatVec3Mul(float* result, const float* vec3, const 
     ++g_matvec3_calls;
 
     uintptr_t r = (uintptr_t)result, pv = (uintptr_t)vec3, pm = (uintptr_t)matrix44;
-    if (r > 0x10000 && r < 0xBFFF0000 &&
-        pv > 0x10000 && pv < 0xBFFF0000 &&
-        pm > 0x10000 && pm < 0xBFFF0000) {
+    if (r > 0x10000 && r < 0xFFE00000 &&
+        pv > 0x10000 && pv < 0xFFE00000 &&
+        pm > 0x10000 && pm < 0xFFE00000) {
         __try {
             __m128 vx = _mm_set1_ps(vec3[0]);
             __m128 vy = _mm_set1_ps(vec3[1]);
@@ -182,9 +182,9 @@ static float* __cdecl Hooked_MatVec4Mul(float* result, const float* vec4, const 
     ++g_matvec4_calls;
 
     uintptr_t r = (uintptr_t)result, pv = (uintptr_t)vec4, pm = (uintptr_t)matrix44;
-    if (r > 0x10000 && r < 0xBFFF0000 &&
-        pv > 0x10000 && pv < 0xBFFF0000 &&
-        pm > 0x10000 && pm < 0xBFFF0000) {
+    if (r > 0x10000 && r < 0xFFE00000 &&
+        pv > 0x10000 && pv < 0xFFE00000 &&
+        pm > 0x10000 && pm < 0xFFE00000) {
         __try {
             __m128 vx = _mm_set1_ps(vec4[0]);
             __m128 vy = _mm_set1_ps(vec4[1]);
@@ -256,7 +256,7 @@ static inline void SSE2_Vec3NormalizeInPlace(float* v, bool guard) {
 
 static void __fastcall Hooked_Vec3Norm(float* self, void* edx) {
     ++g_vec3norm_calls;
-    if ((uintptr_t)self > 0x10000 && (uintptr_t)self < 0xBFFF0000) {
+    if ((uintptr_t)self > 0x10000 && (uintptr_t)self < 0xFFE00000) {
         __try {
             SSE2_Vec3NormalizeInPlace(self, false);
             return;
@@ -271,7 +271,7 @@ static void __fastcall Hooked_Vec3Norm(float* self, void* edx) {
 
 static void __fastcall Hooked_Vec3NormSafe(float* self, void* edx) {
     ++g_vec3norm_calls;
-    if ((uintptr_t)self > 0x10000 && (uintptr_t)self < 0xBFFF0000) {
+    if ((uintptr_t)self > 0x10000 && (uintptr_t)self < 0xFFE00000) {
         __try {
             SSE2_Vec3NormalizeInPlace(self, true);
             return;
@@ -300,7 +300,7 @@ static volatile long g_mattranspose_calls = 0;
 static float* __fastcall Hooked_MatTranspose(float* self, void* edx, float* out) {
     ++g_mattranspose_calls;
     uintptr_t s = (uintptr_t)self, o = (uintptr_t)out;
-    if (s > 0x10000 && s < 0xBFFF0000 && o > 0x10000 && o < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000 && o > 0x10000 && o < 0xFFE00000) {
         __try {
             __m128 r0 = _mm_loadu_ps(self);
             __m128 r1 = _mm_loadu_ps(self + 4);
@@ -333,7 +333,7 @@ static volatile long g_scale3x3_calls = 0;
 static void __fastcall Hooked_Scale3x3(float* self, void* edx, float scalar) {
     ++g_scale3x3_calls;
     uintptr_t p = (uintptr_t)self;
-    if (p > 0x10000 && p < 0xBFFF0000) {
+    if (p > 0x10000 && p < 0xFFE00000) {
         __try {
             __m128 s = _mm_set1_ps(scalar);
             // Row 0: multiply [0..3], store only [0..2]
@@ -376,7 +376,7 @@ static volatile long g_matfrom3x3_calls = 0;
 static float* __fastcall Hooked_MatFrom3x3(float* self, void* edx, float* src) {
     ++g_matfrom3x3_calls;
     uintptr_t s = (uintptr_t)self, p = (uintptr_t)src;
-    if (s > 0x10000 && s < 0xBFFF0000 && p > 0x10000 && p < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000 && p > 0x10000 && p < 0xFFE00000) {
         __try {
             // Load 3 rows of 3 floats each (read exactly 3, never touch src[3])
             __m128 r0 = _mm_setr_ps(src[0], src[1], src[2], 0.0f);
@@ -401,9 +401,9 @@ static volatile long g_pointxformip_calls = 0;
 static float* __cdecl Hooked_PointXformInPlace(float* a1, float* a2, float* a3) {
     ++g_pointxformip_calls;
     uintptr_t p1 = (uintptr_t)a1, p2 = (uintptr_t)a2, p3 = (uintptr_t)a3;
-    if (p1 > 0x10000 && p1 < 0xBFFF0000 &&
-        p2 > 0x10000 && p2 < 0xBFFF0000 &&
-        p3 > 0x10000 && p3 < 0xBFFF0000) {
+    if (p1 > 0x10000 && p1 < 0xFFE00000 &&
+        p2 > 0x10000 && p2 < 0xFFE00000 &&
+        p3 > 0x10000 && p3 < 0xFFE00000) {
         __try {
             // Read the point fully before writing -> safe for a1 aliasing a2.
             __m128 vx = _mm_set1_ps(a2[0]);
@@ -455,24 +455,27 @@ static volatile long g_matinvrigid_calls = 0;
 static float* __fastcall Hooked_MatInvertRigid(float* self, void* edx, float* out) {
     ++g_matinvrigid_calls;
     uintptr_t s = (uintptr_t)self, o = (uintptr_t)out;
-    if (s > 0x10000 && s < 0xBFFF0000 && o > 0x10000 && o < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000 && o > 0x10000 && o < 0xFFE00000) {
         __try {
-            __m128 r0 = _mm_loadu_ps(self);       // M0..M3   (row 0)
-            __m128 r1 = _mm_loadu_ps(self + 4);   // M4..M7   (row 1)
-            __m128 r2 = _mm_loadu_ps(self + 8);   // M8..M11  (row 2)
-            __m128 r3 = _mm_setzero_ps();         // forces transposed lane3 -> 0
+            __m128 orig0 = _mm_loadu_ps(self);       // M0..M3   (row 0)
+            __m128 orig1 = _mm_loadu_ps(self + 4);   // M4..M7   (row 1)
+            __m128 orig2 = _mm_loadu_ps(self + 8);   // M8..M11  (row 2)
             float tx = self[12], ty = self[13], tz = self[14];   // translation row
 
-            // r0=(M0,M4,M8,0) r1=(M1,M5,M9,0) r2=(M2,M6,M10,0) -> R^T rows + zero col3
-            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
-
-            // trans lane_i = M[i]*(-tx) + M[4+i? ...] -> using transposed rows as
-            // columns: (M0,M4,M8)*(-tx)+(M1,M5,M9)*(-ty)+(M2,M6,M10)*(-tz)
+            // Compute the correct translation components before transpose:
+            // trans = orig0*(-tx) + orig1*(-ty) + orig2*(-tz)
             __m128 trans = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(r0, _mm_set1_ps(-tx)),
-                           _mm_mul_ps(r1, _mm_set1_ps(-ty))),
-                _mm_mul_ps(r2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
+                _mm_add_ps(_mm_mul_ps(orig0, _mm_set1_ps(-tx)),
+                           _mm_mul_ps(orig1, _mm_set1_ps(-ty))),
+                _mm_mul_ps(orig2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
             trans = _mm_add_ps(trans, _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)); // out15=1
+
+            // Now transpose rotation matrix
+            __m128 r0 = orig0;
+            __m128 r1 = orig1;
+            __m128 r2 = orig2;
+            __m128 r3 = _mm_setzero_ps();         // forces transposed lane3 -> 0
+            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
 
             _mm_storeu_ps(out,      r0);
             _mm_storeu_ps(out + 4,  r1);
@@ -502,7 +505,7 @@ static RowAffinePoint_t pOrigRowAffinePoint = nullptr;
 static float* __cdecl Hooked_MatScalarMul(float* out, float* src, float scalar) {
     ++g_matscalarmul_calls;
     uintptr_t o = (uintptr_t)out, s = (uintptr_t)src;
-    if (o > 0x10000 && o < 0xBFFF0000 && s > 0x10000 && s < 0xBFFF0000) {
+    if (o > 0x10000 && o < 0xFFE00000 && s > 0x10000 && s < 0xFFE00000) {
         __try {
             __m128 k = _mm_set1_ps(scalar);
             _mm_storeu_ps(out,      _mm_mul_ps(_mm_loadu_ps(src),      k));
@@ -528,8 +531,8 @@ static float* __cdecl Hooked_MatScalarMul(float* out, float* src, float scalar) 
 static float* __cdecl Hooked_RowAffinePoint(float* out, float* mat, float* pt) {
     ++g_matscalarmul_calls;  // shared misc-ops counter
     uintptr_t o = (uintptr_t)out, m = (uintptr_t)mat, p = (uintptr_t)pt;
-    if (o > 0x10000 && o < 0xBFFF0000 && m > 0x10000 && m < 0xBFFF0000 &&
-        p > 0x10000 && p < 0xBFFF0000) {
+    if (o > 0x10000 && o < 0xFFE00000 && m > 0x10000 && m < 0xFFE00000 &&
+        p > 0x10000 && p < 0xFFE00000) {
         __try {
             __m128 r0 = _mm_loadu_ps(mat);       // M0..M3
             __m128 r1 = _mm_loadu_ps(mat + 4);   // M4..M7
@@ -573,7 +576,7 @@ static volatile long g_mattranslate_calls = 0;
 static float* __fastcall Hooked_MatTranslateLocal(float* self, void* edx, float* vec3) {
     ++g_mattranslate_calls;
     uintptr_t s = (uintptr_t)self, v = (uintptr_t)vec3;
-    if (s > 0x10000 && s < 0xBFFF0000 && v > 0x10000 && v < 0xBFFF0000) {
+    if (s > 0x10000 && s < 0xFFE00000 && v > 0x10000 && v < 0xFFE00000) {
         __try {
             __m128 r0 = _mm_loadu_ps(self);       // (this[0],this[1],this[2], _)  = col0
             __m128 r1 = _mm_loadu_ps(self + 4);   // (this[4],this[5],this[6], _)  = col1

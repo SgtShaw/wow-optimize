@@ -84,39 +84,6 @@ int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {
     return 0;
 }
 
-int __cdecl Hooked_strcmp(const char* s1, const char* s2) {
-    if (s1 == s2) return 0;
-    if (!s1 || !s2) return s1 ? 1 : -1;
-
-    const unsigned char* p1 = (const unsigned char*)s1;
-    const unsigned char* p2 = (const unsigned char*)s2;
-
-    while ((((uintptr_t)p1 | (uintptr_t)p2) & 0xFFF) <= (0x1000u - 16)) {
-        __m128i a = _mm_loadu_si128((const __m128i*)p1);
-        __m128i b = _mm_loadu_si128((const __m128i*)p2);
-
-        __m128i diff = _mm_cmpeq_epi8(a, b);
-        int diffMask = _mm_movemask_epi8(diff) ^ 0xFFFF;
-        
-        __m128i zero = _mm_cmpeq_epi8(a, _mm_setzero_si128());
-        int zeroMask = _mm_movemask_epi8(zero);
-
-        if (diffMask || zeroMask) {
-            unsigned long idx;
-            _BitScanForward(&idx, diffMask | zeroMask);
-            return p1[idx] - p2[idx];
-        }
-
-        p1 += 16;
-        p2 += 16;
-    }
-
-    while (*p1 && (*p1 == *p2)) {
-        p1++; p2++;
-    }
-    return *p1 - *p2;
-}
-
 bool InstallFastStrncmp() {
     void* target = (void*)0x0076E780;
 
@@ -131,12 +98,6 @@ bool InstallFastStrncmp() {
         return false;
     }
 
-    void* targetStrcmp = (void*)0x0040f9d0;
-    if (MH_CreateHook(targetStrcmp, (void*)Hooked_strcmp, (void**)&g_orig_strcmp) == MH_OK) {
-        MH_EnableHook(targetStrcmp);
-        Log("[FastStrcmp] Installed: _strcmp replacement at 0x%p", targetStrcmp);
-    }
-
     Log("[FastStrnicmp] Installed: _strnicmp replacement (1013 callers)");
     return true;
 }
@@ -144,8 +105,6 @@ bool InstallFastStrncmp() {
 void UninstallFastStrncmp() {
     MH_DisableHook((void*)0x0076E780);
     MH_RemoveHook((void*)0x0076E780);
-    MH_DisableHook((void*)0x0040f9d0);
-    MH_RemoveHook((void*)0x0040f9d0);
 }
 
 void GetFastStrncmpStats(uint64_t* calls) {

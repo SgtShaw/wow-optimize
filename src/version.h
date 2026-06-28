@@ -42,7 +42,7 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT 0
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
@@ -50,14 +50,14 @@
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
 // MUST be 0 for any build that wants the VA defrag benefits of mimalloc.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH 0
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // IDA-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
 // Hooking it as lua_error causes all 50 logged entries to show <unable to read>
 // (the L parameter is actually a size_t) and fills the log with noise.
 // Set to 1 to disable until the correct lua_error address is found.
-#define TEST_DISABLE_LUA_ERROR_DIAG 0
+#define TEST_DISABLE_LUA_ERROR_DIAG         1
 
 // Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
 // Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
@@ -155,7 +155,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    1
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE        1
+#define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
@@ -181,13 +181,13 @@
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
 // Likely bug in scalar fallback after SSE2 chunk processing
 // Keep disabled until rewritten with more careful null-terminator handling
-#define TEST_DISABLE_STRING_OPS_FAST 1
+#define TEST_DISABLE_STRING_OPS_FAST         1
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0
 
 // Lua require/loadfile cache (skip disk I/O + parsing on repeat loads)
-#define TEST_DISABLE_LUA_FILE_CACHE     1
+#define TEST_DISABLE_LUA_FILE_CACHE         1
 
 // C-Level Combat Log Parser (bypasses Lua string parsing)
 #define TEST_DISABLE_COMBATLOG_PARSER   1
@@ -196,7 +196,7 @@
 #define TEST_DISABLE_TIMING_FIX         1
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE        1
+#define TEST_DISABLE_LUA_VM_ENGINE         1
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
 #define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 1
@@ -218,7 +218,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE 1
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         1
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -232,7 +232,7 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY     1
+#define TEST_DISABLE_MATRIX_MULTIPLY         0
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
@@ -248,9 +248,24 @@
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
+
+// Network socket hooks (connect, send, recv, WSARecv)
+#define TEST_DISABLE_NETWORK_HOOKS         0
+
+// CVar null pointer guard (sub_7668C0)
+#define TEST_DISABLE_CVAR_NULL_GUARD         0
+
+// UnitAura fast-path (sub_00614A76 and sub_00614B4D)
+#define TEST_DISABLE_UNIT_AURA_FAST         1
+
+// Network GUID unpacking fast-path (sub_0076DC20)
+#define TEST_DISABLE_NETWORK_GUID_SSE2         0
+
+// StreamBuffer read/write fast-path (sub_47B3C0/sub_47B0A0)
+#define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2     0
+#define TEST_DISABLE_MATRIX_EXT_SSE2         1
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -259,13 +274,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2  0
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2    0
+#define TEST_DISABLE_MATRIX_MISC_SSE2         1
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -273,7 +288,7 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2  0
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
@@ -300,7 +315,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE      0  // enabled: math fixed
+#define TEST_DISABLE_QUAT_NORMALIZE         1  // disabled: unstable on some clients
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -390,7 +405,7 @@
 // byte, matching the original's offset-based load (mov cl,[edx+eax]) exactly.
 // Page-safe: no unaligned 16-byte loads crossing 4KB boundaries. SEH-guarded
 // with fallback to the original on any exception. Safe to enable.
-#define TEST_DISABLE_STRCAT_FAST        0
+#define TEST_DISABLE_STRCAT_FAST         1
 
 // Lua tonumber Fast Path - sub_84E030. DISABLED because it is REDUNDANT: the
 // LuaNumConvFast module already hooks lua_tonumber at 0x84E030 and installs
@@ -403,7 +418,7 @@
 
 // Lua Number Conversion Fast Path (gettop, isnumber, tonumber, settop)
 // lua_settop modifies the Lua stack — can corrupt state leading to luaD_precall crashes
-#define TEST_DISABLE_LUA_NUMCONV_FAST   0  // enabled: gettop/isnumber/tonumber only (settop gated)
+#define TEST_DISABLE_LUA_NUMCONV_FAST         1
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
@@ -421,8 +436,7 @@
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
 #define TEST_DISABLE_EVENT_COALESCER    1
 
-// Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20)
-#define TEST_DISABLE_NETWORK_GUID_SSE2  0
+// Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
 // Particle simulation culling/throttling (CParticleEmitter::SimulateParticle at 0x00981D40)
 // DISABLED: 0x981D40 is the particle SPAWN/INIT routine (writes lifespan at a2+0,
@@ -438,7 +452,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. IDA-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST  0  // enabled: 8 safe push/query hooks only
+#define TEST_DISABLE_LUA_STACK_FAST         1
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
@@ -451,7 +465,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2  1  // disabled: string interning corruption
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // disabled: string interning corruption
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -466,14 +480,14 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1  0  // enabled: arg checkers
-#define TEST_DISABLE_LUA_SAFE_G2  0  // enabled: stack queries
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1         0  // enabled: arg checkers
+#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: stack queries
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
 #define TEST_DISABLE_LUA_SAFE_G2AI 0
 #define TEST_DISABLE_LUA_SAFE_G2B 0
 #define TEST_DISABLE_LUA_SAFE_G2C 0
-#define TEST_DISABLE_LUA_SAFE_G3  0  // enabled: buffer ops
+#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
@@ -500,29 +514,29 @@
 #define TEST_DISABLE_RAWGET_INLINE    1  // disabled: returns nil for valid keys → addon errors
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE  0  // IDA-verified: read-only, matches sub_84E0B0
+#define TEST_DISABLE_TOBOOLEAN_INLINE         1
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE     0  // IDA-verified: read-only, matches sub_84E150
+#define TEST_DISABLE_OBJLEN_INLINE         1
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
 #define TEST_DISABLE_GETSTR_INLINE    1  // disabled: returns nil for CVar keys → camera resets to first person
 
-// lua_pushnumber direct stack write (sub_84E2A0). RE-ENABLED after IDA verify:
-// the write is byte-exact to the engine (top[0..1]=double, top[2]=3, top[3]=
-// *0xD4139C taint, L->top+=16). The "compare number with nil" corruption was the
-// custom VM interpreter (lua_vm_engine, still off); this was collateral. Called
-// ~5M times/session (combat log, bars, timers) -- elides the call overhead.
-#define TEST_DISABLE_PUSHNUMBER_FAST    0  // IDA-verified: direct stack write matches sub_84E2A0
+// lua_pushnumber direct stack write (sub_84E2A0).
+#define TEST_DISABLE_PUSHNUMBER_FAST         1
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
-// Fixed: taint propagation now matches engine term-for-term.
-#define TEST_DISABLE_PUSHVALUE_FAST     0  // IDA-verified: direct stack copy matches sub_84DE50
+#define TEST_DISABLE_PUSHVALUE_FAST         1
 
-// luaH_newkey (sub_85CAB0) SEH guard — survives the 0x85CB43 ACCESS_VIOLATION
-// that fires when the engine walks a desynced table hash chain on login/exit.
-#define TEST_DISABLE_LUA_NEWKEY_SAFETY  0
+// FrameScript_Execute hook (inject DLL markers)
+#define TEST_DISABLE_FRAMESCRIPT_EXECUTE         0
+
+// luaV_gettable (sub_85BC10) safety check
+#define TEST_DISABLE_LUA_GETTABLE_SAFETY         0
+
+// luaH_newkey (sub_85CAB0) SEH guard
+#define TEST_DISABLE_LUA_NEWKEY_SAFETY         0
 
 // Sampling Profiler — background thread samples main-thread EIP every ~1ms
 // via SuspendThread/GetThreadContext/ResumeThread, buckets by nearest known
@@ -533,12 +547,12 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST 0  // enabled: read-only C++ field reads, no Lua state
+#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: read-only C++ field reads, no Lua state
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
 // Set to 1 to disable.
-#define TEST_DISABLE_FONT_METRICS_FAST 0
+#define TEST_DISABLE_FONT_METRICS_FAST         0
 
 // Sound system protection guards — SEH-wrapped crash protection for
 // sound driver init (sub_508260), emitter registration (sub_5093F0),
@@ -556,16 +570,16 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (IDA-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2       0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2   0
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2  0
-#define TEST_DISABLE_QUAT_SLERP_SSE2       0
+#define TEST_DISABLE_VEC3_CROSS_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
+#define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST   0  // enabled: read-only C++ field reads
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: read-only C++ field reads
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
@@ -574,7 +588,7 @@
 //  (L = Lua state). IDA defaulted to __usercall because it saw callee-saved
 //  register use (ebx/esi/edi), not because of a non-standard convention.
 //  MinHook is safe. Default ENABLED.
-#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST  0
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0
 
 
 // ================================================================
@@ -670,3 +684,15 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 
 
+
+#define CRASH_TEST_DISABLE_COMPARESTRING         1
+
+#define CRASH_TEST_DISABLE_GETFILEATTR         1
+
+#define CRASH_TEST_DISABLE_SETFILEPOINTER         1
+
+#define CRASH_TEST_DISABLE_READFILE         1
+
+#define CRASH_TEST_DISABLE_GETFILESIZE_CACHE         1
+
+#define CRASH_TEST_DISABLE_MODHANDLE_CACHE         1

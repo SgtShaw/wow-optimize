@@ -498,10 +498,10 @@ bool InstallUIAccessorFast() {
         } \
     } while(0)
 
-    INSTALL(IsShown_t,    orig_IsShown,    hook_IsShown,    0x0048C610, "IsShown");
-    INSTALL(IsVisible_t,  orig_IsVisible,  hook_IsVisible,  0x0048C5B0, "IsVisible");
-    INSTALL(GetAlpha_t,   orig_GetAlpha,   hook_GetAlpha,   0x0048C4C0, "GetAlpha");
-    INSTALL(GetScale_t,   orig_GetScale,   hook_GetScale,   0x0049F7D0, "GetScale");
+    INSTALL_GATED(IsShown_t,    orig_IsShown,    hook_IsShown,    0x0048C610, "IsShown",    TEST_DISABLE_UI_ACCESSOR_FAST);
+    INSTALL_GATED(IsVisible_t,  orig_IsVisible,  hook_IsVisible,  0x0048C5B0, "IsVisible",  TEST_DISABLE_UI_ACCESSOR_FAST);
+    INSTALL_GATED(GetAlpha_t,   orig_GetAlpha,   hook_GetAlpha,   0x0048C4C0, "GetAlpha",   TEST_DISABLE_UI_ACCESSOR_FAST);
+    INSTALL_GATED(GetScale_t,   orig_GetScale,   hook_GetScale,   0x0049F7D0, "GetScale",   TEST_DISABLE_UI_ACCESSOR_FAST);
 
     // NEW Frame XML accessor hooks (IDA-verified __cdecl, gated)
     INSTALL_GATED(Frame_IsShown_t,      orig_Frame_IsShown,      hook_Frame_IsShown,      0x0049FE90, "Frame_IsShown",      TEST_DISABLE_FRAME_ACCESSOR_FAST);

@@ -63,7 +63,7 @@ static void* __cdecl Safe_sub_85BC10(int a1, uint32_t* a2, int a3)
     ++g_total_calls;
 
     // Validate a2 pointer
-    if (!a2 || (uintptr_t)a2 < 0x10000 || (uintptr_t)a2 > 0xBFFF0000) {
+    if (!a2 || (uintptr_t)a2 < 0x10000 || (uintptr_t)a2 > 0xFFE00000) {
         ++g_blocked_calls;
         LogCrashAverted(a2, _ReturnAddress(), "Bad pointer");
         return g_nil_object;
