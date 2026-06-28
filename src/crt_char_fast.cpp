@@ -1,5 +1,6 @@
-// CRT memchr + strchr + strcpy SSE2 replacements - algorithmic, not cache
-// Same pattern as verified CRT SSE2 hooks (strlen/strcmp/memcpy/memset/memcmp)
+// ================================================================
+// CRT memchr + strchr + strcpy + strcat SSE2 replacements
+// ================================================================
 
 #include "crt_char_fast.h"
 #include "version.h"
@@ -64,7 +65,6 @@ static strchr_fn orig_strchr = nullptr;
 static char* __cdecl Hooked_strchr(const char* str, int value) {
     CHAR_ENTER();
     if (!str) { CHAR_LEAVE(); goto fallback; }
-    if (((uintptr_t)str & 0xFFF) > 0xFF0) { CHAR_LEAVE(); goto fallback; }
     __try {
         unsigned char c = (unsigned char)value;
         const char* p = str;
@@ -73,9 +73,13 @@ static char* __cdecl Hooked_strchr(const char* str, int value) {
             p++;
         }
         if (!*p) { CHAR_LEAVE(); InterlockedIncrement64(&g_strchrHits); return (c == 0) ? (char*)p : nullptr; }
+        
         __m128i cmpv = _mm_set1_epi8((char)c);
         __m128i zero = _mm_setzero_si128();
         for (;;) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)p & 0xFFF) > 0xFF0) { CHAR_LEAVE(); goto fallback; }
+            
             __m128i v = _mm_loadu_si128((__m128i*)p);
             __m128i eq = _mm_cmpeq_epi8(v, cmpv);
             __m128i end = _mm_cmpeq_epi8(v, zero);
@@ -103,16 +107,30 @@ static strcpy_fn orig_strcpy = nullptr;
 static char* __cdecl Hooked_strcpy(char* dst, const char* src) {
     CHAR_ENTER();
     if (!dst || !src) { CHAR_LEAVE(); goto fallback; }
-    if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0)
-        { CHAR_LEAVE(); goto fallback; }
     __try {
         char* ret = dst;
         const __m128i zero = _mm_setzero_si128();
         for (;;) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0) {
+                CHAR_LEAVE();
+                goto fallback;
+            }
+            
             __m128i v = _mm_loadu_si128((const __m128i*)src);
-            _mm_storeu_si128((__m128i*)dst, v);
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
-            if (mask) { CHAR_LEAVE(); InterlockedIncrement64(&g_strcpyHits); return ret; }
+            if (mask) {
+                unsigned long idx;
+                _BitScanForward(&idx, mask);
+                // Safe copy up to the null terminator - NEVER overflow destination!
+                for (unsigned long j = 0; j <= idx; j++) {
+                    dst[j] = src[j];
+                }
+                CHAR_LEAVE();
+                InterlockedIncrement64(&g_strcpyHits);
+                return ret;
+            }
+            _mm_storeu_si128((__m128i*)dst, v);
             src += 16; dst += 16;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) { CHAR_LEAVE(); }
@@ -128,26 +146,48 @@ static strcat_fn orig_strcat = nullptr;
 static char* __cdecl Hooked_strcat(char* dst, const char* src) {
     CHAR_ENTER();
     if (!dst || !src) { CHAR_LEAVE(); goto fallback; }
-    if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0) { CHAR_LEAVE(); goto fallback; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t dlen = 0;
         while (true) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)(dst + dlen) & 0xFFF) > 0xFF0) {
+                CHAR_LEAVE();
+                goto fallback;
+            }
             __m128i v = _mm_loadu_si128((const __m128i*)(dst + dlen));
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
             if (mask) { unsigned long idx; _BitScanForward(&idx, mask); dlen += idx; break; }
             dlen += 16;
         }
+        
         char* d = dst + dlen;
-        while (true) {
+        for (;;) {
+            // Page-boundary guard inside the loop
+            if (((uintptr_t)d & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0) {
+                CHAR_LEAVE();
+                goto fallback;
+            }
             __m128i v = _mm_loadu_si128((const __m128i*)src);
-            _mm_storeu_si128((__m128i*)d, v);
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
-            if (mask) { CHAR_LEAVE(); InterlockedIncrement64(&g_strcpyHits); return dst; }
+            if (mask) {
+                unsigned long idx;
+                _BitScanForward(&idx, mask);
+                // Safe copy up to the null terminator - NEVER overflow destination!
+                for (unsigned long j = 0; j <= idx; j++) {
+                    d[j] = src[j];
+                }
+                CHAR_LEAVE();
+                InterlockedIncrement64(&g_strcpyHits);
+                return dst;
+            }
+            _mm_storeu_si128((__m128i*)d, v);
             src += 16; d += 16;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) { CHAR_LEAVE(); }
-fallback: InterlockedIncrement64(&g_strcpyFallbacks); return orig_strcat(dst, src);
+fallback:
+    InterlockedIncrement64(&g_strcpyFallbacks);
+    return orig_strcat(dst, src);
 }
 
 bool InstallCrtCharSSE2() {
@@ -164,10 +204,10 @@ bool InstallCrtCharSSE2() {
     tryHook("memchr",  (void*)Hooked_memchr,  (void**)&orig_memchr);
     tryHook("strchr",  (void*)Hooked_strchr,  (void**)&orig_strchr);
     tryHook("strcpy",  (void*)Hooked_strcpy,  (void**)&orig_strcpy);
-    // tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat); // disabled
+    tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat);
 
     if (ok > 0) {
-        Log("[CrtChar] Active: memchr+strchr+strcpy SSE2 (%d/3 hooked, page-boundary guarded)", ok);
+        Log("[CrtChar] Active: memchr+strchr+strcpy+strcat SSE2 (%d/4 hooked, page-boundary guarded)", ok);
         return true;
     }
     Log("[CrtChar] No hooks installed");
