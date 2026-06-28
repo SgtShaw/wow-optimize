@@ -1002,17 +1002,15 @@ static LARGE_INTEGER g_lastSleepTime = {};
 static double g_lastFrameMs = 0.0;
 
 static void WINAPI hooked_Sleep(DWORD ms) {
-    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
-        UpdateMainThreadActivity();
-        RunPeriodicMaintenanceOnMainThread();
-    }
-
     if (ms == 0) {
         orig_Sleep(0);
         return;
     }
 
-    if (ms <= 3 && g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
+    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
+        UpdateMainThreadActivity();
+        RunPeriodicMaintenanceOnMainThread();
+
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
         if (g_lastSleepTime.QuadPart > 0 && g_sleepFreq > 0) {
@@ -1063,8 +1061,10 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         OnFrameLogicHooks(g_mainThreadId);
         OnFrameAsyncHooks(g_mainThreadId);
 
-        PreciseSleep((double)ms);
-        return;
+        if (ms <= 3) {
+            PreciseSleep((double)ms);
+            return;
+        }
     }
 
     orig_Sleep(ms);
