@@ -260,19 +260,23 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY         0
+#define TEST_DISABLE_MATRIX_MULTIPLY         1
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
+
+// Render state cache deduplication (SetRenderState filtering)
+// Set to 1 to disable deduplication entirely.
+#define TEST_DISABLE_RENDER_STATE_DEDUP  1
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
@@ -343,7 +347,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         0  // enabled
+#define TEST_DISABLE_QUAT_NORMALIZE         1  // disabled
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -598,10 +602,10 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (IDA-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
-#define TEST_DISABLE_QUAT_SLERP_SSE2         0
+#define TEST_DISABLE_VEC3_CROSS_SSE2         1
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
+#define TEST_DISABLE_QUAT_SLERP_SSE2         1
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
