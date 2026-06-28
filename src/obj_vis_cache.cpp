@@ -126,6 +126,8 @@ static void* __fastcall hooked_HashLookup(
     return result;
 }
 
+extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit);
+
 static void* __fastcall hooked_UnlinkNode(void* This, void* /*edx*/) {
     if (This && g_poolInitDone) {
         uint32_t* j = (uint32_t*)This;
@@ -147,6 +149,9 @@ static void* __fastcall hooked_UnlinkNode(void* This, void* /*edx*/) {
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
+        
+        // Invalidate any deferred field updates for this unit
+        InvalidateDeferredFieldUpdatesFor(This);
     }
     return orig_UnlinkNode(This);
 }

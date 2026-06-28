@@ -520,6 +520,20 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
 #endif
 }
 
+extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
+#if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
+    if (!unit) return;
+    LONG head = g_fieldHead;
+    LONG tail = g_fieldTail;
+    while (head != tail) {
+        if (g_fieldQueue[head].unit == unit) {
+            g_fieldQueue[head].unit = nullptr;
+        }
+        head = (head + 1) & FIELD_QUEUE_MASK;
+    }
+#endif
+}
+
 static void FlushFieldUpdates() {
 #if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
     LONG head = g_fieldHead;
@@ -528,14 +542,15 @@ static void FlushFieldUpdates() {
 
     while (head != tail) {
         FieldTask& task = g_fieldQueue[head];
-        __try {
-            // Validate pointer lifetime before calling original
-            uintptr_t p = (uintptr_t)task.unit;
-            if (p > 0x10000 && p < 0xBFFF0000) {
-                orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-
+        if (task.unit != nullptr) {
+            __try {
+                // Validate pointer lifetime before calling original
+                uintptr_t p = (uintptr_t)task.unit;
+                if (p > 0x10000 && p < 0xBFFF0000) {
+                    orig_OnFieldUpdate(task.unit, task.fieldId, task.value);
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        }
         head = (head + 1) & FIELD_QUEUE_MASK;
     }
     InterlockedExchange(&g_fieldHead, head);
@@ -1036,6 +1051,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         LuaVMEngine_FrameTick();
         ClearTableCache();
+        FlushFieldUpdates();
         CombatLogOpt::OnFrame(g_mainThreadId);
         CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_ADDON_DISPATCHER
