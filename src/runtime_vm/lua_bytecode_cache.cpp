@@ -21,16 +21,19 @@ typedef int  (*lua_Writer)(lua_State*, const void*, size_t, void*);
 typedef int  (__cdecl* luaL_loadbuffer_fn)(lua_State*, const char*, size_t, const char*);
 typedef int  (__cdecl* lua_dump_fn)(lua_State*, lua_Writer, void*);
 typedef void (__cdecl* lua_settop_fn)(lua_State*, int);
+typedef int  (__cdecl* lua_gettop_fn)(lua_State*);
 
 static constexpr uintptr_t ADDR_luaL_loadbuffer = 0x0084F860;
 static constexpr uintptr_t ADDR_lua_dump        = 0x0084ED00;
 static constexpr uintptr_t ADDR_lua_settop      = 0x0084DBF0;
+static constexpr uintptr_t ADDR_lua_gettop      = 0x0084DBD0;
 
 static const unsigned char LUA_SIGNATURE = 0x1B;
 
 static luaL_loadbuffer_fn orig_luaL_loadbuffer = nullptr;
 static lua_dump_fn        p_lua_dump           = nullptr;
 static lua_settop_fn      p_lua_settop         = nullptr;
+static lua_gettop_fn      p_lua_gettop         = nullptr;
 
 static volatile LONG g_active = 0;
 static __declspec(thread) volatile LONG g_inHook = 0;
@@ -71,15 +74,19 @@ static void EvictOldest() {
 }
 
 static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz, const char* name) {
-    if (!g_active || InterlockedExchange(&g_inHook, 1) != 0) {
-        int r = orig_luaL_loadbuffer(L, buf, sz, name);
-        if (g_active) InterlockedExchange(&g_inHook, 0);
-        return r;
+    if (!g_active || g_inHook) {
+        return orig_luaL_loadbuffer(L, buf, sz, name);
     }
 
-    int rc;
+    g_inHook = 1;
+    int rc = 0;
+    int base = p_lua_gettop ? p_lua_gettop(L) : 0;
+
     do {
-        if (!buf || sz == 0) { rc = orig_luaL_loadbuffer(L, buf, sz, name); break; }
+        if (!buf || sz == 0) { 
+            rc = orig_luaL_loadbuffer(L, buf, sz, name); 
+            break; 
+        }
 
         // Already compiled bytecode - pass through directly
         if ((unsigned char)buf[0] == LUA_SIGNATURE) {
@@ -110,9 +117,9 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
                 break;
             }
             
-            // Pop the error message string pushed onto the Lua stack by the failed load
+            // Clear the Lua stack back to base on cached load failure to prevent corruption
             if (p_lua_settop) {
-                p_lua_settop(L, -2);
+                p_lua_settop(L, base);
             }
 
             // Bytecode incompatible - evict and recompile
@@ -127,7 +134,10 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
 
         // Compile source
         rc = orig_luaL_loadbuffer(L, buf, sz, name);
-        if (rc != 0) { InterlockedIncrement64(&g_bypasses); break; }
+        if (rc != 0) { 
+            InterlockedIncrement64(&g_bypasses); 
+            break; 
+        }
 
         InterlockedIncrement64(&g_misses);
 
@@ -149,13 +159,14 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
         }
     } while (false);
 
-    InterlockedExchange(&g_inHook, 0);
+    g_inHook = 0;
     return rc;
 }
 
 bool Init() {
     p_lua_dump   = (lua_dump_fn)ADDR_lua_dump;
     p_lua_settop = (lua_settop_fn)ADDR_lua_settop;
+    p_lua_gettop = (lua_gettop_fn)ADDR_lua_gettop;
 
     void* target = (void*)ADDR_luaL_loadbuffer;
     if (MH_CreateHook(target, (void*)Hook_luaL_loadbuffer, (void**)&orig_luaL_loadbuffer) != MH_OK)
