@@ -1,10 +1,10 @@
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
-#define WOW_OPTIMIZE_VERSION_MINOR  11
+#define WOW_OPTIMIZE_VERSION_MINOR  12
 #define WOW_OPTIMIZE_VERSION_PATCH  0
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.11.0"
+#define WOW_OPTIMIZE_VERSION_STR    "3.12.0"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -193,7 +193,7 @@
 #define TEST_DISABLE_COMBATLOG_PARSER   1
 
 // Force high-precision timing & block timingtesterror fallback
-#define TEST_DISABLE_TIMING_FIX         1
+#define TEST_DISABLE_TIMING_FIX         0
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
 #define TEST_DISABLE_LUA_VM_ENGINE         1

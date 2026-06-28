@@ -1339,7 +1339,7 @@ static CVar_SetFn orig_CVar_Set = (CVar_SetFn)0x007668C0;
 
 int __fastcall Hooked_CVar_Set(void* This, void* unused, const char* value, char a3, char a4, char a5, char a6) {
     if (This && value) {
-        const char* name = *(const char**)This;
+        const char* name = *(const char**)((char*)This + 20);
         if (name) {
             if (_stricmp(name, "timingMethod") == 0) {
                 value = "2";
