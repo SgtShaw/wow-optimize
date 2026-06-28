@@ -1,0 +1,36 @@
+#pragma once
+
+// ============================================================================
+// Module: wow_subsystem_hooks.h
+// Description: Installs and manages target intercepts for subsystem `wow_subsystem_hooks.h`.
+// Safety & Threading: Stack layouts and register conventions must match target function definitions exactly.
+// ============================================================================
+
+
+/**
+ * @domain: Binary Detour Hooks Subsystem
+ * @architecture: Detours target functions in `wow_subsystem_hooks.h` to bypass legacy bottlenecks.
+ * @thread_affinity: Main Render Thread / Async Safe depending on sub-feature
+ * @regression_hazard: Verify registers and stack layouts match target declarations exactly to prevent stack corruption.
+ */
+
+
+
+/**
+ * @domain: Game Graphics, I/O and Subsystem Hooks
+ * @architecture: Intercepts system APIs and resource loader loops to apply caching, coalescing and throttling.
+ * @thread_affinity: Main Loop / Asynchronous Queue Execution
+ * @regression_hazard: Invalid file handles or incorrect return value propagation will cause memory leaks or game client hangs.
+ */
+
+
+#ifndef WOW_SUBSYSTEM_HOOKS_H
+#define WOW_SUBSYSTEM_HOOKS_H
+
+namespace WowSubsystemHooks {
+    bool InstallAll();
+    void ShutdownAll();
+    void DumpStats();
+}
+
+#endif

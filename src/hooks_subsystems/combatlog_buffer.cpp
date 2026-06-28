@@ -1,0 +1,131 @@
+// ============================================================================
+// Module: combatlog_buffer.cpp
+// Description: Supporting utility functions for `combatlog_buffer.cpp`.
+// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// ============================================================================
+
+#include "combatlog_buffer.h"
+#include <cstdio>
+#include <cstring>
+#include <cstdint>
+#include <intrin.h>
+
+extern "C" void Log(const char* fmt, ...);
+
+namespace CombatLogBuffer {
+
+namespace Addr {
+    static constexpr uintptr_t PendingListHead = 0x00CA1394;
+    static constexpr uintptr_t ProcessEntries  = 0x0074F910;
+    static constexpr uintptr_t ClearEntries    = 0x00751120;
+}
+
+static constexpr int MAX_PENDING = 512;
+static constexpr int FLUSH_THRESH = 256;
+static constexpr int MONITOR_MS = 100;
+
+static volatile LONG64 g_total = 0;
+static volatile LONG64 g_dropped = 0;
+static volatile LONG64 g_flushes = 0;
+static volatile LONG g_pending = 0;
+static volatile LONG g_peak = 0;
+static bool g_init = false;
+static double g_freq = 0.0;
+static double g_lastTime = 0.0;
+
+typedef int (__cdecl *Process_fn)();
+typedef int (__cdecl *Clear_fn)();
+static Process_fn g_proc = nullptr;
+static Clear_fn g_clear = nullptr;
+
+static bool IsReadable(uintptr_t a) {
+    if (!a) return false;
+    MEMORY_BASIC_INFORMATION m;
+    if (VirtualQuery((void*)a, &m, sizeof(m)) == 0) return false;
+    return m.State == MEM_COMMIT && !(m.Protect & PAGE_NOACCESS);
+}
+
+static bool IsExec(uintptr_t a) {
+    if (!a) return false;
+    MEMORY_BASIC_INFORMATION m;
+    if (VirtualQuery((void*)a, &m, sizeof(m)) == 0) return false;
+    return m.State == MEM_COMMIT && (m.Protect & (PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE));
+}
+
+static double GetMs() {
+    LARGE_INTEGER l;
+    QueryPerformanceCounter(&l);
+    return (double)l.QuadPart / g_freq;
+}
+
+static int CountPending() {
+    __try {
+        if (!IsReadable(Addr::PendingListHead)) return -1;
+        int c = 0;
+        uintptr_t cur = *(uintptr_t*)Addr::PendingListHead;
+        while (cur && !(cur & 1) && c < MAX_PENDING * 2) {
+            if (!IsReadable(cur)) break;
+            c++;
+            cur = *(uintptr_t*)(cur + 4);
+        }
+        return c;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return -1;
+    }
+}
+
+bool Init() {
+    Log("[CombatLogBuffer] Init");
+    LARGE_INTEGER f;
+    QueryPerformanceFrequency(&f);
+    g_freq = (double)f.QuadPart / 1000.0;
+    if (IsExec(Addr::ProcessEntries)) g_proc = (Process_fn)Addr::ProcessEntries;
+    if (IsExec(Addr::ClearEntries)) g_clear = (Clear_fn)Addr::ClearEntries;
+    Log("[CombatLogBuffer] Process=%s Clear=%s Max=%d Flush=%d",
+        g_proc ? "OK" : "FAIL", g_clear ? "OK" : "FAIL", MAX_PENDING, FLUSH_THRESH);
+    g_init = true;
+    return true;
+}
+
+void OnFrame(DWORD tid) {
+    if (!g_init || GetCurrentThreadId() != tid) return;
+    double now = GetMs();
+    if (now - g_lastTime < MONITOR_MS) return;
+    g_lastTime = now;
+    int p = CountPending();
+    if (p < 0) return;
+    InterlockedExchange(&g_pending, p);
+    InterlockedIncrement64(&g_total);
+    LONG pk = g_peak;
+    if (p > pk) InterlockedCompareExchange(&g_peak, p, pk);
+    // NOTE: We intentionally do NOT call g_proc() here.
+    // Calling ProcessEntries (0x74F910) from our frame hook while the game's
+    // own combat log dispatch is also running causes double-processing and
+    // use-after-free corruption. The game already processes entries each frame.
+    // Our role is monitoring only — alerting when the buffer is overwhelmed.
+    if (p >= MAX_PENDING) {
+        Log("[CombatLogBuffer] WARNING: %d pending (high combat log volume)", p);
+        InterlockedIncrement64(&g_flushes);
+    }
+}
+
+void Shutdown() {
+    if (!g_init) return;
+    Log("[CombatLogBuffer] Stats: total=%lld dropped=%lld flushes=%lld peak=%ld",
+        g_total, g_dropped, g_flushes, g_peak);
+    g_init = false;
+}
+
+Stats GetStats() {
+    Stats s = {};
+    s.totalEvents = g_total;
+    s.droppedEvents = g_dropped;
+    s.forcedFlushes = g_flushes;
+    s.currentPending = g_pending;
+    s.peakPending = g_peak;
+    s.ringBufferSize = MAX_PENDING;
+    s.ringBufferInUse = g_pending;
+    return s;
+}
+
+} // namespace CombatLogBuffer

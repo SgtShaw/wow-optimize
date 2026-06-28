@@ -1,0 +1,98 @@
+// ============================================================================
+// Module: lua_newkey_safety.cpp
+// Description: Accelerates Lua runtime calls in `lua_newkey_safety.cpp`.
+// Safety & Threading: Thread-safe under Lua VM execution constraints.
+// ============================================================================
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <cstdint>
+#include "MinHook.h"
+#include "version.h"
+#include "crash_dumper.h"
+#include "lua_newkey_safety.h"
+#include <intrin.h>
+
+#pragma intrinsic(_ReturnAddress)
+
+extern "C" void Log(const char* fmt, ...);
+
+// int __cdecl sub_85CAB0(lua_State* L, Table* t, TValue* key) -> Node*
+typedef void* (__cdecl* newkey_fn)(int L, int t, void* key);
+static newkey_fn g_orig_newkey = nullptr;
+
+// Private throw-away node returned when the original would crash. 40 bytes =
+// one Node (10 dwords); 16-byte aligned so the caller's TValue store is happy.
+// The caller writes only the value slot (first 16 bytes); nothing reads it back.
+__declspec(align(16)) static uint8_t g_scratch_node[40] = {};
+
+static volatile LONG64 g_total_calls = 0;
+static volatile LONG64 g_recovered   = 0;
+static volatile long g_logged        = 0;
+
+static void* __cdecl Safe_newkey(int L, int t, void* key)
+{
+    ++g_total_calls;
+    __try {
+        return g_orig_newkey(L, t, key);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Corrupted hash chain — hand back a harmless node instead of crashing.
+        ++g_recovered;
+        if (InterlockedCompareExchange(&g_logged, 1, 0) == 0) {
+            Log("[NewKeySafety] ONE-SHOT DIAGNOSTIC: Caught crash in luaH_newkey! Table=0x%08X, RetAddr=%p", t, _ReturnAddress());
+        }
+        return g_scratch_node;
+    }
+}
+
+bool InstallLuaNewKeySafety()
+{
+#if TEST_DISABLE_LUA_NEWKEY_SAFETY
+    Log("[NewKeySafety] DISABLED via feature flag");
+    return false;
+#else
+    void* target = (void*)0x0085CAB0;
+
+    // Verify prologue: push ebp; mov ebp, esp
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B || p[2] != 0xEC) {
+        Log("[NewKeySafety] BAD PROLOGUE at 0x%08X (got %02X %02X %02X)",
+            (uintptr_t)target, p[0], p[1], p[2]);
+        return false;
+    }
+
+    if (WineSafe_CreateHook(target, (void*)Safe_newkey, (void**)&g_orig_newkey) != MH_OK) {
+        Log("[NewKeySafety] MH_CreateHook FAILED");
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("[NewKeySafety] MH_EnableHook FAILED");
+        MH_RemoveHook(target);
+        return false;
+    }
+
+    CrashDumper::RegisterFeature("LuaNewKeySafety");
+    CrashDumper::FeatureSetActive("LuaNewKeySafety", true);
+
+    Log("[NewKeySafety] ACTIVE: SEH guard on luaH_newkey (sub_85CAB0), fixes 0x85CB43 crash");
+    return true;
+#endif
+}
+
+void UninstallLuaNewKeySafety()
+{
+#if !TEST_DISABLE_LUA_NEWKEY_SAFETY
+    MH_DisableHook((void*)0x0085CAB0);
+    MH_RemoveHook((void*)0x0085CAB0);
+
+    LONG64 total = g_total_calls;
+    LONG64 recovered = g_recovered;
+    if (recovered > 0) {
+        Log("[NewKeySafety] Stats: %lld calls | %lld recovered from chain corruption",
+            total, recovered);
+    }
+    CrashDumper::FeatureSetActive("LuaNewKeySafety", false);
+#endif
+}

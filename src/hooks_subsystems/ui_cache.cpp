@@ -1,0 +1,45 @@
+// ============================================================================
+// Module: ui_cache.cpp
+// Description: Supporting utility functions for `ui_cache.cpp`.
+// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// ============================================================================
+
+#include "ui_cache.h"
+#include <windows.h>
+
+extern "C" void Log(const char* fmt, ...);
+
+// ================================================================
+// UICache namespace - stub implementation (disabled).
+// ================================================================
+namespace UICache {
+
+static bool g_active = false;
+
+bool Init() {
+    Log("[UICache] ====================================");
+    Log("[UICache]  UI Widget Cache");
+    Log("[UICache]  DISABLED in production build");
+    Log("[UICache]  Disabled due to addon regressions");
+    Log("[UICache] ====================================");
+    g_active = false;
+    return false;
+}
+
+void Shutdown() {
+    g_active = false;
+}
+
+void ClearCache() {
+    // no-op
+}
+
+Stats GetStats() {
+    Stats s;
+    s.skipped = 0;
+    s.passed  = 0;
+    s.active  = false;
+    return s;
+}
+
+} // namespace UICache

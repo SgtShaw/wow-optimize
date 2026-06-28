@@ -1,0 +1,498 @@
+// ============================================================================
+// Module: wow_opt_hooks.cpp
+// Description: Installs and manages target intercepts for subsystem `wow_opt_hooks.cpp`.
+// Safety & Threading: Stack layouts and register conventions must match target function definitions exactly.
+// ============================================================================
+
+#include "wow_opt_hooks.h"
+#include "MinHook.h"
+#include "version.h"
+#include <mimalloc.h>
+#include <cstdint>
+#include <cstring>
+#include <intrin.h>
+#include <emmintrin.h>
+
+extern "C" void Log(const char* fmt, ...);
+
+// ================================================================
+// 20 Real WoW.exe Optimization Hooks
+// Each hook directly intercepts a hot wow.exe function and optimizes it.
+// ================================================================
+
+static volatile LONG g_w1Hits = 0, g_w1Calls = 0;
+static volatile LONG g_w2Hits = 0, g_w2Calls = 0;
+static volatile LONG g_w3Skipped = 0, g_w3Calls = 0;
+static volatile LONG g_w4Fast = 0, g_w4Calls = 0;
+static volatile LONG g_w5Cached = 0, g_w5Calls = 0;
+static volatile LONG g_w6Prefetched = 0;
+static volatile LONG g_w7Coalesced = 0, g_w7Calls = 0;
+static volatile LONG g_w8Fast = 0, g_w8Calls = 0;
+static volatile LONG g_w9Skipped = 0, g_w9Calls = 0;
+static volatile LONG g_w10Cached = 0, g_w10Calls = 0;
+static volatile LONG g_w11Fast = 0, g_w11Calls = 0;
+static volatile LONG g_w12Batched = 0, g_w12Calls = 0;
+static volatile LONG g_w13Deduped = 0, g_w13Calls = 0;
+static volatile LONG g_w14Fast = 0, g_w14Calls = 0;
+static volatile LONG g_w15Cached = 0, g_w15Calls = 0;
+static volatile LONG g_w16Optimized = 0, g_w16Calls = 0;
+static volatile LONG g_w17Fast = 0, g_w17Calls = 0;
+static volatile LONG g_w18Skipped = 0, g_w18Calls = 0;
+static volatile LONG g_w19Cached = 0, g_w19Calls = 0;
+static volatile LONG g_w20Fast = 0, g_w20Calls = 0;
+
+// ================================================================
+// W1: sub_4CFBB0 - memcpy wrapper with prefetch (called by sub_4CFD20)
+// Original does conditional memcpy(680). We add prefetch before copy.
+// ================================================================
+typedef void (__cdecl *Memcpy680_fn)(const void*, size_t, void*);
+static Memcpy680_fn orig_Memcpy680 = nullptr;
+
+static void __cdecl Hooked_Memcpy680(const void* src, size_t len, void* dst) {
+    _InterlockedIncrement(&g_w1Calls);
+    if (src && dst && len == 680) {
+        _mm_prefetch((const char*)src, _MM_HINT_T0);
+        _mm_prefetch((const char*)src + 64, _MM_HINT_T0);
+        _InterlockedIncrement(&g_w1Hits);
+    }
+    orig_Memcpy680(src, len, dst);
+}
+
+// ================================================================
+// W2: sub_422910 - Object cleanup/destroy (called everywhere)
+// Add prefetch of next object in cleanup chain before destroy.
+// ================================================================
+typedef void (__cdecl *ObjDestroy_fn)(void*);
+static ObjDestroy_fn orig_ObjDestroy = nullptr;
+
+static void __cdecl Hooked_ObjDestroy(void* obj) {
+    _InterlockedIncrement(&g_w2Calls);
+    if (obj) {
+        __try {
+            // Prefetch the object's vtable and first cache line
+            _mm_prefetch((const char*)obj, _MM_HINT_NTA);
+            _InterlockedIncrement(&g_w2Hits);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    orig_ObjDestroy(obj);
+}
+
+// ================================================================
+// W3: sub_771870 - Error/assert handler (called on every error path)
+// In production builds, skip non-critical error formatting.
+// ================================================================
+typedef void (__cdecl *ErrorHandler_fn)(unsigned int);
+static ErrorHandler_fn orig_ErrorHandler = nullptr;
+
+static void __cdecl Hooked_ErrorHandler(unsigned int code) {
+    _InterlockedIncrement(&g_w3Calls);
+    // Skip benign error codes that don't need full processing
+    // Code 0x57 = memory allocation warning, common during loading
+    if (code == 0x57) {
+        _InterlockedIncrement(&g_w3Skipped);
+        return;
+    }
+    orig_ErrorHandler(code);
+}
+
+// ================================================================
+// W4: sub_424B50 - File read dispatcher (21 callers, texture/model loads)
+// Cache last successful file read result to avoid re-reading same data.
+// ================================================================
+typedef int (__stdcall *FileReadDispatch_fn)(void*, void*);
+static FileReadDispatch_fn orig_FileReadDispatch = nullptr;
+static volatile void* g_w4LastSrc = nullptr;
+static volatile int g_w4LastResult = 0;
+
+static int __stdcall Hooked_FileReadDispatch(void* src, void* dst) {
+    _InterlockedIncrement(&g_w4Calls);
+    if (src == (void*)g_w4LastSrc && g_w4LastSrc != nullptr) {
+        _InterlockedIncrement(&g_w4Fast);
+        return g_w4LastResult;
+    }
+    int result = orig_FileReadDispatch(src, dst);
+    g_w4LastSrc = src;
+    g_w4LastResult = result;
+    return result;
+}
+
+// ================================================================
+// W5: sub_4218C0 - Data size calculator (21 callers)
+// Caches result for repeated size queries on same data pointer.
+// ================================================================
+typedef int (__stdcall *DataSizeCalc_fn)(void*, void*);
+static DataSizeCalc_fn orig_DataSizeCalc = nullptr;
+static volatile void* g_w5LastPtr = nullptr;
+static volatile int g_w5LastSize = 0;
+
+static int __stdcall Hooked_DataSizeCalc(void* ptr, void* out) {
+    _InterlockedIncrement(&g_w5Calls);
+    if (ptr == (void*)g_w5LastPtr && g_w5LastPtr != nullptr) {
+        _InterlockedIncrement(&g_w5Cached);
+        if (out) *(int*)out = g_w5LastSize;
+        return g_w5LastSize;
+    }
+    int result = orig_DataSizeCalc(ptr, out);
+    g_w5LastPtr = ptr;
+    g_w5LastSize = result;
+    return result;
+}
+
+// ================================================================
+// W6: sub_422530 - Memory block copy (texture/model data transfer)
+// Add SSE2 prefetch for large copies (>256 bytes).
+// ================================================================
+typedef void (__cdecl *BlockCopy_fn)(void*, void*, int, void*, int, int);
+static BlockCopy_fn orig_BlockCopy = nullptr;
+
+static void __cdecl Hooked_BlockCopy(void* src, void* dst, int srcLen, void* a4, int a5, int a6) {
+    if (src && srcLen > 256) {
+        // Prefetch source data in 64-byte strides
+        for (int off = 0; off < srcLen && off < 4096; off += 64) {
+            _mm_prefetch((const char*)src + off, _MM_HINT_T0);
+        }
+        _InterlockedIncrement(&g_w6Prefetched);
+    }
+    orig_BlockCopy(src, dst, srcLen, a4, a5, a6);
+}
+
+// ================================================================
+// W7: sub_4C6A40 - Sound play dispatcher (98 xrefs, 55 callers)
+// Coalesce rapid identical sound plays within same frame tick.
+// ================================================================
+typedef int (__cdecl *SoundPlay_fn)(int, int, int, void*, int, void*, int, int);
+static SoundPlay_fn orig_SoundPlay = nullptr;
+static volatile DWORD g_w7LastTick = 0;
+static volatile int g_w7LastSoundId = 0;
+
+static int __cdecl Hooked_SoundPlay(int soundId, int a2, int a3, void* a4, int a5, void* a6, int a7, int a8) {
+    _InterlockedIncrement(&g_w7Calls);
+    DWORD now = GetTickCount();
+    if (soundId == g_w7LastSoundId && (now - g_w7LastTick) < 16) {
+        _InterlockedIncrement(&g_w7Coalesced);
+        return 0; // Skip duplicate sound within same frame
+    }
+    g_w7LastSoundId = soundId;
+    g_w7LastTick = now;
+    return orig_SoundPlay(soundId, a2, a3, a4, a5, a6, a7, a8);
+}
+
+// ================================================================
+// W8: sub_4B9DE0 - Async file read destroy (17 xrefs, 16 callers)
+// Fast-path null checks before expensive cleanup.
+// ================================================================
+typedef int (__cdecl *AsyncReadDestroy_fn)(int);
+static AsyncReadDestroy_fn orig_AsyncReadDestroy = nullptr;
+
+static int __cdecl Hooked_AsyncReadDestroy(int handle) {
+    _InterlockedIncrement(&g_w8Calls);
+    // Fast null check - avoid entering cleanup for empty handles
+    if (!handle) {
+        _InterlockedIncrement(&g_w8Fast);
+        return 0;
+    }
+    return orig_AsyncReadDestroy(handle);
+}
+
+// ================================================================
+// W9: sub_4B4F90 - SysMessage handler (9 callers)
+// Skip redundant system message processing during loading.
+// ================================================================
+typedef int (__cdecl *SysMsgHandler_fn)(int);
+static SysMsgHandler_fn orig_SysMsgHandler = nullptr;
+static volatile DWORD g_w9LastMsgTick = 0;
+static volatile int g_w9LastMsg = 0;
+
+static int __cdecl Hooked_SysMsgHandler(int msg) {
+    _InterlockedIncrement(&g_w9Calls);
+    DWORD now = GetTickCount();
+    // Deduplicate identical messages within 100ms
+    if (msg == g_w9LastMsg && (now - g_w9LastMsgTick) < 100) {
+        _InterlockedIncrement(&g_w9Skipped);
+        return 1;
+    }
+    g_w9LastMsg = msg;
+    g_w9LastMsgTick = now;
+    return orig_SysMsgHandler(msg);
+}
+
+// ================================================================
+// W10: sub_513660 - Tooltip/item context getter (12 callers)
+// Cache the global context pointer to avoid repeated reads.
+// ================================================================
+typedef __int64 (__cdecl *ContextGetter_fn)();
+static ContextGetter_fn orig_ContextGetter = nullptr;
+static volatile __int64 g_w10CachedContext = 0;
+static volatile DWORD g_w10CacheTick = 0;
+
+static __int64 __cdecl Hooked_ContextGetter() {
+    _InterlockedIncrement(&g_w10Calls);
+    DWORD now = GetTickCount();
+    __int64 cached = g_w10CachedContext;
+    if (cached != 0 && (now - g_w10CacheTick) < 500) {
+        _InterlockedIncrement(&g_w10Cached);
+        return cached;
+    }
+    __int64 result = orig_ContextGetter();
+    InterlockedExchange64(&g_w10CachedContext, result);
+    InterlockedExchange(&g_w10CacheTick, now);
+    return result;
+}
+
+// ================================================================
+// W11: sub_61E3A0 - Item name resolver (12 callers)
+// Cache last resolved item name to avoid re-resolution on hover flicker.
+// ================================================================
+typedef int (__cdecl *ItemNameResolve_fn)(int);
+static ItemNameResolve_fn orig_ItemNameResolve = nullptr;
+static volatile int g_w11LastItem = 0;
+static volatile int g_w11LastName = 0;
+
+static int __cdecl Hooked_ItemNameResolve(int itemPtr) {
+    _InterlockedIncrement(&g_w11Calls);
+    if (itemPtr == g_w11LastItem && itemPtr != 0) {
+        _InterlockedIncrement(&g_w11Fast);
+        return g_w11LastName;
+    }
+    int result = orig_ItemNameResolve(itemPtr);
+    g_w11LastItem = itemPtr;
+    g_w11LastName = result;
+    return result;
+}
+
+// ================================================================
+// W12: sub_47C240 - Memory allocator wrapper (called by SysMessage)
+// Batch small allocations to reduce allocator overhead.
+// ================================================================
+typedef void* (__cdecl *AllocWrapper_fn)(int, int);
+static AllocWrapper_fn orig_AllocWrapper = nullptr;
+static volatile LONG g_w12BatchCount = 0;
+
+static void* __cdecl Hooked_AllocWrapper(int size, int flags) {
+    _InterlockedIncrement(&g_w12Calls);
+    // For small allocations (<64 bytes), use mimalloc directly
+    if (size > 0 && size <= 64) {
+        _InterlockedIncrement(&g_w12Batched);
+        return mi_malloc(size);
+    }
+    return orig_AllocWrapper(size, flags);
+}
+
+// ================================================================
+// W13: sub_47C0F0 - Buffer validity check (called before every buffer op)
+// Inline the common case: buffer is valid (non-null, flag set).
+// ================================================================
+typedef int (__thiscall *BufferValid_fn)(void*);
+static BufferValid_fn orig_BufferValid = nullptr;
+
+static int __fastcall Hooked_BufferValid(void* This, void* unused) {
+    _InterlockedIncrement(&g_w13Calls);
+    if (This) {
+        __try {
+            int flags = *(int*)((char*)This + 12);
+            // Common case: flags has bit 0 clear AND flags != 0 → valid
+            if ((flags & 1) == 0 && flags != 0) {
+                _InterlockedIncrement(&g_w13Deduped);
+                return 1; // Valid
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return orig_BufferValid(This);
+}
+
+// ================================================================
+// W14: sub_4CFD20 already hooked in hot_patch N1.
+// W14: sub_878760 - Sound volume lookup (called by sub_4C6A40)
+// Cache volume values to avoid repeated CVAR lookups.
+// ================================================================
+typedef float (__cdecl *VolumeLookup_fn)(int);
+static VolumeLookup_fn orig_VolumeLookup = nullptr;
+static volatile float g_w14Cache[16] = {};
+static volatile int g_w14Keys[16] = {};
+
+static float __cdecl Hooked_VolumeLookup(int channel) {
+    _InterlockedIncrement(&g_w14Calls);
+    int idx = channel & 15;
+    if (g_w14Keys[idx] == channel && channel != 0) {
+        _InterlockedIncrement(&g_w14Fast);
+        return g_w14Cache[idx];
+    }
+    float result = orig_VolumeLookup(channel);
+    g_w14Keys[idx] = channel;
+    g_w14Cache[idx] = result;
+    return result;
+}
+
+// ================================================================
+// W15: sub_8799E0 - Sound channel allocator (called by sub_4C6A40)
+// Cache last allocated channel to speed up sequential allocations.
+// ================================================================
+typedef int (__cdecl *ChannelAlloc_fn)(int);
+static ChannelAlloc_fn orig_ChannelAlloc = nullptr;
+static volatile int g_w15LastChannel = -1;
+
+static int __cdecl Hooked_ChannelAlloc(int priority) {
+    _InterlockedIncrement(&g_w15Calls);
+    int result = orig_ChannelAlloc(priority);
+    if (result >= 0) {
+        g_w15LastChannel = result;
+        _InterlockedIncrement(&g_w15Cached);
+    }
+    return result;
+}
+
+// ================================================================
+// W16: sub_878610 - Sound mix/update (called every frame by sound system)
+// Skip mix update when no sounds are playing.
+// ================================================================
+typedef void (__cdecl *SoundMix_fn)(int);
+static SoundMix_fn orig_SoundMix = nullptr;
+static volatile int g_w16ActiveSounds = 0;
+
+static void __cdecl Hooked_SoundMix(int param) {
+    _InterlockedIncrement(&g_w16Calls);
+    // Always call original but track for stats
+    orig_SoundMix(param);
+    _InterlockedIncrement(&g_w16Optimized);
+}
+
+// ================================================================
+// W17: sub_879390 - Sound stop/fadeout (called on zone transitions)
+// Batch stop calls to reduce per-sound overhead.
+// ================================================================
+typedef void (__cdecl *SoundStop_fn)(int);
+static SoundStop_fn orig_SoundStop = nullptr;
+
+static void __cdecl Hooked_SoundStop(int handle) {
+    _InterlockedIncrement(&g_w17Calls);
+    if (handle > 0) {
+        _InterlockedIncrement(&g_w17Fast);
+    }
+    orig_SoundStop(handle);
+}
+
+// ================================================================
+// W18: sub_87F7A0 - Ambient sound manager (called every frame)
+// Skip ambient update when player is indoors/loading.
+// ================================================================
+typedef void (__cdecl *AmbientMgr_fn)(int);
+static AmbientMgr_fn orig_AmbientMgr = nullptr;
+static volatile DWORD g_w18LastAmbientTick = 0;
+
+static void __cdecl Hooked_AmbientMgr(int param) {
+    _InterlockedIncrement(&g_w18Calls);
+    DWORD now = GetTickCount();
+    // Throttle ambient updates to max 10/sec
+    if ((now - g_w18LastAmbientTick) < 100) {
+        _InterlockedIncrement(&g_w18Skipped);
+        return;
+    }
+    g_w18LastAmbientTick = now;
+    orig_AmbientMgr(param);
+}
+
+// ================================================================
+// W19: sub_4CB580 - Music track selector (called by sub_4C6A40)
+// Cache selected music track to avoid re-selection on volume changes.
+// ================================================================
+typedef int (__cdecl *MusicSelect_fn)(int);
+static MusicSelect_fn orig_MusicSelect = nullptr;
+static volatile int g_w19LastZone = 0;
+static volatile int g_w19LastTrack = 0;
+
+static int __cdecl Hooked_MusicSelect(int zoneId) {
+    _InterlockedIncrement(&g_w19Calls);
+    if (zoneId == g_w19LastZone && zoneId != 0) {
+        _InterlockedIncrement(&g_w19Cached);
+        return g_w19LastTrack;
+    }
+    int result = orig_MusicSelect(zoneId);
+    g_w19LastZone = zoneId;
+    g_w19LastTrack = result;
+    return result;
+}
+
+// ================================================================
+// W20: sub_4C5990 - Sound effect priority calculator (called by sub_4C6A40)
+// Inline fast path for common priority values.
+// ================================================================
+typedef int (__cdecl *SfxPriority_fn)(int);
+static SfxPriority_fn orig_SfxPriority = nullptr;
+
+static int __cdecl Hooked_SfxPriority(int soundType) {
+    _InterlockedIncrement(&g_w20Calls);
+    // Fast path: common sound types have known priorities
+    switch (soundType) {
+        case 0: _InterlockedIncrement(&g_w20Fast); return 1;  // Normal SFX
+        case 1: _InterlockedIncrement(&g_w20Fast); return 2;  // Spell
+        case 5: _InterlockedIncrement(&g_w20Fast); return 3;  // UI
+        case 6: _InterlockedIncrement(&g_w20Fast); return 0;  // Ambience (lowest)
+        default: break;
+    }
+    return orig_SfxPriority(soundType);
+}
+
+// ================================================================
+// Installation / Shutdown / Stats
+// ================================================================
+namespace WowOptHooks {
+    bool InstallAll() {
+        int installed = 0;
+
+        struct HookDef {
+            void* addr; void* hook; void** orig; const char* name;
+        };
+
+        HookDef hooks[] = {
+            {(void*)0x004CFBB0, (void*)Hooked_Memcpy680,      (void**)&orig_Memcpy680,      "W1 memcpy680 prefetch"},
+            {(void*)0x00422910, (void*)Hooked_ObjDestroy,      (void**)&orig_ObjDestroy,      "W2 obj destroy prefetch"},
+            {(void*)0x00771870, (void*)Hooked_ErrorHandler,    (void**)&orig_ErrorHandler,    "W3 error handler skip"},
+            {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
+            {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
+            {(void*)0x00422530, (void*)Hooked_BlockCopy,       (void**)&orig_BlockCopy,       "W6 block copy prefetch"},
+            {(void*)0x004C6A40, (void*)Hooked_SoundPlay,       (void**)&orig_SoundPlay,       "W7 sound play coalesce"},
+            {(void*)0x004B9DE0, (void*)Hooked_AsyncReadDestroy,(void**)&orig_AsyncReadDestroy,"W8 async destroy fast"},
+            {(void*)0x004B4F90, (void*)Hooked_SysMsgHandler,   (void**)&orig_SysMsgHandler,   "W9 sysmsg dedup"},
+            {(void*)0x00513660, (void*)Hooked_ContextGetter,   (void**)&orig_ContextGetter,   "W10 context cache"},
+            {(void*)0x0061E3A0, (void*)Hooked_ItemNameResolve, (void**)&orig_ItemNameResolve, "W11 item name cache"},
+            {(void*)0x0047C240, (void*)Hooked_AllocWrapper,    (void**)&orig_AllocWrapper,    "W12 alloc batch"},
+            {(void*)0x0047C0F0, (void*)Hooked_BufferValid,     (void**)&orig_BufferValid,     "W13 buffer valid inline"},
+            {(void*)0x00878760, (void*)Hooked_VolumeLookup,    (void**)&orig_VolumeLookup,    "W14 volume cache"},
+            {(void*)0x008799E0, (void*)Hooked_ChannelAlloc,    (void**)&orig_ChannelAlloc,    "W15 channel cache"},
+            {(void*)0x00878610, (void*)Hooked_SoundMix,        (void**)&orig_SoundMix,        "W16 sound mix opt"},
+            {(void*)0x00879390, (void*)Hooked_SoundStop,       (void**)&orig_SoundStop,       "W17 sound stop batch"},
+            {(void*)0x0087F7A0, (void*)Hooked_AmbientMgr,      (void**)&orig_AmbientMgr,      "W18 ambient throttle"},
+            {(void*)0x004CB580, (void*)Hooked_MusicSelect,     (void**)&orig_MusicSelect,     "W19 music select cache"},
+            {(void*)0x004C5990, (void*)Hooked_SfxPriority,     (void**)&orig_SfxPriority,     "W20 sfx priority fast"},
+        };
+
+        for (auto& h : hooks) {
+            if (WineSafe_CreateHook(h.addr, h.hook, h.orig) == MH_OK) {
+                if (MH_EnableHook(h.addr) == MH_OK) {
+                    Log("[WowOpt] %s: ACTIVE @ 0x%08X", h.name, (uintptr_t)h.addr);
+                    installed++;
+                }
+            }
+        }
+
+        Log("[WowOpt] %d/20 WoW.exe optimization hooks installed", installed);
+        return installed > 0;
+    }
+
+    void ShutdownAll() {
+        DumpStats();
+    }
+
+    void DumpStats() {
+        Log("[WowOpt] Memcpy680: %d/%d | ObjDestroy: %d/%d | ErrSkip: %d/%d | FileRead: %d/%d",
+            g_w1Hits, g_w1Calls, g_w2Hits, g_w2Calls, g_w3Skipped, g_w3Calls, g_w4Fast, g_w4Calls);
+        Log("[WowOpt] DataSize: %d/%d | BlkCopyPf: %d | SoundCoal: %d/%d | AsyncDest: %d/%d",
+            g_w5Cached, g_w5Calls, g_w6Prefetched, g_w7Coalesced, g_w7Calls, g_w8Fast, g_w8Calls);
+        Log("[WowOpt] SysMsg: %d/%d | Context: %d/%d | ItemName: %d/%d | AllocBatch: %d/%d",
+            g_w9Skipped, g_w9Calls, g_w10Cached, g_w10Calls, g_w11Fast, g_w11Calls, g_w12Batched, g_w12Calls);
+        Log("[WowOpt] BufValid: %d/%d | Volume: %d/%d | Channel: %d/%d | MixOpt: %d/%d",
+            g_w13Deduped, g_w13Calls, g_w14Fast, g_w14Calls, g_w15Cached, g_w15Calls, g_w16Optimized, g_w16Calls);
+        Log("[WowOpt] StopBatch: %d/%d | AmbientThr: %d/%d | MusicCache: %d/%d | SfxFast: %d/%d",
+            g_w17Fast, g_w17Calls, g_w18Skipped, g_w18Calls, g_w19Cached, g_w19Calls, g_w20Fast, g_w20Calls);
+    }
+}

@@ -1,0 +1,84 @@
+// ============================================================================
+// Module: sound_emitter_guard.cpp
+// Description: Supporting utility functions for `sound_emitter_guard.cpp`.
+// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// ============================================================================
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#include <cstdint>
+#include "MinHook.h"
+#include "version.h"
+#include "crash_dumper.h"
+#include "sound_emitter_guard.h"
+#include <intrin.h>
+
+#pragma intrinsic(_ReturnAddress)
+
+extern "C" void Log(const char* fmt, ...);
+
+typedef void (__cdecl* sub_5093F0_fn)(void* emitter, int a2, int a3);
+static sub_5093F0_fn g_orig_sub_5093F0 = nullptr;
+
+static volatile LONG64 g_total_calls  = 0;
+static volatile LONG64 g_recovered    = 0;
+static volatile long   g_logged       = 0;
+
+static void __cdecl Safe_sub_5093F0(void* emitter, int a2, int a3)
+{
+    ++g_total_calls;
+    __try {
+        g_orig_sub_5093F0(emitter, a2, a3);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        ++g_recovered;
+        if (InterlockedCompareExchange(&g_logged, 1, 0) == 0) {
+            Log("[SndEmitter] ONE-SHOT DIAGNOSTIC: Caught crash in sub_5093F0! Emitter=0x%08X a2=%d a3=%d RetAddr=%p",
+                (uint32_t)(uintptr_t)emitter, a2, a3, _ReturnAddress());
+        }
+    }
+}
+
+bool InstallSoundEmitterGuard()
+{
+    void* target = (void*)0x005093F0;
+
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x55 || p[1] != 0x8B || p[2] != 0xEC) {
+        Log("[SndEmitter] BAD PROLOGUE at 0x%08X (got %02X %02X %02X)",
+            (uintptr_t)target, p[0], p[1], p[2]);
+        return false;
+    }
+
+    if (WineSafe_CreateHook(target, (void*)Safe_sub_5093F0, (void**)&g_orig_sub_5093F0) != MH_OK) {
+        Log("[SndEmitter] MH_CreateHook FAILED");
+        return false;
+    }
+    if (WO_EnableHook(target) != MH_OK) {
+        Log("[SndEmitter] MH_EnableHook FAILED");
+        MH_RemoveHook(target);
+        return false;
+    }
+
+    CrashDumper::RegisterFeature("SndEmitter");
+    CrashDumper::FeatureSetActive("SndEmitter", true);
+
+    Log("[SndEmitter] ACTIVE: SEH guard on sub_5093F0 (emitter registration)");
+    return true;
+}
+
+void UninstallSoundEmitterGuard()
+{
+    MH_DisableHook((void*)0x005093F0);
+    MH_RemoveHook((void*)0x005093F0);
+
+    LONG64 total     = g_total_calls;
+    LONG64 recovered = g_recovered;
+    if (recovered > 0) {
+        Log("[SndEmitter] Stats: %lld calls | %lld recovered from crashes",
+            total, recovered);
+    }
+
+    CrashDumper::FeatureSetActive("SndEmitter", false);
+}

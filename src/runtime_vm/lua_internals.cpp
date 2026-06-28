@@ -1,0 +1,42 @@
+// ============================================================================
+// Module: lua_internals.cpp
+// Description: Accelerates Lua runtime calls in `lua_internals.cpp`.
+// Safety & Threading: Thread-safe under Lua VM execution constraints.
+// ============================================================================
+
+#include "lua_internals.h"
+#include <cstdint>
+#include <cstring>
+#include <cstdio>
+#include "MinHook.h"
+
+extern "C" void Log(const char* fmt, ...);
+
+// ================================================================
+// LuaInternals namespace - stub implementation (disabled).
+// ================================================================
+namespace LuaInternals {
+
+bool Init() {
+    Log("[LuaVM] Init Lua VM internals ");
+    Log("[LuaVM]   luaV_concat     DISABLED (0%% gain, pure overhead - removed)");
+    Log("[LuaVM] ====================================");
+    Log("[LuaVM]  Hooks: 0 active");
+    Log("[LuaVM]  [ OK ] CLEAN BASELINE");
+    Log("[LuaVM] ====================================");
+    return false;
+}
+
+void Shutdown() {}
+void OnGCStep() {}
+void InvalidateCache() {}
+
+Stats GetStats() {
+    Stats s;
+    s.concatFastHits  = 0;
+    s.concatFallbacks = 0;
+    s.active          = false;
+    return s;
+}
+
+} // namespace LuaInternals
