@@ -1052,6 +1052,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaVMEngine_FrameTick();
         ClearTableCache();
         FlushFieldUpdates();
+#if !TEST_DISABLE_HARDWARE_CURSOR
+        InitHardwareCursor();
+#endif
         CombatLogOpt::OnFrame(g_mainThreadId);
         CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_ADDON_DISPATCHER
