@@ -265,7 +265,7 @@
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss

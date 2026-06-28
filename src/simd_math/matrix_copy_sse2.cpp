@@ -8,6 +8,7 @@
 #include <MinHook.h>
 #include <cstdint>
 #include <emmintrin.h>
+#include <intrin.h>
 #include "version.h"
 #include "matrix_copy_sse2.h"
 
@@ -153,31 +154,38 @@ static float* __cdecl Hooked_MatVec3Mul(float* result, const float* vec3, const 
         pv > 0x10000 && pv < 0xFFE00000 &&
         pm > 0x10000 && pm < 0xFFE00000) {
         __try {
+            // Stage all inputs to local variables before any output writes
             float vx_val = vec3[0];
             float vy_val = vec3[1];
             float vz_val = vec3[2];
-
-            __m128 vx = _mm_set1_ps(vx_val);
-            __m128 vy = _mm_set1_ps(vy_val);
-            __m128 vz = _mm_set1_ps(vz_val);
 
             __m128 col0 = _mm_loadu_ps(matrix44);
             __m128 col1 = _mm_loadu_ps(matrix44 + 4);
             __m128 col2 = _mm_loadu_ps(matrix44 + 8);
             __m128 col3 = _mm_loadu_ps(matrix44 + 12);
 
+            // Hard optimization barrier: force all reads to finish before calculations or writes
+            _ReadWriteBarrier();
+
+            __m128 vx = _mm_set1_ps(vx_val);
+            __m128 vy = _mm_set1_ps(vy_val);
+            __m128 vz = _mm_set1_ps(vz_val);
+
             __m128 res = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
                 _mm_add_ps(_mm_mul_ps(vz, col2), col3)
             );
 
-            float out_x = res.m128_f32[0];
-            float out_y = res.m128_f32[1];
-            float out_z = res.m128_f32[2];
+            // Stage output through a local stack-allocated float array
+            float out_val[4];
+            _mm_storeu_ps(out_val, res);
 
-            result[0] = out_x;
-            result[1] = out_y;
-            result[2] = out_z;
+            // Force calculation and local store to complete before writing to result
+            _ReadWriteBarrier();
+
+            result[0] = out_val[0];
+            result[1] = out_val[1];
+            result[2] = out_val[2];
 
             return result;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -199,35 +207,41 @@ static float* __cdecl Hooked_MatVec4Mul(float* result, const float* vec4, const 
         pv > 0x10000 && pv < 0xFFE00000 &&
         pm > 0x10000 && pm < 0xFFE00000) {
         __try {
+            // Stage all inputs to local variables before any output writes
             float vx_val = vec4[0];
             float vy_val = vec4[1];
             float vz_val = vec4[2];
             float vw_val = vec4[3];
-
-            __m128 vx = _mm_set1_ps(vx_val);
-            __m128 vy = _mm_set1_ps(vy_val);
-            __m128 vz = _mm_set1_ps(vz_val);
-            __m128 vw = _mm_set1_ps(vw_val);
 
             __m128 col0 = _mm_loadu_ps(matrix44);
             __m128 col1 = _mm_loadu_ps(matrix44 + 4);
             __m128 col2 = _mm_loadu_ps(matrix44 + 8);
             __m128 col3 = _mm_loadu_ps(matrix44 + 12);
 
+            // Hard optimization barrier: force all reads to finish before calculations or writes
+            _ReadWriteBarrier();
+
+            __m128 vx = _mm_set1_ps(vx_val);
+            __m128 vy = _mm_set1_ps(vy_val);
+            __m128 vz = _mm_set1_ps(vz_val);
+            __m128 vw = _mm_set1_ps(vw_val);
+
             __m128 res = _mm_add_ps(
                 _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
                 _mm_add_ps(_mm_mul_ps(vz, col2), _mm_mul_ps(vw, col3))
             );
 
-            float out_x = res.m128_f32[0];
-            float out_y = res.m128_f32[1];
-            float out_z = res.m128_f32[2];
-            float out_w = res.m128_f32[3];
+            // Stage output through a local stack-allocated float array
+            float out_val[4];
+            _mm_storeu_ps(out_val, res);
 
-            result[0] = out_x;
-            result[1] = out_y;
-            result[2] = out_z;
-            result[3] = out_w;
+            // Force calculation and local store to complete before writing to result
+            _ReadWriteBarrier();
+
+            result[0] = out_val[0];
+            result[1] = out_val[1];
+            result[2] = out_val[2];
+            result[3] = out_val[3];
 
             return result;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
