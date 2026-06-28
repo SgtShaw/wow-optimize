@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <cstdint>
 #include "texcache_tuning.h"
+#include "memory_pressure_governor.h"
 
 extern "C" void Log(const char* fmt, ...);
 extern bool g_isMultiClient;
@@ -95,5 +96,9 @@ void InitTexCacheTuning() {
 
 void TexCacheTuning_Tick() {
     if (g_isMultiClient) return;
-    RaiseBudget();   // cheap: usually reads one int and returns (see self-throttle note)
+    // Only raise/re-assert the texture budget if the memory pressure is GREEN.
+    // If it is YELLOW or RED, let the dropped budget persist to free up VA space.
+    if (PressureGovernor::GetLevel() == PressureGovernor::PRESSURE_GREEN) {
+        RaiseBudget();   // cheap: usually reads one int and returns (see self-throttle note)
+    }
 }
