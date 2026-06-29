@@ -104,11 +104,6 @@ fallback2:
 }
 
 bool InstallLuaPrecallCache() {
-    void* t = (void*)0x00856550;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[PrecallCache] ACTIVE — 1024-entry cache, inline dispatch after world load");
-    CrashDumper::RegisterFeature("PrecallCache");
-    CrashDumper::FeatureSetActive("PrecallCache", true);
-    return true;
+    Log("[PrecallCache] DISABLED — high risk stack/profiler modifications");
+    return false;
 }

@@ -42,11 +42,6 @@ static int __cdecl hook(uintptr_t L, int index1, int index2) {
 }
 
 bool InstallLuaLessThanFast() {
-    void* t = (void*)0x0084F030;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[LessThan] ACTIVE — lua_lessthan inline at 0x84F030");
-    CrashDumper::RegisterFeature("LessThan");
-    CrashDumper::FeatureSetActive("LessThan", true);
-    return true;
+    Log("[LessThan] DISABLED — address 0x84F030 is actually format_num");
+    return false;
 }

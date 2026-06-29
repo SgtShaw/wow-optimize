@@ -81,18 +81,6 @@ static int __cdecl hook(uintptr_t L) {
 }
 
 bool InstallLuaErrorFast() {
-    // IDA-verified: 0x84EF30 = sub_84EF30 = lua_error, __cdecl, __noreturn.
-    // Calls sub_850830 (luaD_throw) directly with lua_State* arg. 12 bytes.
-    // Previous target 0x84F610 was sub_84F610(size_t) = luaL_addvalue, NOT lua_error.
-    void* t = (void*)0x0084EF30;
-    if (*(unsigned char*)t != 0x55 || *((unsigned char*)t + 1) != 0x8B) {
-        Log("[ErrorFast] BAD PROLOGUE at 0x%08X (expected 55 8B), skipping", (uintptr_t)t);
-        return false;
-    }
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[ErrorFast] ACTIVE at 0x84EF30 (lua_error): logging first %d Lua errors + hook trace", MAX_LOG_ERRORS);
-    CrashDumper::RegisterFeature("ErrorFast");
-    CrashDumper::FeatureSetActive("ErrorFast", true);
-    return true;
+    Log("[ErrorFast] DISABLED — duplicates lua_error_diag");
+    return false;
 }
