@@ -48,10 +48,10 @@ static const char* GetEventName(int eventId) {
         if (!eventTable) return nullptr;
 
         uintptr_t eventPtr = eventTable[eventId];
-        if (eventPtr < 0x10000 || eventPtr > 0xBFFF0000) return nullptr;
+        if (eventPtr < 0x10000 || eventPtr > 0xFFE00000) return nullptr;
 
         const char* name = *(const char**)(eventPtr + 20);
-        if (name < (const char*)0x10000 || name > (const char*)0xBFFF0000) return nullptr;
+        if (name < (const char*)0x10000 || name > (const char*)0xFFE00000) return nullptr;
 
         return name;
     } __except (EXCEPTION_EXECUTE_HANDLER) {
@@ -144,7 +144,7 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
                     if (type == 's') {
                         const char* s = (const char*)*pArgs;
                         pArgs++;
-                        if (s >= (const char*)0x10000 && s < (const char*)0xBFFF0000) {
+                        if (s >= (const char*)0x10000 && s < (const char*)0xFFE00000) {
                             if (!ev.hasStr1) {
                                 strncpy(ev.strArg1, s, sizeof(ev.strArg1) - 1);
                                 ev.strArg1[sizeof(ev.strArg1) - 1] = '\0';

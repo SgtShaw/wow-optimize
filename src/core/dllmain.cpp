@@ -4636,7 +4636,7 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     if (!table) return newSize;
     // Validate pointer - must be in valid user-space range
     uintptr_t p = (uintptr_t)table;
-    if (p < 0x10000 || p > 0xBFFF0000) return newSize;
+    if (p < 0x10000 || p > 0xFFE00000) return newSize;
 
     // CRITICAL: Clear luaH_getstr cache on every resize - old Node* pointers are invalidated
     ClearLuaHGetStrCache();
@@ -6835,7 +6835,7 @@ static void* __fastcall hooked_StreamRead(void* This, void* edx, void* out) {
         // Fast bounds: cursor within [delta, delta+size) (relative to committed region)
         if (cursor + 4 <= delta + size && cursor >= delta) {
             uintptr_t addr = cursor - delta + base;
-            if (addr > 0x10000 && addr < 0xBFFF0000) {
+            if (addr > 0x10000 && addr < 0xFFE00000) {
                 *(uint32_t*)out = *(uint32_t*)addr;
                 *(uint32_t*)(t + 0x14) = cursor + 4;
                 InterlockedIncrement(&g_streamReadHits);
@@ -6869,7 +6869,7 @@ static void* __fastcall hooked_StreamWrite(void* This, void* edx, int val) {
         // Fast bounds: cursor within [delta, delta+size) - same as sub_47B0A0
         if (cursor + 4 <= delta + size && cursor >= delta) {
             uintptr_t addr = cursor - delta + base;
-            if (addr > 0x10000 && addr < 0xBFFF0000) {
+            if (addr > 0x10000 && addr < 0xFFE00000) {
                 *(uint32_t*)addr = val;
                 *(uint32_t*)(t + 0x10) = cursor + 4;
                 InterlockedIncrement(&g_streamWriteHits);

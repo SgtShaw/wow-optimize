@@ -24,11 +24,11 @@ static __declspec(thread) int32_t t_lastIndex = -1;
 static __declspec(thread) uint8_t t_lastFlags = 0;
 static __declspec(thread) int32_t t_lastPos = -1;
 
-// Hook 1: Loop Entry (0x00614A76)
+// Hook 1: Loop Entry (0x00614A77)
 // Replaces:
-// 614a76: 33 f6           xor esi, esi
-// 614a78: 88 45 fb        mov [ebp-5], al
-// 614a7b: 89 75 fc        mov [ebp-4], esi
+// 614a77: 33 f6           xor esi, esi
+// 614a79: 88 45 fb        mov [ebp-5], al
+// 614a7c: 89 75 fc        mov [ebp-4], esi
 extern "C" uint32_t __fastcall CheckAuraCache(AuraQuery* q, uint32_t* out_v42) {
     if (q->name == nullptr && q->rank == nullptr && q->index > 0) {
         if (q->guid == t_lastGuid && q->flags == t_lastFlags && q->index == t_lastIndex + 1) {
@@ -45,7 +45,7 @@ extern "C" uint32_t __fastcall CheckAuraCache(AuraQuery* q, uint32_t* out_v42) {
 
 __declspec(naked) void Hook_UnitAura_Start() {
     __asm {
-        // We are at 0x00614A76
+        // We are at 0x00614A77
         // edi = AuraQuery*
         // al = v41
         
@@ -53,7 +53,7 @@ __declspec(naked) void Hook_UnitAura_Start() {
         push ecx
         push edx
 
-        lea edx, [ebp-4]      // out_v42
+        lea edx, [ebp-4]      // out_v42 (var_4)
         mov ecx, edi          // q
         call CheckAuraCache
         mov esi, eax          // Set starting loop index
@@ -64,17 +64,15 @@ __declspec(naked) void Hook_UnitAura_Start() {
 
         // Original instructions we displaced
         mov [ebp-5], al       // [ebp-5] = al
-        // mov [ebp-4], esi is omitted because CheckAuraCache sets it
         
-        mov eax, 0x00614A7E
+        mov eax, 0x00614A80
         jmp eax
     }
 }
 
-// Hook 2: Loop Return/Match (0x00614B4D)
+// Hook 2: Loop Match Found (0x00614BAB)
 // Replaces:
-// 614b4d: 8b 45 f4        mov eax, [ebp-0Ch]
-// 614b50: 8d 04 06        lea eax, [esi+eax]
+// 614bab: 8b 85 44 fd ff ff  mov eax, [ebp-2BCh]
 extern "C" void __fastcall RecordAuraCache(AuraQuery* q, int32_t pos) {
     if (q->name == nullptr && q->rank == nullptr) {
         t_lastGuid = q->guid;
@@ -86,27 +84,26 @@ extern "C" void __fastcall RecordAuraCache(AuraQuery* q, int32_t pos) {
 
 __declspec(naked) void Hook_UnitAura_Match() {
     __asm {
-        // We are at 0x00614B4D
-        // edi = AuraQuery*
+        // We are at 0x00614BAB
+        // [ebp+8] = AuraQuery* (arg_0)
         // esi = array index matched
         
         push eax
         push ecx
         push edx
 
-        mov ecx, edi
-        mov edx, esi
+        mov ecx, [ebp+8]      // q (AuraQuery*)
+        mov edx, esi          // pos (loop index)
         call RecordAuraCache
 
         pop edx
         pop ecx
         pop eax
 
-        // Original instructions we displaced
-        mov eax, [ebp-0Ch]
-        lea eax, [esi+eax]
+        // Original instruction we displaced
+        mov eax, [ebp-2BCh]   // mov eax, [ebp+var_2BC]
         
-        mov ecx, 0x00614B53
+        mov ecx, 0x00614BB1
         jmp ecx
     }
 }
@@ -115,6 +112,8 @@ __declspec(naked) void Hook_UnitAura_Match() {
 #include "version.h"
 
 void InstallUnitAuraFastPath() {
-    WineSafe_CreateHook((void*)0x00614A76, (void*)Hook_UnitAura_Start, nullptr);
-    WineSafe_CreateHook((void*)0x00614B4D, (void*)Hook_UnitAura_Match, nullptr);
+    // Overwrite size for Start = 8 bytes, Match = 6 bytes.
+    // MinHook safely places detours at these boundaries.
+    WineSafe_CreateHook((void*)0x00614A77, (void*)Hook_UnitAura_Start, nullptr);
+    WineSafe_CreateHook((void*)0x00614BAB, (void*)Hook_UnitAura_Match, nullptr);
 }

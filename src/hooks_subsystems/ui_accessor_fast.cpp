@@ -18,12 +18,12 @@ static const uint32_t TAINT_CELL = 0x00D4139C;
 
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
-    return (gL < 0x10000 || gL > 0xBFFF0000);
+    return (gL < 0x10000 || gL > 0xFFE00000);
 }
 
 static __forceinline bool IsValidPtr(uintptr_t p) {
 
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 static __forceinline uintptr_t ResolveTValue(uintptr_t L, int idx, bool* deferToOrig) {
@@ -72,7 +72,7 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
                 } else if (val_tt == 7) { // LUA_TUSERDATA
                     uintptr_t udata = *(uintptr_t*)(node + 0x00);
                     if (IsValidPtr(udata)) {
-                        return *(void**)(udata + 24);
+                        return (void*)(udata + 24);
                     }
                 }
                 return nullptr;
@@ -250,10 +250,9 @@ static int __cdecl hook_GetScale(uintptr_t L) {
 typedef int (__cdecl* GetWidth_t)(uintptr_t L);
 static GetWidth_t orig_GetWidth = nullptr;
 
-static int __cdecl hook_GetWidth(uintptr_t L) {
-    CrashDumper::RecordHookCall("UIAccessor_GetWidth", (uintptr_t)L);
+static int __cdecl c_hook_GetWidth(uintptr_t L) {
     if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
-        return orig_GetWidth(L);
+        return -1;
 
     ++g_getwidth_calls;
     __try {
@@ -291,17 +290,43 @@ static int __cdecl hook_GetWidth(uintptr_t L) {
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_GetWidth(L);
+    return -1;
+}
+
+static __declspec(naked) void naked_hook_GetWidth() {
+    __asm {
+        push esi
+        push edi
+        push ebx
+        
+        mov eax, [esp + 16] // L (4 bytes return address + 12 bytes pushed registers)
+        push eax
+        call c_hook_GetWidth
+        add esp, 4
+        
+        cmp eax, 0
+        jl fallback
+        
+        pop ebx
+        pop edi
+        pop esi
+        ret
+        
+    fallback:
+        pop ebx
+        pop edi
+        pop esi
+        jmp orig_GetWidth
+    }
 }
 
 // 6. GetHeight — 0x0049D550
 typedef int (__cdecl* GetHeight_t)(uintptr_t L);
 static GetHeight_t orig_GetHeight = nullptr;
 
-static int __cdecl hook_GetHeight(uintptr_t L) {
-    CrashDumper::RecordHookCall("UIAccessor_GetHeight", (uintptr_t)L);
+static int __cdecl c_hook_GetHeight(uintptr_t L) {
     if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
-        return orig_GetHeight(L);
+        return -1;
 
     ++g_getheight_calls;
     __try {
@@ -339,7 +364,34 @@ static int __cdecl hook_GetHeight(uintptr_t L) {
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_GetHeight(L);
+    return -1;
+}
+
+static __declspec(naked) void naked_hook_GetHeight() {
+    __asm {
+        push esi
+        push edi
+        push ebx
+        
+        mov eax, [esp + 16] // L
+        push eax
+        call c_hook_GetHeight
+        add esp, 4
+        
+        cmp eax, 0
+        jl fallback
+        
+        pop ebx
+        pop edi
+        pop esi
+        ret
+        
+    fallback:
+        pop ebx
+        pop edi
+        pop esi
+        jmp orig_GetHeight
+    }
 }
 
 // 7. Frame_IsShown — 0x0049FE90
@@ -515,9 +567,9 @@ bool InstallUIAccessorFast() {
     INSTALL_GATED(Frame_GetAlpha_t,     orig_Frame_GetAlpha,     hook_Frame_GetAlpha,     0x0049F980, "Frame_GetAlpha",     TEST_DISABLE_FRAME_ACCESSOR_FAST);
     INSTALL_GATED(Frame_GetFrameLevel_t,orig_Frame_GetFrameLevel,hook_Frame_GetFrameLevel, 0x0049E980, "Frame_GetFrameLevel",TEST_DISABLE_FRAME_ACCESSOR_FAST);
 
-    // Layout accessor hooks (IDA-verified __usercall — DISABLED until naked-asm trampoline)
-    INSTALL_GATED(GetWidth_t,  orig_GetWidth,  hook_GetWidth,  0x0049D3B0, "GetWidth",  TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
-    INSTALL_GATED(GetHeight_t, orig_GetHeight, hook_GetHeight, 0x0049D550, "GetHeight", TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
+    // Layout accessor hooks (IDA-verified __usercall)
+    INSTALL_GATED(GetWidth_t,  orig_GetWidth,  naked_hook_GetWidth,  0x0049D3B0, "GetWidth",  TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
+    INSTALL_GATED(GetHeight_t, orig_GetHeight, naked_hook_GetHeight, 0x0049D550, "GetHeight", TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
 
 #undef INSTALL_GATED
 #undef INSTALL

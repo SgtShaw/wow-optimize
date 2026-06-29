@@ -46,7 +46,7 @@ static volatile LONG64 g_slow_path_count = 0;
 double __cdecl hooked_lua_tonumber(void* L, int idx) {
     uintptr_t La = (uintptr_t)L;
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping() ||
-        La < 0x10000 || La > 0xBFFF0000) {
+        La < 0x10000 || La > 0xFFE00000) {
         ++g_slow_path_count;
         return orig_lua_tonumber(L, idx);
     }
@@ -65,7 +65,7 @@ double __cdecl hooked_lua_tonumber(void* L, int idx) {
         }
         // idx <= -10000: pseudo-index, leave o null -> defer to the engine.
 
-        if (o && (uintptr_t)o >= 0x10000 && (uintptr_t)o < 0xBFFF0000 &&
+        if (o && (uintptr_t)o >= 0x10000 && (uintptr_t)o < 0xFFE00000 &&
             *(int*)(o + 8) == 3) {              // tt == LUA_TNUMBER
             ++g_fast_path_count;
             return *(double*)o;                 // value at +0

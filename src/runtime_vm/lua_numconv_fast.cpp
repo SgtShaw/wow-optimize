@@ -123,45 +123,11 @@ static double __cdecl hook_lua_tonumber(uintptr_t L, int idx) {
 }
 
 // ================================================================
-// 4. lua_settop hook (0x84DBF0)
-// ================================================================
-typedef int (__cdecl* lua_settop_t)(uintptr_t L, int idx);
-static lua_settop_t orig_lua_settop = nullptr;
-
-static int __cdecl hook_lua_settop(uintptr_t L, int idx) {
-    if (IsTeardownState()) return orig_lua_settop(L, idx);
-    __try {
-        uintptr_t top = *(uintptr_t*)(L + 12);
-        uintptr_t base = *(uintptr_t*)(L + 16);
-        if (IsValidPtr(top) && IsValidPtr(base)) {
-            if (idx < 0) {
-                int new_top_offset = 16 * idx + 16;
-                uintptr_t new_top = top + new_top_offset;
-                if (new_top >= base && new_top <= top) {
-                    *(uintptr_t*)(L + 12) = new_top;
-                    return (int)L;
-                }
-            } else {
-                uintptr_t target_top = base + 16 * idx;
-                if (target_top <= top) {
-                    *(uintptr_t*)(L + 12) = target_top;
-                    return (int)L;
-                } else {
-                    return orig_lua_settop(L, idx);
-                }
-            }
-        }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_lua_settop(L, idx);
-}
-
-// ================================================================
 // Install / Shutdown
 // ================================================================
 static void* const ADDR_LUA_GETTOP   = (void*)0x0084DBD0;
 static void* const ADDR_LUA_ISNUMBER = (void*)0x0084DF20;
 static void* const ADDR_LUA_TONUMBER = (void*)0x0084E030;
-static void* const ADDR_LUA_SETTOP   = (void*)0x0084DBF0;
 
 bool InstallLuaNumConvFast() {
     int installed = 0;
@@ -196,16 +162,6 @@ bool InstallLuaNumConvFast() {
         Log("[LuaNumConvFast] lua_tonumber hook FAILED (status %d)", (int)st);
     }
 
-    st = WineSafe_CreateHook(
-        ADDR_LUA_SETTOP, (void*)hook_lua_settop, (void**)&orig_lua_settop);
-    if (st == MH_OK) {
-        WO_EnableHook(ADDR_LUA_SETTOP);
-        installed++;
-        Log("[LuaNumConvFast] lua_settop hook at 0x84DBF0 (inline fast path)");
-    } else {
-        Log("[LuaNumConvFast] lua_settop hook FAILED (status %d)", (int)st);
-    }
-
     return installed > 0;
 }
 
@@ -213,5 +169,4 @@ void ShutdownLuaNumConvFast() {
     MH_DisableHook(ADDR_LUA_GETTOP);
     MH_DisableHook(ADDR_LUA_ISNUMBER);
     MH_DisableHook(ADDR_LUA_TONUMBER);
-    MH_DisableHook(ADDR_LUA_SETTOP);
 }

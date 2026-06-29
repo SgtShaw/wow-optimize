@@ -83,8 +83,8 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
     }
 
     // Validate inputs — reject obviously invalid pointers
-    if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xBFFF0000 ||
-        (uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xBFFF0000) {
+    if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xFFE00000 ||
+        (uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xFFE00000) {
         return g_orig_getstr(table, tstring);
     }
 

@@ -130,10 +130,10 @@ static int __cdecl hook_pushinteger(uintptr_t L, int n) {
 // ================================================================
 // 3. lua_pushboolean — 0x84E4D0
 // ================================================================
-typedef int (__cdecl *pushboolean_t)(uintptr_t L, int b);
+typedef __int64 (__cdecl *pushboolean_t)(uintptr_t L, int b);
 static pushboolean_t orig_pushboolean = nullptr;
 
-static int __cdecl hook_pushboolean(uintptr_t L, int b) {
+static __int64 __cdecl hook_pushboolean(uintptr_t L, int b) {
     if (IsTeardownState()) return orig_pushboolean(L, b);
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
@@ -144,7 +144,9 @@ static int __cdecl hook_pushboolean(uintptr_t L, int b) {
         *(uint32_t*)(top + 8) = LUA_TBOOLEAN;
         *(uint32_t*)(top + 12) = taint;
         *(uintptr_t*)(L + 0x0C) = top + 16;
-        return (int)top;
+        
+        uint64_t res = (uint64_t)(top) | ((uint64_t)(b != 0) << 32);
+        return (__int64)res;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
     return orig_pushboolean(L, b);
 }

@@ -27,7 +27,7 @@ static int __cdecl Hooked_Toboolean(uintptr_t L, int idx) {
     __try {
         if (idx > 0) {
             uintptr_t base = *(uintptr_t*)(L + 0x10);
-            if (base > 0x10000 && base < 0xBFFF0000) {
+            if (base > 0x10000 && base < 0xFFE00000) {
                 uintptr_t tv = base + (uintptr_t)(idx - 1) * 16;
                 uintptr_t top = *(uintptr_t*)(L + 0x0C);
                 if (tv < top) {
@@ -46,7 +46,7 @@ static int __cdecl Hooked_Toboolean(uintptr_t L, int idx) {
             }
         } else if (idx < 0 && idx > -10000) {
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
-            if (top > 0x10000 && top < 0xBFFF0000) {
+            if (top > 0x10000 && top < 0xFFE00000) {
                 uintptr_t tv = top + (uintptr_t)idx * 16;
                 uintptr_t base = *(uintptr_t*)(L + 0x10);
                 if (tv >= base) {

@@ -23,8 +23,8 @@ static int __stdcall Hooked_StrncmpWrapper(char* Str1, char* Str2, size_t MaxCou
 
     uintptr_t s1 = (uintptr_t)Str1;
     uintptr_t s2 = (uintptr_t)Str2;
-    if (s1 < 0x10000 || s1 > 0xBFFF0000) return Str2 ? -1 : 0;
-    if (s2 < 0x10000 || s2 > 0xBFFF0000) return Str1 ? 1 : 0;
+    if (s1 < 0x10000) return Str2 ? -1 : 0;
+    if (s2 < 0x10000) return Str1 ? 1 : 0;
 
     return g_origStrncmpWrap(Str1, Str2, MaxCount);
 }

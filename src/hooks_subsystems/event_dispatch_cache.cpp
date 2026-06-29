@@ -30,7 +30,7 @@ struct EventCacheEntry {
 static std::unordered_map<uintptr_t, EventCacheEntry> g_eventCache;
 
 static inline bool IsValidPtr(uintptr_t p) {
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
@@ -70,7 +70,7 @@ static EventRegister_t orig_EventRegister = nullptr;
 static uintptr_t __cdecl Hooked_EventRegister(uintptr_t frame, uintptr_t event_ptr) {
     CrashDumper::RecordHookCall("EventDispatchCache_Register", (uintptr_t)event_ptr);
     uintptr_t res = orig_EventRegister(frame, event_ptr);
-    if (event_ptr > 0x10000 && event_ptr < 0xBFFF0000) {
+    if (event_ptr > 0x10000 && event_ptr < 0xFFE00000) {
         InvalidateCache(event_ptr);
     }
     return res;
@@ -85,7 +85,7 @@ static EventUnregister_t orig_EventUnregister = nullptr;
 static uintptr_t __cdecl Hooked_EventUnregister(uintptr_t frame, uintptr_t event_ptr) {
     CrashDumper::RecordHookCall("EventDispatchCache_Unregister", (uintptr_t)event_ptr);
     uintptr_t res = orig_EventUnregister(frame, event_ptr);
-    if (event_ptr > 0x10000 && event_ptr < 0xBFFF0000) {
+    if (event_ptr > 0x10000 && event_ptr < 0xFFE00000) {
         InvalidateCache(event_ptr);
     }
     return res;
@@ -105,7 +105,7 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
         return orig_GetFramesRegistered(L);
     }
 
-    if (L < 0x10000 || L > 0xBFFF0000) {
+    if (L < 0x10000 || L > 0xFFE00000) {
         return orig_GetFramesRegistered(L);
     }
 
@@ -113,13 +113,13 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
         uintptr_t tv = ResolveIndex(L, 1);
         if (tv && *(int*)(tv + 8) == 4) { // LUA_TSTRING
             uintptr_t tstr = *(uintptr_t*)(tv + 0);
-            if (tstr > 0x10000 && tstr < 0xBFFF0000) {
+            if (tstr > 0x10000 && tstr < 0xFFE00000) {
                 const char* event_name = (const char*)(tstr + 20);
                 if (event_name) {
                     typedef uintptr_t (__cdecl *EventResolve_t)(const char* name);
                     EventResolve_t resolve = (EventResolve_t)0x0081B510;
                     uintptr_t v3 = resolve(event_name);
-                    if (v3 > 0x10000 && v3 < 0xBFFF0000) {
+                    if (v3 > 0x10000 && v3 < 0xFFE00000) {
                         uintptr_t event_ptr = v3 - 24;
                         
                         auto& entry = g_eventCache[event_ptr];
@@ -138,7 +138,7 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
                         uintptr_t list_head = *(uintptr_t*)(event_ptr + 32); // v1 + 32
                         while ((list_head & 1) == 0 && list_head) {
                             uintptr_t frame = *(uintptr_t*)(list_head + 8);
-                            if (frame > 0x10000 && frame < 0xBFFF0000) {
+                            if (frame > 0x10000 && frame < 0xFFE00000) {
                                 int ref_id = *(int*)(frame + 8);
                                 entry.ref_ids.push_back(ref_id);
                             }
@@ -276,7 +276,7 @@ void PreWarmEventDispatchCache()
         for (int i = 0; i < hotEventCount; ++i) {
             const char* event_name = hotEvents[i];
             uintptr_t v3 = resolve(event_name);
-            if (v3 < 0x10000 || v3 > 0xBFFF0000) continue;
+            if (v3 < 0x10000 || v3 > 0xFFE00000) continue;
 
             uintptr_t event_ptr = v3 - 24;
 
@@ -287,7 +287,7 @@ void PreWarmEventDispatchCache()
             uintptr_t list_head = *(uintptr_t*)(event_ptr + 32);
             while ((list_head & 1) == 0 && list_head) {
                 uintptr_t frame = *(uintptr_t*)(list_head + 8);
-                if (frame > 0x10000 && frame < 0xBFFF0000) {
+                if (frame > 0x10000 && frame < 0xFFE00000) {
                     int ref_id = *(int*)(frame + 8);
                     entry.ref_ids.push_back(ref_id);
                 }

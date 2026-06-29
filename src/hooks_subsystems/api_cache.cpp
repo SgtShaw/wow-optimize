@@ -55,11 +55,11 @@ static inline const char* ReadTStringDirect(RawTValue* tv, size_t* out_len) {
     void* ts_ptr = tv->value.gc;
     if ((uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr > 0xFFE00000) return NULL;
 
-    // Read length directly from TString header
-    int len = *(int*)((char*)ts_ptr + 8);
+    // Read length directly from TString header (len is at offset 16 in WoW 3.3.5a)
+    int len = *(int*)((char*)ts_ptr + 16);
     if (len < 0 || len > 1024) return NULL;
 
-    char* str = (char*)ts_ptr + 16;
+    char* str = (char*)ts_ptr + 20;
     if (out_len) *out_len = (size_t)len;
     return str;
 }

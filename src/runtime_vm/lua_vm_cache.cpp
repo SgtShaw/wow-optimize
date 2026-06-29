@@ -39,7 +39,7 @@ static volatile LONG64 g_misses = 0;
 
 typedef struct lua_State lua_State;
 
-struct RawValue {
+union RawValue {
     void*     gc;
     uintptr_t ptr;
     double    n;

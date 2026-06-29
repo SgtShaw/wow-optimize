@@ -82,7 +82,7 @@
 // Hooking it as lua_error causes all 50 logged entries to show <unable to read>
 // (the L parameter is actually a size_t) and fills the log with noise.
 // Set to 1 to disable until the correct lua_error address is found.
-#define TEST_DISABLE_LUA_ERROR_DIAG         1
+#define TEST_DISABLE_LUA_ERROR_DIAG         0
 
 // Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
 // Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
@@ -167,7 +167,7 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -189,10 +189,10 @@
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
@@ -209,7 +209,7 @@
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
 // Likely bug in scalar fallback after SSE2 chunk processing
 // Keep disabled until rewritten with more careful null-terminator handling
-#define TEST_DISABLE_STRING_OPS_FAST         0
+#define TEST_DISABLE_STRING_OPS_FAST         1
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0
@@ -246,7 +246,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         0
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -255,7 +255,7 @@
 // DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
 // reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
-#define TEST_DISABLE_CRT_CHAR_SSE2       0
+#define TEST_DISABLE_CRT_CHAR_SSE2       1
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -265,7 +265,7 @@
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
@@ -343,7 +343,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         0  // enabled
+#define TEST_DISABLE_QUAT_NORMALIZE         1  // disabled
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -446,7 +446,7 @@
 
 // Lua Number Conversion Fast Path (gettop, isnumber, tonumber, settop)
 // lua_settop modifies the Lua stack — can corrupt state leading to luaD_precall crashes
-#define TEST_DISABLE_LUA_NUMCONV_FAST         1
+#define TEST_DISABLE_LUA_NUMCONV_FAST         0
 
 // Multithreaded Nameplate Renderer - offload nameplate rendering to worker threads
 // Reduces main thread CPU by 30-40% in 25-man raids via lock-free queue + async processing
@@ -509,13 +509,13 @@
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
 #define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1         1  // enabled: arg checkers
-#define TEST_DISABLE_LUA_SAFE_G2         1  // enabled: stack queries
+#define TEST_DISABLE_LUA_SAFE_G1         0  // enabled: string/number validation
+#define TEST_DISABLE_LUA_SAFE_G2         1  // DISABLED: chat text corruption (tolstring inline)
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
 #define TEST_DISABLE_LUA_SAFE_G2AI 0
 #define TEST_DISABLE_LUA_SAFE_G2B 0
 #define TEST_DISABLE_LUA_SAFE_G2C 0
-#define TEST_DISABLE_LUA_SAFE_G3         1  // enabled: buffer ops
+#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops and helper hooks
 
 // lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
 // causes ntdll.dll heap corruption during login screen (bisected to this hook).
@@ -535,21 +535,21 @@
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1  // disabled: returns nil for valid keys → camera + addon errors
+#define TEST_DISABLE_RAWGETI_INLINE  1
 
 // lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1  // disabled: returns nil for valid keys → addon errors
+#define TEST_DISABLE_RAWGET_INLINE    1
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE         1
+#define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE         1
+#define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
 
 // luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1  // disabled: returns nil for CVar keys → camera resets to first person
+#define TEST_DISABLE_GETSTR_INLINE    1
 
 // lua_pushnumber direct stack write (sub_84E2A0).
 #define TEST_DISABLE_PUSHNUMBER_FAST         1
@@ -575,12 +575,12 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: read-only C++ field reads, no Lua state
+#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: UIFrame accessor hooks
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
 // Set to 1 to disable.
-#define TEST_DISABLE_FONT_METRICS_FAST         0
+#define TEST_DISABLE_FONT_METRICS_FAST         0  // enabled: FontString metrics hooks
 
 // Sound system protection guards — SEH-wrapped crash protection for
 // sound driver init (sub_508260), emitter registration (sub_5093F0),
@@ -607,7 +607,7 @@
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: read-only C++ field reads
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: Frame XML accessor hooks
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
@@ -616,7 +616,7 @@
 //  (L = Lua state). IDA defaulted to __usercall because it saw callee-saved
 //  register use (ebx/esi/edi), not because of a non-standard convention.
 //  MinHook is safe. Default ENABLED.
-#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0  // enabled: layout accessor hooks
 
 
 // ================================================================

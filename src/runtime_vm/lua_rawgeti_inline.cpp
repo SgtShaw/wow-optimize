@@ -81,7 +81,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
     }
 
     // Validate L pointer
-    if ((uintptr_t)L < 0x10000 || (uintptr_t)L > 0xBFFF0000) {
+    if ((uintptr_t)L < 0x10000 || (uintptr_t)L > 0xFFE00000) {
         return g_orig_rawgeti(L, idx, n);
     }
 
@@ -110,7 +110,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 
         int table = tableSlot[0];
         // Validate: must be a table (tt==5)
-        if (tableSlot[2] != 5 || table < 0x10000 || table > 0xBFFF0000) {
+        if (tableSlot[2] != 5 || table < 0x10000 || table > 0xFFE00000) {
             return g_orig_rawgeti(L, idx, n);
         }
 
@@ -122,7 +122,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
         int sizearray = *(int*)(table + 32);
         if ((unsigned int)(n - 1) < (unsigned int)sizearray) {
             int* array = *(int**)(table + 16);
-            if (!array || (uintptr_t)array < 0x10000 || (uintptr_t)array > 0xBFFF0000) {
+            if (!array || (uintptr_t)array < 0x10000 || (uintptr_t)array > 0xFFE00000) {
                 return g_orig_rawgeti(L, idx, n);
             }
 
@@ -135,7 +135,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 
             // Push TValue onto Lua stack
             DWORD* top = *(DWORD**)(L + 0x0C);
-            if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
+            if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xFFE00000) {
                 return g_orig_rawgeti(L, idx, n);
             }
 

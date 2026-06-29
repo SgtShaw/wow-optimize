@@ -17,11 +17,11 @@ static const uint32_t TAINT_CELL = 0x00D4139C;
 
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
-    return (gL < 0x10000 || gL > 0xBFFF0000);
+    return (gL < 0x10000 || gL > 0xFFE00000);
 }
 
 static __forceinline bool IsValidPtr(uintptr_t p) {
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 static __forceinline uintptr_t ResolveTValue(uintptr_t L, int idx, bool* deferToOrig) {
@@ -70,7 +70,7 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
                 } else if (val_tt == 7) { // LUA_TUSERDATA
                     uintptr_t udata = *(uintptr_t*)(node + 0x00);
                     if (IsValidPtr(udata)) {
-                        return *(void**)(udata + 24);
+                        return (void*)(udata + 24);
                     }
                 }
                 return nullptr;

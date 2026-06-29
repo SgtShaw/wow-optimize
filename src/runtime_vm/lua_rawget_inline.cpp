@@ -25,7 +25,7 @@ static lua_rawget_fn orig_rawget = nullptr;
 
 // Resolve stack index to TValue pointer
 static __forceinline bool IsValidPtr(uintptr_t p) {
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
@@ -58,7 +58,7 @@ static int __cdecl Hooked_RawGet(uintptr_t L, int idx) {
         return orig_rawget(L, idx);
     }
 
-    if (L < 0x10000 || L > 0xBFFF0000) {
+    if (L < 0x10000 || L > 0xFFE00000) {
         return orig_rawget(L, idx);
     }
 

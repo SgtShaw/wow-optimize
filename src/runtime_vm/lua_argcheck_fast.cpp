@@ -26,11 +26,6 @@ static void __cdecl hook(uintptr_t L, int cond, int arg, const char* msg) {
 }
 
 bool InstallLuaArgcheckFast() {
-    void* t = (void*)0x0084F560;
-    if (MH_CreateHook(t, hook, (void**)&orig) != MH_OK) return false;
-    MH_EnableHook(t);
-    Log("[ArgCheck] ACTIVE — luaL_argcheck inline");
-    CrashDumper::RegisterFeature("ArgCheck");
-    CrashDumper::FeatureSetActive("ArgCheck", true);
-    return true;
+    Log("[ArgCheck] DISABLED — macro function, address 0x84F560 is actually luaL_addlstring");
+    return false;
 }
