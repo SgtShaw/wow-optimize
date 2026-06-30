@@ -13,7 +13,7 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.12.0
 
-The headline changes are the **stabilization and activation of all Lua VM inline fast paths and C-API hook groups (G1–G3, DG1–DG4)**. We identified and resolved critical stale-pointer hazards where stack reallocations and allocator garbage collection during execution invalidated cached stack top/base references. Additionally, a major buffer overflow bug in `luaL_loadstring` caching has been fixed, and `lua_concat` has been updated to prevent stack frames and register mismatches. 
+The headline changes are the **stabilization and activation of all Lua VM inline fast paths and C-API hook groups (G1–G3, DG1–DG4)**. Stale-pointer hazards where stack reallocations and allocator garbage collection during execution invalidated cached stack top/base references were successfully resolved. Additionally, a major buffer overflow bug in `luaL_loadstring` caching was fixed, and `lua_concat` was updated to prevent stack frames and register mismatches. 
 
 This release builds on top of **v3.11.0's mimalloc allocator redirect** ( WoW's statically-linked CRT heap routed through mimalloc to combat 32-bit virtual-address fragmentation), the EIP sampling profiler, render state deduplication, event dispatch caches, and SSE2 geometry math overrides.
 
@@ -288,71 +288,6 @@ Batch 31-38: `GetCurrentProcess`, `GetCurrentThread`, `GetCPInfo` and related ke
 
 ---
 
-## Intentionally Disabled in Public-Safe Builds
-
-These features are disabled in public-safe builds because they previously caused regressions or crashes:
-
-- Object GUID → pointer cache on `ClntObjMgrObjectPtr` (0x4D4DB0) — permanently disabled; object-pointer caches are fundamentally unsound (teardown unlinks objects before scrubbing identity bytes, so content-validation reads stale/recycled data)
-- WoW-internal SSE2 strlen at `sub_76EE30` - page-boundary bug (exit crash)
-- MPQ memory mapping (disabled for stability)
-- UI widget cache (disabled due to addon regressions)
-- GetSpellInfo cache (disabled - icon corruption, crashes on relog)
-- ApiCache (`GetItemInfo` result cache - disabled due to Outfitter/GearScore breakage)
-- dynamic unit API caching (disabled)
-- Lua Event Coalescing (`FrameScript_SignalEvent`) — changes event timing/ordering; unvalidated across world→glue teardown
-- Particle simulation throttling (`CParticleEmitter::SimulateParticle`, 0x981D40) — that address is the particle spawn/init routine, not a skippable advance; throttling it left particles uninitialized (colored flashes)
-- `luaH_getstr` table lookup cache - ERROR #134, stale Node* from address reuse
-- Async texture loading hook - caused loading screen regression
-- Model async workers - loading screen regression
-- `lua_pushstring` intern cache (disabled - stale `TString*` crashes)
-- `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
-- CombatLog full event cache (disabled - stale `TString*` crashes)
-- `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
-- `lua_getfield` _G cache (removed - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
-- `GetModuleFileName` cache (disabled - conflicts with OBS hook chain, crash + exit error)
-- Hardware cursor byte patches (`gxCursor=0` / `gxFixLag=1`) - NULL deref on private servers
-- CRT `strncmp` / `strcat` SSE2 - crash isolation for Circle/Warmane
-- CRT `wcslen` / `wcscpy` SSE2 - broken zero-detection for ASCII wchar_t
-- `SetCursorPos` no-op - breaks mouselook
-- `ValidateRect` no-op - prevents UI repaint, freezes on friend list
-- `LoadLibraryA` / `WaitForMultipleObjects` hooks - cause silent close on loading
-- Timing method fix (`sub_86AD50` -> return 0) - causes silent close on start
-- Lua bytecode cache - ERROR #134 corrupt chunks
-- Addon RAM-cache - corrupts addon loading, resets settings
-- Asset path cache - stale mimalloc pointers crash all teardowns
-- Raw allocator hooks - mimalloc internal corruption
-- Stream buffer hooks - heap corruption, ERROR #132
-- Tooltip cache - placeholder, never stored results
-- `GetCursorPos` 16ms cache - causes cursor lag
-- CriticalSection 3-stage spin hooks - caused login crashes / freezes
-- `GetKeyboardLayout` / `GetKeyboardLayoutNameA` hooks - cached keyboard state, broke language switching
-- `GetClientRect` / `GetWindowRect` hooks - cached window dimensions, broke window resize
-- SSE2 quaternion normalize - broken horizontal reduction, NaN on degenerate bones (pending validation)
-
-### Enabled features
-
-- `GetProcAddress` cache - 4-way set-associative design (enabled)
-- `GetEnvironmentVariableA` cache (enabled - isolated via 3-way bisection test DLLs)
-- CRT SSE2 memory/string fast paths - re-enabled with page-boundary guards and SEH protection
-- CRT SSE2 memchr/strchr/strcpy - re-enabled with page-boundary guards
-- `lstrlenA` / `lstrlenW` fast paths - re-enabled after duplicate-hook fix
-- **Lua VM Inline Fast Paths & C-API Hooks** — Fully enabled and stabilized:
-  - `lua_toboolean` (0x84E0B0) and `lua_objlen` (0x84E150) inline hooks.
-  - `luaV_concat` (0x857900) inline concatenation hook.
-  - Safe stack query batches G1, G2, G3 and table writes DG1, DG2, DG3, DG4.
-
-
-### Removed Features
-
-These experimental features were tested and found to provide no measurable benefit, so they have been removed from the codebase:
-
-- WaitSpin (WaitForSingleObject short-wait spin) - huge fallback count, essentially 0 value
-- DispatchPool (dispatcher pool for 20-byte allocations) - hooks active but no real hit in sessions
-- bgpreloadsleep cache - 0 calls in real sessions
-- Subtask Event Pool - 0 reuse / 0 new / 0 returned in real stats
-
----
-
 ## What Improves In Practice
 
 ### You will notice
@@ -614,87 +549,17 @@ rather not change the policy at all, the line is harmless and can be ignored —
 ```text
 wow-optimize/
 ├── src/
-│   ├── dllmain.cpp                       # Win32/CRT hooks, allocator, timers
-│   ├── lua_optimize.cpp/.h               # Lua VM allocator, GC, string table
-│   ├── lua_fastpath.cpp/.h               # Lua C-function fast paths (24/27)
-│   ├── lua_vm_engine.cpp/.h              # Direct-threaded Lua VM interpreter
-│   ├── lua_getstr_inline.cpp/.h          # Safe luaH_getstr cache (16384)
-│   ├── lua_rawgeti_inline.cpp/.h         # Safe lua_rawgeti cache (8192)
-│   ├── lua_pushnumber_fast.cpp/.h        # Direct TValue stack write
-│   ├── lua_gettable_safety.cpp/.h        # TValue type validation crash fix
-│   ├── lua_vm_cache.cpp/.h               # luaV_gettable primitive cache
-│   ├── lua_vm_phase3.cpp/.h              # luaD_call dispatch
-│   ├── lua_internals.cpp/.h              # Lua VM internals
-│   ├── lua_bytecode_cache.cpp/.h         # Compiled bytecode cache
-│   ├── lua_bytecode_pre_compiler.cpp/.h  # Addon file pre-scanner
-│   ├── lua_settable_cache.cpp/.h         # luaV_settable cache
-│   ├── hooks_render.cpp/.h               # 3-tier off-screen animation throttle
-│   ├── hooks_simd.cpp/.h                 # SSE2 matrix/quat/frustum/ray-tri/mat-vec/particle
-│   ├── hooks_logic.cpp/.h                # Combat text, UI cache, heartbeat
-│   ├── hooks_memory.cpp/.h               # 64B slabs, GUID hash-table
-│   ├── hooks_async.cpp/.h                # 2-thread worker pool
-│   ├── event_coalescer.cpp/.h            # Lua event coalescing (FrameScript_SignalEvent)
-│   ├── network_guid_sse2.cpp/.h          # SSE2 network GUID unpacking
-│   ├── d3d9_state_manager.cpp/.h         # D3D9 15-hook vtable patcher
-│   ├── hot_patch.cpp/.h                  # 20 runtime hot-patch optimizations
-│   ├── infra_patch.cpp/.h                # 50 infrastructure APIs
-│   ├── hook_prefetch.cpp/.h              # 3 SSE2 prefetch hooks
-│   ├── data_caches.cpp/.h                # 10 game-data lookup caches
-│   ├── compute_caches.cpp/.h             # 10 compute/transform caches
-│   ├── combatlog_optimize.cpp/.h         # Combat log retention patch
-│   ├── combatlog_mt.cpp/.h               # Multithreaded combat log parser
-│   ├── combatlog_buffer.cpp/.h           # Combat log buffer governor
-│   ├── addon_dispatcher.cpp/.h           # Multithreaded addon dispatcher
-│   ├── addon_preload.cpp/.h              # Addon file preload
-│   ├── spell_prefetch.cpp/.h             # Async spell data prefetching
-│   ├── spell_cache.cpp/.h                # Spell data cache
-│   ├── spell_effect_mt.cpp/.h            # Multithreaded spell effects
-│   ├── model_async.cpp/.h                # Model/M2 async loading
-│   ├── texture_async.cpp/.h              # Texture async loading
-│   ├── texture_decode_mt.cpp/.h          # BLP decode worker pool
-│   ├── anim_mt.cpp/.h                    # M2 animation worker pool
-│   ├── mpq_prefetch.cpp/.h              # Predictive MPQ prefetching
-│   ├── mpq_decompress_mt.cpp/.h          # Multithreaded zlib decompress
-│   ├── obj_vis_cache.cpp/.h              # Object visibility cache
-│   ├── nameplate_batch.cpp/.h            # Multithreaded nameplates
-│   ├── sound_prefetch.cpp/.h             # Sound file prefetching
-│   ├── quest_async.cpp/.h                # Async quest data loading
-│   ├── saved_vars_async.cpp/.h           # Async SavedVariables writes
-│   ├── tooltip_cache.cpp/.h              # Tooltip string caching
-│   ├── regex_cache.cpp/.h                # Regex compiled-pattern cache
-│   ├── trig_lut.cpp/.h                   # SSE2 trig lookup tables
-│   ├── event_name_cache.cpp/.h           # Event name lookup cache
-│   ├── event_name_hash.cpp/.h            # Event name hash cache
-│   ├── render_state_dedup.cpp/.h         # Render state deduplication
-│   ├── script_handler_cache.cpp/.h       # O(1) script handler resolver
-│   ├── cdatastore_batch.cpp/.h           # CDataStore batch read detection
-│   ├── gettime_fast.cpp/.h               # Frame-cached GetTime
-│   ├── lua_pushvalue_fast.cpp/.h         # Direct TValue stack copy
-│   ├── api_cache.cpp/.h                  # GetItemInfo/GetSpellInfo cache
-│   ├── ui_cache.cpp/.h                   # UI widget cache
-│   ├── ui_frame_batch.cpp/.h             # Frame OnUpdate batching
-│   ├── frame_throttle.cpp/.h             # Script throttling
-│   ├── frame_arena.cpp/.h                # Frame-scoped allocator
-│   ├── cache_governor.cpp/.h             # Dynamic TTL/cache control
-│   ├── heap_compactor.cpp/.h             # VA fragmentation monitor
-│   ├── crt_mem_fastpath.cpp              # SSE2 strlen/strcmp/memcpy/memset
-│   ├── crt_char_fast.cpp/.h              # SSE2 memchr/strchr
-│   ├── strstr_fast.cpp/.h                # SSE2 Boyer-Moore-Horspool strstr
-│   ├── dxvk_bridge.cpp/.h                # DXVK/Vulkan detection
-│   ├── crash_dumper.cpp/.h               # Enhanced crash reporter
-│   ├── format_validator_cache.cpp/.h     # string.format validator cache
-│   ├── datastore_fastpath.cpp/.h         # CDataStore TLS-cached fast path
-│   ├── version.h                         # Version and feature toggles
-│   ├── version.rc                        # Windows resource
-│   ├── version_proxy.cpp                 # version.dll proxy loader
-│   ├── version_exports.def               # Export forwarding table
-│   └── wow_loader.cpp                    # External injector EXE
-├── CMakeLists.txt
-├── README.md
-└── LICENSE
+│   ├── allocators/           # mimalloc redirect, cache governor, heap compactor
+│   ├── core/                 # DLL entry, proxy loader, features config (version.h)
+│   ├── diagnostics/          # EIP sampling profiler, crash reporter, CVar watchdog
+│   ├── hooks_subsystems/     # D3D9 state manager, CRT string fast-paths, event/data caches
+│   ├── runtime_vm/           # Lua C-API detour hooks, stack query inline paths, VM engine
+│   ├── simd_math/            # SSE2 4x4 matrix, frustum point culling, raycast overrides
+│   └── threading/            # Multi-threaded work pool dispatcher
+├── CMakeLists.txt            # Build system definition
+├── README.md                 # Project overview & documentation
+└── LICENSE                   # Project license
 ```
-
----
 
 ## License
 
