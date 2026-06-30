@@ -97,7 +97,7 @@
 // use a private mimalloc heap that masquerades as the process heap, or
 // only redirect allocations above a size threshold where win32 internals
 // don't track pointers.
-#define TEST_DISABLE_HEAP_REDIRECT        1
+#define TEST_DISABLE_HEAP_REDIRECT        0
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay

@@ -392,6 +392,30 @@ static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
     Log("!!! CRASH !!! 0x%08X (%s) at 0x%08X TID=%lu",
         code, ExceptionName(code), crashAddr, GetCurrentThreadId());
 
+    if (ep->ContextRecord) {
+        CONTEXT* ctx = ep->ContextRecord;
+        Log("!!! REGISTERS: EAX=0x%08X EBX=0x%08X ECX=0x%08X EDX=0x%08X",
+            ctx->Eax, ctx->Ebx, ctx->Ecx, ctx->Edx);
+        Log("!!!            ESI=0x%08X EDI=0x%08X EBP=0x%08X ESP=0x%08X",
+            ctx->Esi, ctx->Edi, ctx->Ebp, ctx->Esp);
+        Log("!!!            EIP=0x%08X EFLAGS=0x%08X",
+            ctx->Eip, ctx->EFlags);
+
+        __try {
+            unsigned char codeBytes[16];
+            if (ReadProcessMemory(GetCurrentProcess(), (void*)ctx->Eip, codeBytes, 16, NULL)) {
+                char bytesStr[64] = {0};
+                int pos = 0;
+                for (int i = 0; i < 16; i++) {
+                    pos += sprintf_s(bytesStr + pos, sizeof(bytesStr) - pos, "%02X ", codeBytes[i]);
+                }
+                Log("!!! INSTRUCTIONS (EIP): %s", bytesStr);
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            Log("!!! INSTRUCTIONS (EIP): (inaccessible)");
+        }
+    }
+
     // Identify which module the crash address belongs to
     HMODULE hCrashMod = NULL;
     char modName[MAX_PATH] = "unknown";

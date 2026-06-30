@@ -2247,30 +2247,29 @@ static LPVOID WINAPI hooked_HeapAlloc(HANDLE hHeap, DWORD dwFlags, SIZE_T dwByte
 }
 
 static BOOL WINAPI hooked_HeapFree(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem) {
-    if (hHeap == g_processHeap && lpMem) {
-        if (mi_is_in_heap_region(lpMem)) { mi_free(lpMem); return TRUE; }
+    if (lpMem && mi_is_in_heap_region(lpMem)) {
+        mi_free(lpMem);
+        return TRUE;
     }
     return orig_HeapFree(hHeap, dwFlags, lpMem);
 }
 
 static LPVOID WINAPI hooked_HeapReAlloc(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dwBytes) {
-    if (hHeap == g_processHeap && lpMem) {
-        if (mi_is_in_heap_region(lpMem)) {
-            if (dwBytes == 0) { mi_free(lpMem); return NULL; }
-            void* p = mi_realloc(lpMem, dwBytes);
-            if (dwFlags & HEAP_ZERO_MEMORY && p) {
-                size_t usable = mi_usable_size(p);
-                if (dwBytes > usable) memset((char*)p + usable, 0, dwBytes - usable);
-            }
-            return p;
+    if (lpMem && mi_is_in_heap_region(lpMem)) {
+        if (dwBytes == 0) { mi_free(lpMem); return NULL; }
+        void* p = mi_realloc(lpMem, dwBytes);
+        if (dwFlags & HEAP_ZERO_MEMORY && p) {
+            size_t usable = mi_usable_size(p);
+            if (dwBytes > usable) memset((char*)p + usable, 0, dwBytes - usable);
         }
+        return p;
     }
     return orig_HeapReAlloc(hHeap, dwFlags, lpMem, dwBytes);
 }
 
 static SIZE_T WINAPI hooked_HeapSize(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMem) {
-    if (hHeap == g_processHeap && lpMem) {
-        if (mi_is_in_heap_region((void*)lpMem)) return mi_usable_size((void*)lpMem);
+    if (lpMem && mi_is_in_heap_region((void*)lpMem)) {
+        return mi_usable_size((void*)lpMem);
     }
     return orig_HeapSize(hHeap, dwFlags, lpMem);
 }
