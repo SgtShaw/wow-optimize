@@ -3055,7 +3055,7 @@ static FuncHookEntry g_funcHooks[] = {
     {nullptr,  "strtrim",  (void*)Hooked_StrTrim,          &orig_str_trim,         0, false},
     {nullptr,  "strjoin",  (void*)Hooked_StrJoin,          &orig_str_join,         0, false},
 #if !TEST_DISABLE_HOOK_IPAIRS
-    {nullptr,  nullptr,    (void*)Hooked_IPairs_Iterator,  &orig_luaB_ipairsaux,   0x00854720, false},
+    {nullptr,  "ipairsaux", (void*)Hooked_IPairs_Iterator,  &orig_luaB_ipairsaux,   0x00854720, false},
 #endif
 };
 
