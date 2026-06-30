@@ -87,6 +87,21 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
         return;
     }
 
+    // Direct table lookup check to ensure it's not a metatable lookup or nil
+    typedef uintptr_t(__cdecl *getstr_fn)(uintptr_t, uintptr_t);
+    uintptr_t node = ((getstr_fn)0x0085C430)(t, k);
+    if (node < 0x10000 || node == 0x00A46F78) {
+        orig_luaV_gettable(L, table, key, result);
+        return;
+    }
+
+    int node_tt = *(int*)(node + 8);
+    // Only cache GC-safe primitive types: nil(0) is excluded to avoid caching nil checks that might fall back to metatables later
+    if (node_tt == 0 || node_tt > 4) {
+        orig_luaV_gettable(L, table, key, result);
+        return;
+    }
+
     // Hash: XOR mix of table and key GC object pointers
     uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
     uint64_t combined = ((uint64_t)(uint32_t)t << 32) | (uint32_t)k;
@@ -94,8 +109,7 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
     AcquireSRWLockShared(&g_cacheLock);
     if (g_cache[hash].combined == combined) {
         uint32_t tp = g_cache[hash].type_tag;
-        // Only cache GC-safe primitive types: nil(0),bool(1),lightuserdata(2),number(3),string(4)
-        if (tp <= 4) {
+        if (tp == node_tt) {
             *(uint32_t*)((char*)result)      = g_cache[hash].value.lo;
             *(uint32_t*)((char*)result + 4)  = g_cache[hash].value.hi;
             *(uint32_t*)((char*)result + 8)  = tp;
@@ -108,19 +122,20 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
     ReleaseSRWLockShared(&g_cacheLock);
 
     ++g_misses;
-    orig_luaV_gettable(L, table, key, result);
 
-    // Cache only primitive results
-    uint32_t tp = *(uint32_t*)((char*)result + 8);
-    if (tp <= 4) {
-        AcquireSRWLockExclusive(&g_cacheLock);
-        g_cache[hash].combined  = combined;
-        g_cache[hash].value.lo  = *(uint32_t*)((char*)result);
-        g_cache[hash].value.hi  = *(uint32_t*)((char*)result + 4);
-        g_cache[hash].type_tag  = tp;
-        g_cache[hash].taint     = *(uint32_t*)((char*)result + 12);
-        ReleaseSRWLockExclusive(&g_cacheLock);
-    }
+    // Fast direct copy of the resolved node
+    *(uint32_t*)((char*)result)      = *(uint32_t*)(node);
+    *(uint32_t*)((char*)result + 4)  = *(uint32_t*)(node + 4);
+    *(uint32_t*)((char*)result + 8)  = node_tt;
+    *(uint32_t*)((char*)result + 12) = *(uint32_t*)(node + 12);
+
+    AcquireSRWLockExclusive(&g_cacheLock);
+    g_cache[hash].combined  = combined;
+    g_cache[hash].value.lo  = *(uint32_t*)((char*)result);
+    g_cache[hash].value.hi  = *(uint32_t*)((char*)result + 4);
+    g_cache[hash].type_tag  = node_tt;
+    g_cache[hash].taint     = *(uint32_t*)((char*)result + 12);
+    ReleaseSRWLockExclusive(&g_cacheLock);
 }
 
 typedef void (__cdecl *luaC_step_fn)(lua_State*);
