@@ -7828,17 +7828,21 @@ static GmfCacheEntryA g_gmfCacheA[GMF_CACHE_SIZE] = {};
 static GmfCacheEntryW g_gmfCacheW[GMF_CACHE_SIZE] = {};
 
 static DWORD WINAPI hooked_GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
-    int idx = (int)(((uintptr_t)hModule >> 4) & GMF_CACHE_MASK);
-    if (g_gmfCacheA[idx].valid && g_gmfCacheA[idx].hMod == hModule) {
-        size_t len = strlen(g_gmfCacheA[idx].path);
-        if (len < nSize) {
-            memcpy(lpFilename, g_gmfCacheA[idx].path, len + 1);
-            g_gmfHits++;
-            return (DWORD)len;
+    static HMODULE mainMod = GetModuleHandleA(nullptr);
+    if (hModule == NULL || hModule == mainMod) {
+        int idx = (hModule == NULL) ? 0 : 1;
+        if (g_gmfCacheA[idx].valid && g_gmfCacheA[idx].hMod == hModule) {
+            size_t len = strlen(g_gmfCacheA[idx].path);
+            if (len < nSize) {
+                memcpy(lpFilename, g_gmfCacheA[idx].path, len + 1);
+                g_gmfHits++;
+                return (DWORD)len;
+            }
         }
     }
     DWORD result = orig_GetModuleFileNameA(hModule, lpFilename, nSize);
-    if (result > 0 && result < MAX_PATH) {
+    if ((hModule == NULL || hModule == mainMod) && result > 0 && result < MAX_PATH) {
+        int idx = (hModule == NULL) ? 0 : 1;
         g_gmfCacheA[idx].hMod = hModule;
         memcpy(g_gmfCacheA[idx].path, lpFilename, result + 1);
         g_gmfCacheA[idx].valid = true;
@@ -7848,17 +7852,21 @@ static DWORD WINAPI hooked_GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename,
 }
 
 static DWORD WINAPI hooked_GetModuleFileNameW(HMODULE hModule, LPWSTR lpFilename, DWORD nSize) {
-    int idx = (int)(((uintptr_t)hModule >> 4) & GMF_CACHE_MASK);
-    if (g_gmfCacheW[idx].valid && g_gmfCacheW[idx].hMod == hModule) {
-        size_t len = wcslen(g_gmfCacheW[idx].path);
-        if (len < nSize) {
-            memcpy(lpFilename, g_gmfCacheW[idx].path, (len + 1) * sizeof(wchar_t));
-            g_gmfHits++;
-            return (DWORD)len;
+    static HMODULE mainMod = GetModuleHandleA(nullptr);
+    if (hModule == NULL || hModule == mainMod) {
+        int idx = (hModule == NULL) ? 0 : 1;
+        if (g_gmfCacheW[idx].valid && g_gmfCacheW[idx].hMod == hModule) {
+            size_t len = wcslen(g_gmfCacheW[idx].path);
+            if (len < nSize) {
+                memcpy(lpFilename, g_gmfCacheW[idx].path, (len + 1) * sizeof(wchar_t));
+                g_gmfHits++;
+                return (DWORD)len;
+            }
         }
     }
     DWORD result = orig_GetModuleFileNameW(hModule, lpFilename, nSize);
-    if (result > 0 && result < MAX_PATH) {
+    if ((hModule == NULL || hModule == mainMod) && result > 0 && result < MAX_PATH) {
+        int idx = (hModule == NULL) ? 0 : 1;
         g_gmfCacheW[idx].hMod = hModule;
         memcpy(g_gmfCacheW[idx].path, lpFilename, (result + 1) * sizeof(wchar_t));
         g_gmfCacheW[idx].valid = true;
