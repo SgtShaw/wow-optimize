@@ -25,6 +25,8 @@ typedef int(__cdecl *setfield_fn)(uintptr_t L, int idx, const char* k);
 static setfield_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
+
 static int __cdecl hook(uintptr_t L, int idx, const char* k) {
     if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx, k); }
 
@@ -49,6 +51,8 @@ static int __cdecl hook(uintptr_t L, int idx, const char* k) {
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const void*, size_t);
         uintptr_t key_ts = ((newlstr_fn)0x00856C80)(L, k, klen);
         if (key_ts < 0x10000) { g_misses++; return orig(L, idx, k); }
+
+        InvalidateTableCacheSlot((void*)table, (void*)key_ts);
 
         // Re-read L->top and resolve new val_tv in case GC reallocated stack!
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);

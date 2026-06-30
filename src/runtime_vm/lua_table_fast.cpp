@@ -21,6 +21,8 @@ typedef int(__cdecl *settable_fn)(uintptr_t L, uintptr_t tt, uintptr_t kt, uintp
 static settable_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
+
 static int __cdecl hook(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt)
 {
     // Common case: table is a real table (tt==5) and key is a string (tt==4)
@@ -30,6 +32,12 @@ static int __cdecl hook(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt)
     if (table < 0x10000) goto fallback;
 
     int key_tt = *(int*)(kt + 8);
+    if (key_tt == 4) {
+        uintptr_t key_str = *(uintptr_t*)kt;
+        if (key_str >= 0x10000) {
+            InvalidateTableCacheSlot((void*)table, (void*)key_str);
+        }
+    }
     uintptr_t val0 = *(uintptr_t*)(vt + 0);
     uint32_t val1 = *(uint32_t*)(vt + 4);
     uint32_t val2 = *(uint32_t*)(vt + 8);

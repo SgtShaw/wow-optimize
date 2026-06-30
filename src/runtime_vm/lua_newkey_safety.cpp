@@ -32,9 +32,20 @@ static volatile LONG64 g_total_calls = 0;
 static volatile LONG64 g_recovered   = 0;
 static volatile long g_logged        = 0;
 
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
+
 static void* __cdecl Safe_newkey(int L, int t, void* key)
 {
     ++g_total_calls;
+    if (t && key) {
+        int key_tt = *(int*)((char*)key + 8);
+        if (key_tt == 4) {
+            void* key_str = *(void**)key;
+            if (key_str) {
+                InvalidateTableCacheSlot((void*)t, key_str);
+            }
+        }
+    }
     __try {
         return g_orig_newkey(L, t, key);
     } __except (EXCEPTION_EXECUTE_HANDLER) {

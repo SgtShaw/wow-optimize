@@ -14,6 +14,7 @@ extern "C" void Log(const char* fmt, ...);
 
 #if !TEST_DISABLE_LUA_OPCACHE
 
+void ClearTableCache();
 static constexpr int CACHE_SIZE  = 4096;
 static constexpr int CACHE_MASK  = CACHE_SIZE - 1;
 
@@ -29,6 +30,7 @@ struct CacheSlot {
         uint32_t lo, hi;         // TValue data (double or pointer)
     } value;
     uint32_t type_tag;           // TValue type
+    uint32_t taint;              // WoW UI taint tracking
 };
 
 static CacheSlot g_cache[CACHE_SIZE] = {};
@@ -97,7 +99,7 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
             *(uint32_t*)((char*)result)      = g_cache[hash].value.lo;
             *(uint32_t*)((char*)result + 4)  = g_cache[hash].value.hi;
             *(uint32_t*)((char*)result + 8)  = tp;
-            *(uint32_t*)((char*)result + 12) = 0;
+            *(uint32_t*)((char*)result + 12) = g_cache[hash].taint;
             ReleaseSRWLockShared(&g_cacheLock);
             ++g_hits;
             return;
@@ -116,31 +118,34 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
         g_cache[hash].value.lo  = *(uint32_t*)((char*)result);
         g_cache[hash].value.hi  = *(uint32_t*)((char*)result + 4);
         g_cache[hash].type_tag  = tp;
+        g_cache[hash].taint     = *(uint32_t*)((char*)result + 12);
         ReleaseSRWLockExclusive(&g_cacheLock);
     }
 }
 
-static void __cdecl Hooked_luaV_settable(lua_State* L, void* table, void* key, void* val) {
-    if (table && key) {
-        TValue* tv_table = (TValue*)table;
-        TValue* tv_key = (TValue*)key;
-        if (tv_table->tt == 5 && tv_key->tt == 4) {
-            uintptr_t t = (uintptr_t)tv_table->value.gc;
-            uintptr_t k = (uintptr_t)tv_key->value.gc;
-            if (t >= 0x10000 && t <= 0xFFE00000 && k >= 0x10000 && k <= 0xFFE00000) {
-                uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
-                AcquireSRWLockExclusive(&g_cacheLock);
-                g_cache[hash].combined = 0; // invalidate slot on write
-                ReleaseSRWLockExclusive(&g_cacheLock);
-            }
-        }
-    }
-    orig_luaV_settable(L, table, key, val);
+typedef void (__cdecl *luaC_step_fn)(lua_State*);
+static luaC_step_fn orig_luaC_step = nullptr;
+
+static void __cdecl Hooked_luaC_step(lua_State* L) {
+    ClearTableCache();
+    orig_luaC_step(L);
+}
+
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str) {
+    if (!table || !key_str) return;
+    uintptr_t t = (uintptr_t)table;
+    uintptr_t k = (uintptr_t)key_str;
+    if (t < 0x10000 || k < 0x10000) return;
+
+    uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
+    AcquireSRWLockExclusive(&g_cacheLock);
+    g_cache[hash].combined = 0;
+    ReleaseSRWLockExclusive(&g_cacheLock);
 }
 
 bool InstallLuaVMCache() {
     void* target_get = (void*)0x857250;
-    void* target_set = (void*)0x8573C0;
+    void* target_gc = (void*)0x0085B950;
 
     if (MH_CreateHook(target_get, (void*)Hooked_luaV_gettable, (void**)&orig_luaV_gettable) != MH_OK) {
         Log("[GetTableCache] CreateHook failed for luaV_gettable");
@@ -151,16 +156,16 @@ bool InstallLuaVMCache() {
         return false;
     }
 
-    if (MH_CreateHook(target_set, (void*)Hooked_luaV_settable, (void**)&orig_luaV_settable) != MH_OK) {
-        Log("[GetTableCache] CreateHook failed for luaV_settable");
+    if (MH_CreateHook(target_gc, (void*)Hooked_luaC_step, (void**)&orig_luaC_step) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaC_step");
         return false;
     }
-    if (MH_EnableHook(target_set) != MH_OK) {
-        Log("[GetTableCache] EnableHook failed for luaV_settable");
+    if (MH_EnableHook(target_gc) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaC_step");
         return false;
     }
 
-    Log("[GetTableCache] Active: %d-slot cache on luaV_gettable/luaV_settable", CACHE_SIZE);
+    Log("[GetTableCache] Active: %d-slot cache on luaV_gettable, synced with luaC_step", CACHE_SIZE);
     return true;
 }
 

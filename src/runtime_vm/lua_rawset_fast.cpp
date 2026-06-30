@@ -24,6 +24,8 @@ typedef int(__cdecl *rawset_fn)(uintptr_t L, int idx);
 static rawset_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
+
 static int __cdecl hook(uintptr_t L, int idx) {
     if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx); }
 
@@ -46,6 +48,8 @@ static int __cdecl hook(uintptr_t L, int idx) {
 
         uintptr_t key_str = *(uintptr_t*)key_tv;
         if (key_str < 0x10000) { g_misses++; return orig(L, idx); }
+
+        InvalidateTableCacheSlot((void*)table, (void*)key_str);
 
         // luaH_getstr: find existing node
         typedef uintptr_t(__cdecl *getstr_fn)(uintptr_t, uintptr_t);
