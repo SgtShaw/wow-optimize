@@ -1051,6 +1051,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         LuaVMEngine_FrameTick();
         ClearTableCache();
+        ApiCache::OnNewFrame();
         FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
         InitHardwareCursor();

@@ -112,7 +112,7 @@
 #define TEST_DISABLE_PHASE2_NEW_DMA     1
 
 // GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 1
+#define TEST_DISABLE_GETSPELLINFO_CACHE 0
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES

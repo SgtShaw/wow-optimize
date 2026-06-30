@@ -135,11 +135,13 @@ struct SpellCacheEntry {
     bool         valid;
     int          retCount;
     int          pushed;
+    uint32_t     frameGen;
     CachedRetVal vals[SPELL_RETVALS];
 };
 
 static ItemCacheEntry  g_itemCache[CACHE_SIZE]  = {};
 static SpellCacheEntry g_spellCache[CACHE_SIZE] = {};
+static volatile uint32_t g_spellFrameGen        = 1;
 
 static long g_itemHits    = 0;
 static long g_itemMisses  = 0;
@@ -215,6 +217,7 @@ static void CaptureSpellReturnValues(lua_State* L, SpellCacheEntry* e,
     e->valid     = true;
     e->retCount  = pushed;
     e->pushed    = pushed;
+    e->frameGen  = g_spellFrameGen;
 
     RawTValue* base = GetStackBase(L);
 
@@ -352,7 +355,7 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     int slot = keyHash & CACHE_MASK;
     SpellCacheEntry* e = &g_spellCache[slot];
 
-    if (e->valid && e->keyHash == keyHash) {
+    if (e->valid && e->keyHash == keyHash && e->frameGen == g_spellFrameGen) {
         ReplaySpellCachedValues(L, e);
         g_spellHits++;
         return e->retCount;
@@ -454,7 +457,8 @@ void Shutdown() {
 }
 
 void OnNewFrame() {
-    // No-op - reserved for future use
+    g_spellFrameGen++;
+    if (g_spellFrameGen == 0) g_spellFrameGen = 1;
 }
 
 void ClearCache() {
