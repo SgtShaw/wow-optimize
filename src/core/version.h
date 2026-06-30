@@ -52,7 +52,7 @@
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
 // GetSpellInfo hook also disabled below.
-#define TEST_DISABLE_ALL_APICACHE       0
+#define TEST_DISABLE_ALL_APICACHE       1
 
 // Phase 2 Lua fast paths
 #define TEST_DISABLE_ALL_PHASE2         0
@@ -97,7 +97,7 @@
 // use a private mimalloc heap that masquerades as the process heap, or
 // only redirect allocations above a size threshold where win32 internals
 // don't track pointers.
-#define TEST_DISABLE_HEAP_REDIRECT        1
+#define TEST_DISABLE_HEAP_REDIRECT        0
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
@@ -176,7 +176,7 @@
 
 // Deferred unit field update queue - UI/texture
 // flickering due to immediate-mode rendering mismatch (v3.5.x)
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -302,7 +302,7 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
