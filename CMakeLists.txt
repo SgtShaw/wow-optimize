@@ -366,6 +366,8 @@ target_link_libraries(wow_optimize PRIVATE
     winhttp
 )
 
+target_link_options(wow_optimize PRIVATE /MAP)
+
 target_include_directories(wow_optimize PRIVATE
     ${minhook_SOURCE_DIR}/include
     ${mimalloc_SOURCE_DIR}/include
