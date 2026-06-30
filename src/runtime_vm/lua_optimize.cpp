@@ -1228,7 +1228,8 @@ static void SetupLuaInterface(lua_State* L) {
             }
         }
         
-        // Register C functions
+        // Register C functions (SKIPPED to bypass WoW function pointer whitelist integrity checks)
+        /*
         RegisterLuaFunction(L, "LuaBoostC_IsLoaded", (void*)LuaBoostC_IsLoaded_cb);
         RegisterLuaFunction(L, "LuaBoostC_GetStats", (void*)LuaBoostC_GetStats_cb);
         RegisterLuaFunction(L, "LuaBoostC_GCMemory", (void*)LuaBoostC_GCMemory_cb);
@@ -1238,8 +1239,9 @@ static void SetupLuaInterface(lua_State* L) {
         RegisterLuaFunction(L, "LuaBoostC_GetUIStats", (void*)LuaBoostC_GetUIStats_cb);
         RegisterLuaFunction(L, "LuaBoostC_GetApiStats", (void*)LuaBoostC_GetApiStats_cb);
         RegisterLuaFunction(L, "LuaBoostC_GetFastPathStats", (void*)LuaBoostC_GetFastPathStats_cb);
+        */
         
-        Log("[LuaOpt] SetupLuaInterface: registered 6 globals + 9 functions on L=0x%08X", 
+        Log("[LuaOpt] SetupLuaInterface: registered 6 globals (0 C functions) on L=0x%08X", 
             (unsigned)(uintptr_t)L);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[LuaOpt] SetupLuaInterface: exception during registration");
