@@ -52,7 +52,7 @@
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
 // GetSpellInfo hook also disabled below.
-#define TEST_DISABLE_ALL_APICACHE       1
+#define TEST_DISABLE_ALL_APICACHE       0
 
 // Phase 2 Lua fast paths
 #define TEST_DISABLE_ALL_PHASE2         0
