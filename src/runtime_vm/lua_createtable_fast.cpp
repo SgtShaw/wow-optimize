@@ -27,9 +27,6 @@ static int __cdecl hook(uintptr_t L, int narray, int nhash) {
     if (narray != 0 || nhash != 0) { g_misses++; return orig(L, narray, nhash); }
 
     __try {
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, narray, nhash); }
-
         // GC check
         uintptr_t g = *(uintptr_t*)(L + 0x14);
         if (*(uintptr_t*)(g + 0x44) >= *(uintptr_t*)(g + 0x40)) {
@@ -43,12 +40,14 @@ static int __cdecl hook(uintptr_t L, int narray, int nhash) {
         if (table < 0x10000) { g_misses++; return orig(L, narray, nhash); }
 
         // Push onto stack: tt=5 (LUA_TTABLE)
+        uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
+        if (new_top < 0x10000 || new_top > 0xBFFF0000) { g_misses++; return orig(L, narray, nhash); }
         uint32_t taint = *(uint32_t*)TAINT_CELL;
-        *(uintptr_t*)(top + 0) = table;
-        *(uint32_t*)(top + 4) = 0;
-        *(uint32_t*)(top + 8) = 5;
-        *(uint32_t*)(top + 12) = taint;
-        *(uintptr_t*)(L + 0x0C) = top + 16;
+        *(uintptr_t*)(new_top + 0) = table;
+        *(uint32_t*)(new_top + 4) = 0;
+        *(uint32_t*)(new_top + 8) = 5;
+        *(uint32_t*)(new_top + 12) = taint;
+        *(uintptr_t*)(L + 0x0C) = new_top + 16;
 
         g_hits++;
         return (int)table;

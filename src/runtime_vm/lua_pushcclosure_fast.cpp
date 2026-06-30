@@ -36,12 +36,17 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
         // Closure environment, exactly as sub_84E400: the base CallInfo uses the
         // thread's global table (L+0x48); otherwise the currently-running
         // function's environment.
+        uintptr_t env = *(uintptr_t*)(L + 0x48);
         uintptr_t ci = *(uintptr_t*)(L + 0x18);
-        uintptr_t env;
-        if (ci == *(uintptr_t*)(L + 0x2C))
-            env = *(uintptr_t*)(L + 0x48);
-        else
-            env = *(uintptr_t*)(*(uintptr_t*)(*(uintptr_t*)(ci + 4)) + 16);
+        if (ci && ci != *(uintptr_t*)(L + 0x2C)) {
+            uintptr_t func_tv = *(uintptr_t*)(ci + 4);
+            if (func_tv >= 0x10000 && func_tv < 0xBFFF0000) {
+                uintptr_t cl = *(uintptr_t*)func_tv;
+                if (cl >= 0x10000 && cl < 0xBFFF0000) {
+                    env = *(uintptr_t*)(cl + 16);
+                }
+            }
+        }
 
         // Allocate via the real luaF_newCclosure so the closure header (isC=1,
         // nupvalues, env, gclist) is set up correctly; then store the C function
@@ -54,12 +59,14 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
         *(uintptr_t*)(cl + 24) = fn;       // f
 
         // Push the closure value onto the stack.
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+        uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
+        if (new_top < 0x10000 || new_top > 0xBFFF0000) { g_misses++; return orig(L, fn, nupvals); }
         uint32_t taint = *(uint32_t*)TAINT_CELL;
-        *(uintptr_t*)(top + 0) = cl;
-        *(uint32_t*)(top + 8) = 6;         // LUA_TFUNCTION
-        *(uint32_t*)(top + 12) = taint;
-        *(uintptr_t*)(L + 0x0C) = top + 16;
+        *(uintptr_t*)(new_top + 0) = cl;
+        *(uint32_t*)(new_top + 4) = 0;
+        *(uint32_t*)(new_top + 8) = 6;         // LUA_TFUNCTION
+        *(uint32_t*)(new_top + 12) = taint;
+        *(uintptr_t*)(L + 0x0C) = new_top + 16;
 
         g_hits++;
         return (int)cl;

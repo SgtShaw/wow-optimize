@@ -36,7 +36,6 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
 
         char buf[4096];
         size_t tlen = 0;
-        uintptr_t s1_tv = base + (uintptr_t)(last - total + 1) * 16;
 
         for (int i = 0; i < total; ++i) {
             uintptr_t tv = base + (uintptr_t)(last - total + 1 + i) * 16;
@@ -56,13 +55,19 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
         uintptr_t new_ts = ((newlstr_fn)0x00856C80)(L, buf, tlen);
         if (new_ts < 0x10000) { g_misses++; return orig(L, total, last); }
 
+        // Re-read base in case GC reallocated stack!
+        uintptr_t new_base = *(uintptr_t*)(L + 0x10);
+        if (new_base < 0x10000) { g_misses++; return orig(L, total, last); }
+        uintptr_t new_s1_tv = new_base + (uintptr_t)(last - total + 1) * 16;
+
         uint32_t taint = *(uint32_t*)TAINT_CELL;
-        *(uintptr_t*)(s1_tv + 0) = new_ts;
-        *(uint32_t*)(s1_tv + 8) = LUA_TSTRING;
-        *(uint32_t*)(s1_tv + 12) = taint;
+        *(uintptr_t*)(new_s1_tv + 0) = new_ts;
+        *(uint32_t*)(new_s1_tv + 4) = 0;
+        *(uint32_t*)(new_s1_tv + 8) = LUA_TSTRING;
+        *(uint32_t*)(new_s1_tv + 12) = taint;
 
         g_hits++;
-        return (int)L;
+        return 1;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     g_misses++;

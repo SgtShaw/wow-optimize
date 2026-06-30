@@ -50,7 +50,7 @@ static int __cdecl hook(uintptr_t L) {
 
         unsigned int len = 0;
         const char* s = checklstr(L, 1, &len);
-        if (!s || len == 0) goto fallback;
+        if (!s || len == 0 || len >= sizeof(g_cachedSource) - 1) goto fallback;
 
         const char* name = optlstr(L, 2, s, nullptr);
         uint32_t h = hash_str(s);

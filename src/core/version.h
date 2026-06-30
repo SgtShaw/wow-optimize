@@ -510,7 +510,7 @@
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
 #define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
 #define TEST_DISABLE_LUA_SAFE_G1         0  
-#define TEST_DISABLE_LUA_SAFE_G2         1  // DISABLED: baseline test
+#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
 #define TEST_DISABLE_LUA_SAFE_G2AI 0
 #define TEST_DISABLE_LUA_SAFE_G2B 0
@@ -522,16 +522,16 @@
 // Permanently disabled until the write-offset bug is fixed.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
-#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  0
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
-#define TEST_DISABLE_LUA_BATCH_DG1 1
-#define TEST_DISABLE_LUA_BATCH_DG2 1
-#define TEST_DISABLE_LUA_BATCH_DG3 1
-#define TEST_DISABLE_LUA_BATCH_DG4 1  // master
-#define TEST_DISABLE_LUA_BATCH_DG4A 1
-#define TEST_DISABLE_LUA_BATCH_DG4B 1
-#define TEST_DISABLE_LUA_INLINE_BATCH  1
+#define TEST_DISABLE_LUA_BATCH_DG1 0
+#define TEST_DISABLE_LUA_BATCH_DG2 0
+#define TEST_DISABLE_LUA_BATCH_DG3 0
+#define TEST_DISABLE_LUA_BATCH_DG4 0  // master
+#define TEST_DISABLE_LUA_BATCH_DG4A 0
+#define TEST_DISABLE_LUA_BATCH_DG4B 0
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
