@@ -6254,7 +6254,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Lua Error Diagnostics ---");
 #if !TEST_DISABLE_LUA_ERROR_DIAG
-    InstallLuaErrorDiag();  // logs every Lua error: hook verified against IDA prologue
+    InstallLuaErrorDiag();  // logs every Lua error: hook verified against disassembly prologue
 #else
     Log("[LuaErrorDiag] DISABLED via TEST_DISABLE_LUA_ERROR_DIAG (0x84F610 = luaL_addvalue, not lua_error)");
 #endif

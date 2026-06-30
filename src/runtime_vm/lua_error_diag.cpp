@@ -13,7 +13,7 @@
 extern "C" void Log(const char* fmt, ...);
 extern void LogFlushImmediate();
 
-// lua_error: 0x84EF30 = sub_84EF30. IDA-verified: __cdecl __noreturn sub_84EF30(_DWORD *a1)
+// lua_error: 0x84EF30 = sub_84EF30. Disassembly-verified: __cdecl __noreturn sub_84EF30(_DWORD *a1)
 // { sub_850830(a1); } — directly calls luaD_throw. 12 bytes, prologue: 55 8B EC.
 // The old address 0x84F610 was sub_84F610(size_t Size) = luaL_addvalue, NOT lua_error.
 // Using 0x84F610 caused all error reads to show <unable to read> (arg is size_t, not L).
@@ -80,7 +80,7 @@ static int __cdecl DiagLuaError(uintptr_t L) {
 }
 
 bool InstallLuaErrorDiag() {
-    // IDA-verified: 0x84EF30 = sub_84EF30 = lua_error. Prologue: 55 8B EC (push ebp; mov ebp,esp).
+    // Disassembly-verified: 0x84EF30 = sub_84EF30 = lua_error. Prologue: 55 8B EC (push ebp; mov ebp,esp).
     // Calls sub_850830 (luaD_throw) directly. __cdecl(lua_State*), __noreturn.
     void* target = (void*)0x0084EF30;
     unsigned char* p = (unsigned char*)target;

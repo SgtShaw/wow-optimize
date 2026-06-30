@@ -11,9 +11,11 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in v3.11.0
+## What's New in v3.12.0
 
-The headline change is the **mimalloc allocator redirect**: WoW's entire statically-linked CRT heap is routed through mimalloc to fight 32-bit virtual-address fragmentation — the root cause of long-session and alt-switch freezes. This release also brings an in-DLL EIP sampling profiler, render state deduplication for the d3d9→OpenGL wrapper, a functional event dispatch cache, lua_gettop inline fast path, 8-hook Lua stack push/query fast paths, SSE2 network GUID unpacking, a broader SSE2 math pass, adaptive GC pacing, hook-enable batching, and new Lua C-function fast paths.
+The headline changes are the **stabilization and activation of all Lua VM inline fast paths and C-API hook groups (G1–G3, DG1–DG4)**. We identified and resolved critical stale-pointer hazards where stack reallocations and allocator garbage collection during execution invalidated cached stack top/base references. Additionally, a major buffer overflow bug in `luaL_loadstring` caching has been fixed, and `lua_concat` has been updated to prevent stack frames and register mismatches. 
+
+This release builds on top of **v3.11.0's mimalloc allocator redirect** ( WoW's statically-linked CRT heap routed through mimalloc to combat 32-bit virtual-address fragmentation), the EIP sampling profiler, render state deduplication, event dispatch caches, and SSE2 geometry math overrides.
 
 ### New optimizations
 - **mimalloc Allocator Redirect** — WoW links its CRT statically, so its real allocations go through `_malloc` (0x415074), `_free` (0x412FC7), `_realloc` (0x416A95), `_calloc` (0x416A56), `__msize` (0x4112F8) and `_recalloc` (0x416CB0). All six are redirected to mimalloc as a closed set with atomic activation and an `mi_is_in_heap_region` transition guard (blocks allocated before the redirect free through the original CRT). mimalloc's segment design packs memory far tighter and returns it to the OS, so 32-bit VA stays defragmented across long sessions and repeated alt-switches. Installs early (pre-load) so it owns the heap from the start. An earlier attempt failed by hooking the *dynamic* CRT (`msvcr*.dll`) WoW barely uses; this targets the static set.
@@ -299,8 +301,6 @@ These features are disabled in public-safe builds because they previously caused
 - dynamic unit API caching (disabled)
 - Lua Event Coalescing (`FrameScript_SignalEvent`) — changes event timing/ordering; unvalidated across world→glue teardown
 - Particle simulation throttling (`CParticleEmitter::SimulateParticle`, 0x981D40) — that address is the particle spawn/init routine, not a skippable advance; throttling it left particles uninitialized (colored flashes)
-- `lua_toboolean` inline hook (0x84E0B0) — returned true for boolean `false` and wrote spurious taint; inverted C-side truthiness checks
-- `lua_objlen` inline hook — 0x84E1C0 is actually `lua_touserdata`, not `lua_objlen`; pushed a value onto the Lua stack and corrupted it
 - `luaH_getstr` table lookup cache - ERROR #134, stale Node* from address reuse
 - Async texture loading hook - caused loading screen regression
 - Model async workers - loading screen regression
@@ -308,7 +308,6 @@ These features are disabled in public-safe builds because they previously caused
 - `lua_rawgeti` int-key cache (disabled - `TValue` replay corruption)
 - CombatLog full event cache (disabled - stale `TString*` crashes)
 - `luaS_newlstr` string cache (removed due to 0xC000005 crashes on reload)
-- `luaV_concat` hook (removed due to 0% hit-rate overhead)
 - `lua_getfield` _G cache (removed - 0% hit rate in production, broken uint32/uint64 comparison + no write invalidation)
 - `GetModuleFileName` cache (disabled - conflicts with OBS hook chain, crash + exit error)
 - Hardware cursor byte patches (`gxCursor=0` / `gxFixLag=1`) - NULL deref on private servers
@@ -337,6 +336,11 @@ These features are disabled in public-safe builds because they previously caused
 - CRT SSE2 memory/string fast paths - re-enabled with page-boundary guards and SEH protection
 - CRT SSE2 memchr/strchr/strcpy - re-enabled with page-boundary guards
 - `lstrlenA` / `lstrlenW` fast paths - re-enabled after duplicate-hook fix
+- **Lua VM Inline Fast Paths & C-API Hooks** — Fully enabled and stabilized:
+  - `lua_toboolean` (0x84E0B0) and `lua_objlen` (0x84E150) inline hooks.
+  - `luaV_concat` (0x857900) inline concatenation hook.
+  - Safe stack query batches G1, G2, G3 and table writes DG1, DG2, DG3, DG4.
+
 
 ### Removed Features
 

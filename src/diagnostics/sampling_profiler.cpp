@@ -66,7 +66,7 @@ static volatile bool g_running = false;
 static HMODULE g_wowModule = nullptr;
 
 // ---- populate known-function table --------------------------------
-// Add entries here as new hooks/targets are verified in IDA.
+// Add entries here as new hooks/targets are verified in disassembly.
 // Keep sorted by address for binary-search lookup.
 static void BuildKnownFuncTable() {
     // Format: { RVA_or_VA, "symbol_name" }

@@ -13,7 +13,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 // NOTICE: 0x84F210 is NOT lua_setlocal.
-// IDA decompile confirms sub_84F210(int L, int flag) is a 2-arg debug location
+// Disassembly decompile confirms sub_84F210(int L, int flag) is a 2-arg debug location
 // formatter used by error functions (luaL_error / luaL_argerror).
 // It calls lua_getstack + lua_getinfo("Sl") and formats "%s:%d: " (source:line).
 // The original hook assumed a 3-arg lua_setlocal signature and corrupted the
@@ -26,7 +26,7 @@ extern "C" void Log(const char* fmt, ...);
 //
 // DO NOT re-enable this hook at 0x84F210 under any circumstances.
 // To implement a real lua_setlocal fast path, first verify the correct
-// engine address via IDA decompile, then rewrite this file entirely.
+// engine address via disassembly decompile, then rewrite this file entirely.
 
 // Correct 2-arg signature for the actual function at 0x84F210
 typedef const char*(__cdecl *debug_loc_fn)(uintptr_t L, unsigned int flag);

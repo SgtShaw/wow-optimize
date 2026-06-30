@@ -81,7 +81,7 @@ bool InstallLuaPushNumberFast()
     Log("[PushNumFast] DISABLED via TEST_DISABLE_PUSHNUMBER_FAST");
     return false;
 #else
-    // RE-ENABLED after root-causing in IDA (sub_84E2A0): the direct stack write
+    // RE-ENABLED after root-causing in disassembly (sub_84E2A0): the direct stack write
     // is byte-exact to the engine --
     //   top = L->top (L+0x0C); top[0..1] = (double)n; top[2] = 3 (LUA_TNUMBER);
     //   top[3] = *(DWORD*)0xD4139C (global taint, single indirection); L->top += 16

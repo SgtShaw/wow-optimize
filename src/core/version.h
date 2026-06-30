@@ -78,7 +78,7 @@
 #define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
-// IDA-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
+// disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
 // Hooking it as lua_error causes all 50 logged entries to show <unable to read>
 // (the L parameter is actually a size_t) and fills the log with noise.
 // Set to 1 to disable until the correct lua_error address is found.
@@ -226,7 +226,7 @@
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
 #define TEST_DISABLE_LUA_VM_ENGINE         1
 
-// FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, IDA-verified
+// FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, disassembly-verified
 #define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
@@ -257,7 +257,7 @@
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
 #define TEST_DISABLE_CRT_CHAR_SSE2       1
 
-// SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). IDA-verified row-major
+// SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
 #define TEST_DISABLE_MATRIX_MULTIPLY         0
@@ -426,8 +426,7 @@
 // hysteresis to avoid thrashing. Set to 1 to disable.
 #define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
 
-// SSE2 Strcpy Replacement - sub_76ED20 (890 xrefs, bounded strncpy).
-// IDA-verified rewrite (2026-06-23): byte-exact to the original __stdcall
+// Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
 // past short strings into adjacent allocations). Copied body is pure byte-by-
 // byte, matching the original's offset-based load (mov cl,[edx+eax]) exactly.
@@ -479,11 +478,11 @@
 // lua_pushinteger, lua_pushboolean, lua_pushlightuserdata, lua_type,
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
-// stack indices. IDA-verified. Set to 1 to disable all 8.
+// stack indices. Disassembly-verified. Set to 1 to disable all 8.
 #define TEST_DISABLE_LUA_STACK_FAST         1
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
-// RE-ENABLED after root-causing the crash in IDA (sub_856C80): the dead-string
+// RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
 // offsets were wrong for WoW's Lua layout. Fixed to the verified offsets --
 // TString.marked at +9 (was +5), global_State.currentwhite at +0x15 (was +0x14) --
 // and the content-match path now replicates the engine EXACTLY: resurrect the
@@ -501,7 +500,7 @@
 // Set to 1 to surgically remove all of them; set to 0 to test individually.
 // Re-enable all safe batch hooks (individually tested working).
 // Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-// Safe batch groups — IDA-verified correct per CONTEXT 'Hooks Verified Correct by IDA'.
+// Safe batch groups — verified correct against disassembly per CONTEXT 'Hooks Verified Correct'.
 // Re-enabled: checknumber/str, optnum/str, tolstr, argcheck, typename (G1),
 // getlocal, getinfo, ErrorFast, lessthan, gc, xpcall (G2),
 // metafield, where, checktype, getupval, bufinit, prepbuf, iscfunc, rawequal (G3).
@@ -533,11 +532,11 @@
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
 #define TEST_DISABLE_LUA_INLINE_BATCH  0
 
-// lua_rawgeti inline cache (8192 entries) — IDA-verified against sub_84E670.
+// lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
 #define TEST_DISABLE_RAWGETI_INLINE  1
 
-// lua_rawget inline at 0x84E600 — IDA-verified byte-exact to sub_84E600.
+// lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
 #define TEST_DISABLE_RAWGET_INLINE    1
 
@@ -547,7 +546,7 @@
 // lua_objlen inline (0x84E150) — fast path for length check
 #define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
 
-// luaH_getstr inline bucket-index cache (16384 entries) — IDA-verified.
+// luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
 #define TEST_DISABLE_GETSTR_INLINE    1
 
@@ -591,13 +590,13 @@
 #define TEST_DISABLE_SOUND_UPDATE_GUARD    0
 
 // ================================================================
-// NEW COLOSSAL HOOKS (commit 670012c) — IDA-verified + gated
+// NEW COLOSSAL HOOKS (commit 670012c) — disassembly-verified + gated
 // ================================================================
 //
 // SIMD geometry hooks (hooks_simd.cpp):
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
-//  calling-convention bugs fixed (IDA-verified). Default ENABLED.
+//  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
 #define TEST_DISABLE_VEC3_CROSS_SSE2         0
 #define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
@@ -605,15 +604,15 @@
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
-//  Frame_GetFrameLevel 0x49E980. IDA-verified __cdecl(L) with correct field offsets.
+//  Frame_GetFrameLevel 0x49E980. Disassembly-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
 #define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: Frame XML accessor hooks
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
-//  IDA decompile marked these __usercall, but full disassembly review shows
+//  Disassembly decompile marked these __usercall, but full disassembly review shows
 //  standard __cdecl prologue (push ebp; mov ebp, esp) with one stack parameter
-//  (L = Lua state). IDA defaulted to __usercall because it saw callee-saved
+//  (L = Lua state). The decompiler defaulted to __usercall because it saw callee-saved
 //  register use (ebx/esi/edi), not because of a non-standard convention.
 //  MinHook is safe. Default ENABLED.
 #define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0  // enabled: layout accessor hooks

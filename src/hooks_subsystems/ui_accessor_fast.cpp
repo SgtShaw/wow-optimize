@@ -561,13 +561,13 @@ bool InstallUIAccessorFast() {
     INSTALL_GATED(GetAlpha_t,   orig_GetAlpha,   hook_GetAlpha,   0x0048C4C0, "GetAlpha",   TEST_DISABLE_UI_ACCESSOR_FAST);
     INSTALL_GATED(GetScale_t,   orig_GetScale,   hook_GetScale,   0x0049F7D0, "GetScale",   TEST_DISABLE_UI_ACCESSOR_FAST);
 
-    // NEW Frame XML accessor hooks (IDA-verified __cdecl, gated)
+    // NEW Frame XML accessor hooks (disassembly-verified __cdecl, gated)
     INSTALL_GATED(Frame_IsShown_t,      orig_Frame_IsShown,      hook_Frame_IsShown,      0x0049FE90, "Frame_IsShown",      TEST_DISABLE_FRAME_ACCESSOR_FAST);
     INSTALL_GATED(Frame_IsVisible_t,    orig_Frame_IsVisible,    hook_Frame_IsVisible,    0x0049FE30, "Frame_IsVisible",    TEST_DISABLE_FRAME_ACCESSOR_FAST);
     INSTALL_GATED(Frame_GetAlpha_t,     orig_Frame_GetAlpha,     hook_Frame_GetAlpha,     0x0049F980, "Frame_GetAlpha",     TEST_DISABLE_FRAME_ACCESSOR_FAST);
     INSTALL_GATED(Frame_GetFrameLevel_t,orig_Frame_GetFrameLevel,hook_Frame_GetFrameLevel, 0x0049E980, "Frame_GetFrameLevel",TEST_DISABLE_FRAME_ACCESSOR_FAST);
 
-    // Layout accessor hooks (IDA-verified __usercall)
+    // Layout accessor hooks (disassembly-verified __usercall)
     INSTALL_GATED(GetWidth_t,  orig_GetWidth,  naked_hook_GetWidth,  0x0049D3B0, "GetWidth",  TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
     INSTALL_GATED(GetHeight_t, orig_GetHeight, naked_hook_GetHeight, 0x0049D550, "GetHeight", TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
 

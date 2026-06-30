@@ -26,7 +26,7 @@
 
 
 // Inline replacements for trivially-inlinable Lua C-API push/query
-// functions. Each is IDA-verified against the stock 3.3.5a binary.
+// functions. Each is verified against the stock 3.3.5a binary disassembly.
 //
 //   lua_pushnil           (0x84E280, 31B) — top[0..3]=0, taint, advance
 //   lua_pushinteger        (0x84E2D0, 36B) — (double)n → top, advance

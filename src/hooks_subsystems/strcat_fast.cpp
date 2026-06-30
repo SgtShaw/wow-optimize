@@ -50,7 +50,7 @@ static inline void Sse2Copy(char* dst, const char* src, size_t copy_len) {
     }
 }
 
-// IDA-verified exact replacement for sub_76ED20.
+// Disassembly-verified exact replacement for sub_76ED20.
 static int __stdcall Hooked_Sub76ED20(char* dst, const char* src, int maxlen) {
     __try {
         // NULL check — match original exactly (0x76ED27-0x76ED30)
@@ -126,7 +126,7 @@ bool InstallStrcatFast() {
         return false;
     }
 
-    Log("[StrcpyFast] IDA-verified replacement at 0x%08X (890 xrefs), byte-exact + SEH-guarded",
+    Log("[StrcpyFast] Disassembly-verified replacement at 0x%08X (890 xrefs), byte-exact + SEH-guarded",
         (uintptr_t)target);
 
     return true;
