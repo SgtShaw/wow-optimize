@@ -246,7 +246,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
