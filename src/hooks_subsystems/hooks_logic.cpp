@@ -399,24 +399,31 @@ static int __cdecl Hooked_UnitHealth(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
-                uint32_t argHash = 2166136261u;
-                for (size_t i = 0; i < len; ++i) {
-                    argHash ^= (uint8_t)unit[i];
+                uint64_t guid = 0;
+                typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
+                if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
+                    uint32_t argHash = 2166136261u;
+                    argHash ^= (uint32_t)(guid & 0xFFFFFFFF);
                     argHash *= 16777619u;
+                    argHash ^= (uint32_t)(guid >> 32);
+                    argHash *= 16777619u;
+
+                    double val = 0.0;
+                    if (LookupInvariantScript(ADDR_LUA_UNITHEALTH, argHash, &val)) {
+                        lua_pushnumber_(L, val);
+                        return 1;
+                    }
+
+                    int results = orig_UnitHealth(L);
+                    if (results == 1) {
+                        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                        if (top >= 0x10000 && *(int*)(top - 8) == 3) {
+                            double actualVal = lua_tonumber_(L, -1);
+                            StoreInvariantScript(ADDR_LUA_UNITHEALTH, argHash, actualVal, 3);
+                        }
+                    }
+                    return results;
                 }
-                
-                double val = 0.0;
-                if (LookupInvariantScript(ADDR_LUA_UNITHEALTH, argHash, &val)) {
-                    lua_pushnumber_(L, val);
-                    return 1;
-                }
-                
-                int results = orig_UnitHealth(L);
-                if (results == 1) {
-                    double actualVal = lua_tonumber_(L, -1);
-                    StoreInvariantScript(ADDR_LUA_UNITHEALTH, argHash, actualVal, 3);
-                }
-                return results;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -430,37 +437,44 @@ static int __cdecl Hooked_UnitPower(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
-                int top = lua_gettop_(L);
-                uint32_t argHash = 2166136261u;
-                for (size_t i = 0; i < len; ++i) {
-                    argHash ^= (uint8_t)unit[i];
+                uint64_t guid = 0;
+                typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
+                if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
+                    int top = lua_gettop_(L);
+                    uint32_t argHash = 2166136261u;
+                    argHash ^= (uint32_t)(guid & 0xFFFFFFFF);
                     argHash *= 16777619u;
-                }
-                
-                if (top >= 2) {
-                    double typeVal = lua_tonumber_(L, 2);
-                    uint64_t typeBits = *reinterpret_cast<uint64_t*>(&typeVal);
-                    argHash ^= (uint32_t)(typeBits & 0xFFFFFFFF);
+                    argHash ^= (uint32_t)(guid >> 32);
                     argHash *= 16777619u;
-                    argHash ^= (uint32_t)(typeBits >> 32);
-                    argHash *= 16777619u;
-                } else {
-                    argHash ^= 0xFFFFFFFF;
-                    argHash *= 16777619u;
+
+                    if (top >= 2) {
+                        double typeVal = lua_tonumber_(L, 2);
+                        uint64_t typeBits = *reinterpret_cast<uint64_t*>(&typeVal);
+                        argHash ^= (uint32_t)(typeBits & 0xFFFFFFFF);
+                        argHash *= 16777619u;
+                        argHash ^= (uint32_t)(typeBits >> 32);
+                        argHash *= 16777619u;
+                    } else {
+                        argHash ^= 0xFFFFFFFF;
+                        argHash *= 16777619u;
+                    }
+
+                    double val = 0.0;
+                    if (LookupInvariantScript(ADDR_LUA_UNITPOWER, argHash, &val)) {
+                        lua_pushnumber_(L, val);
+                        return 1;
+                    }
+
+                    int results = orig_UnitPower(L);
+                    if (results == 1) {
+                        uintptr_t stack_top = *(uintptr_t*)(L + 0x0C);
+                        if (stack_top >= 0x10000 && *(int*)(stack_top - 8) == 3) {
+                            double actualVal = lua_tonumber_(L, -1);
+                            StoreInvariantScript(ADDR_LUA_UNITPOWER, argHash, actualVal, 3);
+                        }
+                    }
+                    return results;
                 }
-                
-                double val = 0.0;
-                if (LookupInvariantScript(ADDR_LUA_UNITPOWER, argHash, &val)) {
-                    lua_pushnumber_(L, val);
-                    return 1;
-                }
-                
-                int results = orig_UnitPower(L);
-                if (results == 1) {
-                    double actualVal = lua_tonumber_(L, -1);
-                    StoreInvariantScript(ADDR_LUA_UNITPOWER, argHash, actualVal, 3);
-                }
-                return results;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -474,22 +488,31 @@ static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
-                uint32_t argHash = 2166136261u;
-                for (size_t i = 0; i < len; ++i) {
-                    argHash ^= (uint8_t)unit[i];
+                uint64_t guid = 0;
+                typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
+                if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
+                    uint32_t argHash = 2166136261u;
+                    argHash ^= (uint32_t)(guid & 0xFFFFFFFF);
                     argHash *= 16777619u;
+                    argHash ^= (uint32_t)(guid >> 32);
+                    argHash *= 16777619u;
+
+                    double val = 0.0;
+                    if (LookupInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, &val)) {
+                        lua_pushnumber_(L, val);
+                        return 1;
+                    }
+
+                    int results = orig_UnitMaxHealth(L);
+                    if (results == 1) {
+                        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                        if (top >= 0x10000 && *(int*)(top - 8) == 3) {
+                            double actualVal = lua_tonumber_(L, -1);
+                            StoreInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, actualVal, 3);
+                        }
+                    }
+                    return results;
                 }
-                double val = 0.0;
-                if (LookupInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, &val)) {
-                    lua_pushnumber_(L, val);
-                    return 1;
-                }
-                int results = orig_UnitMaxHealth(L);
-                if (results == 1) {
-                    double actualVal = lua_tonumber_(L, -1);
-                    StoreInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, actualVal, 3);
-                }
-                return results;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -503,22 +526,31 @@ static int __cdecl Hooked_UnitLevel(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
-                uint32_t argHash = 2166136261u;
-                for (size_t i = 0; i < len; ++i) {
-                    argHash ^= (uint8_t)unit[i];
+                uint64_t guid = 0;
+                typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
+                if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
+                    uint32_t argHash = 2166136261u;
+                    argHash ^= (uint32_t)(guid & 0xFFFFFFFF);
                     argHash *= 16777619u;
+                    argHash ^= (uint32_t)(guid >> 32);
+                    argHash *= 16777619u;
+
+                    double val = 0.0;
+                    if (LookupInvariantScript(ADDR_LUA_UNITLEVEL, argHash, &val)) {
+                        lua_pushnumber_(L, val);
+                        return 1;
+                    }
+
+                    int results = orig_UnitLevel(L);
+                    if (results == 1) {
+                        uintptr_t top = *(uintptr_t*)(L + 0x0C);
+                        if (top >= 0x10000 && *(int*)(top - 8) == 3) {
+                            double actualVal = lua_tonumber_(L, -1);
+                            StoreInvariantScript(ADDR_LUA_UNITLEVEL, argHash, actualVal, 3);
+                        }
+                    }
+                    return results;
                 }
-                double val = 0.0;
-                if (LookupInvariantScript(ADDR_LUA_UNITLEVEL, argHash, &val)) {
-                    lua_pushnumber_(L, val);
-                    return 1;
-                }
-                int results = orig_UnitLevel(L);
-                if (results == 1) {
-                    double actualVal = lua_tonumber_(L, -1);
-                    StoreInvariantScript(ADDR_LUA_UNITLEVEL, argHash, actualVal, 3);
-                }
-                return results;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
