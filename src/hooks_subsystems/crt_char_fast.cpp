@@ -20,10 +20,37 @@ extern volatile LONG64 g_memchrHits, g_memchrFallbacks;
 extern volatile LONG64 g_strchrHits, g_strchrFallbacks;
 extern volatile LONG64 g_strcpyHits, g_strcpyFallbacks;
 
-// Thread-local recursion guard
-static __declspec(thread) volatile LONG g_charInHook = 0;
-#define CHAR_ENTER() do { if (InterlockedExchange(&g_charInHook, 1) != 0) goto fallback; } while(0)
-#define CHAR_LEAVE() InterlockedExchange(&g_charInHook, 0)
+extern DWORD g_crtTlsIndex;
+
+inline long GetCrtInHook() {
+    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return 0;
+    if (g_crtTlsIndex < 64) {
+        return (long)__readfsdword(0xE10 + g_crtTlsIndex * 4);
+    }
+    uintptr_t expansionSlots = __readfsdword(0xF94);
+    if (expansionSlots) {
+        return (long)((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64];
+    }
+    return 0;
+}
+
+inline void SetCrtInHook(long val) {
+    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return;
+    if (g_crtTlsIndex < 64) {
+        __writefsdword(0xE10 + g_crtTlsIndex * 4, (unsigned long)val);
+    } else {
+        uintptr_t expansionSlots = __readfsdword(0xF94);
+        if (expansionSlots) {
+            ((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64] = val;
+        }
+    }
+}
+
+#define CHAR_ENTER() do { \
+    if (GetCrtInHook()) goto fallback; \
+    SetCrtInHook(1); \
+} while(0)
+#define CHAR_LEAVE() SetCrtInHook(0)
 
 // ====== memchr ======
 typedef void* (__cdecl *memchr_fn)(const void*, int, size_t);

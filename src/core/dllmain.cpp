@@ -55,6 +55,10 @@
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
 
+// Global shared TLS index for CRT fast paths recursion guard.
+// Allocated early in DllMain process attach to be safe.
+DWORD g_crtTlsIndex = TLS_OUT_OF_INDEXES;
+
 // ================================================================
 // Freeze Detection Watchdog
 // Detects when main thread stops responding (no Sleep calls for N seconds)
@@ -8277,6 +8281,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
+            g_crtTlsIndex = TlsAlloc();
             
             // Rosetta: disable x87 JIT cache to force re-translation after hooks
             // This MUST happen before any hooks install, so rosettax87 doesn't
@@ -8441,6 +8446,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             mi_collect(true);
             } __except(EXCEPTION_EXECUTE_HANDLER) {
                 Log("Exception during DLL shutdown - continuing exit");
+            }
+            if (g_crtTlsIndex != TLS_OUT_OF_INDEXES) {
+                TlsFree(g_crtTlsIndex);
+                g_crtTlsIndex = TLS_OUT_OF_INDEXES;
             }
             Log("wow_optimize.dll unloaded (clean)");
             LogClose();

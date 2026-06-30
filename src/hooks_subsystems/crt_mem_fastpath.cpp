@@ -25,25 +25,29 @@ extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 // or during early CRT initialization before originals are valid.
 static volatile LONG g_crtReady = 0;
 
-// Thread-local recursion guard using Win32 TLS and direct TEB lookup.
-// This completely avoids the compiler's implicit TLS helper calls which
-// can trigger recursion during thread initialization.
-static DWORD g_tlsIndex = TLS_OUT_OF_INDEXES;
+extern DWORD g_crtTlsIndex;
 
 inline long GetCrtInHook() {
-    if (g_tlsIndex == TLS_OUT_OF_INDEXES) return 0;
-    if (g_tlsIndex < 64) {
-        return (long)__readfsdword(0xE10 + g_tlsIndex * 4);
+    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return 0;
+    if (g_crtTlsIndex < 64) {
+        return (long)__readfsdword(0xE10 + g_crtTlsIndex * 4);
     }
-    return (long)TlsGetValue(g_tlsIndex);
+    uintptr_t expansionSlots = __readfsdword(0xF94);
+    if (expansionSlots) {
+        return (long)((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64];
+    }
+    return 0;
 }
 
 inline void SetCrtInHook(long val) {
-    if (g_tlsIndex == TLS_OUT_OF_INDEXES) return;
-    if (g_tlsIndex < 64) {
-        __writefsdword(0xE10 + g_tlsIndex * 4, (unsigned long)val);
+    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return;
+    if (g_crtTlsIndex < 64) {
+        __writefsdword(0xE10 + g_crtTlsIndex * 4, (unsigned long)val);
     } else {
-        TlsSetValue(g_tlsIndex, (LPVOID)val);
+        uintptr_t expansionSlots = __readfsdword(0xF94);
+        if (expansionSlots) {
+            ((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64] = val;
+        }
     }
 }
 
@@ -167,7 +171,8 @@ fallback:
 static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
     if (!g_crtReady || !orig_strncmp) goto fallback;
     CRT_ENTER();
-    if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
+    if (n == 0) { CRT_LEAVE(); return 0; }
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
@@ -226,7 +231,8 @@ fallback:
 static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     if (!g_crtReady || !orig_memcmp) goto fallback;
     CRT_ENTER();
-    if (!s1 || !s2 || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
+    if (n == 0) { CRT_LEAVE(); return 0; }
     __try {
         const unsigned char* p1 = (const unsigned char*)s1;
         const unsigned char* p2 = (const unsigned char*)s2;
@@ -270,7 +276,8 @@ fallback:
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     if (!g_crtReady || !orig_memcpy) goto fallback;
     CRT_ENTER();
-    if (!dst || !src || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (!dst || !src) { CRT_LEAVE(); goto fallback; }
+    if (n == 0) { CRT_LEAVE(); return dst; }
     // Reject overlapping copies — fall back to original (which may
     // use memmove semantics). Only check the forward-overlap case
     // since memcpy with overlap is UB, but the original may handle it.
@@ -307,7 +314,8 @@ fallback:
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     if (!g_crtReady || !orig_memset) goto fallback;
     CRT_ENTER();
-    if (!dst || n == 0) { CRT_LEAVE(); goto fallback; }
+    if (!dst) { CRT_LEAVE(); goto fallback; }
+    if (n == 0) { CRT_LEAVE(); return dst; }
     __try {
         __m128i val = _mm_set1_epi8((char)c);
         unsigned char* d = (unsigned char*)dst;
@@ -341,12 +349,6 @@ bool InstallCrtMemFastPaths() {
     Log("[CRT] Fast paths: DISABLED");
     return false;
 #else
-    g_tlsIndex = TlsAlloc();
-    if (g_tlsIndex == TLS_OUT_OF_INDEXES) {
-        Log("[CRT] TlsAlloc failed!");
-        return false;
-    }
-
     HMODULE hCRT = GetModuleHandleA("msvcrt.dll");
     if (!hCRT) { Log("[CRT] msvcrt.dll not found"); return false; }
 
