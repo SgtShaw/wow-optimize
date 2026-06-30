@@ -120,7 +120,7 @@
 
 // ipairs factory hook - closure creation causes
 // EXCEPTION crashes (architectural mismatch: factory vs. iterator)
-#define TEST_DISABLE_HOOK_IPAIRS        1
+#define TEST_DISABLE_HOOK_IPAIRS        0
 
 // math.random
 #define TEST_DISABLE_HOOK_MATH_RANDOM   0

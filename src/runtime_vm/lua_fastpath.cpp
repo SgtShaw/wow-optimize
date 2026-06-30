@@ -2832,20 +2832,10 @@ static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
         // Return: idx, value
         lua_pushnumber_(L, (double)idx);
 
-        switch (valSlot->tt) {
-            case LUA_TNIL:     lua_pushnil_(L); break;
-            case LUA_TBOOLEAN: lua_pushboolean_(L, valSlot->value.ptr != 0); break;
-            case LUA_TNUMBER: {
-                double d; memcpy(&d, &valSlot->value, sizeof(double));
-                lua_pushnumber_(L, d); break;
-            }
-            case LUA_TSTRING:  lua_pushstring_(L, (const char*)valSlot->value.gc); break;
-            case LUA_TTABLE:
-            case LUA_TFUNCTION:
-            case LUA_TTHREAD:
-            case LUA_TUSERDATA: lua_pushvalue_(L, lua_upvalueindex(1)); break;  // return table reference
-            default:           lua_pushnil_(L); break;
-        }
+        RawTValue** topPtr = (RawTValue**)((char*)L + 12);
+        RawTValue* top = *topPtr;
+        *top = *valSlot;
+        *topPtr = top + 1;
 
         g_ipairsIteratorHits++;
         return 2;
