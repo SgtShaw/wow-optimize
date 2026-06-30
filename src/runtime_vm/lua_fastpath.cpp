@@ -1705,7 +1705,32 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
         maxN = (nd > 2147483647.0) ? 0x7FFFFFFF : (long)nd;
     }
 
-    char out[16384];
+    size_t maxPossibleLen = sLen;
+    if (rLen > pLen) {
+        maxPossibleLen = sLen * rLen + 1;
+    } else {
+        maxPossibleLen = sLen + 1;
+    }
+
+    if (maxPossibleLen > 128 * 1024) {
+        g_gsubFallbacks++;
+        return orig_str_gsub(L);
+    }
+
+    static thread_local char* tls_out = nullptr;
+    static thread_local size_t tls_capacity = 0;
+
+    if (maxPossibleLen >= tls_capacity) {
+        size_t new_cap = (maxPossibleLen + 4095) & ~4095;
+        char* new_buf = (char*)realloc(tls_out, new_cap);
+        if (!new_buf) {
+            g_gsubFallbacks++;
+            return orig_str_gsub(L);
+        }
+        tls_out = new_buf;
+        tls_capacity = new_cap;
+    }
+
     size_t outLen = 0;
     long count = 0;
     const char first = p[0];
@@ -1714,19 +1739,17 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
     while (i < sLen) {
         if (count < maxN && s[i] == first && i + pLen <= sLen &&
             (pLen == 1 || memcmp(s + i, p, pLen) == 0)) {
-            if (outLen + rLen >= sizeof(out) - 1) { g_gsubFallbacks++; return orig_str_gsub(L); }
-            memcpy(out + outLen, r, rLen);
+            memcpy(tls_out + outLen, r, rLen);
             outLen += rLen;
             i += pLen;
             count++;
         } else {
-            if (outLen + 1 >= sizeof(out) - 1) { g_gsubFallbacks++; return orig_str_gsub(L); }
-            out[outLen++] = s[i++];
+            tls_out[outLen++] = s[i++];
         }
     }
-    out[outLen] = '\0';
+    tls_out[outLen] = '\0';
 
-    lua_pushstring_(L, out);
+    lua_pushstring_(L, tls_out);
     lua_pushnumber_(L, (double)count);
     g_gsubHits++;
     return 2;
