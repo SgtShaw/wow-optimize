@@ -475,6 +475,18 @@ static volatile LONG g_fieldTail = 0;
 typedef void (__thiscall *OnFieldUpdate_fn)(void*, int, int);
 static OnFieldUpdate_fn orig_OnFieldUpdate = nullptr;
 
+typedef void* (__thiscall *UnlinkNode_fn)(void*);
+static UnlinkNode_fn orig_UnlinkNode = nullptr;
+
+extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit);
+
+static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
+    if (This) {
+        InvalidateDeferredFieldUpdatesFor(This);
+    }
+    return orig_UnlinkNode(This);
+}
+
 static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldId, int value) {
 #if TEST_DISABLE_DEFERRED_FIELD_UPDATES
     return orig_OnFieldUpdate(This, fieldId, value);
@@ -551,6 +563,11 @@ static bool InstallFieldUpdateHook() {
     void* target = (void*)0x006A3C40;
     if (WineSafe_CreateHook(target, (void*)Hooked_OnFieldUpdate, (void**)&orig_OnFieldUpdate) != MH_OK) return false;
     if (WO_EnableHook(target) != MH_OK) return false;
+
+    void* unlink_target = (void*)0x004D4C20;
+    if (WineSafe_CreateHook(unlink_target, (void*)Hooked_UnlinkNode, (void**)&orig_UnlinkNode) == MH_OK) {
+        WO_EnableHook(unlink_target);
+    }
 
     Log("Deferred field updates: ACTIVE (sync batch flush, 4096 slots)");
     return true;

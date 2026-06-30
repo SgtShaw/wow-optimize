@@ -176,7 +176,7 @@
 
 // Deferred unit field update queue - UI/texture
 // flickering due to immediate-mode rendering mismatch (v3.5.x)
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
