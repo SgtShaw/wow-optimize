@@ -305,6 +305,7 @@ add_library(wow_optimize SHARED
     src/simd_math/matrix_copy_sse2.h
     src/runtime_vm/lua_numconv_fast.cpp
     src/runtime_vm/lua_numconv_fast.h
+    src/runtime_vm/lua_index2adr.cpp
     src/runtime_vm/lua_stack_fast.cpp
     src/runtime_vm/lua_stack_fast.h
     src/runtime_vm/lua_pushthread_fast.cpp

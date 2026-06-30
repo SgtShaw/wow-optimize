@@ -33,12 +33,4 @@
 // reads. Invoking 0x84D9C0 through a plain __cdecl function pointer (which passes
 // both args on the stack) leaves EAX/ECX holding unrelated garbage, so the engine
 // dereferences a bogus pointer and faults at index2adr+4 (mov edx,[ecx+0x10]).
-static __declspec(naked) uintptr_t __cdecl WowIndex2Adr(int /*idx*/, uintptr_t /*L*/) {
-    __asm {
-        mov eax, [esp + 4]   // idx
-        mov ecx, [esp + 8]   // L
-        mov edx, 0x0084D9C0
-        call edx
-        ret
-    }
-}
+extern "C" uintptr_t __cdecl WowIndex2Adr(int idx, uintptr_t L);

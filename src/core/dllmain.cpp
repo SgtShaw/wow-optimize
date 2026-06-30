@@ -6085,10 +6085,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // --- DG2: table writes ---
 #if !TEST_DISABLE_LUA_BATCH_DG2
     bool pushStringFastOk = InstallLuaPushStringFast();
-    bool rawSetFastOk = InstallLuaRawSetFast();
-    bool rawSetIFastOk = InstallLuaRawSetIFast();
-    bool setTableFastOk = InstallLuaSetTableFast();
-    bool setFieldFastOk = InstallLuaSetFieldFast();
+    bool rawSetFastOk = false; // InstallLuaRawSetFast(); // DISABLED for bisection
+    bool rawSetIFastOk = false; // InstallLuaRawSetIFast(); // DISABLED for bisection
+    bool setTableFastOk = false; // InstallLuaSetTableFast(); // DISABLED for bisection
+    bool setFieldFastOk = false; // InstallLuaSetFieldFast(); // DISABLED for bisection
 #else
     bool pushStringFastOk = false, rawSetFastOk = false, rawSetIFastOk = false;
     bool setTableFastOk = false, setFieldFastOk = false;

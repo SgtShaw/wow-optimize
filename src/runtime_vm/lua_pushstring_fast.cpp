@@ -57,23 +57,18 @@ static int __cdecl hook(uintptr_t L, const char* s) {
         *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
 
         // Intern string — may trigger GC → may reallocate the Lua stack.
-        // DO NOT use 'top' after this call; re-read L->top if needed.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);
         uintptr_t ts = ((newlstr_fn)0x00856C80)(L, s, len);
         if (ts < 0x10000 || ts > 0xBFFF0000) { g_misses++; return orig(L, s); }
 
-        // Write ptr + type into the slot we pre-tainted.
-        // 'top' may be stale if GC ran inside luaS_newlstr and reallocated the
-        // stack. The original code has the same hazard — it also caches v3 before
-        // the call — so we match the engine's behavior exactly here.
-        *(uintptr_t*)(top + 0) = ts;
-        *(uint32_t*)(top + 4) = 0;
-        *(uint32_t*)(top + 8) = 4;    // LUA_TSTRING
+        // Re-read L->top after the call, in case GC reallocated the Lua stack!
+        uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
+        *(uintptr_t*)(new_top + 0) = ts;
+        *(uint32_t*)(new_top + 4) = 0;
+        *(uint32_t*)(new_top + 8) = 4;    // LUA_TSTRING
+        *(uint32_t*)(new_top + 12) = *(uint32_t*)TAINT_CELL;
 
-        // Advance L->top by 16. Original uses: *(_DWORD *)(a1+12) += 16
-        // This re-reads L->top so if luaS_newlstr internally pushed/popped
-        // anything (it doesn't in the standard path, but be safe).
-        *(uintptr_t*)(L + 0x0C) = top + 16;
+        *(uintptr_t*)(L + 0x0C) = new_top + 16;
 
         g_hits++;
         return (int)ts;
