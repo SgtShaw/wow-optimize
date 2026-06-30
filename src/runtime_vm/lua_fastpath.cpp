@@ -225,13 +225,9 @@ static lua_CFunction_t orig_str_join = nullptr;
 static long g_strRepHits       = 0;
 static long g_strRepFallbacks  = 0;
 
-// ipairs factory hook — Phase 2
-// Architecture: ipairs(table) returns (iterator_closure, table, 0)
-// We hook the factory to return our custom fast iterator closure.
-// Future optimization: replace the returned iterator with our fast version.
-static lua_CFunction_t orig_luaB_ipairs = nullptr;
-static long g_ipairsFactoryHits   = 0;
-static long g_ipairsFactoryFalls  = 0;
+// ipairs iterator hook — Phase 2
+// Direct inline hook of the original ipairsaux generator at 0x00854720
+static lua_CFunction_t orig_luaB_ipairsaux = nullptr;
 static long g_ipairsIteratorHits  = 0;
 static long g_ipairsIteratorFalls = 0;
 
@@ -2764,70 +2760,43 @@ static int __cdecl Hooked_StrRep(lua_State* L) {
 // Optimized ipairs() factory that returns our fast iterator.
 // ================================================================
 
-static int __cdecl Hooked_IPairs_Factory(lua_State* L) {
-    __try {
-        // Check that we have at least 1 argument
-        if (lua_gettop_(L) < 1) {
-            g_ipairsFactoryFalls++;
-            return orig_luaB_ipairs(L);
-        }
-
-        // Check that argument is a table
-        if (lua_type_(L, 1) != LUA_TTABLE) {
-            g_ipairsFactoryFalls++;
-            return orig_luaB_ipairs(L);
-        }
-
-        // Return our custom closure with upvalues:
-        // Stack: [table]
-        lua_pushvalue_(L, 1);        // [table, table]           - upvalue 1: table
-        lua_pushnumber_(L, 0.0);     // [table, table, 0]        - upvalue 2: initial index
-        lua_pushcclosure_(L, Hooked_IPairs_Iterator, 2);  // [table, closure] - consumes 2 upvalues
-        lua_insert_(L, -2);          // [closure, table]
-        lua_pushnumber_(L, 0.0);     // [closure, table, 0]
-
-        g_ipairsFactoryHits++;
-        return 3;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
-        g_ipairsFactoryFalls++;
-        return orig_luaB_ipairs(L);
-    }
-}
-
 // ================================================================
-// Hooked_IPairs_Iterator — ipairs iterator fast path
+// Hooked_IPairs_Iterator — ipairs iterator fast path (direct hook of ipairsaux)
 // Fast numeric table iteration via luaH_getnum (bypasses lua_gettable).
 // ================================================================
 
 static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
     __try {
-        // Get upvalue 1: table pointer
-        void* tablePtr = (void*)lua_topointer_(L, lua_upvalueindex(1));
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base) {
+            g_ipairsIteratorFalls++;
+            return orig_luaB_ipairsaux(L);
+        }
+
+        RawTValue* tableSlot = &base[0];
+        RawTValue* indexSlot = &base[1];
+
+        if (tableSlot->tt != LUA_TTABLE || indexSlot->tt != LUA_TNUMBER) {
+            g_ipairsIteratorFalls++;
+            return orig_luaB_ipairsaux(L);
+        }
+
+        void* tablePtr = tableSlot->value.gc;
         if (!tablePtr) {
             g_ipairsIteratorFalls++;
-            return orig_luaB_ipairs(L);
+            return orig_luaB_ipairsaux(L);
         }
 
-        // Get upvalue 2: current index
-        if (lua_type_(L, lua_upvalueindex(2)) != LUA_TNUMBER) {
-            g_ipairsIteratorFalls++;
-            return orig_luaB_ipairs(L);
-        }
-
-        int idx = (int)lua_tonumber_(L, lua_upvalueindex(2));
-        idx++;  // next index
+        double d;
+        memcpy(&d, &indexSlot->value, sizeof(double));
+        int idx = (int)d;
+        idx++;
 
         // Direct table lookup via luaH_getnum
         RawTValue* valSlot = (RawTValue*)luaH_getnum_(tablePtr, idx);
         if (!valSlot || valSlot->tt == LUA_TNIL) {
-            // End of array
             return 0;
         }
-
-        // Update upvalue: current_index = idx
-        lua_pushnumber_(L, (double)idx);
-        lua_replace_(L, lua_upvalueindex(2));
 
         // Return: idx, value
         lua_pushnumber_(L, (double)idx);
@@ -2842,7 +2811,7 @@ static int __cdecl Hooked_IPairs_Iterator(lua_State* L) {
     }
     __except(EXCEPTION_EXECUTE_HANDLER) {
         g_ipairsIteratorFalls++;
-        return orig_luaB_ipairs(L);
+        return orig_luaB_ipairsaux(L);
     }
 }
 
@@ -3086,7 +3055,7 @@ static FuncHookEntry g_funcHooks[] = {
     {nullptr,  "strtrim",  (void*)Hooked_StrTrim,          &orig_str_trim,         0, false},
     {nullptr,  "strjoin",  (void*)Hooked_StrJoin,          &orig_str_join,         0, false},
 #if !TEST_DISABLE_HOOK_IPAIRS
-    {nullptr,  "ipairs",   (void*)Hooked_IPairs_Factory,   &orig_luaB_ipairs,      0, false},
+    {nullptr,  nullptr,    (void*)Hooked_IPairs_Iterator,  &orig_luaB_ipairsaux,   0x00854720, false},
 #endif
 };
 
@@ -3680,8 +3649,7 @@ void Shutdown() {
         Log("[FastPath] StrJoin: %lld fast, %lld fallback", g_strJoinHits, g_strJoinFallbacks);
     if (g_rawequalHits > 0 || g_rawequalFallbacks > 0)
         Log("[FastPath] RawEqual: %ld fast, %ld fallback", g_rawequalHits, g_rawequalFallbacks);
-    if (g_ipairsFactoryHits > 0 || g_ipairsFactoryFalls > 0)
-        Log("[FastPath] IPairs(factory): %ld hits, %ld fallbacks", g_ipairsFactoryHits, g_ipairsFactoryFalls);
+
     if (g_ipairsIteratorHits > 0 || g_ipairsIteratorFalls > 0)
         Log("[FastPath] IPairs(iterator): %ld fast, %ld fallbacks", g_ipairsIteratorHits, g_ipairsIteratorFalls);
     if (g_findFullHits > 0 || g_findFullFallbacks > 0)
@@ -3758,8 +3726,8 @@ Stats GetStats() {
     s.unpackFallbacks     = g_unpackFallbacks;
     s.selectHits          = g_selectHits;
     s.selectFallbacks     = g_selectFallbacks;
-    s.ipairsHits          = g_ipairsFactoryHits;
-    s.ipairsFallbacks     = g_ipairsFactoryFalls;
+    s.ipairsHits          = g_ipairsIteratorHits;
+    s.ipairsFallbacks     = g_ipairsIteratorFalls;
     s.ipairsIteratorHits  = g_ipairsIteratorHits;
     s.ipairsIteratorFallbacks = g_ipairsIteratorFalls;
     s.findFullHits        = g_findFullHits;
