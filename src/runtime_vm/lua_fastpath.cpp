@@ -3410,53 +3410,55 @@ bool InitPhase2(lua_State* L) {
         // On legacy Rosetta (without cache disabled), string.format was deferred from Phase 1.
         // Fall through to install via Lua API path below.
 
+        if (e.name) {
 #if TEST_DISABLE_PHASE2_WRITES
-        // Write hooks that modify Lua tables/stack
-        // via RawTValue* copies — causes hangs in real gameplay
-        if (strcmp(e.name, "rawset") == 0 ||
-            strcmp(e.name, "insert") == 0 ||
-            strcmp(e.name, "remove") == 0 ||
-            strcmp(e.name, "next") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* table writes)",
-                e.table ? e.table : "_G", e.name);
-            continue;
-        }
+            // Write hooks that modify Lua tables/stack
+            // via RawTValue* copies — causes hangs in real gameplay
+            if (strcmp(e.name, "rawset") == 0 ||
+                strcmp(e.name, "insert") == 0 ||
+                strcmp(e.name, "remove") == 0 ||
+                strcmp(e.name, "next") == 0) {
+                Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* table writes)",
+                    e.table ? e.table : "_G", e.name);
+                continue;
+            }
 #endif
 
 #if TEST_DISABLE_PHASE2_READS
-        // rawget / unpack: RawTValue* copies that move GC objects or
-        // push multiple values to the stack — caused hangs in real
-        // gameplay. table.concat is safe (pushes exactly one interned
-        // string, same pattern as the enabled math.random fast path)
-        // and is NOT gated here.
-        if (strcmp(e.name, "rawget") == 0 ||
-            strcmp(e.name, "unpack") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
-                e.table ? e.table : "_G", e.name);
-            continue;
-        }
+            // rawget / unpack: RawTValue* copies that move GC objects or
+            // push multiple values to the stack — caused hangs in real
+            // gameplay. table.concat is safe (pushes exactly one interned
+            // string, same pattern as the enabled math.random fast path)
+            // and is NOT gated here.
+            if (strcmp(e.name, "rawget") == 0 ||
+                strcmp(e.name, "unpack") == 0) {
+                Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
+                    e.table ? e.table : "_G", e.name);
+                continue;
+            }
 #endif
 
 #if TEST_DISABLE_PHASE2_NEW_DMA
-        // Hooks that directly write to Lua tables/stack via RawTValue*
-        // Cause hangs in real gameplay
-        if (strcmp(e.name, "type") == 0 ||
-            strcmp(e.name, "floor") == 0 ||
-            strcmp(e.name, "ceil") == 0 ||
-            strcmp(e.name, "abs") == 0 ||
-            strcmp(e.name, "max") == 0 ||
-            strcmp(e.name, "min") == 0 ||
-            strcmp(e.name, "len") == 0 ||
-            strcmp(e.name, "byte") == 0 ||
-            strcmp(e.name, "tostring") == 0 ||
-            strcmp(e.name, "tonumber") == 0 ||
-            strcmp(e.name, "select") == 0 ||
-            strcmp(e.name, "rawequal") == 0) {
-            Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — causes hangs)",
-                e.table ? e.table : "_G", e.name);
-            continue;
-        }
+            // Hooks that directly write to Lua tables/stack via RawTValue*
+            // Cause hangs in real gameplay
+            if (strcmp(e.name, "type") == 0 ||
+                strcmp(e.name, "floor") == 0 ||
+                strcmp(e.name, "ceil") == 0 ||
+                strcmp(e.name, "abs") == 0 ||
+                strcmp(e.name, "max") == 0 ||
+                strcmp(e.name, "min") == 0 ||
+                strcmp(e.name, "len") == 0 ||
+                strcmp(e.name, "byte") == 0 ||
+                strcmp(e.name, "tostring") == 0 ||
+                strcmp(e.name, "tonumber") == 0 ||
+                strcmp(e.name, "select") == 0 ||
+                strcmp(e.name, "rawequal") == 0) {
+                Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — causes hangs)",
+                    e.table ? e.table : "_G", e.name);
+                continue;
+            }
 #endif
+        }
 
         __try {
             // Use MinHook on native Windows, or on Wine/Rosetta when JIT cache is disabled
@@ -3526,7 +3528,7 @@ bool InitPhase2(lua_State* L) {
                 MH_STATUS s = MH_CreateHook((void*)e.address, e.hookFn, (void**)e.origFn);
                 if (s != MH_OK) {
                     Log("[FastPath]   %-8s.%-8s  MH_CreateHook failed (%d)",
-                        e.table ? e.table : "_G", e.name, (int)s);
+                        e.table ? e.table : "_G", e.name ? e.name : "ipairsaux", (int)s);
                     continue;
                 }
                 // Queue the enable instead of applying it now: a per-hook
@@ -3537,7 +3539,7 @@ bool InitPhase2(lua_State* L) {
                 s = MH_QueueEnableHook((void*)e.address);
                 if (s != MH_OK) {
                     Log("[FastPath]   %-8s.%-8s  MH_QueueEnableHook failed (%d)",
-                        e.table ? e.table : "_G", e.name, (int)s);
+                        e.table ? e.table : "_G", e.name ? e.name : "ipairsaux", (int)s);
                     continue;
                 }
 
@@ -3545,13 +3547,13 @@ bool InitPhase2(lua_State* L) {
                 hookedNow++;
                 hookedTotal++;
                 Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]%s",
-                    e.table ? e.table : "_G", e.name, (unsigned)e.address,
+                    e.table ? e.table : "_G", e.name ? e.name : "ipairsaux", (unsigned)e.address,
                     g_rosettaCacheDisabled ? " (JIT cache disabled)" : "");
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {
             Log("[FastPath]   %-8s.%-8s  EXCEPTION during hook",
-                e.table ? e.table : "_G", e.name);
+                e.table ? e.table : "_G", e.name ? e.name : "ipairsaux");
         }
     }
 
