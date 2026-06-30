@@ -2928,7 +2928,7 @@ static lua_CFunction_t orig_UnitPowerMax    = nullptr;
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
 static int __cdecl Hooked_TableSort(lua_State* L) {
     __try {
-        if (lua_gettop_(L) >= 2) goto fallback;
+        if (lua_gettop_(L) != 1) goto fallback;
 
         RawTValue* base = GetStackBaseFast(L);
         if (!base || base->tt != LUA_TTABLE) goto fallback;
@@ -2951,6 +2951,11 @@ static int __cdecl Hooked_TableSort(lua_State* L) {
             return 0;
         }
 
+        if (n == sizearray) {
+            unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 9);
+            if (lsizenode > 0) goto fallback;
+        }
+
         bool isNumber = true;
         bool isString = true;
 
@@ -2969,10 +2974,10 @@ static int __cdecl Hooked_TableSort(lua_State* L) {
                 char* tsA = (char*)a.value.gc;
                 char* tsB = (char*)b.value.gc;
                 if (!tsA || !tsB) return false;
-                int lenA = *(int*)(tsA + 12);
-                int lenB = *(int*)(tsB + 12);
-                const char* strA = tsA + 16;
-                const char* strB = tsB + 16;
+                int lenA = *(int*)(tsA + 16);
+                int lenB = *(int*)(tsB + 16);
+                const char* strA = tsA + 20;
+                const char* strB = tsB + 20;
                 int cmp = memcmp(strA, strB, (lenA < lenB) ? lenA : lenB);
                 if (cmp != 0) return cmp < 0;
                 return lenA < lenB;
