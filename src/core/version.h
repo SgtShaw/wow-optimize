@@ -302,7 +302,7 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
@@ -598,7 +598,7 @@
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
 #define TEST_DISABLE_VEC3_CROSS_SSE2         0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
 #define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
