@@ -58,7 +58,7 @@
 #define TEST_DISABLE_ALL_PHASE2         0
 
 // Lua VM GC optimizer + mimalloc allocator replacement
-#define TEST_DISABLE_LUA_VM_OPT         1
+#define TEST_DISABLE_LUA_VM_OPT         0
 
 // Redirect WoW's STATIC MSVCRT allocator (malloc/free/realloc/calloc/_msize/
 // _recalloc at 0x415074/0x412FC7/0x416A95/0x416A56/0x4112F8/0x416CB0) to mimalloc
