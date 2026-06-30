@@ -265,7 +265,7 @@
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
@@ -284,7 +284,7 @@
 #define TEST_DISABLE_CVAR_NULL_GUARD         0
 
 // UnitAura fast-path (sub_00614A76 and sub_00614B4D)
-#define TEST_DISABLE_UNIT_AURA_FAST         1
+#define TEST_DISABLE_UNIT_AURA_FAST         0
 
 // Network GUID unpacking fast-path (sub_0076DC20)
 #define TEST_DISABLE_NETWORK_GUID_SSE2         0
@@ -293,7 +293,7 @@
 #define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2         1
+#define TEST_DISABLE_MATRIX_EXT_SSE2         0
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -308,7 +308,7 @@
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         1
+#define TEST_DISABLE_MATRIX_MISC_SSE2         0
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -316,17 +316,17 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        1
+#define TEST_DISABLE_FRUSTUM_CULL        0
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -346,7 +346,7 @@
 #define TEST_DISABLE_QUAT_NORMALIZE         1  // disabled
 
 // Addon file RAM-disk - interferes with WoW file I/O
-#define TEST_DISABLE_ADDON_PRELOAD      1
+#define TEST_DISABLE_ADDON_PRELOAD      0
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
@@ -598,7 +598,7 @@
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
 #define TEST_DISABLE_VEC3_CROSS_SSE2         0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
 #define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
