@@ -34,4 +34,5 @@ void ClearAddonPreload();
 // Called from hooked_CreateFileA/W to track addon file handles
 void AddonPreload_OnCreateFile(HANDLE hFile, const char* filename);
 void AddonPreload_OnWriteFile(const char* filename);
+void AddonPreload_OnCloseHandle(HANDLE hFile);
 bool AddonPreload_TryServe(HANDLE hFile, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead);

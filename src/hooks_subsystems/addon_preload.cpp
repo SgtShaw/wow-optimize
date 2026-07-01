@@ -268,11 +268,28 @@ void ClearAddonPreload() {
     g_handleCount = 0;
 }
 
+void AddonPreload_OnCloseHandle(HANDLE hFile) {
+    if (!InterlockedCompareExchange(&g_ready, 0, 0) || !hFile || hFile == INVALID_HANDLE_VALUE) return;
+
+    AcquireSRWLockExclusive(&g_handleLock);
+    for (LONG i = 0; i < g_handleCount; i++) {
+        if (g_handles[i] == hFile) {
+            // Swap with last
+            g_handles[i] = g_handles[g_handleCount - 1];
+            g_handlePaths[i].swap(g_handlePaths[g_handleCount - 1]);
+            InterlockedDecrement(&g_handleCount);
+            break;
+        }
+    }
+    ReleaseSRWLockExclusive(&g_handleLock);
+}
+
 #else
 bool InitAddonPreload() { return false; }
 void ShutdownAddonPreload() {}
 void ClearAddonPreload() {}
 void AddonPreload_OnCreateFile(HANDLE, const char*) {}
 void AddonPreload_OnWriteFile(const char*) {}
+void AddonPreload_OnCloseHandle(HANDLE) {}
 bool AddonPreload_TryServe(HANDLE, LPVOID, DWORD, LPDWORD) { return false; }
 #endif

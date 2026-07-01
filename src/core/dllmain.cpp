@@ -2916,6 +2916,7 @@ static BOOL WINAPI hooked_CloseHandle(HANDLE hObject) {
     ReleaseSRWLockExclusive(&g_mpqMapLock);
 #endif
     UntrackMpqHandle(hObject);
+    AddonPreload_OnCloseHandle(hObject);
     if (g_cacheInitialized) {
         AcquireSRWLockExclusive(&g_cacheLock);
         for (int i = 0; i < MAX_CACHED_HANDLES; i++) {

@@ -42,8 +42,12 @@ static int __cdecl Safe_sub_508320(int a1, int a2)
     }
 }
 
+static bool g_soundBufferGuardInstalled = false;
+
 bool InstallSoundBufferGuard()
 {
+    if (g_soundBufferGuardInstalled) return true;
+
     void* target = (void*)0x00508320;
 
     unsigned char* p = (unsigned char*)target;
@@ -69,6 +73,7 @@ bool InstallSoundBufferGuard()
     CrashDumper::FeatureSetActive("SndUpdate", true);
 
     Log("[SndBuffer] ACTIVE: SEH guard on sub_508320 (buffer + update), covers 0x508740+0x508950");
+    g_soundBufferGuardInstalled = true;
     return true;
 }
 
@@ -76,6 +81,7 @@ void UninstallSoundBufferGuard()
 {
     MH_DisableHook((void*)0x00508320);
     MH_RemoveHook((void*)0x00508320);
+    g_soundBufferGuardInstalled = false;
 
     LONG64 total     = g_total_calls;
     LONG64 recovered = g_recovered;
