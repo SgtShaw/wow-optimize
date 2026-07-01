@@ -549,11 +549,12 @@ static inline __m128 SSE2_Cross(const __m128& a, const __m128& b) {
 }
 
 static inline __m128 SSE2_Dot3_Val(const __m128& a, const __m128& b) {
-    __m128 m = _mm_mul_ps(a, b);
-    __m128 shuf1 = _mm_shuffle_ps(m, m, _MM_SHUFFLE(2, 3, 0, 1));
-    __m128 sum1 = _mm_add_ps(m, shuf1);
-    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(0, 0, 2, 2));
-    return _mm_add_ps(sum1, shuf2);
+    __m128 mul = _mm_mul_ps(a, b);
+    __m128 y = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(1, 1, 1, 1));
+    __m128 sum = _mm_add_ss(mul, y);
+    __m128 z = _mm_shuffle_ps(mul, mul, _MM_SHUFFLE(2, 2, 2, 2));
+    __m128 res = _mm_add_ss(sum, z);
+    return _mm_shuffle_ps(res, res, _MM_SHUFFLE(0, 0, 0, 0));
 }
 
 template <typename IndexType>
@@ -1008,18 +1009,25 @@ static float* __cdecl Hooked_QuatSlerp(float* result, float t, float* q1, float*
                 cosTheta = -cosTheta;
             }
             
-            float sinThetaSq = 1.0f - cosTheta * cosTheta;
-            if (sinThetaSq > 0.000000000227373675f) {
+              float sinThetaSq = 1.0f - cosTheta * cosTheta;
+            if (sinThetaSq > 0.0f) {
                 float sinTheta = sqrtf(sinThetaSq);
-                float theta = atan2f(sinTheta, cosTheta);
-                float invSinTheta = 1.0f / sinTheta;
-                float r1 = sinf((1.0f - t) * theta) * invSinTheta;
-                float r2 = sinf(t * theta) * invSinTheta * factor;
-                
-                result[0] = q1[0] * r1 + q2[0] * r2;
-                result[1] = q1[1] * r1 + q2[1] * r2;
-                result[2] = q1[2] * r1 + q2[2] * r2;
-                result[3] = q1[3] * r1 + q2[3] * r2;
+                if (sinTheta >= 0.00000047683716f) {
+                    float theta = atan2f(sinTheta, cosTheta);
+                    float invSinTheta = 1.0f / sinTheta;
+                    float r1 = sinf((1.0f - t) * theta) * invSinTheta;
+                    float r2 = sinf(t * theta) * invSinTheta * factor;
+                    
+                    result[0] = q1[0] * r1 + q2[0] * r2;
+                    result[1] = q1[1] * r1 + q2[1] * r2;
+                    result[2] = q1[2] * r1 + q2[2] * r2;
+                    result[3] = q1[3] * r1 + q2[3] * r2;
+                } else {
+                    result[0] = q1[0];
+                    result[1] = q1[1];
+                    result[2] = q1[2];
+                    result[3] = q1[3];
+                }
             } else {
                 result[0] = q1[0];
                 result[1] = q1[1];
