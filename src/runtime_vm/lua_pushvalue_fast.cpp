@@ -30,7 +30,7 @@ static int __cdecl Hooked_PushValue(uintptr_t L, int idx) {
     ++g_pushvalue_calls;
 
     __try {
-        if (L < 0x10000 || L > 0xBFFF0000) goto fallback;
+        if (L < 0x10000 || L > 0xFFE00000) goto fallback;
 
         // Read base and top pointers
         uint8_t** base_ptr = (uint8_t**)(L + 0x10);
@@ -38,8 +38,8 @@ static int __cdecl Hooked_PushValue(uintptr_t L, int idx) {
         uint8_t* base = *base_ptr;
         uint8_t* top = *top_ptr;
 
-        if (base < (uint8_t*)0x10000 || base > (uint8_t*)0xBFFF0000) goto fallback;
-        if (top < (uint8_t*)0x10000 || top > (uint8_t*)0xBFFF0000) goto fallback;
+        if (base < (uint8_t*)0x10000 || base > (uint8_t*)0xFFE00000) goto fallback;
+        if (top < (uint8_t*)0x10000 || top > (uint8_t*)0xFFE00000) goto fallback;
 
         // Resolve index to stack slot (TValue = 16 bytes in WoW 3.3.5a)
         uint8_t* src;

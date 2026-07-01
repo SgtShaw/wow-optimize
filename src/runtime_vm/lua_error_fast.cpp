@@ -24,13 +24,13 @@ static volatile LONG g_hits = 0;
 static const char* ReadErrorString(uintptr_t L) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (top < 0x10000 || top > 0xBFFF0000) return nullptr;
+        if (top < 0x10000 || top > 0xFFE00000) return nullptr;
         uintptr_t tv = top - 16;
-        if (tv < 0x10000 || tv > 0xBFFF0000) return nullptr;
+        if (tv < 0x10000 || tv > 0xFFE00000) return nullptr;
         uint32_t tt = *(uint32_t*)(tv + 8);
         if (tt != 4) return nullptr;
         uintptr_t ts = *(uintptr_t*)tv;
-        if (ts < 0x10000 || ts > 0xBFFF0000) return nullptr;
+        if (ts < 0x10000 || ts > 0xFFE00000) return nullptr;
         size_t len = *(size_t*)(ts + 16);
         if (len > 4000) len = 4000;
         return (const char*)(ts + 20);
@@ -40,12 +40,12 @@ static const char* ReadErrorString(uintptr_t L) {
 }
 
 __declspec(noinline) static void IncrementHitsSafe(uintptr_t L) {
-    if (L > 0x10000 && L < 0xBFFF0000) {
+    if (L > 0x10000 && L < 0xFFE00000) {
         __try {
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
-            if (top > 0x10000 && top < 0xBFFF0000) {
+            if (top > 0x10000 && top < 0xFFE00000) {
                 uintptr_t tv = top - 16;
-                if (tv > 0x10000 && tv < 0xBFFF0000) {
+                if (tv > 0x10000 && tv < 0xFFE00000) {
                     uint32_t tt = *(uint32_t*)(tv + 8);
                     if (tt == 4) {
                         g_hits++;

@@ -67,7 +67,7 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     // can modify the chain concurrently with FrameScript execution
     __try {
         while (tstring) {
-            if (tstring < 0x10000 || tstring > 0xBFFF0000) break;
+            if (tstring < 0x10000 || tstring > 0xFFE00000) break;
 
             // tstring+16 is length
             if (*(uint32_t*)(tstring + 16) == l) {

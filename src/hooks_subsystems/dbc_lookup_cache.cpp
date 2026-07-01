@@ -65,7 +65,7 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
 
         if (recordId >= (int)minId && recordId <= (int)maxId && rowsBase > 0x10000) {
             void* rowPtr = *(void**)(rowsBase + (recordId - minId) * 4);
-            if (rowPtr && (uintptr_t)rowPtr > 0x10000 && (uintptr_t)rowPtr < 0xBFFF0000) {
+            if (rowPtr && (uintptr_t)rowPtr > 0x10000 && (uintptr_t)rowPtr < 0xFFE00000) {
                 e->storePtr = storeKey;
                 e->recordId = (uint32_t)recordId;
                 e->rowPtr = rowPtr;

@@ -94,7 +94,7 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
     // to the original instead of faulting inside the hook. This SEH backstop
     // replaces the previous hard bounds-check `break`, which was the bug:
     // on /3GB clients (mimalloc now backs the whole heap and places arenas
-    // high) a live node could sit above 0xBFFF0000, so the walk broke early
+    // high) a live node could sit above 0xFFE00000, so the walk broke early
     // and returned the nil sentinel for a LIVE key -> WeakAuras aura_env and
     // other addon fields read nil. We now walk exactly like the engine.
     __try {

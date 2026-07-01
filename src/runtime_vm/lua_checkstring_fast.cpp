@@ -22,7 +22,7 @@ static chklstr_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static const char* __cdecl hook(uintptr_t L, int idx, uint32_t* len_out) {
-    if (L < 0x10000 || L > 0xBFFF0000) return orig(L, idx, len_out);
+    if (L < 0x10000 || L > 0xFFE00000) return orig(L, idx, len_out);
     uintptr_t tv = WowIndex2Adr(idx, L);
     if (tv < 0x10000) return orig(L, idx, len_out);
 

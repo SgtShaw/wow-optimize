@@ -349,7 +349,7 @@ extern "C" void IncrementParticleFrameCount();
 #endif
 #define TEST_DISABLE_STRTOD_FAST                0   // enabled: safe string->number fast path
 #ifndef TEST_DISABLE_GETSTR_INLINE
-#define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xBFFF0000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
+#define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xFFE00000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
 #endif
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
@@ -4235,7 +4235,7 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
     return orig_lua_pushstring(L, s);
 #else
     // nil input - push nil
-    if (!s || (uintptr_t)s < 0x10000 || (uintptr_t)s > 0xBFFF0000) {
+    if (!s || (uintptr_t)s < 0x10000 || (uintptr_t)s > 0xFFE00000) {
         g_pushStrMisses++;
         return orig_lua_pushstring(L, s);
     }
@@ -4252,11 +4252,11 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
         if (entry->keyHash == hash) {
             // Validate TString* is still in range
             int ts = entry->tstring;
-            if (ts >= 0x10000 && ts <= 0xBFFF0000) {
+            if (ts >= 0x10000 && ts <= 0xFFE00000) {
                 // Push TValue directly: value=gc_ptr, tt=4 (LUA_TSTRING), taint
                 __try {
                     DWORD* top = *(DWORD**)(L + 0x0C);
-                    if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
+                    if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xFFE00000) {
                         g_pushStrMisses++;
                         return orig_lua_pushstring(L, s);
                     }
@@ -4287,7 +4287,7 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
         // Capture TString* from L->top - 16 bytes
         __try {
             DWORD* top = *(DWORD**)(L + 0x0C);
-            if (top && (uintptr_t)top >= 0x10000 && (uintptr_t)top <= 0xBFFF0000) {
+            if (top && (uintptr_t)top >= 0x10000 && (uintptr_t)top <= 0xFFE00000) {
                 DWORD* slot = top - 4;
                 if (slot[2] == 4) {  // tt == LUA_TSTRING
                     entry->keyHash = hash;
@@ -4532,9 +4532,9 @@ static void* __cdecl hooked_luaH_getstr(int table, int tstring) {
     return orig_luaH_getstr(table, tstring);
 #else
     __try {
-        if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xBFFF0000)
+        if ((uintptr_t)table < 0x10000 || (uintptr_t)table > 0xFFE00000)
             { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
-        if ((uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xBFFF0000)
+        if ((uintptr_t)tstring < 0x10000 || (uintptr_t)tstring > 0xFFE00000)
             { g_getstrFallbacks++; return orig_luaH_getstr(table, tstring); }
 
         uint64_t idx = GetStrCacheHash((uintptr_t)table, (uintptr_t)tstring);
@@ -4703,11 +4703,11 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
 #else
     __try {
         int this_ptr = (int)This;
-        if (this_ptr < 0x10000 || this_ptr > 0xBFFF0000) {
+        if (this_ptr < 0x10000 || this_ptr > 0xFFE00000) {
             g_combatLogCacheMisses++;
             return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
         }
-        if (luaState < 0x10000 || luaState > 0xBFFF0000) {
+        if (luaState < 0x10000 || luaState > 0xFFE00000) {
             g_combatLogCacheMisses++;
             return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
         }

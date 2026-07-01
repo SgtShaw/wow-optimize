@@ -21,7 +21,7 @@ static pushcclosure_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, fn, nupvals); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, fn, nupvals); }
 
     if (nupvals != 0) { g_misses++; return orig(L, fn, nupvals); }
 
@@ -40,9 +40,9 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
         uintptr_t ci = *(uintptr_t*)(L + 0x18);
         if (ci && ci != *(uintptr_t*)(L + 0x2C)) {
             uintptr_t func_tv = *(uintptr_t*)(ci + 4);
-            if (func_tv >= 0x10000 && func_tv < 0xBFFF0000) {
+            if (func_tv >= 0x10000 && func_tv < 0xFFE00000) {
                 uintptr_t cl = *(uintptr_t*)func_tv;
-                if (cl >= 0x10000 && cl < 0xBFFF0000) {
+                if (cl >= 0x10000 && cl < 0xFFE00000) {
                     env = *(uintptr_t*)(cl + 16);
                 }
             }
@@ -60,7 +60,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
 
         // Push the closure value onto the stack.
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
-        if (new_top < 0x10000 || new_top > 0xBFFF0000) { g_misses++; return orig(L, fn, nupvals); }
+        if (new_top < 0x10000 || new_top > 0xFFE00000) { g_misses++; return orig(L, fn, nupvals); }
         uint32_t taint = *(uint32_t*)TAINT_CELL;
         *(uintptr_t*)(new_top + 0) = cl;
         *(uint32_t*)(new_top + 4) = 0;

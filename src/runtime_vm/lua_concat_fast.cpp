@@ -26,7 +26,7 @@ static concat_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int total, int last) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, total, last); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, total, last); }
 
     __try {
         if (total < 2 || total > 4 || last < total - 1) { g_misses++; return orig(L, total, last); }

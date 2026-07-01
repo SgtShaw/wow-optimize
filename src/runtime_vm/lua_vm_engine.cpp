@@ -214,8 +214,8 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
     uintptr_t tablePtr = (uintptr_t)table->value.gc;
     uintptr_t tstringPtr = (uintptr_t)key->value.gc;
     
-    if (tablePtr < 0x10000 || tablePtr > 0xBFFF0000 ||
-        tstringPtr < 0x10000 || tstringPtr > 0xBFFF0000) {
+    if (tablePtr < 0x10000 || tablePtr > 0xFFE00000 ||
+        tstringPtr < 0x10000 || tstringPtr > 0xFFE00000) {
         return g_orig_luaV_gettable((int)L, (int*)table, (int*)key, result);
     }
 
@@ -231,7 +231,7 @@ static void* __fastcall FastGetTable(void* L, TValue* table, TValue* key, TValue
             site[way].generation == currentGen) {
             
             void* node = site[way].resultNode;
-            if (node && (uintptr_t)node >= 0x10000 && (uintptr_t)node <= 0xBFFF0000) {
+            if (node && (uintptr_t)node >= 0x10000 && (uintptr_t)node <= 0xFFE00000) {
                 uint32_t* np = (uint32_t*)node;
                 // Check key matches (np[6] is key.tt at +24, np[4] is key.value.gc at +16)
                 if (np[6] == LUA_TSTRING && np[4] == (uint32_t)tstringPtr) {
@@ -310,7 +310,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
     if (t_inOptimizedExecution) {
         return g_orig_luaV_execute(L, nexeccalls);
     }
-    if (!L || (uintptr_t)L < 0x10000 || (uintptr_t)L > 0xBFFF0000) {
+    if (!L || (uintptr_t)L < 0x10000 || (uintptr_t)L > 0xFFE00000) {
         return g_orig_luaV_execute(L, nexeccalls);
     }
     

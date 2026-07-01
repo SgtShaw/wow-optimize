@@ -26,12 +26,12 @@ static const uint32_t TAINT_CELL = 0x00D4139C;
 // Teardown state helper
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
-    return (gL < 0x10000 || gL > 0xBFFF0000);
+    return (gL < 0x10000 || gL > 0xFFE00000);
 }
 
 // Pointer sanity: must be in usermode range
 static __forceinline bool IsValidPtr(uintptr_t p) {
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 // Read the type tag from a resolved TValue pointer.

@@ -104,13 +104,13 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
                 IDirect3DDevice9* dev = *ppDevice;
                 uintptr_t* vtable = *(uintptr_t**)dev;
                 if (!vtable || (uintptr_t)vtable < 0x10000 ||
-                    (uintptr_t)vtable > 0xBFFF0000) {
+                    (uintptr_t)vtable > 0xFFE00000) {
                     return hr;
                 }
 
                 // vtable index 57 = SetRenderState
                 uintptr_t setRS = vtable[57];
-                if (!setRS || setRS < 0x10000 || setRS > 0xBFFF0000) {
+                if (!setRS || setRS < 0x10000 || setRS > 0xFFE00000) {
                     Log("[RenderDedup] SetRenderState vtable entry invalid (0x%08X) — "
                         "wrapper device, skipping hook", (unsigned)setRS);
                     return hr;
@@ -139,7 +139,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
 
                 // Hook Reset (vtable index 16)
                 uintptr_t reset = vtable[16];
-                if (reset && reset >= 0x10000 && reset <= 0xBFFF0000) {
+                if (reset && reset >= 0x10000 && reset <= 0xFFE00000) {
                     Reset_t origReset = nullptr;
                     st = MH_CreateHook(
                         (void*)reset,
@@ -183,13 +183,13 @@ static IDirect3D9* WINAPI Hooked_D3DCreate9(UINT SDKVersion)
     __try {
         uintptr_t* vtable = *(uintptr_t**)d3d9;
         if (!vtable || (uintptr_t)vtable < 0x10000 ||
-            (uintptr_t)vtable > 0xBFFF0000) {
+            (uintptr_t)vtable > 0xFFE00000) {
             return d3d9;
         }
 
         // vtable index 16 = CreateDevice
         uintptr_t createDev = vtable[16];
-        if (!createDev || createDev < 0x10000 || createDev > 0xBFFF0000)
+        if (!createDev || createDev < 0x10000 || createDev > 0xFFE00000)
             return d3d9;
 
         CreateDevice_t origCD = nullptr;

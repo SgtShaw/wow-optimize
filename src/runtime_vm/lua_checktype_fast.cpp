@@ -20,7 +20,7 @@ static checktype_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int arg, int expectedType) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, arg, expectedType); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, arg, expectedType); }
 
     __try {
         // Fast inline type resolution

@@ -23,7 +23,7 @@ static ref_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int t) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, t); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, t); }
 
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);

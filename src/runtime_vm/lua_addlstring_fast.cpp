@@ -23,20 +23,20 @@ static addvalue_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t B) {
-    if (B < 0x10000 || B > 0xBFFF0000) {
+    if (B < 0x10000 || B > 0xFFE00000) {
         g_misses++;
         return orig(B);
     }
     __try {
         uintptr_t L = *(uintptr_t*)(B + 8);
         uintptr_t p = *(uintptr_t*)(B);
-        if (L < 0x10000 || L > 0xBFFF0000 || p < B + 12 || p > B + 512 + 12) {
+        if (L < 0x10000 || L > 0xFFE00000 || p < B + 12 || p > B + 512 + 12) {
             g_misses++;
             return orig(B);
         }
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         uintptr_t tv = top - 16;
-        if (tv < 0x10000 || tv > 0xBFFF0000) {
+        if (tv < 0x10000 || tv > 0xFFE00000) {
             g_misses++;
             return orig(B);
         }
@@ -45,7 +45,7 @@ static int __cdecl hook(uintptr_t B) {
         size_t len;
         if (tt == 4) {
             uintptr_t ts = *(uintptr_t*)(tv);
-            if (!ts || ts < 0x10000 || ts > 0xBFFF0000) {
+            if (!ts || ts < 0x10000 || ts > 0xFFE00000) {
                 g_misses++;
                 return orig(B);
             }

@@ -44,7 +44,7 @@ static inline uintptr_t index2adr(uintptr_t L, int idx) {
 }
 
 static int __cdecl hook(uintptr_t L, int idx) {
-    if (L < 0x10000 || L > 0xBFFF0000)
+    if (L < 0x10000 || L > 0xFFE00000)
         return orig(L, idx);
     __try {
         if (idx < 0 && idx > -10000) {

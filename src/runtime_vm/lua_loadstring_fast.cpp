@@ -38,7 +38,7 @@ typedef const char* (__cdecl *checklstr_fn)(uintptr_t L, int idx, unsigned int* 
 typedef const char* (__cdecl *optlstr_fn)(uintptr_t L, int idx, const char* def, unsigned int* len);
 
 static int __cdecl hook(uintptr_t L) {
-    if (L < 0x10000 || L > 0xBFFF0000)
+    if (L < 0x10000 || L > 0xFFE00000)
         return orig(L);
     __try {
         checklstr_fn checklstr = (checklstr_fn)0x0084F9F0;

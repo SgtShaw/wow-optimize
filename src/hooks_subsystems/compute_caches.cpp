@@ -272,14 +272,14 @@ static volatile LONG64 g_tooltipPrefetches = 0;
 
 void TooltipPrefetch_Begin(uintptr_t itemPtr, uintptr_t spellPtr) {
     // Prefetch item data cache lines
-    if (itemPtr > 0x10000 && itemPtr < 0xBFFF0000) {
+    if (itemPtr > 0x10000 && itemPtr < 0xFFE00000) {
         _mm_prefetch((const char*)itemPtr, _MM_HINT_T0);
         _mm_prefetch((const char*)(itemPtr + 64), _MM_HINT_T0);
         _mm_prefetch((const char*)(itemPtr + 128), _MM_HINT_T1);
     }
     
     // Prefetch spell data cache lines
-    if (spellPtr > 0x10000 && spellPtr < 0xBFFF0000) {
+    if (spellPtr > 0x10000 && spellPtr < 0xFFE00000) {
         _mm_prefetch((const char*)spellPtr, _MM_HINT_T0);
         _mm_prefetch((const char*)(spellPtr + 64), _MM_HINT_T0);
     }

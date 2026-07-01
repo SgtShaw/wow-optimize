@@ -27,10 +27,10 @@ static volatile long g_hits = 0, g_misses = 0;
 extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
 
 static int __cdecl hook(uintptr_t L, int idx) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, idx); }
 
     uintptr_t top = *(uintptr_t*)(L + 0x0C);
-    if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, idx); }
+    if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L, idx); }
 
     uintptr_t key_tv = top - 32;
     uintptr_t val_tv = top - 16;

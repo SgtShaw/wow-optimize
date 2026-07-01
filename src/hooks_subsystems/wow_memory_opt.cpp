@@ -468,7 +468,7 @@ void WowMemoryOpt::DumpStats() {
     uintptr_t addr = 0x10000;
     SIZE_T largestFree = 0;
     SIZE_T totalFree = 0;
-    while (addr < 0xBFFF0000) {
+    while (addr < 0xFFE00000) {
         if (VirtualQuery((void*)addr, &mbi, sizeof(mbi))) {
             if (mbi.State == MEM_FREE) {
                 if (mbi.RegionSize > largestFree) largestFree = mbi.RegionSize;

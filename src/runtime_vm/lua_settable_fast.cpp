@@ -25,10 +25,10 @@ static settable_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int idx) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, idx); }
 
     uintptr_t top = *(uintptr_t*)(L + 0x0C);
-    if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, idx); }
+    if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L, idx); }
 
     uintptr_t key_tv = top - 32;
     uintptr_t val_tv = top - 16;
@@ -47,7 +47,7 @@ static int __cdecl hook(uintptr_t L, int idx) {
 
         // Check for metatable — if present, __newindex may fire, must defer
         uintptr_t mt = *(uintptr_t*)(table + 12);
-        if (mt >= 0x10000 && mt < 0xBFFF0000) { g_misses++; return orig(L, idx); }
+        if (mt >= 0x10000 && mt < 0xFFE00000) { g_misses++; return orig(L, idx); }
 
         uintptr_t key_str = *(uintptr_t*)key_tv;
         if (key_str < 0x10000) { g_misses++; return orig(L, idx); }

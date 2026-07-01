@@ -25,10 +25,10 @@ static rawseti_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int idx, int n) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx, n); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, idx, n); }
 
     uintptr_t top = *(uintptr_t*)(L + 0x0C);
-    if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, idx, n); }
+    if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L, idx, n); }
 
     uintptr_t val_tv = top - 16;
     if (val_tv < 0x10000) { g_misses++; return orig(L, idx, n); }

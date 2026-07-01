@@ -18,7 +18,7 @@ static optlstr_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static const char* __cdecl hook(uintptr_t L, int narg, const char* def, uint32_t* len_out) {
-    if (L < 0x10000 || L > 0xBFFF0000) return orig(L, narg, def, len_out);
+    if (L < 0x10000 || L > 0xFFE00000) return orig(L, narg, def, len_out);
     uintptr_t tv = WowIndex2Adr(narg, L);
     if (tv < 0x10000) return orig(L, narg, def, len_out);
 

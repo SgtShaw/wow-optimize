@@ -28,13 +28,13 @@ static volatile LONG g_errorCount = 0;
 static const char* ReadLuaErrorString(uintptr_t L) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (top < 0x10000 || top > 0xBFFF0000) return nullptr;
+        if (top < 0x10000 || top > 0xFFE00000) return nullptr;
         uintptr_t tv = top - 16;
-        if (tv < 0x10000 || tv > 0xBFFF0000) return nullptr;
+        if (tv < 0x10000 || tv > 0xFFE00000) return nullptr;
         uint32_t tt = *(uint32_t*)(tv + 8);
         if (tt != 4) return nullptr;
         uintptr_t ts = *(uintptr_t*)tv;
-        if (ts < 0x10000 || ts > 0xBFFF0000) return nullptr;
+        if (ts < 0x10000 || ts > 0xFFE00000) return nullptr;
         size_t len = *(size_t*)(ts + 16);
         if (len > 4000) len = 4000;
         return (const char*)(ts + 20);
@@ -49,9 +49,9 @@ static int __cdecl DiagLuaError(uintptr_t L) {
 
     // If parameter L is bogus, try the global lua_State pointer
     uintptr_t useL = L;
-    if (L < 0x10000 || L > 0xBFFF0000) {
+    if (L < 0x10000 || L > 0xFFE00000) {
         useL = *(uintptr_t*)0x00D3F78C;
-        if (useL < 0x10000 || useL > 0xBFFF0000) useL = 0;
+        if (useL < 0x10000 || useL > 0xFFE00000) useL = 0;
     }
 
     Log("");

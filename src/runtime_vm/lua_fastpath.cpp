@@ -2431,14 +2431,14 @@ static int __cdecl Hooked_RawEqual(lua_State* L) {
 
 static int __cdecl Hooked_Math_Random(lua_State* L) {
     uintptr_t Lp = (uintptr_t)L;
-    if (Lp < 0x10000 || Lp > 0xBFFF0000) {
+    if (Lp < 0x10000 || Lp > 0xFFE00000) {
         g_mathRandomFallbacks++; return orig_math_random(L);
     }
     __try {
         RawTValue* base = *(RawTValue**)(Lp + 0x10);
         RawTValue* top  = *(RawTValue**)(Lp + 0x0C);
-        if ((uintptr_t)base < 0x10000 || (uintptr_t)base > 0xBFFF0000 ||
-            (uintptr_t)top  < 0x10000 || (uintptr_t)top  > 0xBFFF0000 ||
+        if ((uintptr_t)base < 0x10000 || (uintptr_t)base > 0xFFE00000 ||
+            (uintptr_t)top  < 0x10000 || (uintptr_t)top  > 0xFFE00000 ||
             base > top) {
             g_mathRandomFallbacks++; return orig_math_random(L);
         }
@@ -2479,7 +2479,7 @@ static int __cdecl Hooked_Math_Random(lua_State* L) {
 
         // nargs == 2: return [m, n]
         RawTValue* slot2 = base + 1;
-        if ((uintptr_t)slot2 > 0xBFFF0000 || slot2->tt != LUA_TNUMBER) {
+        if ((uintptr_t)slot2 > 0xFFE00000 || slot2->tt != LUA_TNUMBER) {
             g_mathRandomFallbacks++; return orig_math_random(L);
         }
         double val2 = slot2->value.n;
@@ -3109,7 +3109,7 @@ static int __cdecl Hooked_UnitHealth(lua_State* L) {
         if (!unitObj) goto fallback;
 
         uintptr_t ptr = (uintptr_t)unitObj;
-        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (ptr < 0x10000 || ptr > 0xFFE00000) goto fallback;
         if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
 
         void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
@@ -3152,7 +3152,7 @@ static int __cdecl Hooked_UnitHealthMax(lua_State* L) {
         if (!unitObj) goto fallback;
 
         uintptr_t ptr = (uintptr_t)unitObj;
-        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (ptr < 0x10000 || ptr > 0xFFE00000) goto fallback;
         if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
 
         void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
@@ -3202,7 +3202,7 @@ static int __cdecl Hooked_UnitPower(lua_State* L) {
         if (!unitObj) goto fallback;
 
         uintptr_t ptr = (uintptr_t)unitObj;
-        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (ptr < 0x10000 || ptr > 0xFFE00000) goto fallback;
         if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
 
         void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
@@ -3254,7 +3254,7 @@ static int __cdecl Hooked_UnitPowerMax(lua_State* L) {
         if (!unitObj) goto fallback;
 
         uintptr_t ptr = (uintptr_t)unitObj;
-        if (ptr < 0x10000 || ptr > 0xBFFF0000) goto fallback;
+        if (ptr < 0x10000 || ptr > 0xFFE00000) goto fallback;
         if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) goto fallback;
 
         void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);

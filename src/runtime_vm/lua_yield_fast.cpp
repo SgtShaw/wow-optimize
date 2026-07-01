@@ -22,7 +22,7 @@ static yield_fn orig = nullptr;
 static volatile long g_hits = 0;
 
 static int __cdecl hook(uintptr_t L, int nresults) {
-    if (L < 0x10000 || L > 0xBFFF0000)
+    if (L < 0x10000 || L > 0xFFE00000)
         return orig(L, nresults);
     __try {
         if (*(unsigned short*)(L + 56)) {

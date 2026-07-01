@@ -28,9 +28,9 @@ static volatile long g_hits = 0, g_misses = 0;
 extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
 
 static int __cdecl hook(uintptr_t L, int idx, const char* k) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, idx, k); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, idx, k); }
 
-    if (k < (const char*)0x10000 || k > (const char*)0xBFFF0000) {
+    if (k < (const char*)0x10000 || k > (const char*)0xFFE00000) {
         g_misses++; return orig(L, idx, k);
     }
 
@@ -44,7 +44,7 @@ static int __cdecl hook(uintptr_t L, int idx, const char* k) {
 
         // Check for metatable — if present, __newindex may fire
         uintptr_t mt = *(uintptr_t*)(table + 12);
-        if (mt >= 0x10000 && mt < 0xBFFF0000) { g_misses++; return orig(L, idx, k); }
+        if (mt >= 0x10000 && mt < 0xFFE00000) { g_misses++; return orig(L, idx, k); }
 
         // Create TString for the key
         size_t klen = strlen(k);
@@ -56,7 +56,7 @@ static int __cdecl hook(uintptr_t L, int idx, const char* k) {
 
         // Re-read L->top and resolve new val_tv in case GC reallocated stack!
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
-        if (new_top < 0x10000 || new_top > 0xBFFF0000) { g_misses++; return orig(L, idx, k); }
+        if (new_top < 0x10000 || new_top > 0xFFE00000) { g_misses++; return orig(L, idx, k); }
         uintptr_t val_tv = new_top - 16;
         if (val_tv < 0x10000) { g_misses++; return orig(L, idx, k); }
 

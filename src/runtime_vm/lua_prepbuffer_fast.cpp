@@ -27,7 +27,7 @@ typedef const char*(__cdecl *pushlstring_fn)(uintptr_t L, const char* s, size_t 
 typedef void(__cdecl *concat_fn)(uintptr_t L, int n);
 
 static uintptr_t __cdecl hook(uintptr_t B) {
-    if (B < 0x10000 || B > 0xBFFF0000) {
+    if (B < 0x10000 || B > 0xFFE00000) {
         g_misses++;
         return orig(B);
     }

@@ -22,14 +22,14 @@ static getupvalue_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static const char* __cdecl hook(uintptr_t L, int funcindex, int n) {
-    if (L < 0x10000 || L > 0xBFFF0000 || n < 1 || n > 255) {
+    if (L < 0x10000 || L > 0xFFE00000 || n < 1 || n > 255) {
         g_misses++;
         return orig(L, funcindex, n);
     }
     __try {
         uintptr_t base = *(uintptr_t*)(L + 0x10);
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (base < 0x10000 || top < 0x10000 || base > 0xBFFF0000 || top > 0xBFFF0000) {
+        if (base < 0x10000 || top < 0x10000 || base > 0xFFE00000 || top > 0xFFE00000) {
             g_misses++;
             return orig(L, funcindex, n);
         }
@@ -45,7 +45,7 @@ static const char* __cdecl hook(uintptr_t L, int funcindex, int n) {
                 return orig(L, funcindex, n);
             }
             uintptr_t cl = *(uintptr_t*)(tv);
-            if (!cl || cl < 0x10000 || cl > 0xBFFF0000) {
+            if (!cl || cl < 0x10000 || cl > 0xFFE00000) {
                 g_misses++;
                 return orig(L, funcindex, n);
             }
@@ -62,7 +62,7 @@ static const char* __cdecl hook(uintptr_t L, int funcindex, int n) {
                 name = "";  // C closures have empty name
             } else {
                 uintptr_t proto = *(uintptr_t*)(cl + 24);
-                if (!proto || proto < 0x10000 || proto > 0xBFFF0000) {
+                if (!proto || proto < 0x10000 || proto > 0xFFE00000) {
                     g_misses++;
                     return orig(L, funcindex, n);
                 }
@@ -72,12 +72,12 @@ static const char* __cdecl hook(uintptr_t L, int funcindex, int n) {
                     return orig(L, funcindex, n);
                 }
                 uintptr_t upval = *(uintptr_t*)(cl + 4 * n + 24);
-                if (!upval || upval < 0x10000 || upval > 0xBFFF0000) {
+                if (!upval || upval < 0x10000 || upval > 0xFFE00000) {
                     g_misses++;
                     return orig(L, funcindex, n);
                 }
                 val_ptr = *(uintptr_t*)(upval + 12);
-                if (!val_ptr || val_ptr < 0x10000 || val_ptr > 0xBFFF0000) {
+                if (!val_ptr || val_ptr < 0x10000 || val_ptr > 0xFFE00000) {
                     g_misses++;
                     return orig(L, funcindex, n);
                 }

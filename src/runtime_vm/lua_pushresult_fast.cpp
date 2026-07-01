@@ -23,7 +23,7 @@ static pushresult_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t B) {
-    if (B < 0x10000 || B > 0xBFFF0000) {
+    if (B < 0x10000 || B > 0xFFE00000) {
         g_misses++;
         return orig(B);
     }

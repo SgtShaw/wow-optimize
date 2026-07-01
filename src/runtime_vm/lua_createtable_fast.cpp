@@ -21,7 +21,7 @@ static createtable_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int narray, int nhash) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, narray, nhash); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, narray, nhash); }
 
     // Only optimize the trivial (0,0) case
     if (narray != 0 || nhash != 0) { g_misses++; return orig(L, narray, nhash); }
@@ -41,7 +41,7 @@ static int __cdecl hook(uintptr_t L, int narray, int nhash) {
 
         // Push onto stack: tt=5 (LUA_TTABLE)
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
-        if (new_top < 0x10000 || new_top > 0xBFFF0000) { g_misses++; return orig(L, narray, nhash); }
+        if (new_top < 0x10000 || new_top > 0xFFE00000) { g_misses++; return orig(L, narray, nhash); }
         uint32_t taint = *(uint32_t*)TAINT_CELL;
         *(uintptr_t*)(new_top + 0) = table;
         *(uint32_t*)(new_top + 4) = 0;

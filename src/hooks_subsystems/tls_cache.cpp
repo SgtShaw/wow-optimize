@@ -115,7 +115,7 @@ int __cdecl Hooked_4D4DB0(__int64 a1, int a2)
 
     if (e->result && e->lo == lo && e->hi == hi && e->mask == a2) {
         uintptr_t r = (uintptr_t)(unsigned)e->result;
-        if (r > 0x10000 && r < 0xBFFF0000) {
+        if (r > 0x10000 && r < 0xFFE00000) {
             __try {
                 // Same compare sub_4D4BB0 uses to identify the row: the object's
                 // own GUID dwords. If it still matches, the object is alive.

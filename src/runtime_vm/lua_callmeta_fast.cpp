@@ -20,7 +20,7 @@ static callmeta_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, int obj, const char* event) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, obj, event); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, obj, event); }
     if (!event) { g_misses++; return orig(L, obj, event); }
 
     __try {

@@ -43,7 +43,7 @@ static inline int lua_type_raw(uintptr_t tv, uintptr_t nil_addr) {
 }
 
 static int __cdecl hook(uintptr_t L, unsigned int idx) {
-    if (L < 0x10000 || L > 0xBFFF0000)
+    if (L < 0x10000 || L > 0xFFE00000)
         return orig(L, idx);
     __try {
         unsigned int real_idx = idx;

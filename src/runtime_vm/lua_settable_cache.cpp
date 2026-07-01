@@ -38,7 +38,7 @@ static volatile LONG64 g_stMisses = 0;
 // Safe Memory Probe
 // ================================================================
 static inline bool IsSafeRead4(uintptr_t addr) {
-    if (addr < 0x10000 || addr > 0xBFFF0000) return false;
+    if (addr < 0x10000 || addr > 0xFFE00000) return false;
     MEMORY_BASIC_INFORMATION mbi;
     if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
     return (mbi.State == MEM_COMMIT && !(mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)));

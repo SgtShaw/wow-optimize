@@ -22,7 +22,7 @@ static register_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
 static int __cdecl hook(uintptr_t L, const char* name, uintptr_t* funcs, int nup) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, name, funcs, nup); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, name, funcs, nup); }
     // Only the simplest engine path is replicated here: libname == NULL means
     // "register into the table already on top of the stack" (no _LOADED/globals
     // module-table creation, no name-conflict checks), and nup == 0 means no

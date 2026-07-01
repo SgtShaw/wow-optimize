@@ -24,7 +24,7 @@ static const char* __cdecl hook(
     uintptr_t L, const char* fmt,
     uintptr_t a3, uintptr_t a4, uintptr_t a5, uintptr_t a6, uintptr_t a7, uintptr_t a8
 ) {
-    if (L < 0x10000 || L > 0xBFFF0000) {
+    if (L < 0x10000 || L > 0xFFE00000) {
         g_misses++;
         return orig(L, fmt, a3, a4, a5, a6, a7, a8);
     }

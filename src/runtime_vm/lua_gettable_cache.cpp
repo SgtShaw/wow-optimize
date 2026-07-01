@@ -70,7 +70,7 @@ static void* __cdecl Hooked_luaV_gettable(int L, int* table, int* key, void* res
                 uintptr_t tablePtr = (uintptr_t)table[0];
                 uint64_t keyId = ComputeKeyIdentity(key);
 
-                if (tablePtr > 0x10000 && tablePtr < 0xBFFF0000 && keyId != 0) {
+                if (tablePtr > 0x10000 && tablePtr < 0xFFE00000 && keyId != 0) {
                     uint32_t idx = HashEntry(tablePtr, keyId);
                     GetTableCacheEntry* e = &g_gettableCache[idx];
 
@@ -142,7 +142,7 @@ static void* __cdecl Hooked_luaV_settable(int L, int* table, int* key, int* val)
             if (tableTT == 5 && (keyTT == 4 || keyTT == 3)) {
                 uintptr_t tablePtr = (uintptr_t)table[0];
                 uint64_t keyId = ComputeKeyIdentity(key);
-                if (tablePtr > 0x10000 && tablePtr < 0xBFFF0000 && keyId != 0) {
+                if (tablePtr > 0x10000 && tablePtr < 0xFFE00000 && keyId != 0) {
                     InvalidateGetTableCache(tablePtr, keyId, keyTT);
                 }
             }

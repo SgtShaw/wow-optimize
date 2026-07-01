@@ -42,14 +42,14 @@ static int __cdecl Optimized_PushNumber(void* L, double n)
 
     // Validate L pointer
     uintptr_t L_addr = (uintptr_t)L;
-    if (L_addr < 0x10000 || L_addr > 0xBFFF0000) {
+    if (L_addr < 0x10000 || L_addr > 0xFFE00000) {
         return g_orig_pushnumber(L, n);
     }
 
     __try {
         // Read L->top
         DWORD* top = *(DWORD**)(L_addr + 0x0C);
-        if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xBFFF0000) {
+        if (!top || (uintptr_t)top < 0x10000 || (uintptr_t)top > 0xFFE00000) {
             return g_orig_pushnumber(L, n);
         }
         

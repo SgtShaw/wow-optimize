@@ -168,7 +168,7 @@ static void HotPatch_PrefetchCleanupSibling(void* block) {
     __try {
         // Prefetch next sibling in the cleanup chain (offset +4 = sibling ptr)
         void* sibling = *((void**)block + 1);
-        if (sibling && (uintptr_t)sibling > 0x10000 && (uintptr_t)sibling < 0xBFFF0000) {
+        if (sibling && (uintptr_t)sibling > 0x10000 && (uintptr_t)sibling < 0xFFE00000) {
             _mm_prefetch((char*)sibling, _MM_HINT_T0);
             _InterlockedIncrement(&g_n6Hits);
         }

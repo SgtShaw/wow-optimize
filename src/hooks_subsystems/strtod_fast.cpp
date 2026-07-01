@@ -63,7 +63,7 @@ static __forceinline bool FastParseInt(const char* s, double* out) {
 static BOOL __cdecl Hooked_StrtodHelper(const char* String, double* a2) {
     ++g_strtodCalls;
     
-    if (!String || !a2 || (uintptr_t)String < 0x10000 || (uintptr_t)String > 0xBFFF0000) {
+    if (!String || !a2 || (uintptr_t)String < 0x10000 || (uintptr_t)String > 0xFFE00000) {
         return FALSE;
     }
 

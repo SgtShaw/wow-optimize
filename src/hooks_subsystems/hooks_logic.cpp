@@ -368,7 +368,7 @@ static void InvalidateScriptCache() {
 // ================================================================
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
-    return (gL < 0x10000 || gL > 0xBFFF0000);
+    return (gL < 0x10000 || gL > 0xFFE00000);
 }
 
 typedef int (__cdecl* LuaFunc_t)(uintptr_t L);

@@ -28,13 +28,13 @@ static size_t my_strlen(const char* s) {
 }
 
 static int __cdecl hook(uintptr_t L, const char* s) {
-    if (L < 0x10000 || L > 0xBFFF0000) { g_misses++; return orig(L, s); }
+    if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, s); }
 
     // NULL string → push nil — defer to original
     if (!s) { g_misses++; return orig(L, s); }
 
     __try {
-        if ((uintptr_t)s < 0x10000 || (uintptr_t)s > 0xBFFF0000) { g_misses++; return orig(L, s); }
+        if ((uintptr_t)s < 0x10000 || (uintptr_t)s > 0xFFE00000) { g_misses++; return orig(L, s); }
 
         // GC threshold check — identical to sub_84E300 (before reading top)
         // This mirrors: if (g->totalbytes >= g->GCthreshold) luaC_step(L)
@@ -46,7 +46,7 @@ static int __cdecl hook(uintptr_t L, const char* s) {
 
         // Read L->top AFTER the GC check (GC may reallocate the stack)
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (top < 0x10000 || top > 0xBFFF0000) { g_misses++; return orig(L, s); }
+        if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L, s); }
 
         size_t len = my_strlen(s);
 
@@ -59,7 +59,7 @@ static int __cdecl hook(uintptr_t L, const char* s) {
         // Intern string — may trigger GC → may reallocate the Lua stack.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);
         uintptr_t ts = ((newlstr_fn)0x00856C80)(L, s, len);
-        if (ts < 0x10000 || ts > 0xBFFF0000) { g_misses++; return orig(L, s); }
+        if (ts < 0x10000 || ts > 0xFFE00000) { g_misses++; return orig(L, s); }
 
         // Re-read L->top after the call, in case GC reallocated the Lua stack!
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);

@@ -21,7 +21,7 @@ static buffinit_fn orig = nullptr;
 static volatile long g_hits = 0;
 
 static uintptr_t __cdecl hook(uintptr_t L, uintptr_t B) {
-    if (L > 0x10000 && L < 0xBFFF0000 && B > 0x10000 && B < 0xBFFF0000) {
+    if (L > 0x10000 && L < 0xFFE00000 && B > 0x10000 && B < 0xFFE00000) {
         __try {
             *(uintptr_t*)(B + 8) = L;
             *(uintptr_t*)(B) = B + 12;

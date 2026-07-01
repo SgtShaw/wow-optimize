@@ -43,12 +43,12 @@ static const uintptr_t NIL_OBJECT = 0x00A46F78;
 extern "C" bool LuaOpt_IsTeardown();
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
-    return (gL < 0x10000 || gL > 0xBFFF0000);
+    return (gL < 0x10000 || gL > 0xFFE00000);
 }
 
 // Pointer sanity
 static __forceinline bool IsValidPtr(uintptr_t p) {
-    return p > 0x10000 && p < 0xBFFF0000;
+    return p > 0x10000 && p < 0xFFE00000;
 }
 
 // Shared inline index resolution (positive/negative stack indices only)
