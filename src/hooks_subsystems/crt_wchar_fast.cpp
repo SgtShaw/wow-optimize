@@ -70,6 +70,9 @@ fallback:
     return orig_wcscpy(dst, src);
 }
 
+static void* g_target_wcslen = nullptr;
+static void* g_target_wcscpy = nullptr;
+
 bool InstallCrtWcharSSE2() {
     return false;  // Broken: ASCII wchar_t (0x00XX) have zero high byte,
     // _mm_cmpeq_epi8 finds zero at position 1, returns length 0. Needs
@@ -82,9 +85,15 @@ bool InstallCrtWcharSSE2() {
     void* pWcslen = GetProcAddress(crt, "wcslen");
     void* pWcscpy = GetProcAddress(crt, "wcscpy");
     if (pWcslen && MH_CreateHook(pWcslen, (void*)Hooked_wcslen, (void**)&orig_wcslen) == MH_OK
-        && MH_EnableHook(pWcslen) == MH_OK) ok++;
+        && MH_EnableHook(pWcslen) == MH_OK) {
+        g_target_wcslen = pWcslen;
+        ok++;
+    }
     if (pWcscpy && MH_CreateHook(pWcscpy, (void*)Hooked_wcscpy, (void**)&orig_wcscpy) == MH_OK
-        && MH_EnableHook(pWcscpy) == MH_OK) ok++;
+        && MH_EnableHook(pWcscpy) == MH_OK) {
+        g_target_wcscpy = pWcscpy;
+        ok++;
+    }
     if (ok > 0) {
         Log("[CrtWchar] Active: wcslen+wcscpy SSE2 (%d/2 hooked, page-boundary guarded)", ok);
         return true;
@@ -93,8 +102,8 @@ bool InstallCrtWcharSSE2() {
 }
 
 void ShutdownCrtWcharSSE2() {
-    if (orig_wcslen) MH_DisableHook((void*)orig_wcslen);
-    if (orig_wcscpy) MH_DisableHook((void*)orig_wcscpy);
+    if (g_target_wcslen) MH_DisableHook(g_target_wcslen);
+    if (g_target_wcscpy) MH_DisableHook(g_target_wcscpy);
 }
 
 #else

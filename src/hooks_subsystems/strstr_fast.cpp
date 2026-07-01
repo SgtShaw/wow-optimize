@@ -95,30 +95,39 @@ static const char* __cdecl Hooked_strstr(const char* haystack, const char* needl
     return nullptr;
 }
 
+static void* g_target_strstr = nullptr;
+
 bool InstallStrstrSSE2() {
     HMODULE crt = GetModuleHandleA("msvcrt.dll");
     if (!crt) crt = GetModuleHandleA("ucrtbase.dll");
     if (!crt) {
         void* addr = GetProcAddress(GetModuleHandleA("ntdll.dll"), "strstr");
         if (addr) {
-            MH_CreateHook(addr, (void*)Hooked_strstr, (void**)&orig_strstr);
-            MH_EnableHook(addr);
-            Log("[StrstrSSE2] Active via ntdll!strstr");
-            return true;
+            if (MH_CreateHook(addr, (void*)Hooked_strstr, (void**)&orig_strstr) == MH_OK) {
+                if (MH_EnableHook(addr) == MH_OK) {
+                    g_target_strstr = addr;
+                    Log("[StrstrSSE2] Active via ntdll!strstr");
+                    return true;
+                }
+            }
         }
         return false;
     }
     void* addr = GetProcAddress(crt, "strstr");
     if (!addr) return false;
-    MH_CreateHook(addr, (void*)Hooked_strstr, (void**)&orig_strstr);
-    MH_EnableHook(addr);
-    Log("[StrstrSSE2] Active: SSE2 Boyer-Moore-Horspool for patterns upto 16 bytes");
-    return true;
+    if (MH_CreateHook(addr, (void*)Hooked_strstr, (void**)&orig_strstr) == MH_OK) {
+        if (MH_EnableHook(addr) == MH_OK) {
+            g_target_strstr = addr;
+            Log("[StrstrSSE2] Active: SSE2 Boyer-Moore-Horspool for patterns upto 16 bytes");
+            return true;
+        }
+    }
+    return false;
 }
 
 void ShutdownStrstrSSE2() {
-    if (orig_strstr) {
-        MH_DisableHook((void*)orig_strstr);
+    if (g_target_strstr) {
+        MH_DisableHook(g_target_strstr);
     }
     Log("[StrstrSSE2] Calls: %lld fast, SSE2 hit rate: %.1f%%", g_fast, g_calls ? 100.0 * g_fast / g_calls : 0.0);
 }
