@@ -292,13 +292,19 @@ extern "C" void IncrementParticleFrameCount();
 // during crash investigation. Set to 1 to DISABLE the feature.
 // These are compile-time flags for debugging builds.
 // ================================================================
+#ifndef CRASH_TEST_DISABLE_COMPARESTRING
 #define CRASH_TEST_DISABLE_COMPARESTRING   0   // CompareStringA fast path
+#endif
+#ifndef CRASH_TEST_DISABLE_GETFILEATTR
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
+#endif
 #define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc->mimalloc DISABLED: only GlobalAlloc/Free were hooked, not GlobalSize/Lock/ReAlloc/Handle, so the Global* family was inconsistent. The d3d9->OpenGL wrapper's driver thread called GlobalAlloc(GMEM_ZEROINIT, large) -> mi_calloc whose zeroing memset ran off the block into an unmapped system page (verified #132 AV in VCRUNTIME140 memset, caller = this hook, nvoglv32/d3d9 worker thread). WoW barely uses GlobalAlloc; redirect is negligible benefit. CRT malloc/free redirect (the real mimalloc win) is unaffected.
 #define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
+#ifndef CRASH_TEST_DISABLE_SETFILEPOINTER
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
+#endif
 #define CRASH_TEST_DISABLE_READFILE        1   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
@@ -313,9 +319,13 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED - 0 hits)
 
 // Feature toggles for hooks
+#ifndef CRASH_TEST_DISABLE_GETFILESIZE_CACHE
 #define CRASH_TEST_DISABLE_GETFILESIZE_CACHE    0   // GetFileSizeEx cache - ENABLED (tested stable by Morbent + Billy Hoyle)
+#endif
 #define CRASH_TEST_DISABLE_WFS_SPIN             1   // WaitForSingleObject spin (DISABLED - tested bad, crashes WoW)
+#ifndef CRASH_TEST_DISABLE_MODHANDLE_CACHE
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
+#endif
 #define CRASH_TEST_DISABLE_LSTRCMP              1   // lstrcmp/lstrcmpiA fast path - DISABLED: buggy length comparison instead of dictionary order broke CVar sorting/registry
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
@@ -331,7 +341,7 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef TEST_DISABLE_RAWGET_INLINE
 #define TEST_DISABLE_RAWGET_INLINE              0   // lua_rawget inline fast path using direct stack resolution and luaH_get (0x85C470) detour.
 #endif
-#define TEST_DISABLE_STRTOD_FAST                1   // disabled: string→number path can corrupt stack
+#define TEST_DISABLE_STRTOD_FAST                0   // enabled: safe string->number fast path
 #ifndef TEST_DISABLE_GETSTR_INLINE
 #define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xBFFF0000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
 #endif
@@ -340,7 +350,7 @@ extern "C" void IncrementParticleFrameCount();
 // (TEST_ENABLE_WS_AGGRESSIVE_PIN lives in wow_memory_opt.cpp, where the working set is set.)
 #define TEST_ENABLE_LARGE_PAGES         1   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
-#define CRASH_TEST_DISABLE_WOW_STRLEN           1   // sub_76EE30 WoW-internal strlen - DISABLED (SSE2 replacement was unsafe without SEH backstop)
+#define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - ENABLED (SSE2 replacement protected with SEH backstop)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      TEST_DISABLE_STREAM_FASTPATH   // sub_47B3C0/sub_47B0A0 - controlled by version.h
 
 // Definition for the WO_EnableHook batching wrapper declared in version.h.
@@ -7342,39 +7352,43 @@ static unsigned int __stdcall hooked_strlen76(const char* str) {
         return orig_strlen76(str); // NULL → error handler (0x57)
     }
 
-    // Scan must be 16-byte aligned. An unaligned _mm_loadu_si128 can straddle a
-    // page boundary; when a valid string terminates within 15 bytes of the end
-    // of a committed page and the next page is unmapped/decommitted, the load
-    // faults reading bytes past the terminator. That overrun is what crashed at
-    // RVA 0xA980 during login/logout/char-swap, when heavy string churn (300+
-    // callers) coincides with the heap committing/decommitting pages.
-    //
-    // Aligning the base down to 16 bytes guarantees every _mm_load_si128 stays
-    // inside one 4 KiB page (4096 % 16 == 0), so the scan never reads into a
-    // page that the string itself does not occupy — exactly as safe as the
-    // byte-by-byte function it replaces. The first chunk's leading bytes (those
-    // before str) are masked out so they cannot produce a false terminator.
-    const __m128i zero = _mm_setzero_si128();
-    uintptr_t   addr = (uintptr_t)str;
-    const char* base = (const char*)(addr & ~(uintptr_t)15);
-    unsigned    off  = (unsigned)(addr & 15);
+    __try {
+        // Scan must be 16-byte aligned. An unaligned _mm_loadu_si128 can straddle a
+        // page boundary; when a valid string terminates within 15 bytes of the end
+        // of a committed page and the next page is unmapped/decommitted, the load
+        // faults reading bytes past the terminator. That overrun is what crashed at
+        // RVA 0xA980 during login/logout/char-swap, when heavy string churn (300+
+        // callers) coincides with the heap committing/decommitting pages.
+        //
+        // Aligning the base down to 16 bytes guarantees every _mm_load_si128 stays
+        // inside one 4 KiB page (4096 % 16 == 0), so the scan never reads into a
+        // page that the string itself does not occupy — exactly as safe as the
+        // byte-by-byte function it replaces. The first chunk's leading bytes (those
+        // before str) are masked out so they cannot produce a false terminator.
+        const __m128i zero = _mm_setzero_si128();
+        uintptr_t   addr = (uintptr_t)str;
+        const char* base = (const char*)(addr & ~(uintptr_t)15);
+        unsigned    off  = (unsigned)(addr & 15);
 
-    int mask = _mm_movemask_epi8(
-        _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)base), zero)) >> off;
-    if (mask) {
-        unsigned long idx;
-        _BitScanForward(&idx, (unsigned long)mask);
-        return (unsigned int)idx;
-    }
-
-    for (const char* p = base + 16; ; p += 16) {
-        mask = _mm_movemask_epi8(
-            _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)p), zero));
+        int mask = _mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)base), zero)) >> off;
         if (mask) {
             unsigned long idx;
             _BitScanForward(&idx, (unsigned long)mask);
-            return (unsigned int)((size_t)(p - str) + idx);
+            return (unsigned int)idx;
         }
+
+        for (const char* p = base + 16; ; p += 16) {
+            mask = _mm_movemask_epi8(
+                _mm_cmpeq_epi8(_mm_load_si128((const __m128i*)p), zero));
+            if (mask) {
+                unsigned long idx;
+                _BitScanForward(&idx, (unsigned long)mask);
+                return (unsigned int)((size_t)(p - str) + idx);
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return orig_strlen76(str);
     }
 }
 
