@@ -350,6 +350,7 @@ volatile long g_hookBatchMode = 0;
 
 // Forward declaration for CRT fast paths (defined in crt_mem_fastpath.cpp)
 extern bool InstallCrtMemFastPaths();
+extern void ShutdownCrtMemFastPaths();
 extern bool InstallUIAccessorFast();
 extern void ShutdownUIAccessorFast();
 extern bool InstallFontMetricsFast();
@@ -8356,6 +8357,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LuaBytecodeCache::Shutdown();
             ShutdownStrstrSSE2();
             ShutdownCrtCharSSE2();
+            ShutdownCrtMemFastPaths();
             ShutdownCrtWcharSSE2();
             ShutdownAddonPreload();
             ApiCache::Shutdown();

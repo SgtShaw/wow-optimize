@@ -341,9 +341,13 @@ fallback:
     return orig_memset ? orig_memset(dst, c, n) : dst;
 }
 
-// ================================================================
-// Installation
-// ================================================================
+static void* g_target_strlen = nullptr;
+static void* g_target_strcmp = nullptr;
+static void* g_target_memcmp = nullptr;
+static void* g_target_memcpy = nullptr;
+static void* g_target_memset = nullptr;
+static void* g_target_strncmp = nullptr;
+
 bool InstallCrtMemFastPaths() {
 #if TEST_DISABLE_CRT_MEM_FASTPATHS
     Log("[CRT] Fast paths: DISABLED");
@@ -353,21 +357,22 @@ bool InstallCrtMemFastPaths() {
     if (!hCRT) { Log("[CRT] msvcrt.dll not found"); return false; }
 
     int ok = 0;
-    auto tryHook = [&](const char* name, void* hook, void** orig) {
+    auto tryHook = [&](const char* name, void* hook, void** orig, void** target) {
         void* p = GetProcAddress(hCRT, name);
         if (p && MH_CreateHook(p, hook, orig) == MH_OK && WO_EnableHook(p) == MH_OK) {
+            *target = p;
             ok++;
             return true;
         }
         return false;
     };
 
-    tryHook("strlen", (void*)hooked_strlen, (void**)&orig_strlen);
-    tryHook("strcmp", (void*)hooked_strcmp, (void**)&orig_strcmp);
-    tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp);
-    tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy);
-    tryHook("memset", (void*)hooked_memset, (void**)&orig_memset);
-    tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp);
+    tryHook("strlen", (void*)hooked_strlen, (void**)&orig_strlen, &g_target_strlen);
+    tryHook("strcmp", (void*)hooked_strcmp, (void**)&orig_strcmp, &g_target_strcmp);
+    tryHook("memcmp", (void*)hooked_memcmp, (void**)&orig_memcmp, &g_target_memcmp);
+    tryHook("memcpy", (void*)hooked_memcpy, (void**)&orig_memcpy, &g_target_memcpy);
+    tryHook("memset", (void*)hooked_memset, (void**)&orig_memset, &g_target_memset);
+    tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp, &g_target_strncmp);
 
     // Set the init-readiness gate AFTER all originals are captured.
     // This prevents hooks from firing during the install sequence
@@ -381,4 +386,14 @@ bool InstallCrtMemFastPaths() {
     Log("[CRT] Fast paths: FAILED (no hooks installed)");
     return false;
 #endif
+}
+
+void ShutdownCrtMemFastPaths() {
+    InterlockedExchange(&g_crtReady, 0);
+    if (g_target_strlen)  MH_DisableHook(g_target_strlen);
+    if (g_target_strcmp)  MH_DisableHook(g_target_strcmp);
+    if (g_target_memcmp)  MH_DisableHook(g_target_memcmp);
+    if (g_target_memcpy)  MH_DisableHook(g_target_memcpy);
+    if (g_target_memset)  MH_DisableHook(g_target_memset);
+    if (g_target_strncmp) MH_DisableHook(g_target_strncmp);
 }

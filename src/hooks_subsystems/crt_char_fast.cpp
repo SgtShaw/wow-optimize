@@ -219,21 +219,29 @@ fallback:
     return orig_strcat(dst, src);
 }
 
+static void* g_target_memchr = nullptr;
+static void* g_target_strchr = nullptr;
+static void* g_target_strcpy = nullptr;
+static void* g_target_strcat = nullptr;
+
 bool InstallCrtCharSSE2() {
     HMODULE crt = GetModuleHandleA("msvcrt.dll");
     if (!crt) crt = GetModuleHandleA("ucrtbase.dll");
     if (!crt) { Log("[CrtChar] msvcrt/ucrtbase not found"); return false; }
 
     int ok = 0;
-    auto tryHook = [&](const char* name, void* hook, void** orig) {
+    auto tryHook = [&](const char* name, void* hook, void** orig, void** target) {
         void* p = GetProcAddress(crt, name);
-        if (p && MH_CreateHook(p, hook, orig) == MH_OK && MH_EnableHook(p) == MH_OK) ok++;
+        if (p && MH_CreateHook(p, hook, orig) == MH_OK && MH_EnableHook(p) == MH_OK) {
+            *target = p;
+            ok++;
+        }
     };
 
-    tryHook("memchr",  (void*)Hooked_memchr,  (void**)&orig_memchr);
-    tryHook("strchr",  (void*)Hooked_strchr,  (void**)&orig_strchr);
-    tryHook("strcpy",  (void*)Hooked_strcpy,  (void**)&orig_strcpy);
-    tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat);
+    tryHook("memchr",  (void*)Hooked_memchr,  (void**)&orig_memchr, &g_target_memchr);
+    tryHook("strchr",  (void*)Hooked_strchr,  (void**)&orig_strchr, &g_target_strchr);
+    tryHook("strcpy",  (void*)Hooked_strcpy,  (void**)&orig_strcpy, &g_target_strcpy);
+    tryHook("strcat",  (void*)Hooked_strcat,  (void**)&orig_strcat, &g_target_strcat);
 
     if (ok > 0) {
         Log("[CrtChar] Active: memchr+strchr+strcpy+strcat SSE2 (%d/4 hooked, page-boundary guarded)", ok);
@@ -244,10 +252,10 @@ bool InstallCrtCharSSE2() {
 }
 
 void ShutdownCrtCharSSE2() {
-    if (orig_memchr)  MH_DisableHook((void*)orig_memchr);
-    if (orig_strchr)  MH_DisableHook((void*)orig_strchr);
-    if (orig_strcpy)  MH_DisableHook((void*)orig_strcpy);
-    if (orig_strcat)  MH_DisableHook((void*)orig_strcat);
+    if (g_target_memchr) MH_DisableHook(g_target_memchr);
+    if (g_target_strchr) MH_DisableHook(g_target_strchr);
+    if (g_target_strcpy) MH_DisableHook(g_target_strcpy);
+    if (g_target_strcat) MH_DisableHook(g_target_strcat);
 }
 
 #else
