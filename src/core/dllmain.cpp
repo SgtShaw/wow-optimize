@@ -298,7 +298,9 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef CRASH_TEST_DISABLE_GETFILEATTR
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
 #endif
-#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc->mimalloc DISABLED: only GlobalAlloc/Free were hooked, not GlobalSize/Lock/ReAlloc/Handle, so the Global* family was inconsistent. The d3d9->OpenGL wrapper's driver thread called GlobalAlloc(GMEM_ZEROINIT, large) -> mi_calloc whose zeroing memset ran off the block into an unmapped system page (verified #132 AV in VCRUNTIME140 memset, caller = this hook, nvoglv32/d3d9 worker thread). WoW barely uses GlobalAlloc; redirect is negligible benefit. CRT malloc/free redirect (the real mimalloc win) is unaffected.
+#ifndef CRASH_TEST_DISABLE_GLOBALALLOC
+#define CRASH_TEST_DISABLE_GLOBALALLOC     0   // GlobalAlloc->mimalloc (enabled with consistency fixes)
+#endif
 #define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)
 #define CRASH_TEST_DISABLE_CS_SPIN         1   // CriticalSection spin count 8000 (causes login crash)
@@ -313,7 +315,9 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_LUA_INTERNALS   0   // Lua VM internals (concat hook)
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
-#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc - causes address space fragmentation (LargestBlock=2MB → M2 model OOM on teleport)
+#ifndef CRASH_TEST_DISABLE_VA_ARENA
+#define CRASH_TEST_DISABLE_VA_ARENA          0   // VA Arena virtual alloc (enabled with memory limit fix)
+#endif
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED - 0 hits)
 #define CRASH_TEST_DISABLE_SUBTASK_EVENTPOOL 1   // Subtask event pool (ALREADY DISABLED - 0 hits)
@@ -330,7 +334,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
-#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     1   // luaH_resize table rehash prevention
+#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr OLD pointer cache DISABLED - replaced by safe v2 in lua_getstr_inline.cpp
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
@@ -373,7 +377,7 @@ static bool InstallThreadAffinity();
 static void InstallWineSTIPNoop();
 
 #define VA_ARENA_PAGE_SIZE  4096
-#define VA_ARENA_MAX_PAGES  131072  // 512MB
+#define VA_ARENA_MAX_PAGES  16384   // 64MB
 #define VA_ARENA_BITMAP_SIZE (VA_ARENA_MAX_PAGES / 64)
 
 typedef LPVOID (WINAPI* VirtualAlloc_fn)(LPVOID, SIZE_T, DWORD, DWORD);
@@ -2240,11 +2244,13 @@ typedef LPVOID (WINAPI* HeapAlloc_fn)(HANDLE, DWORD, SIZE_T);
 typedef BOOL   (WINAPI* HeapFree_fn)(HANDLE, DWORD, LPVOID);
 typedef LPVOID (WINAPI* HeapReAlloc_fn)(HANDLE, DWORD, LPVOID, SIZE_T);
 typedef SIZE_T (WINAPI* HeapSize_fn)(HANDLE, DWORD, LPCVOID);
+typedef BOOL   (WINAPI* HeapValidate_fn)(HANDLE, DWORD, LPCVOID);
 
-static HeapAlloc_fn  orig_HeapAlloc  = nullptr;
-static HeapFree_fn   orig_HeapFree   = nullptr;
-static HeapReAlloc_fn orig_HeapReAlloc = nullptr;
-static HeapSize_fn   orig_HeapSize   = nullptr;
+static HeapAlloc_fn    orig_HeapAlloc  = nullptr;
+static HeapFree_fn     orig_HeapFree   = nullptr;
+static HeapReAlloc_fn  orig_HeapReAlloc = nullptr;
+static HeapSize_fn     orig_HeapSize   = nullptr;
+static HeapValidate_fn orig_HeapValidate = nullptr;
 static HANDLE        g_processHeap   = nullptr;
 static long          g_heapAllocHits  = 0;
 
@@ -2286,6 +2292,13 @@ static SIZE_T WINAPI hooked_HeapSize(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMem)
     return orig_HeapSize(hHeap, dwFlags, lpMem);
 }
 
+static BOOL WINAPI hooked_HeapValidate(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMem) {
+    if (lpMem && mi_is_in_heap_region((void*)lpMem)) {
+        return TRUE;
+    }
+    return orig_HeapValidate(hHeap, dwFlags, lpMem);
+}
+
 static bool InstallHeapRedirectToMimalloc() {
     g_processHeap = GetProcessHeap();
     if (!g_processHeap) return false;
@@ -2304,18 +2317,21 @@ static bool InstallHeapRedirectToMimalloc() {
     if (p && MH_CreateHook(p, (void*)hooked_HeapReAlloc, (void**)&orig_HeapReAlloc) == MH_OK) ok++;
     p = (void*)GetProcAddress(hK32, "HeapSize");
     if (p && MH_CreateHook(p, (void*)hooked_HeapSize, (void**)&orig_HeapSize) == MH_OK) ok++;
+    p = (void*)GetProcAddress(hK32, "HeapValidate");
+    if (p && MH_CreateHook(p, (void*)hooked_HeapValidate, (void**)&orig_HeapValidate) == MH_OK) ok++;
 
-    if (ok == 4) {
+    if (ok == 5) {
         // Enable individually through WO_EnableHook so they batch with the rest of
         // MainThread's init sequence instead of flushing the queue prematurely.
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapAlloc"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapFree"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapReAlloc"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapSize"));
-        Log("Heap redirect: ACTIVE (4/4 hooks, process heap -> mimalloc)");
+        WO_EnableHook((void*)GetProcAddress(hK32, "HeapValidate"));
+        Log("Heap redirect: ACTIVE (5/5 hooks, process heap -> mimalloc)");
         return true;
     }
-    Log("Heap redirect: FAILED (%d/4 hooks installed)", ok);
+    Log("Heap redirect: FAILED (%d/5 hooks installed)", ok);
     return false;
 }
 
@@ -2545,8 +2561,13 @@ static bool InstallSetFilePointerHook() {
 
 typedef HGLOBAL (WINAPI* GlobalAlloc_fn)(UINT, SIZE_T);
 typedef HGLOBAL (WINAPI* GlobalFree_fn)(HGLOBAL);
-static GlobalAlloc_fn orig_GlobalAlloc = nullptr;
-static GlobalFree_fn  orig_GlobalFree  = nullptr;
+typedef SIZE_T  (WINAPI* GlobalSize_fn)(HGLOBAL);
+typedef HGLOBAL (WINAPI* GlobalReAlloc_fn)(HGLOBAL, SIZE_T, UINT);
+
+static GlobalAlloc_fn   orig_GlobalAlloc = nullptr;
+static GlobalFree_fn    orig_GlobalFree  = nullptr;
+static GlobalSize_fn    orig_GlobalSize   = nullptr;
+static GlobalReAlloc_fn orig_GlobalReAlloc = nullptr;
 static long g_globalAllocFast = 0;
 
 static HGLOBAL WINAPI hooked_GlobalAlloc(UINT uFlags, SIZE_T dwBytes) {
@@ -2575,6 +2596,31 @@ static HGLOBAL WINAPI hooked_GlobalFree(HGLOBAL hMem) {
     return orig_GlobalFree(hMem);
 }
 
+static SIZE_T WINAPI hooked_GlobalSize(HGLOBAL hMem) {
+    if (hMem && mi_is_in_heap_region(hMem)) {
+        return mi_usable_size(hMem);
+    }
+    return orig_GlobalSize(hMem);
+}
+
+static HGLOBAL WINAPI hooked_GlobalReAlloc(HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags) {
+    if (hMem && mi_is_in_heap_region(hMem)) {
+        if (dwBytes == 0) {
+            mi_free(hMem);
+            return NULL;
+        }
+        void* ptr = mi_realloc(hMem, dwBytes);
+        if (ptr && (uFlags & GMEM_ZEROINIT)) {
+            size_t usable = mi_usable_size(ptr);
+            if (dwBytes > usable) {
+                memset((char*)ptr + usable, 0, dwBytes - usable);
+            }
+        }
+        return (HGLOBAL)ptr;
+    }
+    return orig_GlobalReAlloc(hMem, dwBytes, uFlags);
+}
+
 static bool InstallGlobalAllocHooks() {
 #if CRASH_TEST_DISABLE_GLOBALALLOC
     Log("GlobalAlloc hooks: DISABLED (crash isolation)");
@@ -2593,10 +2639,19 @@ static bool InstallGlobalAllocHooks() {
     if (pF && MH_CreateHook(pF, (void*)hooked_GlobalFree, (void**)&orig_GlobalFree) == MH_OK)
         if (WO_EnableHook(pF) == MH_OK) ok++;
 
-    if (ok > 0) {
-        Log("GlobalAlloc hooks: ACTIVE (%d/2, mimalloc for GMEM_FIXED)", ok);
+    void* pS = (void*)GetProcAddress(hK32, "GlobalSize");
+    if (pS && MH_CreateHook(pS, (void*)hooked_GlobalSize, (void**)&orig_GlobalSize) == MH_OK)
+        if (WO_EnableHook(pS) == MH_OK) ok++;
+
+    void* pR = (void*)GetProcAddress(hK32, "GlobalReAlloc");
+    if (pR && MH_CreateHook(pR, (void*)hooked_GlobalReAlloc, (void**)&orig_GlobalReAlloc) == MH_OK)
+        if (WO_EnableHook(pR) == MH_OK) ok++;
+
+    if (ok == 4) {
+        Log("GlobalAlloc hooks: ACTIVE (4/4, mimalloc for GMEM_FIXED)");
         return true;
     }
+    Log("GlobalAlloc hooks: FAILED (%d/4 installed)", ok);
     return false;
 #endif
 }

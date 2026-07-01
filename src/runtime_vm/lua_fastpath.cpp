@@ -132,6 +132,10 @@ static inline RawTValue* GetStackTopFast(lua_State* L) {
     return *(RawTValue**)((uintptr_t)L + 0x0C);
 }
 
+static inline RawTValue* GetStackLastFast(lua_State* L) {
+    return *(RawTValue**)((uintptr_t)L + 0x20);
+}
+
 static inline void SetStackTopFast(lua_State* L, RawTValue* top) {
     *(RawTValue**)((uintptr_t)L + 0x0C) = top;
 }
@@ -1828,7 +1832,7 @@ static int __cdecl Hooked_RawGet_Global(lua_State* L) {
             resultSlot = (RawTValue*)luaH_get_(tablePtr, keySlot);
         }
 
-        if (!resultSlot) {
+        if (!resultSlot || !IsReadableMemory((uintptr_t)resultSlot) || !IsReadableMemory((uintptr_t)resultSlot + sizeof(RawTValue))) {
             NoteRawGetFallback();
             return orig_luaB_rawget(L);
         }
@@ -1887,6 +1891,15 @@ static int __cdecl Hooked_RawSet_Global(lua_State* L) {
             NoteRawSetFallback();
             return orig_luaB_rawset(L);
         }
+
+        // Refresh stack pointers in case stack reallocated inside luaH_set_
+        base = GetStackBaseFast(L);
+        if (!base) {
+            NoteRawSetFallback();
+            return orig_luaB_rawset(L);
+        }
+        tableSlot = base;
+        valueSlot = base + 2;
 
         // SAFETY: validate destination pointer before write
         if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
@@ -2143,6 +2156,9 @@ static int __cdecl Hooked_TableRemove(lua_State* L) {
             return orig_tbl_remove(L);
         }
 
+        // Copy by value BEFORE luaH_setnum_ which might reallocate table array!
+        RawTValue tempVal = *src;
+
         RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)len);
         if (!dst) {
             NoteTableRemoveFallback();
@@ -2156,7 +2172,7 @@ static int __cdecl Hooked_TableRemove(lua_State* L) {
         }
         
         RawTValue* resultSlot = (nargs == 1) ? base : (base + 1);
-        *resultSlot = *src;
+        *resultSlot = tempVal;
 
         if (resultSlot->taint) {
             if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
@@ -2363,6 +2379,9 @@ static int __cdecl Hooked_Unpack(lua_State* L) {
 
         RawTValue* top = GetStackTopFast(L);
         if (!top) goto fallback;
+
+        // CRITICAL SAFETY: prevent stack overflow / out-of-bounds stack writes
+        if (top + count >= GetStackLastFast(L)) goto fallback;
 
         for (int i = 0; i < count; i++) {
             RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
@@ -3019,13 +3038,13 @@ static FuncHookEntry g_funcHooks[] = {
     // table.concat is ENABLED — it only READS from the table's array
     // (via luaH_getnum_) and pushes one interned string to the stack
     // (same pattern as the stable math.random fast path).
-    // {nullptr,  "next",     (void*)Hooked_Next_Global,      &orig_luaB_next,        0, false},
-    // {nullptr,  "rawget",   (void*)Hooked_RawGet_Global,    &orig_luaB_rawget,      0, false},
-    // {nullptr,  "rawset",   (void*)Hooked_RawSet_Global,    &orig_luaB_rawset,      0, false},
-    // {"table",  "insert",   (void*)Hooked_TableInsert,      &orig_tbl_insert,       0, false},
-    // {"table",  "remove",   (void*)Hooked_TableRemove,      &orig_tbl_remove,       0, false},
+    {nullptr,  "next",     (void*)Hooked_Next_Global,      &orig_luaB_next,        0, false},
+    {nullptr,  "rawget",   (void*)Hooked_RawGet_Global,    &orig_luaB_rawget,      0, false},
+    {nullptr,  "rawset",   (void*)Hooked_RawSet_Global,    &orig_luaB_rawset,      0, false},
+    {"table",  "insert",   (void*)Hooked_TableInsert,      &orig_tbl_insert,       0, false},
+    {"table",  "remove",   (void*)Hooked_TableRemove,      &orig_tbl_remove,       0, false},
     {"table",  "concat",   (void*)Hooked_TableConcat,      &orig_tbl_concat,         0, false},
-    // {nullptr,  "unpack",   (void*)Hooked_Unpack,           &orig_luaB_unpack,        0, false},
+    {nullptr,  "unpack",   (void*)Hooked_Unpack,           &orig_luaB_unpack,        0, false},
     {nullptr,  "select",   (void*)Hooked_Select,           &orig_luaB_select,        0, false},
     {nullptr,  "rawequal", (void*)Hooked_RawEqual,         &orig_luaB_rawequal,      0, false},
     {"string", "sub",      (void*)Hooked_StrSub,           &orig_str_sub,          0, false},
