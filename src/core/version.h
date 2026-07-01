@@ -97,7 +97,7 @@
 // use a private mimalloc heap that masquerades as the process heap, or
 // only redirect allocations above a size threshold where win32 internals
 // don't track pointers.
-#define TEST_DISABLE_HEAP_REDIRECT        0
+#define TEST_DISABLE_HEAP_REDIRECT        1
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
@@ -724,6 +724,6 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE         0
 
-#define CRASH_TEST_DISABLE_GLOBALALLOC         0
+#define CRASH_TEST_DISABLE_GLOBALALLOC         1
 
 #define CRASH_TEST_DISABLE_VA_ARENA         0

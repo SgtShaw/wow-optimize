@@ -334,7 +334,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
-#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
+#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     1   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr OLD pointer cache DISABLED - replaced by safe v2 in lua_getstr_inline.cpp
 #define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
@@ -2275,10 +2275,12 @@ static BOOL WINAPI hooked_HeapFree(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem) {
 static LPVOID WINAPI hooked_HeapReAlloc(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dwBytes) {
     if (lpMem && mi_is_in_heap_region(lpMem)) {
         if (dwBytes == 0) { mi_free(lpMem); return NULL; }
+        size_t oldSize = mi_usable_size(lpMem);
         void* p = mi_realloc(lpMem, dwBytes);
-        if (dwFlags & HEAP_ZERO_MEMORY && p) {
-            size_t usable = mi_usable_size(p);
-            if (dwBytes > usable) memset((char*)p + usable, 0, dwBytes - usable);
+        if (p && (dwFlags & HEAP_ZERO_MEMORY)) {
+            if (dwBytes > oldSize) {
+                memset((char*)p + oldSize, 0, dwBytes - oldSize);
+            }
         }
         return p;
     }
@@ -2605,15 +2607,18 @@ static SIZE_T WINAPI hooked_GlobalSize(HGLOBAL hMem) {
 
 static HGLOBAL WINAPI hooked_GlobalReAlloc(HGLOBAL hMem, SIZE_T dwBytes, UINT uFlags) {
     if (hMem && mi_is_in_heap_region(hMem)) {
+        if (uFlags & GMEM_MODIFY) {
+            return hMem;
+        }
         if (dwBytes == 0) {
             mi_free(hMem);
             return NULL;
         }
+        size_t oldSize = mi_usable_size(hMem);
         void* ptr = mi_realloc(hMem, dwBytes);
         if (ptr && (uFlags & GMEM_ZEROINIT)) {
-            size_t usable = mi_usable_size(ptr);
-            if (dwBytes > usable) {
-                memset((char*)ptr + usable, 0, dwBytes - usable);
+            if (dwBytes > oldSize) {
+                memset((char*)ptr + oldSize, 0, dwBytes - oldSize);
             }
         }
         return (HGLOBAL)ptr;
