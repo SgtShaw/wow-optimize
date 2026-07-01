@@ -313,10 +313,7 @@ static volatile LONG64     g_uiScriptMisses = 0;
 #endif
 
 static bool IsInvariantLuaFunc(uintptr_t funcPtr) {
-    return funcPtr == ADDR_LUA_UNITHEALTH
-        || funcPtr == ADDR_LUA_UNITPOWER
-        || funcPtr == ADDR_LUA_UNITCLASS
-        || funcPtr == ADDR_LUA_UNITMAXHEALTH
+    return funcPtr == ADDR_LUA_UNITCLASS
         || funcPtr == ADDR_LUA_UNITLEVEL
         || funcPtr == ADDR_LUA_GETINSTANCEINFO;
 }
@@ -590,24 +587,6 @@ bool InstallLogicHooks(void) {
 
     // Install invariant Lua script cache hooks
     int installed = 0;
-    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITHEALTH, (void*)Hooked_UnitHealth, (void**)&orig_UnitHealth) == MH_OK) {
-        if (WO_EnableHook((void*)ADDR_LUA_UNITHEALTH) == MH_OK) {
-            installed++;
-            Log("[LogicHooks] Hooked UnitHealth at 0x%08X", ADDR_LUA_UNITHEALTH);
-        }
-    }
-    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITPOWER, (void*)Hooked_UnitPower, (void**)&orig_UnitPower) == MH_OK) {
-        if (WO_EnableHook((void*)ADDR_LUA_UNITPOWER) == MH_OK) {
-            installed++;
-            Log("[LogicHooks] Hooked UnitPower at 0x%08X", ADDR_LUA_UNITPOWER);
-        }
-    }
-    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITMAXHEALTH, (void*)Hooked_UnitMaxHealth, (void**)&orig_UnitMaxHealth) == MH_OK) {
-        if (WO_EnableHook((void*)ADDR_LUA_UNITMAXHEALTH) == MH_OK) {
-            installed++;
-            Log("[LogicHooks] Hooked UnitMaxHealth at 0x%08X", ADDR_LUA_UNITMAXHEALTH);
-        }
-    }
     if (WineSafe_CreateHook((void*)ADDR_LUA_UNITLEVEL, (void*)Hooked_UnitLevel, (void**)&orig_UnitLevel) == MH_OK) {
         if (WO_EnableHook((void*)ADDR_LUA_UNITLEVEL) == MH_OK) {
             installed++;
@@ -625,9 +604,6 @@ void ShutdownLogicHooks(void) {
     // Flush any remaining combat text entries
     FlushCombatTextBatch();
 
-    MH_DisableHook((void*)ADDR_LUA_UNITHEALTH);
-    MH_DisableHook((void*)ADDR_LUA_UNITPOWER);
-    MH_DisableHook((void*)ADDR_LUA_UNITMAXHEALTH);
     MH_DisableHook((void*)ADDR_LUA_UNITLEVEL);
 
     Log("[LogicHooks] Stats: Combat text — %lld batched, %lld flushed, %lld overflow",
