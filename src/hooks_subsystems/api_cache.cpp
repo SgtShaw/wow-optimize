@@ -53,7 +53,7 @@ static inline const char* ReadTStringDirect(RawTValue* tv, size_t* out_len) {
     if (tv->tt != 4) return NULL;  // LUA_TSTRING
 
     void* ts_ptr = tv->value.gc;
-    if ((uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr > 0xFFE00000) return NULL;
+    if ((uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr >= 0xFFFFF000) return NULL;
 
     // Read length directly from TString header (len is at offset 16 in WoW 3.3.5a)
     int len = *(int*)((char*)ts_ptr + 16);
@@ -96,6 +96,12 @@ static fn_lua_pushboolean lua_pushboolean_= (fn_lua_pushboolean)0x0084E4D0;
 static fn_lua_pushnil     lua_pushnil_    = (fn_lua_pushnil)0x0084E280;
 static fn_lua_toboolean   lua_toboolean_  = (fn_lua_toboolean)0x0084E0B0;
 
+typedef void (__cdecl *fn_lua_pushcclosure)(lua_State* L, ScriptFunc_fn fn, int n);
+typedef void (__cdecl *fn_lua_setfield)(lua_State* L, int idx, const char* name);
+
+static fn_lua_pushcclosure lua_pushcclosure_ = (fn_lua_pushcclosure)0x0084E400;
+static fn_lua_setfield     lua_setfield_     = (fn_lua_setfield)0x0084E900;
+
 #define LUA_TNIL     0
 #define LUA_TBOOLEAN 1
 #define LUA_TNUMBER  3
@@ -104,8 +110,8 @@ static fn_lua_toboolean   lua_toboolean_  = (fn_lua_toboolean)0x0084E0B0;
 static constexpr uintptr_t ADDR_GetItemInfo  = 0x00516C60;
 static constexpr uintptr_t ADDR_GetSpellInfo = 0x00540A30;
 
-static ScriptFunc_fn orig_GetItemInfo  = nullptr;
-static ScriptFunc_fn orig_GetSpellInfo = nullptr;
+static ScriptFunc_fn orig_GetItemInfo  = (ScriptFunc_fn)0x00516C60;
+static ScriptFunc_fn orig_GetSpellInfo = (ScriptFunc_fn)0x00540A30;
 
 // ================================================================
 // Cache structures - 8192 slots per cache, direct-mapped.
@@ -332,6 +338,7 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 
     // Only cache successful results with item name + type (first two returns are strings)
     if (pushed >= 10 && pushed <= ITEM_RETVALS) {
+        RawTValue* base = GetStackBase(L); // Re-fetch in case stack reallocated
         RawTValue* res1 = &base[topBefore];
         RawTValue* res2 = &base[topBefore + 1];
         if (res1->tt == LUA_TSTRING && res2->tt == LUA_TSTRING) {
@@ -393,6 +400,7 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
 
     // Only cache successful results (first return is spell name string)
     if (pushed >= 3 && pushed <= SPELL_RETVALS) {
+        RawTValue* base = GetStackBase(L); // Re-fetch in case stack reallocated
         RawTValue* res1 = &base[topBefore];
         if (res1->tt == LUA_TSTRING) {
             AcquireSRWLockExclusive(&g_spellCacheLock);
@@ -431,43 +439,29 @@ static bool HookFunc(const char* name, uintptr_t addr, void* hookFn, void** orig
 namespace ApiCache {
 
 bool Init() {
-#if TEST_DISABLE_GETSPELLINFO_CACHE
-    Log("[ApiCache] Init  - Direct Memory Access | TEST: GetSpellInfo DISABLED");
-#else
-    Log("[ApiCache] Init  - Direct Memory Access");
-#endif
+    g_active = true;
 
     int hooked = 0;
-
+#if !TEST_DISABLE_ALL_APICACHE
     if (HookFunc("GetItemInfo", ADDR_GetItemInfo, (void*)Hooked_GetItemInfo, (void**)&orig_GetItemInfo))
         hooked++;
+#endif
 
 #if !TEST_DISABLE_GETSPELLINFO_CACHE
     if (HookFunc("GetSpellInfo", ADDR_GetSpellInfo, (void*)Hooked_GetSpellInfo, (void**)&orig_GetSpellInfo))
         hooked++;
-#else
-    Log("[ApiCache]   GetSpellInfo              [ SKIP - permanently disabled ]");
 #endif
 
-    if (hooked == 0) {
-        Log("[ApiCache]  DISABLED - no hooks installed");
-        return false;
-    }
-
-    g_active = true;
-
-    Log("[ApiCache] Hooks: %d/2 active | GetItemInfo: %d slots | GetSpellInfo: %d slots",
-        hooked, CACHE_SIZE, CACHE_SIZE);
+    Log("[ApiCache] Init complete: %d/2 API cache hooks active", hooked);
     return true;
 }
 
 void Shutdown() {
     if (!g_active) return;
+    g_active = false;
 
     MH_DisableHook((void*)ADDR_GetItemInfo);
     MH_DisableHook((void*)ADDR_GetSpellInfo);
-
-    g_active = false;
 
     long itemTotal  = g_itemHits  + g_itemMisses;
     long spellTotal = g_spellHits + g_spellMisses;

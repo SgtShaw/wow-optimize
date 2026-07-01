@@ -199,4 +199,5 @@ void ClearTableCache() {
 bool InstallLuaVMCache() { return false; }
 void GetTableCacheStats(long long* hits, long long* misses) {}
 void ClearTableCache() {}
+extern "C" void InvalidateTableCacheSlot(void* table, void* key_str) {}
 #endif

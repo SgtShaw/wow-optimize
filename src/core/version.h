@@ -101,11 +101,11 @@
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_WRITES      1
+#define TEST_DISABLE_PHASE2_WRITES      0
 
 // Phase 2 read hooks (rawget, concat, unpack)
 // Direct RawTValue* stack writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_READS       1
+#define TEST_DISABLE_PHASE2_READS       0
 
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
@@ -167,7 +167,7 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -183,7 +183,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         0
+#define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
@@ -199,11 +199,11 @@
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 0  // disabled: returns wrong values → unknown HP/mana text
+#define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 0
+#define TEST_DISABLE_DATASTORE_FASTPATH 1
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -246,7 +246,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -265,7 +265,7 @@
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss

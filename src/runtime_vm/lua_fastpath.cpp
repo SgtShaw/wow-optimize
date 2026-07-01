@@ -1795,64 +1795,58 @@ static int __cdecl Hooked_RawGet_Global(lua_State* L) {
         return orig_luaB_rawget(L);
     }
 
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) {
-            NoteRawGetFallback();
-            return orig_luaB_rawget(L);
-        }
-
-        RawTValue* tableSlot = base;
-        RawTValue* keySlot   = base + 1;
-
-        if (tableSlot->tt != LUA_TTABLE) {
-            NoteRawGetFallback();
-            return orig_luaB_rawget(L);
-        }
-
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) {
-            NoteRawGetFallback();
-            return orig_luaB_rawget(L);
-        }
-
-        RawTValue* resultSlot = nullptr;
-
-        if (keySlot->tt == LUA_TSTRING) {
-            void* ts = keySlot->value.gc;
-            resultSlot = (RawTValue*)luaH_getstr_(tablePtr, ts);
-        } else if (keySlot->tt == LUA_TNUMBER) {
-            double n = ReadRawNumber(keySlot);
-            int iv = (int)n;
-            if ((double)iv == n)
-                resultSlot = (RawTValue*)luaH_getnum_(tablePtr, iv);
-            else
-                resultSlot = (RawTValue*)luaH_get_(tablePtr, keySlot);
-        } else {
-            resultSlot = (RawTValue*)luaH_get_(tablePtr, keySlot);
-        }
-
-        if (!resultSlot || !IsReadableMemory((uintptr_t)resultSlot) || !IsReadableMemory((uintptr_t)resultSlot + sizeof(RawTValue))) {
-            NoteRawGetFallback();
-            return orig_luaB_rawget(L);
-        }
-
-        *keySlot = *resultSlot;
-
-        if (keySlot->taint) {
-            if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
-                *(uint32_t*)ADDR_taint_global = keySlot->taint;
-        } else {
-            keySlot->taint = *(uint32_t*)ADDR_taint_global;
-        }
-
-        NoteRawGetHit();
-        return 1;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base) {
         NoteRawGetFallback();
         return orig_luaB_rawget(L);
     }
+
+    RawTValue* tableSlot = base;
+    RawTValue* keySlot   = base + 1;
+
+    if (tableSlot->tt != LUA_TTABLE) {
+        NoteRawGetFallback();
+        return orig_luaB_rawget(L);
+    }
+
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) {
+        NoteRawGetFallback();
+        return orig_luaB_rawget(L);
+    }
+
+    RawTValue* resultSlot = nullptr;
+
+    if (keySlot->tt == LUA_TSTRING) {
+        void* ts = keySlot->value.gc;
+        resultSlot = (RawTValue*)luaH_getstr_(tablePtr, ts);
+    } else if (keySlot->tt == LUA_TNUMBER) {
+        double n = ReadRawNumber(keySlot);
+        int iv = (int)n;
+        if ((double)iv == n)
+            resultSlot = (RawTValue*)luaH_getnum_(tablePtr, iv);
+        else
+            resultSlot = (RawTValue*)luaH_get_(tablePtr, keySlot);
+    } else {
+        resultSlot = (RawTValue*)luaH_get_(tablePtr, keySlot);
+    }
+
+    if (!resultSlot || !IsReadableMemory((uintptr_t)resultSlot) || !IsReadableMemory((uintptr_t)resultSlot + sizeof(RawTValue))) {
+        NoteRawGetFallback();
+        return orig_luaB_rawget(L);
+    }
+
+    *keySlot = *resultSlot;
+
+    if (keySlot->taint) {
+        if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
+            *(uint32_t*)ADDR_taint_global = keySlot->taint;
+    } else {
+        keySlot->taint = *(uint32_t*)ADDR_taint_global;
+    }
+
+    NoteRawGetHit();
+    return 1;
 }
 
 static lua_CFunction_t orig_luaB_rawset = nullptr;
@@ -1864,76 +1858,70 @@ static int __cdecl Hooked_RawSet_Global(lua_State* L) {
         return orig_luaB_rawset(L);
     }
 
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-
-        RawTValue* tableSlot = base;
-        RawTValue* keySlot   = base + 1;
-        RawTValue* valueSlot = base + 2;
-
-        if (tableSlot->tt != LUA_TTABLE) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-
-        RawTValue* dst = (RawTValue*)luaH_set_(L, tablePtr, keySlot);
-        if (!dst) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-
-        // Refresh stack pointers in case stack reallocated inside luaH_set_
-        base = GetStackBaseFast(L);
-        if (!base) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-        tableSlot = base;
-        valueSlot = base + 2;
-
-        // SAFETY: validate destination pointer before write
-        if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
-            NoteRawSetFallback();
-            return orig_luaB_rawset(L);
-        }
-
-        *dst = *valueSlot;
-
-        if (valueSlot->taint) {
-            if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
-                *(uint32_t*)ADDR_taint_global = valueSlot->taint;
-        }
-
-        if (valueSlot->tt >= LUA_TSTRING) {
-            uintptr_t valueGc = (uintptr_t)valueSlot->value.gc;
-            uintptr_t tableGc = (uintptr_t)tablePtr;
-
-            if (valueGc &&
-               ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
-               ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
-                table_barrier_(L, tablePtr);
-            }
-        }
-
-        *valueSlot = *tableSlot;
-
-        NoteRawSetHit();
-        return 1;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base) {
         NoteRawSetFallback();
         return orig_luaB_rawset(L);
     }
+
+    RawTValue* tableSlot = base;
+    RawTValue* keySlot   = base + 1;
+    RawTValue* valueSlot = base + 2;
+
+    if (tableSlot->tt != LUA_TTABLE) {
+        NoteRawSetFallback();
+        return orig_luaB_rawset(L);
+    }
+
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) {
+        NoteRawSetFallback();
+        return orig_luaB_rawset(L);
+    }
+
+    RawTValue* dst = (RawTValue*)luaH_set_(L, tablePtr, keySlot);
+    if (!dst) {
+        NoteRawSetFallback();
+        return orig_luaB_rawset(L);
+    }
+
+    // Refresh stack pointers in case stack reallocated inside luaH_set_
+    base = GetStackBaseFast(L);
+    if (!base) {
+        NoteRawSetFallback();
+        return orig_luaB_rawset(L);
+    }
+    tableSlot = base;
+    valueSlot = base + 2;
+
+    // SAFETY: validate destination pointer before write
+    if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
+        NoteRawSetFallback();
+        return orig_luaB_rawset(L);
+    }
+
+    *dst = *valueSlot;
+
+    if (valueSlot->taint) {
+        if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
+            *(uint32_t*)ADDR_taint_global = valueSlot->taint;
+    }
+
+    if (valueSlot->tt >= LUA_TSTRING) {
+        uintptr_t valueGc = (uintptr_t)valueSlot->value.gc;
+        uintptr_t tableGc = (uintptr_t)tablePtr;
+
+        if (valueGc &&
+           ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
+           ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
+            table_barrier_(L, tablePtr);
+        }
+    }
+
+    *valueSlot = *tableSlot;
+
+    NoteRawSetHit();
+    return 1;
 }
 
 static lua_CFunction_t orig_luaB_next = nullptr;
@@ -1945,63 +1933,57 @@ static int __cdecl Hooked_Next_Global(lua_State* L) {
         return orig_luaB_next(L);
     }
 
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        RawTValue* top  = GetStackTopFast(L);
-        if (!base || !top) {
-            NoteNextFallback();
-            return orig_luaB_next(L);
-        }
-
-        RawTValue* tableSlot = base;
-        if (tableSlot->tt != LUA_TTABLE) {
-            NoteNextFallback();
-            return orig_luaB_next(L);
-        }
-
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) {
-            NoteNextFallback();
-            return orig_luaB_next(L);
-        }
-
-        RawTValue* keySlot = nullptr;
-
-        if (nargs == 2) {
-            keySlot = base + 1;
-        } else {
-            keySlot = top;
-            keySlot->value.ptr = 0;
-            keySlot->tt = LUA_TNIL;
-            keySlot->taint = *(uint32_t*)ADDR_taint_global;
-        }
-
-        int more = lua_next_helper_(L, tablePtr, keySlot);
-        if (more) {
-            if (nargs == 2) {
-                SetStackTopFast(L, top + 1);
-            } else {
-                SetStackTopFast(L, keySlot + 2);
-            }
-
-            NoteNextHit();
-            return 2;
-        }
-
-        keySlot->value.ptr = 0;
-        keySlot->tt = LUA_TNIL;
-        keySlot->taint = *(uint32_t*)ADDR_taint_global;
-
-        if (nargs == 1)
-            SetStackTopFast(L, keySlot + 1);
-
-        NoteNextHit();
-        return 1;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
+    RawTValue* base = GetStackBaseFast(L);
+    RawTValue* top  = GetStackTopFast(L);
+    if (!base || !top) {
         NoteNextFallback();
         return orig_luaB_next(L);
     }
+
+    RawTValue* tableSlot = base;
+    if (tableSlot->tt != LUA_TTABLE) {
+        NoteNextFallback();
+        return orig_luaB_next(L);
+    }
+
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) {
+        NoteNextFallback();
+        return orig_luaB_next(L);
+    }
+
+    RawTValue* keySlot = nullptr;
+
+    if (nargs == 2) {
+        keySlot = base + 1;
+    } else {
+        keySlot = top;
+        keySlot->value.ptr = 0;
+        keySlot->tt = LUA_TNIL;
+        keySlot->taint = *(uint32_t*)ADDR_taint_global;
+    }
+
+    int more = lua_next_helper_(L, tablePtr, keySlot);
+    if (more) {
+        if (nargs == 2) {
+            SetStackTopFast(L, top + 1);
+        } else {
+            SetStackTopFast(L, keySlot + 2);
+        }
+
+        NoteNextHit();
+        return 2;
+    }
+
+    keySlot->value.ptr = 0;
+    keySlot->tt = LUA_TNIL;
+    keySlot->taint = *(uint32_t*)ADDR_taint_global;
+
+    if (nargs == 1)
+        SetStackTopFast(L, keySlot + 1);
+
+    NoteNextHit();
+    return 1;
 }
 
 static lua_CFunction_t orig_tbl_insert = nullptr;
@@ -2013,83 +1995,77 @@ static int __cdecl Hooked_TableInsert(lua_State* L) {
         return orig_tbl_insert(L);
     }
 
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        RawTValue* tableSlot = base;
-        RawTValue* valueSlot = base + 1;
-
-        if (tableSlot->tt != LUA_TTABLE) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        if (valueSlot->tt == LUA_TNIL) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        unsigned int len = luaH_getn_(tablePtr);
-        if (len >= 0x7FFFFFFF) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)(len + 1));
-        if (!dst) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        // SAFETY: validate destination pointer before write
-        if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-
-        // RE-FETCH stack pointers in case luaH_setnum_ triggered GC and relocated the stack
-        base = GetStackBaseFast(L);
-        if (!base) {
-            NoteTableInsertFallback();
-            return orig_tbl_insert(L);
-        }
-        valueSlot = base + 1;
-
-        *dst = *valueSlot;
-
-        if (valueSlot->taint) {
-            if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
-                *(uint32_t*)ADDR_taint_global = valueSlot->taint;
-        }
-
-        if (valueSlot->tt >= LUA_TSTRING) {
-            uintptr_t valueGc = (uintptr_t)valueSlot->value.gc;
-            uintptr_t tableGc = (uintptr_t)tablePtr;
-
-            if (valueGc &&
-               ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
-               ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
-                table_barrier_(L, tablePtr);
-            }
-        }
-
-        NoteTableInsertHit();
-        return 0;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base) {
         NoteTableInsertFallback();
         return orig_tbl_insert(L);
     }
+
+    RawTValue* tableSlot = base;
+    RawTValue* valueSlot = base + 1;
+
+    if (tableSlot->tt != LUA_TTABLE) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    if (valueSlot->tt == LUA_TNIL) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    unsigned int len = luaH_getn_(tablePtr);
+    if (len >= 0x7FFFFFFF) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)(len + 1));
+    if (!dst) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    // SAFETY: validate destination pointer before write
+    if (!IsReadableMemory((uintptr_t)dst) || !IsReadableMemory((uintptr_t)dst + sizeof(RawTValue))) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+
+    // RE-FETCH stack pointers in case luaH_setnum_ triggered GC and relocated the stack
+    base = GetStackBaseFast(L);
+    if (!base) {
+        NoteTableInsertFallback();
+        return orig_tbl_insert(L);
+    }
+    valueSlot = base + 1;
+
+    *dst = *valueSlot;
+
+    if (valueSlot->taint) {
+        if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
+            *(uint32_t*)ADDR_taint_global = valueSlot->taint;
+    }
+
+    if (valueSlot->tt >= LUA_TSTRING) {
+        uintptr_t valueGc = (uintptr_t)valueSlot->value.gc;
+        uintptr_t tableGc = (uintptr_t)tablePtr;
+
+        if (valueGc &&
+           ((*(uint8_t*)(valueGc + 9) & 3) != 0) &&
+           ((*(uint8_t*)(tableGc + 9) & 4) != 0)) {
+            table_barrier_(L, tablePtr);
+        }
+    }
+
+    NoteTableInsertHit();
+    return 0;
 }
 
 static lua_CFunction_t orig_tbl_remove = nullptr;
@@ -2101,97 +2077,91 @@ static int __cdecl Hooked_TableRemove(lua_State* L) {
         return orig_tbl_remove(L);
     }
 
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-
-        RawTValue* tableSlot = base;
-        if (tableSlot->tt != LUA_TTABLE) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-
-        unsigned int len = luaH_getn_(tablePtr);
-
-        if (nargs == 1) {
-            if (len == 0) {
-                memset(&tableSlot->value, 0, sizeof(tableSlot->value));
-                tableSlot->tt = LUA_TNIL;
-                tableSlot->taint = *(uint32_t*)ADDR_taint_global;
-                NoteTableRemoveHit();
-                return 1;
-            }
-        } else {
-            if (len == 0) {
-                NoteTableRemoveFallback();
-                return orig_tbl_remove(L);
-            }
-
-            RawTValue* indexSlot = base + 1;
-            if (indexSlot->tt != LUA_TNUMBER) {
-                NoteTableRemoveFallback();
-                return orig_tbl_remove(L);
-            }
-
-            double n = ReadRawNumber(indexSlot);
-            int iv = (int)n;
-            if ((double)iv != n || iv <= 0 || (unsigned int)iv != len) {
-                NoteTableRemoveFallback();
-                return orig_tbl_remove(L);
-            }
-        }
-
-        RawTValue* src = (RawTValue*)luaH_getnum_(tablePtr, (int)len);
-        if (!src || src->tt == LUA_TNIL) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-
-        // Copy by value BEFORE luaH_setnum_ which might reallocate table array!
-        RawTValue tempVal = *src;
-
-        RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)len);
-        if (!dst) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-
-        base = GetStackBaseFast(L);
-        if (!base) {
-            NoteTableRemoveFallback();
-            return orig_tbl_remove(L);
-        }
-        
-        RawTValue* resultSlot = (nargs == 1) ? base : (base + 1);
-        *resultSlot = tempVal;
-
-        if (resultSlot->taint) {
-            if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
-                *(uint32_t*)ADDR_taint_global = resultSlot->taint;
-        } else {
-            resultSlot->taint = *(uint32_t*)ADDR_taint_global;
-        }
-
-        memset(&dst->value, 0, sizeof(dst->value));
-        dst->tt = LUA_TNIL;
-        dst->taint = *(uint32_t*)ADDR_taint_global;
-
-        NoteTableRemoveHit();
-        return 1;
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base) {
         NoteTableRemoveFallback();
         return orig_tbl_remove(L);
     }
+
+    RawTValue* tableSlot = base;
+    if (tableSlot->tt != LUA_TTABLE) {
+        NoteTableRemoveFallback();
+        return orig_tbl_remove(L);
+    }
+
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) {
+        NoteTableRemoveFallback();
+        return orig_tbl_remove(L);
+    }
+
+    unsigned int len = luaH_getn_(tablePtr);
+
+    if (nargs == 1) {
+        if (len == 0) {
+            memset(&tableSlot->value, 0, sizeof(tableSlot->value));
+            tableSlot->tt = LUA_TNIL;
+            tableSlot->taint = *(uint32_t*)ADDR_taint_global;
+            NoteTableRemoveHit();
+            return 1;
+        }
+    } else {
+        if (len == 0) {
+            NoteTableRemoveFallback();
+            return orig_tbl_remove(L);
+        }
+
+        RawTValue* indexSlot = base + 1;
+        if (indexSlot->tt != LUA_TNUMBER) {
+            NoteTableRemoveFallback();
+            return orig_tbl_remove(L);
+        }
+
+        double n = ReadRawNumber(indexSlot);
+        int iv = (int)n;
+        if ((double)iv != n || iv <= 0 || (unsigned int)iv != len) {
+            NoteTableRemoveFallback();
+            return orig_tbl_remove(L);
+        }
+    }
+
+    RawTValue* src = (RawTValue*)luaH_getnum_(tablePtr, (int)len);
+    if (!src || src->tt == LUA_TNIL) {
+        NoteTableRemoveFallback();
+        return orig_tbl_remove(L);
+    }
+
+    // Copy by value BEFORE luaH_setnum_ which might reallocate table array!
+    RawTValue tempVal = *src;
+
+    RawTValue* dst = (RawTValue*)luaH_setnum_(L, tablePtr, (int)len);
+    if (!dst) {
+        NoteTableRemoveFallback();
+        return orig_tbl_remove(L);
+    }
+
+    base = GetStackBaseFast(L);
+    if (!base) {
+        NoteTableRemoveFallback();
+        return orig_tbl_remove(L);
+    }
+    
+    RawTValue* resultSlot = (nargs == 1) ? base : (base + 1);
+    *resultSlot = tempVal;
+
+    if (resultSlot->taint) {
+        if (*(int*)ADDR_taint_enabled && !*(int*)ADDR_taint_skip)
+            *(uint32_t*)ADDR_taint_global = resultSlot->taint;
+    } else {
+        resultSlot->taint = *(uint32_t*)ADDR_taint_global;
+    }
+
+    memset(&dst->value, 0, sizeof(dst->value));
+    dst->tt = LUA_TNIL;
+    dst->taint = *(uint32_t*)ADDR_taint_global;
+
+    NoteTableRemoveHit();
+    return 1;
 }
 
 static int __cdecl Hooked_TableConcat(lua_State* L) {
@@ -2342,64 +2312,64 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
 }
 
 static int __cdecl Hooked_Unpack(lua_State* L) {
-    __try {
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base) goto fallback;
+    int nargs = lua_gettop_(L);
+    if (nargs < 1) goto fallback;
 
-        RawTValue* tableSlot = base;
-        if (tableSlot->tt != LUA_TTABLE) goto fallback;
-        void* tablePtr = tableSlot->value.gc;
-        if (!tablePtr) goto fallback;
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base) goto fallback;
 
-        int nargs = lua_gettop_(L);
-        int start = 1;
-        int end   = (int)luaH_getn_(tablePtr);
+    RawTValue* tableSlot = base;
+    if (tableSlot->tt != LUA_TTABLE) goto fallback;
+    void* tablePtr = tableSlot->value.gc;
+    if (!tablePtr) goto fallback;
 
-        if (nargs >= 2) {
-            if (lua_type_(L, 2) == LUA_TNUMBER) {
-                double s = ReadRawNumber(base + 1);
-                start = (int)s;
-                if (s != start) goto fallback;
-            } else if (lua_type_(L, 2) != LUA_TNIL) {
-                goto fallback;
-            }
+    int start = 1;
+    int end   = (int)luaH_getn_(tablePtr);
+
+    if (nargs >= 2) {
+        if (lua_type_(L, 2) == LUA_TNUMBER) {
+            double s = ReadRawNumber(base + 1);
+            start = (int)s;
+            if (s != start) goto fallback;
+        } else if (lua_type_(L, 2) != LUA_TNIL) {
+            goto fallback;
         }
-        if (nargs >= 3) {
-            if (lua_type_(L, 3) == LUA_TNUMBER) {
-                double e = ReadRawNumber(base + 2);
-                end = (int)e;
-                if (e != end) goto fallback;
-            } else if (lua_type_(L, 3) != LUA_TNIL) {
-                goto fallback;
-            }
-        }
-
-        int count = end - start + 1;
-        if (count <= 0 || count > 256) goto fallback;
-
-        RawTValue* top = GetStackTopFast(L);
-        if (!top) goto fallback;
-
-        // CRITICAL SAFETY: prevent stack overflow / out-of-bounds stack writes
-        if (top + count >= GetStackLastFast(L)) goto fallback;
-
-        for (int i = 0; i < count; i++) {
-            RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
-            if (!val || val->tt == LUA_TNIL) goto fallback;
-
-            // SAFETY: validate GC object pointer before copy
-            if (val->tt >= LUA_TSTRING && (!val->value.gc || !IsReadableMemory((uintptr_t)val->value.gc)))
-                goto fallback;
-
-            *top = *val;
-            top++;
-        }
-        SetStackTopFast(L, top);
-
-        g_unpackHits++;
-        return count;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
+    if (nargs >= 3) {
+        if (lua_type_(L, 3) == LUA_TNUMBER) {
+            double e = ReadRawNumber(base + 2);
+            end = (int)e;
+            if (e != end) goto fallback;
+        } else if (lua_type_(L, 3) != LUA_TNIL) {
+            goto fallback;
+        }
+    }
+
+    int count = end - start + 1;
+    if (count <= 0 || count > 256) goto fallback;
+
+    RawTValue* top = GetStackTopFast(L);
+    if (!top) goto fallback;
+
+    // CRITICAL SAFETY: prevent stack overflow / out-of-bounds stack writes
+    if (top + count >= GetStackLastFast(L)) goto fallback;
+
+    for (int i = 0; i < count; i++) {
+        RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
+        if (!val || val->tt == LUA_TNIL) goto fallback;
+
+        // SAFETY: validate GC object pointer before copy
+        if (val->tt >= LUA_TSTRING && (!val->value.gc || !IsReadableMemory((uintptr_t)val->value.gc)))
+            goto fallback;
+
+        *top = *val;
+        top++;
+    }
+    SetStackTopFast(L, top);
+
+    g_unpackHits++;
+    return count;
+
 fallback:
     g_unpackFallbacks++;
     return orig_luaB_unpack(L);

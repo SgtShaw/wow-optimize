@@ -29,6 +29,8 @@
 
 #include <windows.h>
 
+struct lua_State;
+
 namespace ApiCache {
 
 bool Init();

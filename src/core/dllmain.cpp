@@ -268,6 +268,8 @@ static void StopFreezeWatchdog() {
 #include "lua_pushfstring_fast.h"
 #include "lua_getupvalue_fast.h"
 #include "lua_buffinit_fast.h"
+
+void ClearCombatLogCache();
 #include "lua_prepbuffer_fast.h"
 #include "lua_pushresult_fast.h"
 #include "lua_addlstring_fast.h"
@@ -334,10 +336,10 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
-#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     1   // luaH_resize table rehash prevention
+#define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr OLD pointer cache DISABLED - replaced by safe v2 in lua_getstr_inline.cpp
-#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (stale TString*)
-#define CRASH_TEST_DISABLE_LUA_PUSHSTRING       1   // lua_pushstring intern cache (stale TString*)
+#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  0   // CombatLog full event cache (memory-safe value copy)
+#define CRASH_TEST_DISABLE_LUA_PUSHSTRING       0   // lua_pushstring intern cache (cleared on luaC_step)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
 #ifndef TEST_DISABLE_RAWGETI_INLINE
 #define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 RE-ENABLED after root-causing vs sub_84E670: the array fast path omitted the engine's taint==0 branch (stamp pushed value with the global taint cell *0xD4139C, then return it), so values read in a tainted context came out untainted; and it resolved GLOBALSINDEX to a wrong slot (L_base+72). Fixed: taint logic now byte-exact to the engine (disasm-verified single-indirection store), pseudo-indices defer to index2adr. Array path only; hash part defers. SEH-guarded. (It was originally disabled as collateral with GetStrInline, not for a confirmed RawGetI bug — aura_env nil was the GetStr high-VA bail.)
@@ -1061,12 +1063,14 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         if (g_lastLState && currentL == 0) {
             ClearAssetPathCache();
             ApiCache::ClearCache();
+            ClearCombatLogCache();
         }
         g_lastLState = currentL;
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         LuaVMEngine_FrameTick();
         ClearTableCache();
+        ClearLuaPushStringCache();
         ApiCache::OnNewFrame();
         FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
@@ -2240,6 +2244,23 @@ static bool InstallHeapOptimization() {
 // allocations that bypass CRT malloc (HeapAlloc, LocalAlloc, etc.).
 // Other heaps keep LFH but use the original allocator for safety.
 // ================================================================
+static uintptr_t g_wowBase = 0;
+static uintptr_t g_wowEnd = 0;
+
+static inline bool IsCallerWowExe(void* retAddr) {
+    if (!g_wowBase) {
+        HMODULE hMod = GetModuleHandleA(NULL);
+        if (hMod) {
+            g_wowBase = (uintptr_t)hMod;
+            IMAGE_DOS_HEADER* dos = (IMAGE_DOS_HEADER*)hMod;
+            IMAGE_NT_HEADERS* nt = (IMAGE_NT_HEADERS*)((char*)hMod + dos->e_lfanew);
+            g_wowEnd = g_wowBase + nt->OptionalHeader.SizeOfImage;
+        }
+    }
+    uintptr_t addr = (uintptr_t)retAddr;
+    return (addr >= g_wowBase && addr < g_wowEnd);
+}
+
 typedef LPVOID (WINAPI* HeapAlloc_fn)(HANDLE, DWORD, SIZE_T);
 typedef BOOL   (WINAPI* HeapFree_fn)(HANDLE, DWORD, LPVOID);
 typedef LPVOID (WINAPI* HeapReAlloc_fn)(HANDLE, DWORD, LPVOID, SIZE_T);
@@ -2255,10 +2276,16 @@ static HANDLE        g_processHeap   = nullptr;
 static long          g_heapAllocHits  = 0;
 
 static LPVOID WINAPI hooked_HeapAlloc(HANDLE hHeap, DWORD dwFlags, SIZE_T dwBytes) {
-    if (hHeap == g_processHeap && dwBytes > 0) {
+    if (hHeap == g_processHeap && dwBytes > 0 && IsCallerWowExe(_ReturnAddress())) {
         InterlockedIncrement(&g_heapAllocHits);
         void* p = mi_malloc(dwBytes);
-        if (dwFlags & HEAP_ZERO_MEMORY && p) memset(p, 0, dwBytes);
+        if (!p) {
+            if (dwFlags & HEAP_GENERATE_EXCEPTIONS) {
+                RaiseException(0xC0000017, 0, 0, NULL);
+            }
+            return NULL;
+        }
+        if (dwFlags & HEAP_ZERO_MEMORY) memset(p, 0, dwBytes);
         return p;
     }
     return orig_HeapAlloc(hHeap, dwFlags, dwBytes);
@@ -2274,10 +2301,28 @@ static BOOL WINAPI hooked_HeapFree(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem) {
 
 static LPVOID WINAPI hooked_HeapReAlloc(HANDLE hHeap, DWORD dwFlags, LPVOID lpMem, SIZE_T dwBytes) {
     if (lpMem && mi_is_in_heap_region(lpMem)) {
-        if (dwBytes == 0) { mi_free(lpMem); return NULL; }
+        if (dwBytes == 0) {
+            mi_free(lpMem);
+            return NULL;
+        }
         size_t oldSize = mi_usable_size(lpMem);
+        if (dwFlags & HEAP_REALLOC_IN_PLACE_ONLY) {
+            if (dwBytes <= oldSize) {
+                return lpMem;
+            }
+            if (dwFlags & HEAP_GENERATE_EXCEPTIONS) {
+                RaiseException(0xC0000017, 0, 0, NULL);
+            }
+            return NULL;
+        }
         void* p = mi_realloc(lpMem, dwBytes);
-        if (p && (dwFlags & HEAP_ZERO_MEMORY)) {
+        if (!p) {
+            if (dwFlags & HEAP_GENERATE_EXCEPTIONS) {
+                RaiseException(0xC0000017, 0, 0, NULL);
+            }
+            return NULL;
+        }
+        if (dwFlags & HEAP_ZERO_MEMORY) {
             if (dwBytes > oldSize) {
                 memset((char*)p + oldSize, 0, dwBytes - oldSize);
             }
@@ -2575,7 +2620,7 @@ static long g_globalAllocFast = 0;
 static HGLOBAL WINAPI hooked_GlobalAlloc(UINT uFlags, SIZE_T dwBytes) {
     // Only optimize GMEM_FIXED (flags == 0 or GPTR which includes GMEM_FIXED+GMEM_ZEROINIT)
     // GMEM_MOVEABLE must use original for GlobalLock/GlobalUnlock semantics
-    if ((uFlags & GMEM_MOVEABLE) == 0 && dwBytes > 0) {
+    if ((uFlags & GMEM_MOVEABLE) == 0 && dwBytes > 0 && IsCallerWowExe(_ReturnAddress())) {
         void* ptr;
         if (uFlags & GMEM_ZEROINIT) {
             ptr = mi_calloc(1, dwBytes);
@@ -4165,7 +4210,6 @@ static bool InstallLuaRawGetICache() {
 struct PushStrCacheEntry {
     uint64_t keyHash;      // FNV-1a of C string content
     int      tstring;      // Cached TString* pointer
-    uint32_t generation;   // Cache generation (matches g_getFieldGen)
 };
 
 static PushStrCacheEntry g_pushStrCache[PUSHSTR_CACHE_SIZE];
@@ -4176,6 +4220,14 @@ static void ClearLuaPushStringCache() {
 
 typedef int (__cdecl* lua_pushstring_fn)(int L, const char* s);
 static lua_pushstring_fn orig_lua_pushstring = nullptr;
+
+typedef void (__cdecl *luaC_step_fn)(int L);
+static luaC_step_fn orig_luaC_step = nullptr;
+
+static void __cdecl hooked_luaC_step(int L) {
+    ClearLuaPushStringCache();
+    orig_luaC_step(L);
+}
 
 // TValue layout: +0x00 value (8B), +0x08 tt (int=4), +0x0C taint (DWORD)
 static int __cdecl hooked_lua_pushstring(int L, const char* s) {
@@ -4197,7 +4249,7 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
         PushStrCacheEntry* entry = &g_pushStrCache[cacheIdx];
 
         // Check cache hit
-        if (entry->keyHash == hash && entry->generation == g_getFieldGen) {
+        if (entry->keyHash == hash) {
             // Validate TString* is still in range
             int ts = entry->tstring;
             if (ts >= 0x10000 && ts <= 0xBFFF0000) {
@@ -4240,7 +4292,6 @@ static int __cdecl hooked_lua_pushstring(int L, const char* s) {
                 if (slot[2] == 4) {  // tt == LUA_TSTRING
                     entry->keyHash = hash;
                     entry->tstring = (int)slot[0];
-                    entry->generation = g_getFieldGen;
                 }
             }
         }
@@ -4277,6 +4328,13 @@ static bool InstallLuaPushStringCache() {
     if (WO_EnableHook(target) != MH_OK) {
         Log("lua_pushstring cache: MH_EnableHook FAILED");
         return false;
+    }
+
+    // Hook luaC_step to clear pushstring cache on garbage collection steps
+    if (WineSafe_CreateHook((void*)0x0085B950, (void*)hooked_luaC_step, (void**)&orig_luaC_step) != MH_OK) {
+        Log("lua_pushstring cache: luaC_step hook FAILED");
+    } else {
+        WO_EnableHook((void*)0x0085B950);
     }
 
     memset(g_pushStrCache, 0, sizeof(g_pushStrCache));
@@ -4567,20 +4625,46 @@ static bool InstallLuaHGetStrCache() {
 #define COMBATLOG_MAX_FIELDS 32
 #define COMBATLOG_FINGERPRINT_BYTES 120
 
+struct CombatLogCacheField {
+    uint32_t tt;
+    uint32_t taint;
+    union {
+        double numVal;
+        char   strVal[64];
+    };
+};
+
 struct CombatLogCacheEntry {
     uint64_t fingerprint;
     int      fieldCount;
-    // Captured TValue data - raw 16-byte TValue per field
-    struct {
-        uint64_t value_lo; // TValue value union (double or gc ptr)
-        uint32_t tt;       // type tag
-        uint32_t taint;    // taint field
-    } fields[COMBATLOG_MAX_FIELDS];
+    CombatLogCacheField fields[COMBATLOG_MAX_FIELDS];
     uint32_t lruStamp;
 };
 
 static CombatLogCacheEntry g_combatLogCache[COMBATLOG_CACHE_SIZE];
 static uint32_t g_combatLogCacheLRU = 0;
+
+void ClearCombatLogCache() {
+    memset(g_combatLogCache, 0, sizeof(g_combatLogCache));
+}
+
+typedef void (__cdecl *fn_lua_pushnumber)(int L, double n);
+typedef void (__cdecl *fn_lua_pushstring)(int L, const char* s);
+typedef void (__cdecl *fn_lua_pushboolean)(int L, int b);
+typedef void (__cdecl *fn_lua_pushnil)(int L);
+
+static fn_lua_pushnumber  combat_lua_pushnumber  = (fn_lua_pushnumber)0x0084E2A0;
+static fn_lua_pushstring  combat_lua_pushstring  = (fn_lua_pushstring)0x0084E350;
+static fn_lua_pushboolean combat_lua_pushboolean = (fn_lua_pushboolean)0x0084E4D0;
+static fn_lua_pushnil     combat_lua_pushnil    = (fn_lua_pushnil)0x0084E280;
+
+static inline const char* CombatReadTStringDirect(void* ts_ptr, size_t* out_len) {
+    if (!ts_ptr || (uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr >= 0xFFFFF000) return nullptr;
+    int len = *(int*)((char*)ts_ptr + 16);
+    if (len < 0 || len > 1024) return nullptr;
+    if (out_len) *out_len = (size_t)len;
+    return (char*)ts_ptr + 20;
+}
 
 // Known addresses for Lua stack manipulation
 static constexpr uintptr_t ADDR_nilObject = 0x00A46F78;
@@ -4636,16 +4720,25 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
         CombatLogCacheEntry* entry = &g_combatLogCache[idx];
 
         if (entry->fingerprint == fp && entry->fieldCount > 0 && entry->lruStamp > 0) {
-            // Cache hit - replay the TValue pushes
-            uint64_t* topPtr = *(uint64_t**)(luaState + 0x0C);
+            // Cache hit - replay the pushes safely using Lua API
             for (int i = 0; i < entry->fieldCount; i++) {
-                uint64_t* dst = (uint64_t*)(topPtr + i * 2); // 2x uint64_t = 16 bytes
-                dst[0] = entry->fields[i].value_lo;
-                dst[1] = ((uint64_t)entry->fields[i].taint << 32) | entry->fields[i].tt;
+                int tt = entry->fields[i].tt;
+                switch (tt) {
+                    case 4: // LUA_TSTRING
+                        combat_lua_pushstring(luaState, entry->fields[i].strVal);
+                        break;
+                    case 3: // LUA_TNUMBER
+                        combat_lua_pushnumber(luaState, entry->fields[i].numVal);
+                        break;
+                    case 1: // LUA_TBOOLEAN
+                        combat_lua_pushboolean(luaState, (int)entry->fields[i].numVal);
+                        break;
+                    case 0: // LUA_TNIL
+                    default:
+                        combat_lua_pushnil(luaState);
+                        break;
+                }
             }
-            // Advance L->top
-            *(uint64_t**)(luaState + 0x0C) = topPtr + entry->fieldCount * 2;
-
             entry->lruStamp = ++g_combatLogCacheLRU;
             g_combatLogCacheHits++;
             return entry->fieldCount;
@@ -4657,7 +4750,6 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
         // Capture the pushed TValue data from the Lua stack
         if (fieldCount > 0 && fieldCount <= COMBATLOG_MAX_FIELDS) {
             uint64_t* topPtr = *(uint64_t**)(luaState + 0x0C);
-            // The pushed values are at topPtr - fieldCount through topPtr - 1
             uint64_t* startPtr = topPtr - fieldCount * 2;
 
             entry->fingerprint = fp;
@@ -4666,9 +4758,37 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
 
             for (int i = 0; i < fieldCount; i++) {
                 uint64_t* src = startPtr + i * 2;
-                entry->fields[i].value_lo = src[0];
-                entry->fields[i].tt = (uint32_t)(src[1] & 0xFFFFFFFF);
-                entry->fields[i].taint = (uint32_t)((src[1] >> 32) & 0xFFFFFFFF);
+                uint32_t tt = (uint32_t)(src[1] & 0xFFFFFFFF);
+                uint32_t taint = (uint32_t)((src[1] >> 32) & 0xFFFFFFFF);
+                uint64_t val = src[0];
+
+                if (tt == 4) { // LUA_TSTRING
+                    void* ts_ptr = (void*)(uintptr_t)val;
+                    size_t slen = 0;
+                    const char* s = CombatReadTStringDirect(ts_ptr, &slen);
+                    if (s && slen < 64) {
+                        entry->fields[i].tt = 4;
+                        entry->fields[i].taint = taint;
+                        memcpy(entry->fields[i].strVal, s, slen);
+                        entry->fields[i].strVal[slen] = '\0';
+                    } else {
+                        // String too long or invalid, discard the cache entry
+                        entry->fieldCount = 0;
+                        break;
+                    }
+                } else if (tt == 3) { // LUA_TNUMBER
+                    entry->fields[i].tt = 3;
+                    entry->fields[i].taint = taint;
+                    memcpy(&entry->fields[i].numVal, &val, sizeof(double));
+                } else if (tt == 1) { // LUA_TBOOLEAN
+                    entry->fields[i].tt = 1;
+                    entry->fields[i].taint = taint;
+                    entry->fields[i].numVal = (val != 0) ? 1.0 : 0.0;
+                } else {
+                    // nil or other
+                    entry->fields[i].tt = 0; // LUA_TNIL
+                    entry->fields[i].taint = taint;
+                }
             }
         }
 
@@ -4728,29 +4848,12 @@ static inline int luaTable_nextPow2(int n) {
 // Decision function - called from naked hook, must be __cdecl
 static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     if (!table) return newSize;
-    // Validate pointer - must be in valid user-space range
     uintptr_t p = (uintptr_t)table;
     if (p < 0x10000 || p > 0xFFE00000) return newSize;
 
     // CRITICAL: Clear luaH_getstr cache on every resize - old Node* pointers are invalidated
     ClearLuaHGetStrCache();
     ClearLuaRawGetICache();
-
-    __try {
-        int currentSize = *(int*)((char*)table + 0x20);
-        if (currentSize <= 0) return newSize;
-        if (newSize <= currentSize) return newSize;
-        if (newSize <= 0) return newSize;
-
-        int nextPow = luaTable_nextPow2(newSize);
-        // Only round up if we're not already at a power of 2,
-        // and the rounded size isn't more than 4x current (cap memory)
-        if (newSize < nextPow && nextPow <= currentSize * 4) {
-            g_tableReshapeHits++;
-            return nextPow;
-        }
-    }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
     return newSize;
 }
