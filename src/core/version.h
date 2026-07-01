@@ -52,7 +52,7 @@
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
 // GetSpellInfo hook also disabled below.
-#define TEST_DISABLE_ALL_APICACHE       1
+#define TEST_DISABLE_ALL_APICACHE       0
 
 // Phase 2 Lua fast paths
 #define TEST_DISABLE_ALL_PHASE2         0
@@ -109,7 +109,7 @@
 
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
-#define TEST_DISABLE_PHASE2_NEW_DMA     1
+#define TEST_DISABLE_PHASE2_NEW_DMA     0
 
 // GetSpellInfo cache - icon corruption + relog crash
 #define TEST_DISABLE_GETSPELLINFO_CACHE 0
@@ -150,7 +150,7 @@
 #define TEST_DISABLE_GETPROCADDRESS     0
 
 // GetModuleFileNameA/W cache - conflicts with OBS hook chain → crash + exit error
-#define TEST_DISABLE_MODULEFILENAME     1
+#define TEST_DISABLE_MODULEFILENAME     0
 
 // GetEnvironmentVariableA cache
 #define TEST_DISABLE_ENVVARIABLE        0

@@ -1045,6 +1045,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
         if (g_lastLState && currentL == 0) {
             ClearAssetPathCache();
+            ApiCache::ClearCache();
         }
         g_lastLState = currentL;
 
@@ -7818,61 +7819,36 @@ typedef DWORD (WINAPI* GetModuleFileNameW_fn)(HMODULE, LPWSTR, DWORD);
 static GetModuleFileNameA_fn orig_GetModuleFileNameA = nullptr;
 static GetModuleFileNameW_fn orig_GetModuleFileNameW = nullptr;
 
-static const int GMF_CACHE_SIZE = 64;
-static const int GMF_CACHE_MASK = GMF_CACHE_SIZE - 1;
-
-struct GmfCacheEntryA { HMODULE hMod; char path[MAX_PATH]; bool valid; };
-struct GmfCacheEntryW { HMODULE hMod; wchar_t path[MAX_PATH]; bool valid; };
-
-static GmfCacheEntryA g_gmfCacheA[GMF_CACHE_SIZE] = {};
-static GmfCacheEntryW g_gmfCacheW[GMF_CACHE_SIZE] = {};
+static char g_gmfPathA[MAX_PATH] = {};
+static wchar_t g_gmfPathW[MAX_PATH] = {};
+static DWORD g_gmfPathLenA = 0;
+static DWORD g_gmfPathLenW = 0;
+static bool g_gmfInitialized = false;
 
 static DWORD WINAPI hooked_GetModuleFileNameA(HMODULE hModule, LPSTR lpFilename, DWORD nSize) {
     static HMODULE mainMod = GetModuleHandleA(nullptr);
-    if (hModule == NULL || hModule == mainMod) {
-        int idx = (hModule == NULL) ? 0 : 1;
-        if (g_gmfCacheA[idx].valid && g_gmfCacheA[idx].hMod == hModule) {
-            size_t len = strlen(g_gmfCacheA[idx].path);
-            if (len < nSize) {
-                memcpy(lpFilename, g_gmfCacheA[idx].path, len + 1);
-                g_gmfHits++;
-                return (DWORD)len;
-            }
+    if ((hModule == NULL || hModule == mainMod) && g_gmfInitialized) {
+        if (g_gmfPathLenA < nSize) {
+            memcpy(lpFilename, g_gmfPathA, g_gmfPathLenA + 1);
+            g_gmfHits++;
+            return g_gmfPathLenA;
         }
     }
-    DWORD result = orig_GetModuleFileNameA(hModule, lpFilename, nSize);
-    if ((hModule == NULL || hModule == mainMod) && result > 0 && result < MAX_PATH) {
-        int idx = (hModule == NULL) ? 0 : 1;
-        g_gmfCacheA[idx].hMod = hModule;
-        memcpy(g_gmfCacheA[idx].path, lpFilename, result + 1);
-        g_gmfCacheA[idx].valid = true;
-    }
     g_gmfMisses++;
-    return result;
+    return orig_GetModuleFileNameA(hModule, lpFilename, nSize);
 }
 
 static DWORD WINAPI hooked_GetModuleFileNameW(HMODULE hModule, LPWSTR lpFilename, DWORD nSize) {
     static HMODULE mainMod = GetModuleHandleA(nullptr);
-    if (hModule == NULL || hModule == mainMod) {
-        int idx = (hModule == NULL) ? 0 : 1;
-        if (g_gmfCacheW[idx].valid && g_gmfCacheW[idx].hMod == hModule) {
-            size_t len = wcslen(g_gmfCacheW[idx].path);
-            if (len < nSize) {
-                memcpy(lpFilename, g_gmfCacheW[idx].path, (len + 1) * sizeof(wchar_t));
-                g_gmfHits++;
-                return (DWORD)len;
-            }
+    if ((hModule == NULL || hModule == mainMod) && g_gmfInitialized) {
+        if (g_gmfPathLenW < nSize) {
+            memcpy(lpFilename, g_gmfPathW, (g_gmfPathLenW + 1) * sizeof(wchar_t));
+            g_gmfHits++;
+            return g_gmfPathLenW;
         }
     }
-    DWORD result = orig_GetModuleFileNameW(hModule, lpFilename, nSize);
-    if ((hModule == NULL || hModule == mainMod) && result > 0 && result < MAX_PATH) {
-        int idx = (hModule == NULL) ? 0 : 1;
-        g_gmfCacheW[idx].hMod = hModule;
-        memcpy(g_gmfCacheW[idx].path, lpFilename, (result + 1) * sizeof(wchar_t));
-        g_gmfCacheW[idx].valid = true;
-    }
     g_gmfMisses++;
-    return result;
+    return orig_GetModuleFileNameW(hModule, lpFilename, nSize);
 }
 
 static bool InstallGetModuleFileNameCache() {
@@ -7883,17 +7859,26 @@ static bool InstallGetModuleFileNameCache() {
     HMODULE hK32 = GetModuleHandleA("kernel32.dll");
     if (!hK32) return false;
 
-    int ok = 0;
-    void* pA = (void*)GetProcAddress(hK32, "GetModuleFileNameA");
-    if (pA && MH_CreateHook(pA, (void*)hooked_GetModuleFileNameA, (void**)&orig_GetModuleFileNameA) == MH_OK)
-        if (WO_EnableHook(pA) == MH_OK) ok++;
+    orig_GetModuleFileNameA = (GetModuleFileNameA_fn)GetProcAddress(hK32, "GetModuleFileNameA");
+    orig_GetModuleFileNameW = (GetModuleFileNameW_fn)GetProcAddress(hK32, "GetModuleFileNameW");
+    if (!orig_GetModuleFileNameA || !orig_GetModuleFileNameW) return false;
 
-    void* pW = (void*)GetProcAddress(hK32, "GetModuleFileNameW");
-    if (pW && MH_CreateHook(pW, (void*)hooked_GetModuleFileNameW, (void**)&orig_GetModuleFileNameW) == MH_OK)
-        if (WO_EnableHook(pW) == MH_OK) ok++;
+    HMODULE mainMod = GetModuleHandleA(nullptr);
+    g_gmfPathLenA = orig_GetModuleFileNameA(mainMod, g_gmfPathA, MAX_PATH);
+    g_gmfPathLenW = orig_GetModuleFileNameW(mainMod, g_gmfPathW, MAX_PATH);
+    if (g_gmfPathLenA > 0 && g_gmfPathLenW > 0) {
+        g_gmfInitialized = true;
+    }
+
+    int ok = 0;
+    if (MH_CreateHook((void*)orig_GetModuleFileNameA, (void*)hooked_GetModuleFileNameA, (void**)&orig_GetModuleFileNameA) == MH_OK)
+        if (WO_EnableHook((void*)orig_GetModuleFileNameA) == MH_OK) ok++;
+
+    if (MH_CreateHook((void*)orig_GetModuleFileNameW, (void*)hooked_GetModuleFileNameW, (void**)&orig_GetModuleFileNameW) == MH_OK)
+        if (WO_EnableHook((void*)orig_GetModuleFileNameW) == MH_OK) ok++;
 
     if (ok > 0)
-        Log("GetModuleFileNameA/W cache: ACTIVE (%d-slot, HMODULE-keyed)", GMF_CACHE_SIZE);
+        Log("GetModuleFileNameA/W cache: ACTIVE (thread-safe, read-only)");
     return ok > 0;
 #endif
 }

@@ -149,6 +149,9 @@ static long g_spellHits   = 0;
 static long g_spellMisses = 0;
 static bool g_active      = false;
 
+static SRWLOCK g_itemCacheLock = SRWLOCK_INIT;
+static SRWLOCK g_spellCacheLock = SRWLOCK_INIT;
+
 // ================================================================
 // FNV-1a Hash - limited length for long item links.
 // ================================================================
@@ -306,10 +309,20 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
     int slot = keyHash & CACHE_MASK;
     ItemCacheEntry* e = &g_itemCache[slot];
 
+    ItemCacheEntry localEntry;
+    bool found = false;
+
+    AcquireSRWLockShared(&g_itemCacheLock);
     if (e->valid && e->keyHash == keyHash) {
-        ReplayItemCachedValues(L, e);
-        g_itemHits++;
-        return e->retCount;
+        localEntry = *e;
+        found = true;
+    }
+    ReleaseSRWLockShared(&g_itemCacheLock);
+
+    if (found) {
+        ReplayItemCachedValues(L, &localEntry);
+        InterlockedIncrement(&g_itemHits);
+        return localEntry.retCount;
     }
 
     int topBefore = lua_gettop_(L);
@@ -322,11 +335,13 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
         RawTValue* res1 = &base[topBefore];
         RawTValue* res2 = &base[topBefore + 1];
         if (res1->tt == LUA_TSTRING && res2->tt == LUA_TSTRING) {
+            AcquireSRWLockExclusive(&g_itemCacheLock);
             CaptureItemReturnValues(L, e, keyHash, topBefore, pushed);
+            ReleaseSRWLockExclusive(&g_itemCacheLock);
         }
     }
 
-    g_itemMisses++;
+    InterlockedIncrement(&g_itemMisses);
     return ret;
 }
 
@@ -355,10 +370,20 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     int slot = keyHash & CACHE_MASK;
     SpellCacheEntry* e = &g_spellCache[slot];
 
+    SpellCacheEntry localEntry;
+    bool found = false;
+
+    AcquireSRWLockShared(&g_spellCacheLock);
     if (e->valid && e->keyHash == keyHash && e->frameGen == g_spellFrameGen) {
-        ReplaySpellCachedValues(L, e);
-        g_spellHits++;
-        return e->retCount;
+        localEntry = *e;
+        found = true;
+    }
+    ReleaseSRWLockShared(&g_spellCacheLock);
+
+    if (found) {
+        ReplaySpellCachedValues(L, &localEntry);
+        InterlockedIncrement(&g_spellHits);
+        return localEntry.retCount;
     }
 
     int topBefore = lua_gettop_(L);
@@ -370,11 +395,13 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     if (pushed >= 3 && pushed <= SPELL_RETVALS) {
         RawTValue* res1 = &base[topBefore];
         if (res1->tt == LUA_TSTRING) {
+            AcquireSRWLockExclusive(&g_spellCacheLock);
             CaptureSpellReturnValues(L, e, keyHash, topBefore, pushed);
+            ReleaseSRWLockExclusive(&g_spellCacheLock);
         }
     }
 
-    g_spellMisses++;
+    InterlockedIncrement(&g_spellMisses);
     return ret;
 }
 
@@ -462,8 +489,14 @@ void OnNewFrame() {
 }
 
 void ClearCache() {
+    AcquireSRWLockExclusive(&g_itemCacheLock);
     memset(g_itemCache,  0, sizeof(g_itemCache));
+    ReleaseSRWLockExclusive(&g_itemCacheLock);
+
+    AcquireSRWLockExclusive(&g_spellCacheLock);
     memset(g_spellCache, 0, sizeof(g_spellCache));
+    ReleaseSRWLockExclusive(&g_spellCacheLock);
+
     Log("[ApiCache] Cache cleared (item: %d entries, spell: %d entries)", CACHE_SIZE, CACHE_SIZE);
 }
 
