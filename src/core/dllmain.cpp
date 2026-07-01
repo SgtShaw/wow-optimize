@@ -318,7 +318,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
 #ifndef CRASH_TEST_DISABLE_VA_ARENA
-#define CRASH_TEST_DISABLE_VA_ARENA          0   // VA Arena virtual alloc (enabled with memory limit fix)
+#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc (enabled with memory limit fix)
 #endif
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED - 0 hits)
@@ -354,7 +354,7 @@ extern "C" void IncrementParticleFrameCount();
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
 // (TEST_ENABLE_WS_AGGRESSIVE_PIN lives in wow_memory_opt.cpp, where the working set is set.)
-#define TEST_ENABLE_LARGE_PAGES         1   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
+#define TEST_ENABLE_LARGE_PAGES         0   // mimalloc 2MB large OS pages (TLB win on the VA-tight heap). Requires the Windows account to hold 'Lock pages in memory' (secpol.msc -> Local Policies -> User Rights Assignment) — the DLL can only ENABLE a privilege the account already holds, not grant it. Harmless no-op without the grant. 32-bit caveat: large pages reserve in 2MB units; on a VA-tight client this can fragment the 2-3GB user VA, so keep /3GB on and watch LargestFreeBlock.
 #define CRASH_TEST_DISABLE_TABLE_CONCAT         0   // table.concat fast path
 #define CRASH_TEST_DISABLE_WOW_STRLEN           0   // sub_76EE30 WoW-internal strlen - ENABLED (SSE2 replacement protected with SEH backstop)
 #define CRASH_TEST_DISABLE_STREAM_FASTPATH      TEST_DISABLE_STREAM_FASTPATH   // sub_47B3C0/sub_47B0A0 - controlled by version.h
@@ -3502,7 +3502,7 @@ static void ConfigureMimalloc() {
 
     // v3.3.x: eager commit arenas on Windows for faster allocation
     // Commits entire arena at once instead of page-by-page
-    mi_option_set(mi_option_arena_eager_commit, 1);
+    mi_option_set(mi_option_arena_eager_commit, 0);
 
     // Purge delay = how long mimalloc keeps a freed page mapped before decommitting
     // it back to the OS. Now that mimalloc backs WoW's ENTIRE high-churn heap, a too-
