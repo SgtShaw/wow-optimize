@@ -101,11 +101,11 @@
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_WRITES      0
+#define TEST_DISABLE_PHASE2_WRITES      1
 
 // Phase 2 read hooks (rawget, concat, unpack)
 // Direct RawTValue* stack writes caused hangs in real gameplay
-#define TEST_DISABLE_PHASE2_READS       0
+#define TEST_DISABLE_PHASE2_READS       1
 
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
