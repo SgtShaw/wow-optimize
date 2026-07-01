@@ -104,10 +104,10 @@ void AddonPreload_OnCreateFile(HANDLE hFile, const char* filename) {
     if (!cached) return;
 
     AcquireSRWLockExclusive(&g_handleLock);
-    LONG idx = InterlockedIncrement(&g_handleCount) - 1;
-    if (idx < MAX_HANDLES) {
-        g_handles[idx] = hFile;
-        g_handlePaths[idx] = filename;
+    if (g_handleCount < MAX_HANDLES) {
+        g_handles[g_handleCount] = hFile;
+        g_handlePaths[g_handleCount] = filename;
+        g_handleCount++;
     }
     ReleaseSRWLockExclusive(&g_handleLock);
 }
@@ -127,7 +127,9 @@ void AddonPreload_OnWriteFile(const char* filename) {
             // Swap with last
             g_handles[i] = g_handles[g_handleCount - 1];
             g_handlePaths[i].swap(g_handlePaths[g_handleCount - 1]);
-            InterlockedDecrement(&g_handleCount);
+            g_handles[g_handleCount - 1] = NULL;
+            g_handlePaths[g_handleCount - 1].clear();
+            g_handleCount--;
             break;
         }
     }
@@ -277,7 +279,9 @@ void AddonPreload_OnCloseHandle(HANDLE hFile) {
             // Swap with last
             g_handles[i] = g_handles[g_handleCount - 1];
             g_handlePaths[i].swap(g_handlePaths[g_handleCount - 1]);
-            InterlockedDecrement(&g_handleCount);
+            g_handles[g_handleCount - 1] = NULL;
+            g_handlePaths[g_handleCount - 1].clear();
+            g_handleCount--;
             break;
         }
     }
