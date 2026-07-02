@@ -128,21 +128,38 @@ struct CachedRetVal {
     char   strVal[512];
 };
 
-struct ItemCacheEntry {
-    uint32_t     keyHash;
-    bool         valid;
-    int          retCount;
-    int          pushed;
-    CachedRetVal vals[ITEM_RETVALS];
-};
-
 struct SpellCacheEntry {
     uint32_t     keyHash;
     bool         valid;
     int          retCount;
     int          pushed;
     uint32_t     frameGen;
+    
+    // Key 1 details
+    int          keyType1;
+    double       keyNum1;
+    char         keyStr1[128];
+    
+    // Key 2 details
+    int          keyType2;
+    double       keyNum2;
+    char         keyStr2[64];
+
     CachedRetVal vals[SPELL_RETVALS];
+};
+
+struct ItemCacheEntry {
+    uint32_t     keyHash;
+    bool         valid;
+    int          retCount;
+    int          pushed;
+
+    // Key 1 details
+    int          keyType1;
+    double       keyNum1;
+    char         keyStr1[256];
+
+    CachedRetVal vals[ITEM_RETVALS];
 };
 
 static ItemCacheEntry  g_itemCache[CACHE_SIZE]  = {};
@@ -173,17 +190,113 @@ static inline uint32_t HashStr(const char* s, size_t max_len) {
     return h;
 }
 
+static inline uint32_t ComputeItemHash(lua_State* L, RawTValue* base, int nargs,
+                                      int& kType1, double& kNum1, char* kStr1) {
+    kType1 = LUA_TNIL; kNum1 = 0.0; kStr1[0] = '\0';
+    if (nargs < 1) return 0;
+
+    uint32_t h = 0x811C9DC5;
+    RawTValue* arg1 = &base[0];
+    kType1 = arg1->tt;
+    h ^= kType1;
+    h *= 0x01000193;
+
+    if (kType1 == LUA_TNUMBER) {
+        kNum1 = ReadTNumberDirect(arg1);
+        uint64_t u;
+        memcpy(&u, &kNum1, sizeof(u));
+        h ^= (uint32_t)u; h *= 0x01000193;
+        h ^= (uint32_t)(u >> 32); h *= 0x01000193;
+    } else if (kType1 == LUA_TSTRING) {
+        size_t len = 0;
+        const char* s = ReadTStringDirect(arg1, &len);
+        if (s) {
+            size_t copylen = len > 255 ? 255 : len;
+            memcpy(kStr1, s, copylen);
+            kStr1[copylen] = '\0';
+            h ^= HashStr(kStr1, copylen);
+            h *= 0x01000193;
+        }
+    }
+    return h;
+}
+
+static inline uint32_t ComputeSpellHash(lua_State* L, RawTValue* base, int nargs,
+                                       int& kType1, double& kNum1, char* kStr1,
+                                       int& kType2, double& kNum2, char* kStr2) {
+    kType1 = LUA_TNIL; kNum1 = 0.0; kStr1[0] = '\0';
+    kType2 = LUA_TNIL; kNum2 = 0.0; kStr2[0] = '\0';
+    if (nargs < 1) return 0;
+
+    uint32_t h = 0x811C9DC5;
+
+    // Process arg1
+    RawTValue* arg1 = &base[0];
+    kType1 = arg1->tt;
+    h ^= kType1;
+    h *= 0x01000193;
+
+    if (kType1 == LUA_TNUMBER) {
+        kNum1 = ReadTNumberDirect(arg1);
+        uint64_t u;
+        memcpy(&u, &kNum1, sizeof(u));
+        h ^= (uint32_t)u; h *= 0x01000193;
+        h ^= (uint32_t)(u >> 32); h *= 0x01000193;
+    } else if (kType1 == LUA_TSTRING) {
+        size_t len = 0;
+        const char* s = ReadTStringDirect(arg1, &len);
+        if (s) {
+            size_t copylen = len > 127 ? 127 : len;
+            memcpy(kStr1, s, copylen);
+            kStr1[copylen] = '\0';
+            h ^= HashStr(kStr1, copylen);
+            h *= 0x01000193;
+        }
+    }
+
+    // Process arg2
+    if (nargs >= 2) {
+        RawTValue* arg2 = &base[1];
+        kType2 = arg2->tt;
+        h ^= kType2;
+        h *= 0x01000193;
+        if (kType2 == LUA_TNUMBER) {
+            kNum2 = ReadTNumberDirect(arg2);
+            uint64_t u;
+            memcpy(&u, &kNum2, sizeof(u));
+            h ^= (uint32_t)u; h *= 0x01000193;
+            h ^= (uint32_t)(u >> 32); h *= 0x01000193;
+        } else if (kType2 == LUA_TSTRING) {
+            size_t len = 0;
+            const char* s = ReadTStringDirect(arg2, &len);
+            if (s) {
+                size_t copylen = len > 63 ? 63 : len;
+                memcpy(kStr2, s, copylen);
+                kStr2[copylen] = '\0';
+                h ^= HashStr(kStr2, copylen);
+                h *= 0x01000193;
+            }
+        }
+    }
+    return h;
+}
+
 // ================================================================
 // Direct Memory Capture - reads return values from stack
 // using TValue* pointer math, NO lua API calls.
 // ================================================================
 
 static void CaptureItemReturnValues(lua_State* L, ItemCacheEntry* e,
-                                     uint32_t keyHash, int topBefore, int pushed) {
+                                     uint32_t keyHash, int topBefore, int pushed,
+                                     int kType1, double kNum1, const char* kStr1) {
     e->keyHash   = keyHash;
     e->valid     = true;
     e->retCount  = pushed;  // Approximation, matches actual return count
     e->pushed    = pushed;
+    
+    e->keyType1  = kType1;
+    e->keyNum1   = kNum1;
+    memcpy(e->keyStr1, kStr1, sizeof(e->keyStr1));
 
     RawTValue* base = GetStackBase(L);
 
@@ -221,12 +334,22 @@ static void CaptureItemReturnValues(lua_State* L, ItemCacheEntry* e,
 }
 
 static void CaptureSpellReturnValues(lua_State* L, SpellCacheEntry* e,
-                                      uint32_t keyHash, int topBefore, int pushed) {
+                                      uint32_t keyHash, int topBefore, int pushed,
+                                      int kType1, double kNum1, const char* kStr1,
+                                      int kType2, double kNum2, const char* kStr2) {
     e->keyHash   = keyHash;
     e->valid     = true;
     e->retCount  = pushed;
     e->pushed    = pushed;
     e->frameGen  = g_spellFrameGen;
+
+    e->keyType1  = kType1;
+    e->keyNum1   = kNum1;
+    memcpy(e->keyStr1, kStr1, sizeof(e->keyStr1));
+
+    e->keyType2  = kType2;
+    e->keyNum2   = kNum2;
+    memcpy(e->keyStr2, kStr2, sizeof(e->keyStr2));
 
     RawTValue* base = GetStackBase(L);
 
@@ -294,23 +417,16 @@ static inline void ReplaySpellCachedValues(lua_State* L, SpellCacheEntry* e) {
 // ================================================================
 
 static int __cdecl Hooked_GetItemInfo(lua_State* L) {
-    if (lua_gettop_(L) < 1) return orig_GetItemInfo(L);
-    uint32_t keyHash;
-    RawTValue* base = GetStackBase(L);
-    RawTValue* arg1 = &base[0];  // Stack index 1 = base[0]
-    int argType = arg1->tt;
+    int nargs = lua_gettop_(L);
+    if (nargs < 1) return orig_GetItemInfo(L);
 
-    if (argType == LUA_TNUMBER) {
-        keyHash = (uint32_t)ReadTNumberDirect(arg1);
-    } else if (argType == LUA_TSTRING) {
-        size_t len = 0;
-        const char* name = ReadTStringDirect(arg1, &len);
-        if (!name) return orig_GetItemInfo(L);
-        // Limit hash length for performance (item links can be very long)
-        keyHash = HashStr(name, len > 200 ? 200 : len);
-    } else {
-        return orig_GetItemInfo(L);
-    }
+    RawTValue* base = GetStackBase(L);
+    int keyType1;
+    double keyNum1;
+    char keyStr1[256];
+    
+    uint32_t keyHash = ComputeItemHash(L, base, nargs, keyType1, keyNum1, keyStr1);
+    if (keyType1 == LUA_TNIL) return orig_GetItemInfo(L);
 
     int slot = keyHash & CACHE_MASK;
     ItemCacheEntry* e = &g_itemCache[slot];
@@ -319,9 +435,17 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
     bool found = false;
 
     AcquireSRWLockShared(&g_itemCacheLock);
-    if (e->valid && e->keyHash == keyHash) {
-        localEntry = *e;
-        found = true;
+    if (e->valid && e->keyHash == keyHash && e->keyType1 == keyType1) {
+        bool match = true;
+        if (keyType1 == LUA_TNUMBER) {
+            if (e->keyNum1 != keyNum1) match = false;
+        } else if (keyType1 == LUA_TSTRING) {
+            if (strcmp(e->keyStr1, keyStr1) != 0) match = false;
+        }
+        if (match) {
+            localEntry = *e;
+            found = true;
+        }
     }
     ReleaseSRWLockShared(&g_itemCacheLock);
 
@@ -343,7 +467,7 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
         RawTValue* res2 = &base[topBefore + 1];
         if (res1->tt == LUA_TSTRING && res2->tt == LUA_TSTRING) {
             AcquireSRWLockExclusive(&g_itemCacheLock);
-            CaptureItemReturnValues(L, e, keyHash, topBefore, pushed);
+            CaptureItemReturnValues(L, e, keyHash, topBefore, pushed, keyType1, keyNum1, keyStr1);
             ReleaseSRWLockExclusive(&g_itemCacheLock);
         }
     }
@@ -357,22 +481,16 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 // ================================================================
 
 static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
-    if (lua_gettop_(L) < 1) return orig_GetSpellInfo(L);
-    uint32_t keyHash;
-    RawTValue* base = GetStackBase(L);
-    RawTValue* arg1 = &base[0];  // Stack index 1 = base[0]
-    int argType = arg1->tt;
+    int nargs = lua_gettop_(L);
+    if (nargs < 1) return orig_GetSpellInfo(L);
 
-    if (argType == LUA_TNUMBER) {
-        keyHash = (uint32_t)ReadTNumberDirect(arg1);
-    } else if (argType == LUA_TSTRING) {
-        size_t len = 0;
-        const char* name = ReadTStringDirect(arg1, &len);
-        if (!name) return orig_GetSpellInfo(L);
-        keyHash = HashStr(name, len > 200 ? 200 : len);
-    } else {
-        return orig_GetSpellInfo(L);
-    }
+    RawTValue* base = GetStackBase(L);
+    int keyType1, keyType2;
+    double keyNum1, keyNum2;
+    char keyStr1[128], keyStr2[64];
+
+    uint32_t keyHash = ComputeSpellHash(L, base, nargs, keyType1, keyNum1, keyStr1, keyType2, keyNum2, keyStr2);
+    if (keyType1 == LUA_TNIL) return orig_GetSpellInfo(L);
 
     int slot = keyHash & CACHE_MASK;
     SpellCacheEntry* e = &g_spellCache[slot];
@@ -381,9 +499,26 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     bool found = false;
 
     AcquireSRWLockShared(&g_spellCacheLock);
-    if (e->valid && e->keyHash == keyHash && e->frameGen == g_spellFrameGen) {
-        localEntry = *e;
-        found = true;
+    if (e->valid && e->keyHash == keyHash && e->frameGen == g_spellFrameGen &&
+        e->keyType1 == keyType1 && e->keyType2 == keyType2) {
+        
+        bool match = true;
+        if (keyType1 == LUA_TNUMBER) {
+            if (e->keyNum1 != keyNum1) match = false;
+        } else if (keyType1 == LUA_TSTRING) {
+            if (strcmp(e->keyStr1, keyStr1) != 0) match = false;
+        }
+
+        if (match && keyType2 == LUA_TNUMBER) {
+            if (e->keyNum2 != keyNum2) match = false;
+        } else if (match && keyType2 == LUA_TSTRING) {
+            if (strcmp(e->keyStr2, keyStr2) != 0) match = false;
+        }
+
+        if (match) {
+            localEntry = *e;
+            found = true;
+        }
     }
     ReleaseSRWLockShared(&g_spellCacheLock);
 
@@ -404,7 +539,7 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
         RawTValue* res1 = &base[topBefore];
         if (res1->tt == LUA_TSTRING) {
             AcquireSRWLockExclusive(&g_spellCacheLock);
-            CaptureSpellReturnValues(L, e, keyHash, topBefore, pushed);
+            CaptureSpellReturnValues(L, e, keyHash, topBefore, pushed, keyType1, keyNum1, keyStr1, keyType2, keyNum2, keyStr2);
             ReleaseSRWLockExclusive(&g_spellCacheLock);
         }
     }
