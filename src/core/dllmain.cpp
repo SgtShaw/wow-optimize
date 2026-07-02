@@ -614,7 +614,7 @@ static bool InstallStreamBufferFastPath();
 // Exposed for lua_optimize.cpp (UI reload cache clearing)
 void ClearAssetPathCache();
 extern "C" void ClearLuaOptCaches() {
-    ClearLuaHGetStrCache();
+    InvalidateLuaGetStrInlineCache();
     ClearLuaPushStringCache();
     ClearAssetPathCache();
     ClearRawGetIInlineCache();
@@ -4865,8 +4865,8 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     if (p < 0x10000 || p > 0xFFE00000) return newSize;
 
     // CRITICAL: Clear luaH_getstr cache on every resize - old Node* pointers are invalidated
-    ClearLuaHGetStrCache();
-    ClearLuaRawGetICache();
+    InvalidateLuaGetStrInlineCache();
+    ClearRawGetIInlineCache();
 
     return newSize;
 }
