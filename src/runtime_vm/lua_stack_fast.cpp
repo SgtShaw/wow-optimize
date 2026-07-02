@@ -209,6 +209,7 @@ static int __cdecl hook_lua_isfunction(uintptr_t L, int idx) {
             if (IsValidPtr(gc)) {
                 return (*(uint8_t*)(gc + 10) != 0) ? 1 : 0;
             }
+            return orig_lua_isfunction(L, idx);
         }
         return 0;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -450,6 +451,7 @@ static void* __cdecl hook_lua_touserdata(uintptr_t L, int idx) {
                 if (IsValidPtr(udata)) {
                     return (void*)(udata + 24);
                 }
+                return orig_lua_touserdata(L, idx);
             }
         }
         return nullptr;
@@ -468,18 +470,23 @@ static int __cdecl hook_lua_getmetatable(uintptr_t L, int idx) {
     __try {
         bool defer = false;
         uintptr_t tv = ResolveTValue(L, idx, &defer);
-        if (!defer && tv && tv != NIL_OBJECT) {
+        if (defer) return orig_lua_getmetatable(L, idx);
+        if (tv && tv != NIL_OBJECT) {
             int tt = *(int*)(tv + 8);
             uintptr_t mt = 0;
             if (tt == LUA_TTABLE || tt == LUA_TUSERDATA) {
                 uintptr_t obj = *(uintptr_t*)(tv + 0);
                 if (IsValidPtr(obj)) {
                     mt = *(uintptr_t*)(obj + 12);
+                } else {
+                    return orig_lua_getmetatable(L, idx);
                 }
             } else {
                 uintptr_t g = *(uintptr_t*)(L + 0x14);
                 if (IsValidPtr(g)) {
                     mt = *(uintptr_t*)(g + 4 * tt + 160);
+                } else {
+                    return orig_lua_getmetatable(L, idx);
                 }
             }
 
@@ -491,6 +498,8 @@ static int __cdecl hook_lua_getmetatable(uintptr_t L, int idx) {
                     *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
                     *(uintptr_t*)(L + 0x0C) = top + 16;
                     return 1;
+                } else {
+                    return orig_lua_getmetatable(L, idx);
                 }
             }
             return 0;
@@ -528,6 +537,8 @@ static int __cdecl hook_lua_setmetatable(uintptr_t L, int idx) {
                             goto fallback;
                         }
                         *(uintptr_t*)(tbl + 12) = mt;
+                    } else {
+                        goto fallback;
                     }
                 } else if (tt == LUA_TUSERDATA) {
                     uintptr_t udata = *(uintptr_t*)(tv + 0);
@@ -536,11 +547,15 @@ static int __cdecl hook_lua_setmetatable(uintptr_t L, int idx) {
                             goto fallback;
                         }
                         *(uintptr_t*)(udata + 12) = mt;
+                    } else {
+                        goto fallback;
                     }
                 } else {
                     uintptr_t g = *(uintptr_t*)(L + 0x14);
                     if (IsValidPtr(g)) {
                         *(uintptr_t*)(g + 4 * tt + 160) = mt;
+                    } else {
+                        goto fallback;
                     }
                 }
 
@@ -589,6 +604,8 @@ static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
                         if (!*(uint8_t*)(cl + 10) && !*(uintptr_t*)(cl + 4)) {
                             *(uintptr_t*)(cl + 4) = *(uintptr_t*)TAINT_CELL;
                         }
+                    } else {
+                        goto fallback;
                     }
                 } else if (tt == LUA_TUSERDATA) {
                     uintptr_t udata = *(uintptr_t*)(tv + 0);
@@ -597,6 +614,8 @@ static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
                             goto fallback;
                         }
                         *(uintptr_t*)(udata + 16) = env;
+                    } else {
+                        goto fallback;
                     }
                 } else if (tt == LUA_TTHREAD) {
                     uintptr_t th = *(uintptr_t*)(tv + 0);
@@ -608,6 +627,8 @@ static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
                         *(uintptr_t*)(th_env + 12) = *(uintptr_t*)TAINT_CELL;
                         *(uintptr_t*)(th_env + 0) = env;
                         *(int*)(th_env + 8) = LUA_TTABLE;
+                    } else {
+                        goto fallback;
                     }
                 } else {
                     result = 0;
@@ -665,6 +686,8 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                         *(int*)(top + 8) = LUA_TTABLE;
                         *(uint32_t*)(top + 12) = push_taint;
                         result = (int)cl;
+                    } else {
+                        return orig_lua_getfenv(L, idx);
                     }
                 } else if (tt == LUA_TUSERDATA) {
                     uintptr_t udata = *(uintptr_t*)(tv + 0);
@@ -674,6 +697,8 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                         *(int*)(top + 8) = LUA_TTABLE;
                         *(uint32_t*)(top + 12) = taint;
                         result = (int)udata;
+                    } else {
+                        return orig_lua_getfenv(L, idx);
                     }
                 } else if (tt == LUA_TTHREAD) {
                     uintptr_t th = *(uintptr_t*)(tv + 0);
@@ -698,6 +723,8 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                             *(uint32_t*)(top + 12) = taint;
                             result = taint;
                         }
+                    } else {
+                        return orig_lua_getfenv(L, idx);
                     }
                 } else {
                     *(uintptr_t*)(top + 0) = 0;

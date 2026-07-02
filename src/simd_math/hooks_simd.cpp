@@ -590,34 +590,36 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
             return 0;
         }
 
-        __m128 origin = _mm_set_ps(0.0f, ray[2], ray[1], ray[0]);
-        __m128 dir = _mm_set_ps(0.0f, ray[5], ray[4], ray[3]);
+        // Edge vectors
+        float edge1_x = v1[0] - v0[0];
+        float edge1_y = v1[1] - v0[1];
+        float edge1_z = v1[2] - v0[2];
 
-        __m128 pt0 = _mm_set_ps(0.0f, v0[2], v0[1], v0[0]);
-        __m128 pt1 = _mm_set_ps(0.0f, v1[2], v1[1], v1[0]);
-        __m128 pt2 = _mm_set_ps(0.0f, v2[2], v2[1], v2[0]);
+        float edge2_x = v2[0] - v0[0];
+        float edge2_y = v2[1] - v0[1];
+        float edge2_z = v2[2] - v0[2];
 
-        __m128 edge1 = _mm_sub_ps(pt1, pt0);
-        __m128 edge2 = _mm_sub_ps(pt2, pt0);
+        // pvec = dir x edge2
+        float pvec_x = ray[4] * edge2_z - ray[5] * edge2_y;
+        float pvec_y = ray[5] * edge2_x - ray[3] * edge2_z;
+        float pvec_z = ray[3] * edge2_y - ray[4] * edge2_x;
 
-        __m128 pvec = SSE2_Cross(dir, edge2);
-        __m128 det_v = SSE2_Dot3_Val(edge1, pvec);
-
-        float det;
-        _mm_store_ss(&det, det_v);
+        // det = edge1 . pvec
+        float det = edge1_x * pvec_x + edge1_y * pvec_y + edge1_z * pvec_z;
 
         if (det > -0.000001f && det < 0.000001f) {
             return 0;
         }
 
-        __m128 inv_det_v = _mm_set1_ps(1.0f);
-        inv_det_v = _mm_div_ps(inv_det_v, det_v);
+        float inv_det = 1.0f / det;
 
-        __m128 tvec = _mm_sub_ps(origin, pt0);
-        __m128 u_v = _mm_mul_ps(SSE2_Dot3_Val(tvec, pvec), inv_det_v);
+        // tvec = origin - v0
+        float tvec_x = ray[0] - v0[0];
+        float tvec_y = ray[1] - v0[1];
+        float tvec_z = ray[2] - v0[2];
 
-        float u;
-        _mm_store_ss(&u, u_v);
+        // u = (tvec . pvec) * inv_det
+        float u = (tvec_x * pvec_x + tvec_y * pvec_y + tvec_z * pvec_z) * inv_det;
 
         float min_val = -margin;
         float max_val = margin + 1.0f;
@@ -626,19 +628,21 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
             return 0;
         }
 
-        __m128 qvec = SSE2_Cross(tvec, edge1);
-        __m128 v_v = _mm_mul_ps(SSE2_Dot3_Val(dir, qvec), inv_det_v);
+        // qvec = tvec x edge1
+        float qvec_x = tvec_y * edge1_z - tvec_z * edge1_y;
+        float qvec_y = tvec_z * edge1_x - tvec_x * edge1_z;
+        float qvec_z = tvec_x * edge1_y - tvec_y * edge1_x;
 
-        float v;
-        _mm_store_ss(&v, v_v);
+        // v = (dir . qvec) * inv_det
+        float v = (ray[3] * qvec_x + ray[4] * qvec_y + ray[5] * qvec_z) * inv_det;
 
         if (v < min_val || (u + v) > max_val) {
             return 0;
         }
 
         if (outT) {
-            __m128 t_val = _mm_mul_ps(SSE2_Dot3_Val(edge2, qvec), inv_det_v);
-            _mm_store_ss(outT, t_val);
+            // t = (edge2 . qvec) * inv_det
+            *outT = (edge2_x * qvec_x + edge2_y * qvec_y + edge2_z * qvec_z) * inv_det;
         }
 
         if (outUV) {
