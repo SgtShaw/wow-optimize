@@ -619,6 +619,7 @@ extern "C" void ClearLuaOptCaches() {
     ClearAssetPathCache();
     ClearRawGetIInlineCache();
     ClearEventDispatchCache();
+    ClearTableCache();
 }
 
 // Stats for new hooks (defined with implementations below)
@@ -1060,17 +1061,17 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         // Detect lua_State destruction (logout/exit) - clear caches
         static uintptr_t g_lastLState = 0;
         uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
-        if (g_lastLState && currentL == 0) {
+        if (currentL != g_lastLState) {
             ClearAssetPathCache();
             ApiCache::ClearCache();
             ClearCombatLogCache();
+            ClearTableCache();
+            ClearLuaPushStringCache();
+            g_lastLState = currentL;
         }
-        g_lastLState = currentL;
 
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         LuaVMEngine_FrameTick();
-        ClearTableCache();
-        ClearLuaPushStringCache();
         ApiCache::OnNewFrame();
         FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
@@ -8500,6 +8501,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
     switch (reason) {
         case DLL_PROCESS_ATTACH:
             DisableThreadLibraryCalls(hModule);
+
+            // Pin the DLL to prevent crashes on process exit if OS unloads DLLs in bad order
+            {
+                HMODULE hDummy;
+                GetModuleHandleExA(
+                    GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_PIN,
+                    (LPCSTR)hModule,
+                    &hDummy
+                );
+            }
             
             // Rosetta: disable x87 JIT cache to force re-translation after hooks
             // This MUST happen before any hooks install, so rosettax87 doesn't

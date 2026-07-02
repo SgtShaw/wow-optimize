@@ -336,7 +336,7 @@
 // Addon Lua-file prefetch (reads ~6000 addon files during loading to warm the OS
 // cache). Enabled for testing — warms OS page cache for faster addon loading.
 // On multi-client setups with shared disk, set to 1 to avoid I/O contention.
-#define TEST_DISABLE_LUA_PRECOMPILE      0
+#define TEST_DISABLE_LUA_PRECOMPILE      1
 
 // CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 horizontal
 // reduction has a verified lane-splat bug (lanes 0/1 stuck at 2*(x^2+y^2)
