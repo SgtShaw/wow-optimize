@@ -8554,6 +8554,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             break;
         case DLL_PROCESS_DETACH:
             if (reserved != NULL) {
+#if !TEST_DISABLE_SAVED_VARS_ASYNC
+                FlushSavedVarsAsyncSynchronously();
+#endif
                 ClearAssetPathCache();
                 if (g_log) {
                     SYSTEMTIME st;

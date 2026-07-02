@@ -149,11 +149,11 @@ static void* __cdecl Optimized_GetStr(int table, int tstring)
         while (next != nullptr) {
             uint32_t* n = (uint32_t*)next;
             if (n[6] == 4 && n[4] == (uint32_t)tstring) {
-                // Found — cache the chain's start bucket (all nodes in a chain
-                // share it) so a repeat lookup short-circuits the walk.
+                // Found — cache the actual node index in the node array
+                // so a repeat lookup immediately loads the correct node.
                 entry->table_lo = (uint32_t)table;
                 entry->tstring_hash = ts_hash;
-                entry->bucket_idx = bucket_idx;
+                entry->bucket_idx = (uint32_t)(((uintptr_t)n - (uintptr_t)node_array) / 40);
                 entry->lsize = lsize;
                 g_chain_depth_total += depth;
                 return n;

@@ -271,3 +271,51 @@ void ShutdownSavedVarsAsync() {
             s_writeCount, s_totalBytesWritten / (1024.0 * 1024.0));
     }
 }
+
+void FlushSavedVarsAsyncSynchronously() {
+    LONG head = s_queueHead;
+    LONG tail = s_queueTail;
+    if (head == tail) return;
+
+    Log("[SavedVarsAsync] Flushing %ld pending writes synchronously on process exit...", tail - head);
+
+    while (head != tail) {
+        AsyncWriteTask& task = s_writeQueue[head % WRITE_QUEUE_SIZE];
+        
+        // Wait briefly if the task is not yet ready (the caller thread is copying the buffer)
+        int spins = 0;
+        while (InterlockedCompareExchange(&task.ready, 0, 0) == 0 && spins < 100) {
+            Sleep(1);
+            spins++;
+        }
+        
+        if (task.hFile != INVALID_HANDLE_VALUE && task.buffer && task.bytesToWrite > 0) {
+            DWORD written = 0;
+            if (orig_WriteFile_SV) {
+                orig_WriteFile_SV(task.hFile, task.buffer, task.bytesToWrite, &written, NULL);
+            } else {
+                WriteFile(task.hFile, task.buffer, task.bytesToWrite, &written, NULL);
+            }
+            
+            if (task.hFile != INVALID_HANDLE_VALUE) {
+                if (orig_CloseHandle) {
+                    orig_CloseHandle(task.hFile);
+                } else {
+                    CloseHandle(task.hFile);
+                }
+                task.hFile = INVALID_HANDLE_VALUE;
+            }
+        }
+        
+        if (task.buffer) {
+            HeapFree(GetProcessHeap(), 0, task.buffer);
+            task.buffer = NULL;
+        }
+        
+        InterlockedExchange(&task.ready, 0);
+        head++;
+    }
+    s_queueHead = head;
+    s_pendingWrites = 0;
+    Log("[SavedVarsAsync] Synchronous flush complete.");
+}

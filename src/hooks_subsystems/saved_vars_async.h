@@ -29,3 +29,4 @@
 // doesn't block the main thread on large addon data writes.
 bool InstallSavedVarsAsync();
 void ShutdownSavedVarsAsync();
+void FlushSavedVarsAsyncSynchronously();

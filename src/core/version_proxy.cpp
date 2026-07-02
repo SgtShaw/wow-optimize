@@ -196,7 +196,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             break;
 
         case DLL_PROCESS_DETACH:
-            if (g_realVersionDll) {
+            if (g_realVersionDll && reserved == NULL) {
                 FreeLibrary(g_realVersionDll);
                 g_realVersionDll = nullptr;
             }
