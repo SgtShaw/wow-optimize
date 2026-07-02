@@ -95,6 +95,12 @@ static DWORD WINAPI SVWriterThreadProc(LPVOID) {
             InterlockedExchange(&task.completed, -1);
             CrashDumper::FeatureError("SavedVarsAsync", "write exception");
         }
+        
+        // Clean close the duplicated handle
+        if (task.hFile != INVALID_HANDLE_VALUE) {
+            CloseHandle(task.hFile);
+            task.hFile = INVALID_HANDLE_VALUE;
+        }
         LeaveCriticalSection(&s_writeLock);
         
         // Free the buffer copy
@@ -107,6 +113,28 @@ static DWORD WINAPI SVWriterThreadProc(LPVOID) {
         InterlockedDecrement(&s_pendingWrites);
     }
     return 0;
+}
+
+// CloseHandle hook - intercept handle closes to remove from active tracked list
+typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
+static CloseHandle_fn orig_CloseHandle = nullptr;
+
+static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
+    if (hObject != INVALID_HANDLE_VALUE) {
+        AcquireSRWLockExclusive(&s_svHandleLock);
+        for (int i = 0; i < s_svHandleCount; i++) {
+            if (s_svHandles[i] == hObject) {
+                // Remove from active list by shifting elements
+                for (int j = i; j < s_svHandleCount - 1; j++) {
+                    s_svHandles[j] = s_svHandles[j + 1];
+                }
+                s_svHandles[--s_svHandleCount] = nullptr;
+                break;
+            }
+        }
+        ReleaseSRWLockExclusive(&s_svHandleLock);
+    }
+    return orig_CloseHandle(hObject);
 }
 
 // WriteFile hook for SV handles
@@ -124,20 +152,26 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
             // Allocate and copy buffer (original may be freed after return)
             task.buffer = HeapAlloc(GetProcessHeap(), 0, nBytesToWrite);
             if (task.buffer) {
-                memcpy(task.buffer, lpBuffer, nBytesToWrite);
-                task.hFile = hFile;
-                task.bytesToWrite = nBytesToWrite;
-                task.completed = 0;
-                task.bytesWritten = 0;
-                
-                InterlockedIncrement(&s_pendingWrites);
-                CrashDumper::FeatureCall("SavedVarsAsync");
-                
-                // Report bytes written immediately (caller expects synchronous behavior)
-                if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
-                return TRUE;
+                HANDLE dupHandle = INVALID_HANDLE_VALUE;
+                if (DuplicateHandle(GetCurrentProcess(), hFile, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                    memcpy(task.buffer, lpBuffer, nBytesToWrite);
+                    task.hFile = dupHandle;
+                    task.bytesToWrite = nBytesToWrite;
+                    task.completed = 0;
+                    task.bytesWritten = 0;
+                    
+                    InterlockedIncrement(&s_pendingWrites);
+                    CrashDumper::FeatureCall("SavedVarsAsync");
+                    
+                    // Report bytes written immediately (caller expects synchronous behavior)
+                    if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
+                    return TRUE;
+                } else {
+                    HeapFree(GetProcessHeap(), 0, task.buffer);
+                    task.buffer = nullptr;
+                }
             }
-            // Allocation failed - fall through to sync write
+            // Allocation or duplication failed - fall through to sync write
             InterlockedDecrement(&s_queueTail);
         } else {
             // Queue full - fall through to sync write
@@ -162,6 +196,13 @@ bool InstallSavedVarsAsync() {
         return false;
     }
     if (MH_EnableHook(pWF) != MH_OK) return false;
+
+    void* pCH = (void*)GetProcAddress(hK32, "CloseHandle");
+    if (pCH) {
+        if (MH_CreateHook(pCH, (void*)Hooked_CloseHandle, (void**)&orig_CloseHandle) == MH_OK) {
+            MH_EnableHook(pCH);
+        }
+    }
     
     // Start writer thread
     s_shutdown = false;
@@ -190,6 +231,11 @@ void ShutdownSavedVarsAsync() {
         WaitForSingleObject(s_writerThread, 2000);
         CloseHandle(s_writerThread);
         s_writerThread = NULL;
+    }
+    
+    if (orig_CloseHandle) {
+        void* pCH = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CloseHandle");
+        if (pCH) MH_DisableHook(pCH);
     }
     
     DeleteCriticalSection(&s_writeLock);

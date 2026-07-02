@@ -25,37 +25,13 @@ extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 // or during early CRT initialization before originals are valid.
 static volatile LONG g_crtReady = 0;
 
-extern DWORD g_crtTlsIndex;
-
-inline long GetCrtInHook() {
-    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return 0;
-    if (g_crtTlsIndex < 64) {
-        return (long)__readfsdword(0xE10 + g_crtTlsIndex * 4);
-    }
-    uintptr_t expansionSlots = __readfsdword(0xF94);
-    if (expansionSlots) {
-        return (long)((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64];
-    }
-    return 0;
-}
-
-inline void SetCrtInHook(long val) {
-    if (g_crtTlsIndex == TLS_OUT_OF_INDEXES) return;
-    if (g_crtTlsIndex < 64) {
-        __writefsdword(0xE10 + g_crtTlsIndex * 4, (unsigned long)val);
-    } else {
-        uintptr_t expansionSlots = __readfsdword(0xF94);
-        if (expansionSlots) {
-            ((uintptr_t*)expansionSlots)[g_crtTlsIndex - 64] = val;
-        }
-    }
-}
+extern __declspec(thread) bool g_inCrtHook;
 
 #define CRT_ENTER() do { \
-    if (GetCrtInHook()) goto fallback; \
-    SetCrtInHook(1); \
+    if (g_inCrtHook) goto fallback; \
+    g_inCrtHook = true; \
 } while(0)
-#define CRT_LEAVE() SetCrtInHook(0)
+#define CRT_LEAVE() g_inCrtHook = false
 
 // Page-safety check: returns true if a 16-byte SSE load/store at ptr
 // would cross a 4KB page boundary into a potentially unmapped page.

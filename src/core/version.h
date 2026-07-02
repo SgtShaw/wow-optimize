@@ -246,7 +246,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // DISABLED: 'unable to dump given function' — cached bytecode breaks string.dump()
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // ENABLED: cached bytecode is stable with self-healing fallback
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -348,9 +348,9 @@
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
 
-// SavedVariables Asynchronous Writer - DISABLED.
-// Causes catastrophic handle reuse race conditions and settings wipe on logout.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   1
+// SavedVariables Asynchronous Writer - ENABLED.
+// Background writes are stabilized via handle duplication.
+#define TEST_DISABLE_SAVED_VARS_ASYNC   0
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)

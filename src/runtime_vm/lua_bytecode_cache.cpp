@@ -73,19 +73,24 @@ static void EvictOldest() {
     g_cache.erase(old);
 }
 
-static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz, const char* name) {
-    if (!g_active || g_inHook) {
-        return orig_luaL_loadbuffer(L, buf, sz, name);
-    }
-
-    g_inHook = 1;
-    int rc = 0;
+static int HandleLoadBuffer(lua_State* L, const char* buf, size_t sz, const char* name) {
     int base = p_lua_gettop ? p_lua_gettop(L) : 0;
+    int rc = 0;
 
     do {
         if (!buf || sz == 0) { 
             rc = orig_luaL_loadbuffer(L, buf, sz, name); 
             break; 
+        }
+
+        // Pointer validation guards
+        if ((uintptr_t)buf < 0x10000 || (uintptr_t)buf > 0xFFE00000) {
+            rc = orig_luaL_loadbuffer(L, buf, sz, name);
+            break;
+        }
+        if (name && ((uintptr_t)name < 0x10000 || (uintptr_t)name > 0xFFE00000)) {
+            rc = orig_luaL_loadbuffer(L, buf, sz, name);
+            break;
         }
 
         // Already compiled bytecode - pass through directly
@@ -104,7 +109,6 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
             auto it = g_cache.find(h);
             if (it != g_cache.end()) {
                 hitCopy = it->second.bytecode;
-                // Safely update lastUsed using atomic exchange
                 InterlockedExchange((volatile LONG*)&it->second.lastUsed, (LONG)GetTickCount());
             }
             ReleaseSRWLockShared(&g_cacheLock);
@@ -122,7 +126,7 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
                 p_lua_settop(L, base);
             }
 
-            // Bytecode incompatible - evict and recompile
+            // Bytecode incompatible - evict
             AcquireSRWLockExclusive(&g_cacheLock);
             auto it = g_cache.find(h);
             if (it != g_cache.end()) {
@@ -130,6 +134,8 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
                 g_cache.erase(it);
             }
             ReleaseSRWLockExclusive(&g_cacheLock);
+
+            // Fall through to compile from source!
         }
 
         // Compile source
@@ -159,6 +165,21 @@ static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz
         }
     } while (false);
 
+    return rc;
+}
+
+static int __cdecl Hook_luaL_loadbuffer(lua_State* L, const char* buf, size_t sz, const char* name) {
+    if (!g_active || g_inHook) {
+        return orig_luaL_loadbuffer(L, buf, sz, name);
+    }
+
+    g_inHook = 1;
+    int rc = 0;
+    __try {
+        rc = HandleLoadBuffer(L, buf, sz, name);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        rc = orig_luaL_loadbuffer(L, buf, sz, name);
+    }
     g_inHook = 0;
     return rc;
 }
