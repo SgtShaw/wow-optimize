@@ -178,7 +178,7 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
     }
 
     g_queue[g_queueCount++] = ev;
-    return true; // queued, suppress original
+    return false; // Not a duplicate: run original event immediately!
 }
 
 __declspec(naked) void Hooked_FrameScript_SignalEvent() {
@@ -193,6 +193,7 @@ __declspec(naked) void Hooked_FrameScript_SignalEvent() {
         lea eax, [esp+12]            // &first vararg
         push eax                     // stack arg for __fastcall
         call TryQueueEvent
+        add esp, 4                   // Clean up pushed eax stack argument!
 
         test al, al
         jnz drop_event
@@ -205,16 +206,7 @@ __declspec(naked) void Hooked_FrameScript_SignalEvent() {
 }
 
 extern "C" void EventCoalescer_Flush() {
-    if (g_queueCount == 0) return;
-
-    g_isReplaying = true;
-    for (int i = 0; i < g_queueCount; ++i) {
-        if (g_queue[i].used) {
-            DispatchSingle(&g_queue[i]);
-        }
-    }
     g_queueCount = 0;
-    g_isReplaying = false;
 }
 
 namespace EventCoalescer {
