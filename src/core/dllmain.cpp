@@ -3010,6 +3010,18 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         char buf[512];
         WideCharToMultiByte(CP_UTF8, 0, lpFileName, -1, buf, 512, NULL, NULL);
         AddonPreload_OnCreateFile(result, buf);
+
+        // Track SavedVariables files for async writing
+#if !TEST_DISABLE_SAVED_VARS_ASYNC
+        if (dwAccess & GENERIC_WRITE) {
+            const char* wtfMarker = strstr(buf, "WTF");
+            const char* luaExt = strrchr(buf, '.');
+            if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
+                extern void TrackSVHandle(HANDLE h);
+                TrackSVHandle(result);
+            }
+        }
+#endif
     }
     return result;
 }

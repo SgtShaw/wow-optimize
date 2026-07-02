@@ -25,6 +25,10 @@ static volatile LONG s_writeCount = 0;
 typedef BOOL (WINAPI* WriteFile_fn)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 static WriteFile_fn orig_WriteFile_SV = nullptr;
 
+// CloseHandle hook - intercept handle closes to remove from active tracked list
+typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
+static CloseHandle_fn orig_CloseHandle = nullptr;
+
 // Track which handles are SV files (WTF/Account/*.lua or WTF/SavedVariables/*.lua)
 static HANDLE s_svHandles[32] = {};
 static int s_svHandleCount = 0;
@@ -64,6 +68,7 @@ struct AsyncWriteTask {
     DWORD bytesToWrite;
     volatile LONG completed;
     DWORD bytesWritten;
+    volatile LONG ready; // 0 = not ready, 1 = ready for writing
 };
 
 static constexpr int WRITE_QUEUE_SIZE = 64;
@@ -83,6 +88,12 @@ static DWORD WINAPI SVWriterThreadProc(LPVOID) {
         
         AsyncWriteTask& task = s_writeQueue[head % WRITE_QUEUE_SIZE];
         
+        // Spin-wait for the task to be marked ready by the calling thread
+        while (InterlockedCompareExchange(&task.ready, 0, 0) == 0 && !s_shutdown) {
+            Sleep(1);
+        }
+        if (s_shutdown) break;
+        
         EnterCriticalSection(&s_writeLock);
         __try {
             DWORD written = 0;
@@ -96,9 +107,13 @@ static DWORD WINAPI SVWriterThreadProc(LPVOID) {
             CrashDumper::FeatureError("SavedVarsAsync", "write exception");
         }
         
-        // Clean close the duplicated handle
+        // Clean close the duplicated handle using orig_CloseHandle to bypass our detour
         if (task.hFile != INVALID_HANDLE_VALUE) {
-            CloseHandle(task.hFile);
+            if (orig_CloseHandle) {
+                orig_CloseHandle(task.hFile);
+            } else {
+                CloseHandle(task.hFile);
+            }
             task.hFile = INVALID_HANDLE_VALUE;
         }
         LeaveCriticalSection(&s_writeLock);
@@ -109,15 +124,16 @@ static DWORD WINAPI SVWriterThreadProc(LPVOID) {
             task.buffer = NULL;
         }
         
+        // Clear the ready flag so the slot can be reused
+        InterlockedExchange(&task.ready, 0);
+        
         InterlockedIncrement(&s_queueHead);
         InterlockedDecrement(&s_pendingWrites);
     }
     return 0;
 }
 
-// CloseHandle hook - intercept handle closes to remove from active tracked list
-typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
-static CloseHandle_fn orig_CloseHandle = nullptr;
+// CloseHandle hook implementation
 
 static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
     if (hObject != INVALID_HANDLE_VALUE) {
@@ -143,40 +159,50 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
 {
     // Only intercept SV file writes (not overlapped, must be SV handle)
     if (!lpOverlapped && IsSVHandle(hFile) && nBytesToWrite > 0 && nBytesToWrite <= 64 * 1024 * 1024) {
-        LONG tail = InterlockedIncrement(&s_queueTail) - 1;
+        LONG tail = InterlockedCompareExchange(&s_queueTail, 0, 0);
         LONG head = InterlockedCompareExchange(&s_queueHead, 0, 0);
         
-        if (tail - head < WRITE_QUEUE_SIZE) {
-            AsyncWriteTask& task = s_writeQueue[tail % WRITE_QUEUE_SIZE];
-            
-            // Allocate and copy buffer (original may be freed after return)
-            task.buffer = HeapAlloc(GetProcessHeap(), 0, nBytesToWrite);
-            if (task.buffer) {
-                HANDLE dupHandle = INVALID_HANDLE_VALUE;
-                if (DuplicateHandle(GetCurrentProcess(), hFile, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
-                    memcpy(task.buffer, lpBuffer, nBytesToWrite);
-                    task.hFile = dupHandle;
-                    task.bytesToWrite = nBytesToWrite;
-                    task.completed = 0;
-                    task.bytesWritten = 0;
-                    
-                    InterlockedIncrement(&s_pendingWrites);
-                    CrashDumper::FeatureCall("SavedVarsAsync");
-                    
-                    // Report bytes written immediately (caller expects synchronous behavior)
-                    if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
-                    return TRUE;
-                } else {
-                    HeapFree(GetProcessHeap(), 0, task.buffer);
-                    task.buffer = nullptr;
-                }
-            }
-            // Allocation or duplication failed - fall through to sync write
-            InterlockedDecrement(&s_queueTail);
-        } else {
-            // Queue full - fall through to sync write
-            InterlockedDecrement(&s_queueTail);
+        // Congestion control: block/spin-wait if the queue is full to prevent out-of-order writes
+        while (tail - head >= WRITE_QUEUE_SIZE) {
+            Sleep(1);
+            head = InterlockedCompareExchange(&s_queueHead, 0, 0);
         }
+        
+        tail = InterlockedIncrement(&s_queueTail) - 1;
+        AsyncWriteTask& task = s_writeQueue[tail % WRITE_QUEUE_SIZE];
+        
+        // Spin-wait if the target slot is currently recycling
+        while (InterlockedCompareExchange(&task.ready, 0, 0) != 0) {
+            Sleep(1);
+        }
+        
+        // Allocate and copy buffer (original may be freed after return)
+        task.buffer = HeapAlloc(GetProcessHeap(), 0, nBytesToWrite);
+        if (task.buffer) {
+            HANDLE dupHandle = INVALID_HANDLE_VALUE;
+            if (DuplicateHandle(GetCurrentProcess(), hFile, GetCurrentProcess(), &dupHandle, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                memcpy(task.buffer, lpBuffer, nBytesToWrite);
+                task.hFile = dupHandle;
+                task.bytesToWrite = nBytesToWrite;
+                task.completed = 0;
+                task.bytesWritten = 0;
+                
+                InterlockedIncrement(&s_pendingWrites);
+                CrashDumper::FeatureCall("SavedVarsAsync");
+                
+                // Mark slot as ready for consumption
+                InterlockedExchange(&task.ready, 1);
+                
+                // Report bytes written immediately (caller expects synchronous behavior)
+                if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
+                return TRUE;
+            } else {
+                HeapFree(GetProcessHeap(), 0, task.buffer);
+                task.buffer = nullptr;
+            }
+        }
+        // Allocation or duplication failed - fall back to sync write
+        InterlockedDecrement(&s_queueTail);
     }
     
     return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
