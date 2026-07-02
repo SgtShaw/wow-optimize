@@ -108,7 +108,10 @@ static size_t __cdecl hooked_strlen(const char* s) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtStrlenFallbacks++;
-    return orig_strlen ? orig_strlen(s) : 0;
+    if (orig_strlen) return orig_strlen(s);
+    size_t len = 0;
+    while (s && s[len]) len++;
+    return len;
 }
 
 // ================================================================
@@ -162,7 +165,10 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtStrcmpFallbacks++;
-    return orig_strcmp ? orig_strcmp(s1, s2) : 0;
+    if (orig_strcmp) return orig_strcmp(s1, s2);
+    size_t idx = 0;
+    while (s1 && s2 && s1[idx] && s1[idx] == s2[idx]) idx++;
+    return (s1 && s2) ? ((unsigned char)s1[idx] - (unsigned char)s2[idx]) : 0;
 }
 
 // ================================================================
@@ -222,7 +228,12 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
         return 0;
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
-    return orig_strncmp ? orig_strncmp(s1, s2, n) : 0;
+    if (orig_strncmp) return orig_strncmp(s1, s2, n);
+    if (n == 0) return 0;
+    size_t idx = 0;
+    while (idx < n && s1 && s2 && s1[idx] && s1[idx] == s2[idx]) idx++;
+    if (idx == n) return 0;
+    return (s1 && s2) ? ((unsigned char)s1[idx] - (unsigned char)s2[idx]) : 0;
 }
 
 // ================================================================
@@ -267,7 +278,13 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemcmpFallbacks++;
-    return orig_memcmp ? orig_memcmp(s1, s2, n) : 0;
+    if (orig_memcmp) return orig_memcmp(s1, s2, n);
+    const unsigned char* p1 = (const unsigned char*)s1;
+    const unsigned char* p2 = (const unsigned char*)s2;
+    for (size_t idx = 0; idx < n; idx++) {
+        if (p1[idx] != p2[idx]) return (int)p1[idx] - (int)p2[idx];
+    }
+    return 0;
 }
 
 // ================================================================
@@ -305,7 +322,15 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemcpyFallbacks++;
-    return orig_memcpy ? orig_memcpy(dst, src, n) : dst;
+    if (orig_memcpy) return orig_memcpy(dst, src, n);
+    unsigned char* d = (unsigned char*)dst;
+    const unsigned char* s = (const unsigned char*)src;
+    if (d < s) {
+        for (size_t idx = 0; idx < n; idx++) d[idx] = s[idx];
+    } else if (d > s) {
+        for (size_t idx = n; idx > 0; idx--) d[idx - 1] = s[idx - 1];
+    }
+    return dst;
 }
 
 // ================================================================
@@ -338,7 +363,10 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
 fallback:
     g_crtMemsetFallbacks++;
-    return orig_memset ? orig_memset(dst, c, n) : dst;
+    if (orig_memset) return orig_memset(dst, c, n);
+    unsigned char* d = (unsigned char*)dst;
+    for (size_t idx = 0; idx < n; idx++) d[idx] = (unsigned char)c;
+    return dst;
 }
 
 static void* g_target_strlen = nullptr;

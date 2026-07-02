@@ -9,6 +9,7 @@
 #include "MinHook.h"
 #include <cstdint>
 #include <intrin.h>
+#include <emmintrin.h>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -24,6 +25,7 @@ typedef size_t (__cdecl* wcslen_fn)(const wchar_t*);
 static wcslen_fn orig_wcslen = nullptr;
 
 static size_t __cdecl Hooked_wcslen(const wchar_t* s) {
+    if (!orig_wcslen) goto fallback;
     WCHAR_ENTER();
     if (!s) { WCHAR_LEAVE(); goto fallback; }
     if (((uintptr_t)s & 0xFFF) > 0xFF0) { WCHAR_LEAVE(); goto fallback; }
@@ -32,10 +34,9 @@ static size_t __cdecl Hooked_wcslen(const wchar_t* s) {
         size_t n = 0;
         while (true) {
             __m128i v = _mm_loadu_si128((const __m128i*)(s + n));
-            int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
+            // Compare 16-bit lanes against zero to handle wide chars correctly
+            int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(v, zero));
             if (mask) {
-                // mask is a 16-bit bitmask of bytes. Each wchar_t is 2 bytes.
-                // Find the first zero byte. The wchar index = (byte_idx / 2).
                 unsigned long idx; _BitScanForward(&idx, (unsigned long)mask);
                 WCHAR_LEAVE(); return n + (idx / 2);
             }
@@ -43,7 +44,10 @@ static size_t __cdecl Hooked_wcslen(const wchar_t* s) {
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) { WCHAR_LEAVE(); }
 fallback:
-    return orig_wcslen(s);
+    if (orig_wcslen) return orig_wcslen(s);
+    size_t len = 0;
+    while (s && s[len]) len++;
+    return len;
 }
 
 // ====== wcscpy ======
@@ -51,6 +55,7 @@ typedef wchar_t* (__cdecl* wcscpy_fn)(wchar_t*, const wchar_t*);
 static wcscpy_fn orig_wcscpy = nullptr;
 
 static wchar_t* __cdecl Hooked_wcscpy(wchar_t* dst, const wchar_t* src) {
+    if (!orig_wcscpy) goto fallback;
     WCHAR_ENTER();
     if (!dst || !src) { WCHAR_LEAVE(); goto fallback; }
     if (((uintptr_t)dst & 0xFFF) > 0xFF0 || ((uintptr_t)src & 0xFFF) > 0xFF0)
@@ -61,22 +66,24 @@ static wchar_t* __cdecl Hooked_wcscpy(wchar_t* dst, const wchar_t* src) {
         while (true) {
             __m128i v = _mm_loadu_si128((const __m128i*)src);
             _mm_storeu_si128((__m128i*)dst, v);
-            int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
+            int mask = _mm_movemask_epi8(_mm_cmpeq_epi16(v, zero));
             if (mask) { WCHAR_LEAVE(); return ret; }
             src += 8; dst += 8;
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) { WCHAR_LEAVE(); }
 fallback:
-    return orig_wcscpy(dst, src);
+    if (orig_wcscpy) return orig_wcscpy(dst, src);
+    if (!dst || !src) return dst;
+    wchar_t* d = dst;
+    const wchar_t* s = src;
+    while ((*d++ = *s++)) {}
+    return dst;
 }
 
 static void* g_target_wcslen = nullptr;
 static void* g_target_wcscpy = nullptr;
 
 bool InstallCrtWcharSSE2() {
-    return false;  // Broken: ASCII wchar_t (0x00XX) have zero high byte,
-    // _mm_cmpeq_epi8 finds zero at position 1, returns length 0. Needs
-    // byte-mask filtering to only check low bytes of each wchar_t pair.
     HMODULE crt = GetModuleHandleA("msvcrt.dll");
     if (!crt) crt = GetModuleHandleA("ucrtbase.dll");
     if (!crt) { Log("[CrtWchar] msvcrt/ucrtbase not found"); return false; }
