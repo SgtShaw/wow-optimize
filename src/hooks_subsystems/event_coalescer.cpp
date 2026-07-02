@@ -193,7 +193,6 @@ __declspec(naked) void Hooked_FrameScript_SignalEvent() {
         lea eax, [esp+12]            // &first vararg
         push eax                     // stack arg for __fastcall
         call TryQueueEvent
-        add esp, 4                   // Clean up pushed eax stack argument!
 
         test al, al
         jnz drop_event
