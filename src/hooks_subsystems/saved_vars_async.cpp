@@ -42,7 +42,7 @@ static bool IsSVHandle(HANDLE h) {
     return false;
 }
 
-static void TrackSVHandle(HANDLE h) {
+void TrackSVHandle(HANDLE h) {
     AcquireSRWLockExclusive(&s_svHandleLock);
     if (s_svHandleCount < 32) {
         // Check not already tracked
@@ -55,30 +55,6 @@ static void TrackSVHandle(HANDLE h) {
         s_svHandles[s_svHandleCount++] = h;
     }
     ReleaseSRWLockExclusive(&s_svHandleLock);
-}
-
-// CreateFileA hook to detect SV file opens
-typedef HANDLE (WINAPI* CreateFileA_SV_fn)(LPCSTR, DWORD, DWORD, LPSECURITY_ATTRIBUTES, DWORD, DWORD, HANDLE);
-static CreateFileA_SV_fn orig_CreateFileA_SV = nullptr;
-
-static HANDLE WINAPI Hooked_CreateFileA_SV(LPCSTR lpFileName, DWORD dwAccess, DWORD dwShare,
-    LPSECURITY_ATTRIBUTES lpSA, DWORD dwDisposition, DWORD dwFlags, HANDLE hTemplate)
-{
-    HANDLE result = orig_CreateFileA_SV(lpFileName, dwAccess, dwShare, lpSA, dwDisposition, dwFlags, hTemplate);
-    
-    if (result != INVALID_HANDLE_VALUE && lpFileName && (dwAccess & GENERIC_WRITE)) {
-        // Check if this is a SavedVariables or Account data file
-        const char* svMarker = strstr(lpFileName, "SavedVariables");
-        const char* wtfMarker = strstr(lpFileName, "WTF");
-        const char* luaExt = strrchr(lpFileName, '.');
-        
-        if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
-            TrackSVHandle(result);
-            CrashDumper::RecordHookCall("CreateFileA_SV", (uintptr_t)result);
-        }
-    }
-    
-    return result;
 }
 
 // Async write queue
@@ -175,19 +151,11 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
 bool InstallSavedVarsAsync() {
     InitializeCriticalSection(&s_writeLock);
     
-    // Hook CreateFileA to track SV file handles
     HMODULE hK32 = GetModuleHandleA("kernel32.dll");
     if (!hK32) return false;
     
-    void* pCF = (void*)GetProcAddress(hK32, "CreateFileA");
     void* pWF = (void*)GetProcAddress(hK32, "WriteFile");
-    if (!pCF || !pWF) return false;
-    
-    if (MH_CreateHook(pCF, (void*)Hooked_CreateFileA_SV, (void**)&orig_CreateFileA_SV) != MH_OK) {
-        Log("[SavedVarsAsync] CreateFileA hook FAILED");
-        return false;
-    }
-    if (MH_EnableHook(pCF) != MH_OK) return false;
+    if (!pWF) return false;
     
     if (MH_CreateHook(pWF, (void*)Hooked_WriteFile_SV, (void**)&orig_WriteFile_SV) != MH_OK) {
         Log("[SavedVarsAsync] WriteFile hook FAILED");

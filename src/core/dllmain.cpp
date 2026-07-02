@@ -2971,6 +2971,16 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
     // Track addon file handles for RAM-disk serving
     if (result != INVALID_HANDLE_VALUE) {
         AddonPreload_OnCreateFile(result, lpFileName);
+        
+        // Track SavedVariables files for async writing
+        if (lpFileName && (dwAccess & GENERIC_WRITE)) {
+            const char* wtfMarker = strstr(lpFileName, "WTF");
+            const char* luaExt = strrchr(lpFileName, '.');
+            if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
+                extern void TrackSVHandle(HANDLE h);
+                TrackSVHandle(result);
+            }
+        }
     }
     return result;
 }

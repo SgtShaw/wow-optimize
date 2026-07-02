@@ -321,7 +321,7 @@
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        0
+#define TEST_DISABLE_FRUSTUM_CULL        1
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
@@ -597,10 +597,10 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
-#define TEST_DISABLE_QUAT_SLERP_SSE2         0
+#define TEST_DISABLE_VEC3_CROSS_SSE2         1
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
+#define TEST_DISABLE_QUAT_SLERP_SSE2         1
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
