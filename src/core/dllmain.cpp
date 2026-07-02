@@ -3361,7 +3361,8 @@ static BOOL WINAPI hooked_SetPriorityClass(HANDLE hProcess, DWORD dwPriorityClas
     }
     
     // Block downgrade attempts (NORMAL, BELOW_NORMAL, IDLE)
-    if (hProcess == GetCurrentProcess() || hProcess == (HANDLE)-1) {
+    if (hProcess == GetCurrentProcess() || hProcess == (HANDLE)-1 ||
+        (hProcess && GetProcessId(hProcess) == GetCurrentProcessId())) {
         InterlockedIncrement(&g_priorityDowngradesBlocked);
         return TRUE;  // Fake success to avoid breaking WoW logic
     }
