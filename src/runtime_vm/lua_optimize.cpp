@@ -1327,15 +1327,7 @@ int __fastcall Hooked_CVar_Set(void* This, void* unused, const char* value, char
 }
 
 void ForceTimingOverride() {
-    if (MH_CreateHook((void*)orig_CVar_Set, (void*)Hooked_CVar_Set, (void**)&orig_CVar_Set) != MH_OK) {
-        Log("[TimingFix] MH_CreateHook failed");
-        return;
-    }
-    if (MH_EnableHook((void*)orig_CVar_Set) != MH_OK) {
-        Log("[TimingFix] MH_EnableHook failed");
-        return;
-    }
-    Log("[TimingFix] CVar_Set hook installed (0x%08X) - intercepting timingMethod/timingTestError", (unsigned)orig_CVar_Set);
+    Log("[TimingFix] Consolidated timing override into CvarNullGuard hook.");
 }
 #else
 void ForceTimingOverride() {}

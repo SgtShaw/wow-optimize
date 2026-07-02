@@ -2973,6 +2973,7 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
         AddonPreload_OnCreateFile(result, lpFileName);
         
         // Track SavedVariables files for async writing
+#if !TEST_DISABLE_SAVED_VARS_ASYNC
         if (lpFileName && (dwAccess & GENERIC_WRITE)) {
             const char* wtfMarker = strstr(lpFileName, "WTF");
             const char* luaExt = strrchr(lpFileName, '.');
@@ -2981,6 +2982,7 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
                 TrackSVHandle(result);
             }
         }
+#endif
     }
     return result;
 }
@@ -6718,7 +6720,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool getTableCacheOk = false; // InstallLuaGetTableCache(); // DISABLED: completely broken cache that never invalidates on table mutations
 
     Log("--- SavedVariables Async Writer ---");
+#if !TEST_DISABLE_SAVED_VARS_ASYNC
     bool savedVarsAsyncOk = InstallSavedVarsAsync();
+#else
+    bool savedVarsAsyncOk = false;
+    Log("[SavedVarsAsync] DISABLED via feature flag");
+#endif
 
     Log("--- Lua Bytecode Pre-Compiler ---");
 #if TEST_DISABLE_LUA_PRECOMPILE
@@ -8611,7 +8618,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             LuaBytecodePreCompiler::Shutdown();
+#if !TEST_DISABLE_SAVED_VARS_ASYNC
             ShutdownSavedVarsAsync();
+#endif
             ShutdownLuaGetTableCache();
             ShutdownDataStoreFastPath();
             ShutdownStringOpsFast();

@@ -287,7 +287,7 @@
 #define TEST_DISABLE_UNIT_AURA_FAST         0
 
 // Network GUID unpacking fast-path (sub_0076DC20)
-#define TEST_DISABLE_NETWORK_GUID_SSE2         0
+#define TEST_DISABLE_NETWORK_GUID_SSE2         1
 
 // StreamBuffer read/write fast-path (sub_47B3C0/sub_47B0A0)
 #define TEST_DISABLE_STREAM_FASTPATH         0
@@ -346,7 +346,11 @@
 #define TEST_DISABLE_QUAT_NORMALIZE         1
 
 // Addon file RAM-disk - interferes with WoW file I/O
-#define TEST_DISABLE_ADDON_PRELOAD      0
+#define TEST_DISABLE_ADDON_PRELOAD      1
+
+// SavedVariables Asynchronous Writer - DISABLED.
+// Causes catastrophic handle reuse race conditions and settings wipe on logout.
+#define TEST_DISABLE_SAVED_VARS_ASYNC   1
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
@@ -392,7 +396,7 @@
 // Tracks zone transitions, predicts next zone, prefetches common files
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
-#define TEST_DISABLE_MPQ_PREFETCH       0
+#define TEST_DISABLE_MPQ_PREFETCH       1
 
 // Async Sound/Audio Prefetching - DISABLED.
 // Placeholder: the worker loads nothing (TODOs only), so it just spins 2 idle
@@ -417,7 +421,7 @@
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
 // Prevents OOM crashes during M2 model loading on teleports
 // Safe: no WoW code patching, only Windows heap APIs
-#define TEST_DISABLE_HEAP_COMPACTOR     0
+#define TEST_DISABLE_HEAP_COMPACTOR     1
 
 // Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
 // every frame and sheds the DLL's own caches + drops texture budget toward

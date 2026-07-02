@@ -12,6 +12,8 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+#include <string.h>
+
 typedef char (__fastcall *Sub7668C0_t)(void* ecx, void* edx, char* Str1, char a3, char a4, char a5, char a6);
 static Sub7668C0_t g_orig7668C0 = nullptr;
 
@@ -25,6 +27,20 @@ static char __fastcall Hooked_7668C0(void* ecx, void* edx, char* Str1, char a3, 
     if (ptrAt104 != 0 && (ptrAt104 < 0x10000 || ptrAt104 > 0xFFE00000)) {
         return 1;
     }
+
+#if !TEST_DISABLE_TIMING_FIX
+    if (ecx && Str1) {
+        const char* name = *(const char**)((char*)ecx + 20);
+        if (name && (uintptr_t)name >= 0x10000 && (uintptr_t)name <= 0xFFE00000) {
+            if (_stricmp(name, "timingMethod") == 0) {
+                Str1 = (char*)"2";
+            } else if (_stricmp(name, "timingTestError") == 0) {
+                Str1 = (char*)"0";
+            }
+        }
+    }
+#endif
+
     return g_orig7668C0(ecx, edx, Str1, a3, a4, a5, a6);
 }
 
