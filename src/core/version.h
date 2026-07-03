@@ -256,7 +256,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // ENABLED: cached bytecode is stable with self-healing fallback
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // ENABLED: cached bytecode is stable with self-healing fallback
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -594,7 +594,7 @@
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
 // Set to 1 to disable.
-#define TEST_DISABLE_FONT_METRICS_FAST         0  // enabled: FontString metrics hooks
+#define TEST_DISABLE_FONT_METRICS_FAST         1  // enabled: FontString metrics hooks
 
 // Sound system protection guards — SEH-wrapped crash protection for
 // sound driver init (sub_508260), emitter registration (sub_5093F0),
