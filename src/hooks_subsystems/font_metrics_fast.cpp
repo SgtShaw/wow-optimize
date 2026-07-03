@@ -24,6 +24,14 @@ static __forceinline bool IsValidPtr(uintptr_t p) {
     return p > 0x10000 && p < 0xFFE00000;
 }
 
+static __forceinline bool IsWowCodePtr(uintptr_t p) {
+    return p >= 0x00400000 && p < 0x008C0000;
+}
+
+static __forceinline bool IsWowDataPtr(uintptr_t p) {
+    return p >= 0x008C0000 && p < 0x00D50000;
+}
+
 static __forceinline uintptr_t ResolveTValue(uintptr_t L, int idx, bool* deferToOrig) {
     *deferToOrig = false;
     if (idx > 0) {
@@ -58,8 +66,9 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
     uintptr_t nodes = *(uintptr_t*)(t + 0x14); // t->node
     if (!IsValidPtr(nodes)) return nullptr;
 
+    int iterations = 0;
     uintptr_t node = nodes;
-    while (node && IsValidPtr(node)) {
+    while (node && IsValidPtr(node) && iterations++ < 128) {
         int key_tt = *(int*)(node + 0x18);
         if (key_tt == 3) { // LUA_TNUMBER
             double key_val = *(double*)(node + 0x10);
@@ -82,10 +91,15 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
 }
 
 static __forceinline bool ValidateObjectType(void* obj, int typeId) {
+    uintptr_t pObj = (uintptr_t)obj;
+    if (pObj < 0x10000 || pObj > 0xFFE00000) return false;
+
     uintptr_t vtable = *(uintptr_t*)obj;
-    if (!IsValidPtr(vtable)) return false;
+    if (!IsWowDataPtr(vtable)) return false;
+
     uintptr_t is_type_fn = *(uintptr_t*)(vtable + 16);
-    if (!IsValidPtr(is_type_fn)) return false;
+    if (!IsWowCodePtr(is_type_fn)) return false;
+
     return ((bool (__thiscall*)(void*, int))is_type_fn)(obj, typeId);
 }
 
