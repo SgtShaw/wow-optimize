@@ -475,7 +475,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    0
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
