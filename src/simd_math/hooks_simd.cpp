@@ -49,44 +49,19 @@ void SSE2_MatrixMultiply(const float* __restrict a,
 static const float kQuatNormEps = 0.00000023841858f;
 
 void SSE2_QuatNormalize(float* q) {
-    // Stage all inputs to local variables before any output writes
     float qx = q[0];
     float qy = q[1];
     float qz = q[2];
     float qw = q[3];
 
-    __m128 v = _mm_setr_ps(qx, qy, qz, qw);
-    __m128 sq = _mm_mul_ps(v, v);
-
-    // Rewrite horizontal sum using proper _mm_shuffle_ps + _mm_add_ss pattern
-    __m128 y2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(1, 1, 1, 1));
-    __m128 sum1 = _mm_add_ss(sq, y2);
-    
-    __m128 z2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(2, 2, 2, 2));
-    __m128 sum2 = _mm_add_ss(sum1, z2);
-    
-    __m128 w2 = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(3, 3, 3, 3));
-    __m128 mag2 = _mm_add_ss(sum2, w2);
-
-    float m = _mm_cvtss_f32(mag2);
-    // Magnitude guard matching the engine's original exactly (2^-22)
-    if (!(m > 0.00000023841858f)) return;
-
-    __m128 inv = _mm_div_ss(_mm_set_ss(1.0f), _mm_sqrt_ss(mag2));
-    __m128 invb = _mm_shuffle_ps(inv, inv, _MM_SHUFFLE(0,0,0,0));
-
-    __m128 res = _mm_mul_ps(v, invb);
-
-    // Stage outputs to a local buffer before writing to q
-    float out_val[4];
-    _mm_storeu_ps(out_val, res);
-
-    _ReadWriteBarrier();
-
-    q[0] = out_val[0];
-    q[1] = out_val[1];
-    q[2] = out_val[2];
-    q[3] = out_val[3];
+    float mag2 = qx * qx + qy * qy + qz * qz + qw * qw;
+    if (mag2 > 0.00000023841858f) {
+        float inv = 1.0f / sqrtf(mag2);
+        q[0] = qx * inv;
+        q[1] = qy * inv;
+        q[2] = qz * inv;
+        q[3] = qw * inv;
+    }
 }
 
 // ================================================================
