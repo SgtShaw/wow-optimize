@@ -49,18 +49,18 @@ void SSE2_MatrixMultiply(const float* __restrict a,
 static const float kQuatNormEps = 0.00000023841858f;
 
 void SSE2_QuatNormalize(float* q) {
-    float qx = q[0];
-    float qy = q[1];
-    float qz = q[2];
-    float qw = q[3];
+    double qx = q[0];
+    double qy = q[1];
+    double qz = q[2];
+    double qw = q[3];
 
-    float mag2 = qx * qx + qy * qy + qz * qz + qw * qw;
-    if (mag2 > 0.00000023841858f) {
-        float inv = 1.0f / sqrtf(mag2);
-        q[0] = qx * inv;
-        q[1] = qy * inv;
-        q[2] = qz * inv;
-        q[3] = qw * inv;
+    double mag2 = qx * qx + qy * qy + qz * qz + qw * qw;
+    if (mag2 > 0.00000023841858) {
+        double inv = 1.0 / sqrt(mag2);
+        q[0] = (float)(qx * inv);
+        q[1] = (float)(qy * inv);
+        q[2] = (float)(qz * inv);
+        q[3] = (float)(qw * inv);
     }
 }
 

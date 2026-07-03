@@ -7,21 +7,7 @@
 // ============================================================================
 
 
-/**
- * @domain: Client Optimizer Support Subsystem
- * @architecture: Implements helper methods and utility wrappers for `version.h`.
- * @thread_affinity: Main Loop / Thread-Safe worker constraints
- * @regression_hazard: Address validation checks must range up to 0xFFE00000 to support high-address LAA allocations.
- */
 
-
-
-/**
- * @domain: Kernel Operations and DLL Entry Orchestration
- * @architecture: Main DLL loading proxy logic and initialization routing via detours.
- * @thread_affinity: Main Thread Only
- * @regression_hazard: Mismatched registry initialization or early load sequence changes will cause system loader deadlocks.
- */
 
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
