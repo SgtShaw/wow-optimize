@@ -336,7 +336,7 @@
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -360,7 +360,7 @@
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   0
+#define TEST_DISABLE_SAVED_VARS_ASYNC   1
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
