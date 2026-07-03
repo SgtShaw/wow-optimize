@@ -133,7 +133,10 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
                             return (int)entry.ref_ids.size();
                         }
                         
-                        // Miss: populate cache structure before original runs
+                        // Miss: run original function first to initialize any XML-registered frame tables
+                        int res = orig_GetFramesRegistered(L);
+                        
+                        // Populate cache now that all wrappers are guaranteed initialized
                         entry.ref_ids.clear();
                         uintptr_t list_head = *(uintptr_t*)(event_ptr + 32); // v1 + 32
                         while ((list_head & 1) == 0 && list_head) {
@@ -146,6 +149,7 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
                         }
                         entry.valid = true;
                         ++g_cacheMisses;
+                        return res;
                     }
                 }
             }

@@ -93,12 +93,6 @@ static DWORD WINAPI MonitorThread(LPVOID) {
         DWORD interval = LuaOpt::IsLoadingMode() ? LOADING_INTERVAL_MS : MONITOR_INTERVAL_MS;
         Sleep(interval);
         
-        // Skip VA scanning during active gameplay to avoid CPU contention
-        // Only scan during loading screens or when already near threshold
-        if (!LuaOpt::IsLoadingMode() && g_lastLargestBlock.load() > WARNING_THRESHOLD) {
-            continue;
-        }
-        
         SIZE_T largestFree = GetLargestFreeBlock();
         g_checksPerformed++;
         
@@ -115,8 +109,8 @@ static DWORD WINAPI MonitorThread(LPVOID) {
         
         // Check thresholds
         if (largestFree < CRITICAL_THRESHOLD) {
-            Log("[HeapCompactor] CRITICAL: LargestFreeBlock=%uMB (<8MB) - forcing compaction",
-                (unsigned)(largestFree / (1024*1024)));
+            Log("[HeapCompactor] CRITICAL: LargestFreeBlock=%uMB (<%dMB) - forcing compaction",
+                (unsigned)(largestFree / (1024*1024)), (int)(CRITICAL_THRESHOLD / (1024*1024)));
             ForceHeapCompaction();
             g_compactionsTriggered++;
             

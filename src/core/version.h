@@ -196,10 +196,10 @@
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
-#define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
+#define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
+#define TEST_DISABLE_UNIT_API_FASTPATH 0  // disabled: returns wrong values → unknown HP/mana text
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
@@ -336,7 +336,7 @@
 // Addon Lua-file prefetch (reads ~6000 addon files during loading to warm the OS
 // cache). Enabled for testing — warms OS page cache for faster addon loading.
 // On multi-client setups with shared disk, set to 1 to avoid I/O contention.
-#define TEST_DISABLE_LUA_PRECOMPILE      1
+#define TEST_DISABLE_LUA_PRECOMPILE      0
 
 // CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 horizontal
 // reduction has a verified lane-splat bug (lanes 0/1 stuck at 2*(x^2+y^2)
@@ -421,7 +421,7 @@
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
 // Prevents OOM crashes during M2 model loading on teleports
 // Safe: no WoW code patching, only Windows heap APIs
-#define TEST_DISABLE_HEAP_COMPACTOR     1
+#define TEST_DISABLE_HEAP_COMPACTOR     0
 
 // Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
 // every frame and sheds the DLL's own caches + drops texture budget toward
