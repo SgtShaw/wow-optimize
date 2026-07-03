@@ -332,7 +332,7 @@
 // Addon Lua-file prefetch (reads ~6000 addon files during loading to warm the OS
 // cache). Enabled for testing — warms OS page cache for faster addon loading.
 // On multi-client setups with shared disk, set to 1 to avoid I/O contention.
-#define TEST_DISABLE_LUA_PRECOMPILE      0
+#define TEST_DISABLE_LUA_PRECOMPILE      1
 
 // CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 horizontal
 // reduction has a verified lane-splat bug (lanes 0/1 stuck at 2*(x^2+y^2)
@@ -346,7 +346,7 @@
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   0
+#define TEST_DISABLE_SAVED_VARS_ASYNC   1
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
@@ -570,7 +570,7 @@
 // via SuspendThread/GetThreadContext/ResumeThread, buckets by nearest known
 // function, dumps top-50 hot functions on shutdown. Read-only, no WoW hooks.
 // Fixes the xrefs≠runtime-frequency blind spot. Set to 1 to disable.
-#define TEST_DISABLE_SAMPLING_PROFILER  0
+#define TEST_DISABLE_SAMPLING_PROFILER  1
 
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
