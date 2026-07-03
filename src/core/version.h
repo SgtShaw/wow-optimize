@@ -224,7 +224,7 @@
 #define TEST_DISABLE_LUA_FILE_CACHE         0
 
 // C-Level Combat Log Parser (bypasses Lua string parsing)
-#define TEST_DISABLE_COMBATLOG_PARSER   0
+#define TEST_DISABLE_COMBATLOG_PARSER   1
 
 // Force high-precision timing & block timingtesterror fallback
 #define TEST_DISABLE_TIMING_FIX         0
@@ -237,7 +237,7 @@
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
-#define TEST_DISABLE_UI_FRAME_BATCH     0
+#define TEST_DISABLE_UI_FRAME_BATCH     1
 
 // Frame Script Throttling
 // PERMANENTLY DISABLED: Fundamental design flaws prevent safe re-enable:
@@ -431,7 +431,7 @@
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
 // Prevents OOM crashes during M2 model loading on teleports
 // Safe: no WoW code patching, only Windows heap APIs
-#define TEST_DISABLE_HEAP_COMPACTOR     0
+#define TEST_DISABLE_HEAP_COMPACTOR     1
 
 // Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
 // every frame and sheds the DLL's own caches + drops texture budget toward
@@ -475,7 +475,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    0
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 

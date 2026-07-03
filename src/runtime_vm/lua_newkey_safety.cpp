@@ -37,19 +37,20 @@ extern "C" void InvalidateTableCacheSlot(void* table, void* key_str);
 static void* __cdecl Safe_newkey(int L, int t, void* key)
 {
     ++g_total_calls;
-    if (t && key) {
-        int key_tt = *(int*)((char*)key + 8);
-        if (key_tt == 4) {
-            void* key_str = *(void**)key;
-            if (key_str) {
-                InvalidateTableCacheSlot((void*)t, key_str);
+    __try {
+        if (t && key && (uintptr_t)t >= 0x10000 && (uintptr_t)t < 0xFFE00000 &&
+            (uintptr_t)key >= 0x10000 && (uintptr_t)key < 0xFFE00000) {
+            int key_tt = *(int*)((char*)key + 8);
+            if (key_tt == 4) {
+                void* key_str = *(void**)key;
+                if (key_str && (uintptr_t)key_str >= 0x10000 && (uintptr_t)key_str < 0xFFE00000) {
+                    InvalidateTableCacheSlot((void*)t, key_str);
+                }
             }
         }
-    }
-    __try {
         return g_orig_newkey(L, t, key);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
-        // Corrupted hash chain — hand back a harmless node instead of crashing.
+        // Corrupted hash chain or invalid pointers — hand back a harmless node instead of crashing.
         ++g_recovered;
         if (InterlockedCompareExchange(&g_logged, 1, 0) == 0) {
             Log("[NewKeySafety] ONE-SHOT DIAGNOSTIC: Caught crash in luaH_newkey! Table=0x%08X, RetAddr=%p", t, _ReturnAddress());
