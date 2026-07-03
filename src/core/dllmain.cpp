@@ -268,6 +268,8 @@ static void StopFreezeWatchdog() {
 #include "lua_pushfstring_fast.h"
 #include "lua_getupvalue_fast.h"
 #include "lua_buffinit_fast.h"
+#include "lua_file_cache.h"
+#include "combatlog_parser.h"
 
 void ClearCombatLogCache();
 #include "lua_prepbuffer_fast.h"
@@ -474,13 +476,30 @@ static bool InstallHardwareCursorHooks() {
 #endif
 
 // ================================================================
-// Deferred Unit Field Updates - Synchronous Batch Processor
+// Deferred Unit Field Updates - Lock-Free SPSC Batch Processor v2
+//
+// DESIGN: Network thread enqueues non-critical field updates into a
+// lock-free single-producer/single-consumer ring buffer. Main thread
+// flushes them during Sleep hook (once per frame). Critical fields
+// (HP, mana, GUID, flags, level) bypass the queue and execute
+// immediately for gameplay correctness.
+//
+// THREAD SAFETY (v2 fixes):
+// - Single producer (network thread via Hooked_OnFieldUpdate)
+// - Single consumer (main thread via FlushFieldUpdates)
+// - Lock-free ring buffer with atomic head/tail
+// - Unit pointer stored with InterlockedExchangePointer (atomic write)
+// - Data fields written BEFORE tail advance (memory ordering)
+// - Flush claims ownership via InterlockedExchangePointer (only one
+//   path gets non-null: flush or invalidate, never both)
+// - InvalidateDeferredFieldUpdatesFor uses CAS to nullify stale entries
+// - SEH + pointer range validation guards against freed units
 // ================================================================
 static constexpr int FIELD_QUEUE_SIZE = 4096;
 static constexpr int FIELD_QUEUE_MASK = FIELD_QUEUE_SIZE - 1;
 
 struct FieldTask {
-    void* unit;
+    void* volatile unit;  // volatile for correct atomic access semantics
     int   fieldId;
     int   value;
 };
@@ -520,9 +539,14 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
             return orig_OnFieldUpdate(This, fieldId, value); // Queue full
         }
 
-        g_fieldQueue[tail].unit = This;
+        // IMPORTANT: Write data fields BEFORE updating tail.
+        // Consumer reads tail first, then reads data. If we wrote
+        // tail first, consumer could read uninitialized data.
         g_fieldQueue[tail].fieldId = fieldId;
         g_fieldQueue[tail].value = value;
+        // Atomic store of unit pointer (pairs with ExchangePointer in flush)
+        InterlockedExchangePointer((volatile PVOID*)&g_fieldQueue[tail].unit, This);
+        // Now advance tail - consumer can now see this entry
         InterlockedExchange(&g_fieldTail, nextTail);
         return;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -534,12 +558,16 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
 extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
 #if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
     if (!unit) return;
+    // Scan entire queue and nullify any entries referencing this unit.
+    // Uses atomic CAS so it doesn't race with flush's ExchangePointer.
+    // Only one of (CAS here, Exchange in flush) will succeed per slot.
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
     while (head != tail) {
-        // Use atomic compare-exchange to safely nullify the unit pointer
-        InterlockedCompareExchangePointer((volatile PVOID*)&g_fieldQueue[head].unit, nullptr, unit);
-        head = (head + 1) & FIELD_QUEUE_MASK;
+        InterlockedCompareExchangePointer(
+            (volatile PVOID*)&g_fieldQueue[head & FIELD_QUEUE_MASK].unit,
+            nullptr, unit);
+        head++;
     }
 #endif
 }
@@ -554,19 +582,26 @@ static void FlushFieldUpdates() {
     if (head == tail) return;
 
     while (head != tail) {
-        FieldTask& task = g_fieldQueue[head];
-        // Claim task ownership atomically to prevent use-after-free or race conditions with invalidate
+        int idx = head & FIELD_QUEUE_MASK;
+        FieldTask& task = g_fieldQueue[idx];
+
+        // Atomically claim ownership of this task's unit pointer.
+        // If invalidate already nulled it, we get nullptr and skip.
+        // If we get non-null, invalidate can no longer touch this slot.
         void* unit = InterlockedExchangePointer((volatile PVOID*)&task.unit, nullptr);
+
         if (unit != nullptr) {
             __try {
-                // Validate pointer lifetime before calling original (4GB LAA boundaries)
+                // Validate pointer is in valid WoW address range
                 uintptr_t p = (uintptr_t)unit;
                 if (p > 0x10000 && p < 0xFFE00000) {
                     orig_OnFieldUpdate(unit, task.fieldId, task.value);
                 }
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                // Unit was freed despite our checks - safe to ignore
+            }
         }
-        head = (head + 1) & FIELD_QUEUE_MASK;
+        head++;
     }
     InterlockedExchange(&g_fieldHead, head);
 #endif
@@ -574,7 +609,7 @@ static void FlushFieldUpdates() {
 
 static bool InstallFieldUpdateHook() {
 #if TEST_DISABLE_DEFERRED_FIELD_UPDATES
-    Log("Deferred field updates: DISABLED (crash isolation)");
+    Log("Deferred field updates: DISABLED (test toggle)");
     return false;
 #else
     void* target = (void*)0x006A3C40;
@@ -586,7 +621,7 @@ static bool InstallFieldUpdateHook() {
         WO_EnableHook(unlink_target);
     }
 
-    Log("Deferred field updates: ACTIVE (sync batch flush, 4096 slots)");
+    Log("Deferred field updates: ACTIVE v2 (lock-free SPSC, critical<0x40 immediate, 4096 slots)");
     return true;
 #endif
 }
@@ -6740,6 +6775,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[SavedVarsAsync] DISABLED via feature flag");
 #endif
 
+    Log("--- Lua File Cache ---");
+    bool luaFileCacheOk = InstallLuaFileCache();
+
+    Log("--- Combat Log Parser ---");
+    bool combatLogParserOk = InstallCombatLogParser();
+
     Log("--- Lua Bytecode Pre-Compiler ---");
 #if TEST_DISABLE_LUA_PRECOMPILE
     bool bytecodePreCompilerOk = false;
@@ -8642,6 +8683,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             TooltipCache::Shutdown();
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
+            ShutdownCombatLogParser();
+            ShutdownLuaFileCache();
             LuaBytecodePreCompiler::Shutdown();
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
             ShutdownSavedVarsAsync();

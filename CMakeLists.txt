@@ -340,6 +340,10 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_yield_fast.h
     src/runtime_vm/lua_getn_fast.cpp
     src/runtime_vm/lua_getn_fast.h
+    src/runtime_vm/lua_file_cache.cpp
+    src/runtime_vm/lua_file_cache.h
+    src/runtime_vm/combatlog_parser.cpp
+    src/runtime_vm/combatlog_parser.h
     src/hooks_subsystems/ui_accessor_fast.cpp
     src/hooks_subsystems/ui_accessor_fast.h
     src/hooks_subsystems/font_metrics_fast.cpp

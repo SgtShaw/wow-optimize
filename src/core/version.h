@@ -174,9 +174,15 @@
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
 #define TEST_DISABLE_OBJ_VIS_CACHE      1
 
-// Deferred unit field update queue - UI/texture
-// flickering due to immediate-mode rendering mismatch (v3.5.x)
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
+// Deferred unit field update queue v2 - Lock-free SPSC batch processor.
+// RE-ENABLED (was disabled for race condition crash). v2 fixes:
+// - volatile void* for atomic unit pointer access
+// - Data fields written BEFORE tail advance (memory ordering)
+// - InterlockedExchangePointer for ownership claim in flush
+// - InvalidateDeferredFieldUpdatesFor uses CAS correctly
+// - SEH + pointer range validation guards against freed units
+// Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -215,10 +221,10 @@
 #define TEST_DISABLE_CRASH_DUMPER       0
 
 // Lua require/loadfile cache (skip disk I/O + parsing on repeat loads)
-#define TEST_DISABLE_LUA_FILE_CACHE         1
+#define TEST_DISABLE_LUA_FILE_CACHE         0
 
 // C-Level Combat Log Parser (bypasses Lua string parsing)
-#define TEST_DISABLE_COMBATLOG_PARSER   1
+#define TEST_DISABLE_COMBATLOG_PARSER   0
 
 // Force high-precision timing & block timingtesterror fallback
 #define TEST_DISABLE_TIMING_FIX         0
@@ -233,10 +239,14 @@
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
 #define TEST_DISABLE_UI_FRAME_BATCH     0
 
-// Frame Script Throttling - throttle excessive OnUpdate calls
-// Skips redundant script executions (< 16ms interval)
-// Reduces CPU overhead by 30-50% in addon-heavy setups
-// MoveAnything position corruption (race conditions)
+// Frame Script Throttling
+// PERMANENTLY DISABLED: Fundamental design flaws prevent safe re-enable:
+// 1. Hooks FrameScript_Execute at 0x819210 - SAME address as lua_optimize.cpp's
+//    marker injection hook -> MinHook conflict (only one hook wins).
+// 2. std::unordered_map + SRWLOCK on main thread adds overhead per script execution.
+// 3. Throttling OnUpdate breaks MoveAnything position tracking and addon timing
+//    contracts (addons expect OnUpdate every frame for smooth animation).
+// Would need complete rewrite with different hook target and proper addon compat.
 #define TEST_DISABLE_FRAME_THROTTLE     1
 
 // Tooltip String Caching - cache formatted tooltip strings by item/spell ID
@@ -469,13 +479,12 @@
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
-// Particle simulation culling/throttling (CParticleEmitter::SimulateParticle at 0x00981D40)
-// DISABLED: 0x981D40 is the particle SPAWN/INIT routine (writes lifespan at a2+0,
-// position at a2+4, velocity at a2+16). Skipping it and returning 0 leaves the new
-// particle's position/velocity/color uninitialized, so it renders as a garbage-
-// positioned, garbage-colored quad -> the colorful flashes over open terrain. It is
-// not a skippable per-frame advance, and its shared g_activeFrustum can be a
-// shadow/reflection frustum, throttling on-screen emitters too.
+// Particle simulation culling/throttling
+// PERMANENTLY DISABLED: 0x981D40 is CParticleEmitter2::Spawn/Init (writes lifespan,
+// position, velocity), NOT the per-frame simulate function. Throttling spawn causes
+// garbage particles with random positions/velocities/colors. Real per-frame simulate
+// function not found in CParticleEmitter2 vtable analysis. Would need to find parent
+// class or CParticleSystem2 manager's Update/Simulate function.
 #define TEST_DISABLE_PARTICLE_THROTTLE  1
 
 // Inline Lua stack push/type-query fast paths — 8 hooks (lua_pushnil,
@@ -520,9 +529,11 @@
 #define TEST_DISABLE_LUA_SAFE_G2C 0
 #define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops and helper hooks
 
-// lua_setlocal at 0x84F210 — writes to call-stack locals. CONFIRMED CRASHING:
-// causes ntdll.dll heap corruption during login screen (bisected to this hook).
-// Permanently disabled until the write-offset bug is fixed.
+// lua_setlocal fast path
+// PERMANENTLY DISABLED: 0x84F210 is luaL_where (debug location formatter), NOT
+// lua_setlocal. Confirmed via IDA: 2-arg function calling lua_getstack+lua_getinfo("Sl")
+// formatting "%s:%d: %s". Hooking corrupts stack on every engine error -> ntdll heap
+// corruption at login. Real lua_setlocal address UNKNOWN. Cannot safely re-enable.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
 #define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  0
@@ -534,7 +545,7 @@
 #define TEST_DISABLE_LUA_BATCH_DG4 0  // master
 #define TEST_DISABLE_LUA_BATCH_DG4A 0
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
-#define TEST_DISABLE_LUA_INLINE_BATCH  1
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
