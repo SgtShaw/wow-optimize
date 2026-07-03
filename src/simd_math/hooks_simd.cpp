@@ -336,15 +336,15 @@ void SSE2_Vec3Cross(const float* __restrict a,
 // ================================================================
 // Statistics & Active State
 // ================================================================
-static volatile LONG64 g_matMulCalls    = 0;
-static volatile LONG64 g_quatNormCalls  = 0;
-static volatile LONG64 g_frustumCalls   = 0;
-static volatile LONG64 g_frustumCulled  = 0;
+static volatile long g_matMulCalls    = 0;
+static volatile long g_quatNormCalls  = 0;
+static volatile long g_frustumCalls   = 0;
+static volatile long g_frustumCulled  = 0;
 static float g_activeFrustum[24] = {0};
 static bool g_hasActiveFrustum = false;
 static uint32_t g_particleFrameCount = 0;
-static volatile LONG64 g_rayTriangleCalls = 0;
-static volatile LONG64 g_rayTriangleIntersects = 0;
+static volatile long g_rayTriangleCalls = 0;
+static volatile long g_rayTriangleIntersects = 0;
 
 // ================================================================
 // Public APIs
@@ -672,10 +672,10 @@ static RayTriangle32_t orig_RayTriangle32 = nullptr;
  *                     if not correctly masked up to 0xFFE00000.
  */
 static char __cdecl Hooked_RayTriangle32(const float* ray, const float* vertices, const uint32_t* indices, float* outT, float* outUV, float margin) {
-    g_rayTriangleCalls++;
+    InterlockedIncrement(&g_rayTriangleCalls);
     char res = SSE2_RayTriangleIntersection<uint32_t>(ray, vertices, indices, outT, outUV, margin, orig_RayTriangle32);
     if (res) {
-        g_rayTriangleIntersects++;
+        InterlockedIncrement(&g_rayTriangleIntersects);
     }
     return res;
 }
@@ -692,10 +692,10 @@ static RayTriangle16_t orig_RayTriangle16 = nullptr;
  *                     validated page limits to prevent out-of-bounds vertex index lookup crashes.
  */
 static char __cdecl Hooked_RayTriangle16(const float* ray, const float* vertices, const uint16_t* indices, float* outT, float* outUV, float margin) {
-    g_rayTriangleCalls++;
+    InterlockedIncrement(&g_rayTriangleCalls);
     char res = SSE2_RayTriangleIntersection<uint16_t>(ray, vertices, indices, outT, outUV, margin, orig_RayTriangle16);
     if (res) {
-        g_rayTriangleIntersects++;
+        InterlockedIncrement(&g_rayTriangleIntersects);
     }
     return res;
 }
@@ -714,7 +714,7 @@ static QuatNormalize_t orig_QuatNormalize = nullptr;
  *                     Approximation drift will poison rotation matrices, inducing mesh scale collapses and NaN cameras.
  */
 static void __fastcall Hooked_QuatNormalize(float* ecx, void* edx) {
-    g_quatNormCalls++;
+    InterlockedIncrement(&g_quatNormCalls);
     uintptr_t p = (uintptr_t)ecx;
     if (p > 0x10000 && p < 0xFFE00000) {
         __try {
@@ -740,14 +740,14 @@ static IsAABBVisible_t orig_IsAABBVisible = nullptr;
  *                     without safety bounds checks on ECX.
  */
 static int __fastcall Hooked_IsAABBVisible(void* ecx, void* edx, const float* bounds) {
-    g_frustumCalls++;
+    InterlockedIncrement(&g_frustumCalls);
     if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
         memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
         g_hasActiveFrustum = true;
     }
     int res = SSE2_IsAABBVisible((const float*)ecx, bounds);
     if (res == 0) {
-        g_frustumCulled++;
+        InterlockedIncrement(&g_frustumCulled);
     }
     return res;
 }
@@ -763,14 +763,14 @@ static IsAABBVisibleType2_t orig_IsAABBVisibleType2 = nullptr;
  * @regression_hazard: Keep epsilon constant synced with game logic values (-0.019444443f vs 0.019444443f).
  */
 static int __fastcall Hooked_IsAABBVisibleType2(void* ecx, void* edx, const float* bounds) {
-    g_frustumCalls++;
+    InterlockedIncrement(&g_frustumCalls);
     if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
         memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
         g_hasActiveFrustum = true;
     }
     int res = SSE2_IsAABBVisible_Type2((const float*)ecx, bounds);
     if (res == 0) {
-        g_frustumCulled++;
+        InterlockedIncrement(&g_frustumCulled);
     }
     return res;
 }
@@ -786,14 +786,14 @@ static IsPointVisible_t orig_IsPointVisible = nullptr;
  * @regression_hazard: Validate outMask write address is inside LAA boundaries (up to 0xFFE00000).
  */
 static void __fastcall Hooked_IsPointVisible(void* ecx, void* edx, const float* point, uint8_t* outMask) {
-    g_frustumCalls++;
+    InterlockedIncrement(&g_frustumCalls);
     if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
         memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
         g_hasActiveFrustum = true;
     }
     SSE2_IsPointVisible((const float*)ecx, point, outMask);
     if (outMask && *outMask != 0) {
-        g_frustumCulled++;
+        InterlockedIncrement(&g_frustumCulled);
     }
 }
 #endif
@@ -1206,7 +1206,7 @@ void ShutdownSimdHooks(void) {
     MH_DisableHook((void*)0x00983D20);
     MH_DisableHook((void*)0x00982400);
     MH_DisableHook((void*)0x00982460);
-    Log("[SimdHooks] Stats: matMul=%lld, ... frustum=%lld (culled=%lld, %.1f%%), rayTri=%lld (hit=%lld, %.1f%%)",
+    Log("[SimdHooks] Stats: matMul=%ld, ... frustum=%ld (culled=%ld, %.1f%%), rayTri=%ld (hit=%ld, %.1f%%)",
         g_matMulCalls,
         g_frustumCalls, g_frustumCulled,
         g_frustumCalls ? 100.0 * g_frustumCulled / g_frustumCalls : 0.0,

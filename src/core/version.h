@@ -189,7 +189,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         0
+#define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
@@ -353,7 +353,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         1
+#define TEST_DISABLE_QUAT_NORMALIZE         0
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
