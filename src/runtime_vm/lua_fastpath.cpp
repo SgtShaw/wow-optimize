@@ -2923,7 +2923,8 @@ static int __cdecl Hooked_TableSort(lua_State* L) {
         }
 
         if (n == sizearray) {
-            unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 9);
+            // FIX: lsizenode is at offset 11 (0x0B) in Table struct, not offset 9!
+            unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
             if (lsizenode > 0) goto fallback;
         }
 
@@ -2931,7 +2932,12 @@ static int __cdecl Hooked_TableSort(lua_State* L) {
         bool isString = true;
 
         for (int i = 0; i < n; i++) {
-            if (array[i].tt != LUA_TNUMBER) isNumber = false;
+            if (array[i].tt != LUA_TNUMBER) {
+                isNumber = false;
+            } else if (array[i].value.n != array[i].value.n) {
+                // Reject NaNs to prevent std::sort strict weak ordering violation crash
+                goto fallback;
+            }
             if (array[i].tt != LUA_TSTRING) isString = false;
             if (!isNumber && !isString) goto fallback;
         }
@@ -2944,7 +2950,10 @@ static int __cdecl Hooked_TableSort(lua_State* L) {
             std::sort(array, array + n, [](const RawTValue& a, const RawTValue& b) {
                 char* tsA = (char*)a.value.gc;
                 char* tsB = (char*)b.value.gc;
-                if (!tsA || !tsB) return false;
+                // Strict weak ordering compliant null guards
+                if (!tsA && !tsB) return false;
+                if (!tsA) return true;
+                if (!tsB) return false;
                 int lenA = *(int*)(tsA + 16);
                 int lenB = *(int*)(tsB + 16);
                 const char* strA = tsA + 20;

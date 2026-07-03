@@ -181,10 +181,10 @@
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
@@ -322,7 +322,7 @@
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
