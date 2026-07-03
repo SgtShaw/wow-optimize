@@ -545,7 +545,7 @@
 #define TEST_DISABLE_LUA_BATCH_DG4 0  // master
 #define TEST_DISABLE_LUA_BATCH_DG4A 0
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
-#define TEST_DISABLE_LUA_INLINE_BATCH  0
+#define TEST_DISABLE_LUA_INLINE_BATCH  1
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
