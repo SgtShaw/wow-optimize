@@ -182,7 +182,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
