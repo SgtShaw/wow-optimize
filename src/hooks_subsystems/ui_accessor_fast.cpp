@@ -26,11 +26,11 @@ static __forceinline bool IsValidPtr(uintptr_t p) {
 }
 
 static __forceinline bool IsWowCodePtr(uintptr_t p) {
-    return p >= 0x00400000 && p < 0x008C0000;
+    return p >= 0x00401000 && p < 0x009DF000;
 }
 
 static __forceinline bool IsWowDataPtr(uintptr_t p) {
-    return p >= 0x008C0000 && p < 0x00D50000;
+    return p >= 0x009DF000 && p < 0x00DD1000;
 }
 
 static __forceinline uintptr_t ResolveTValue(uintptr_t L, int idx, bool* deferToOrig) {
@@ -75,9 +75,7 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
             double key_val = *(double*)(node + 0x10);
             if (key_val == 0.0) {
                 int val_tt = *(int*)(node + 0x08);
-                if (val_tt == 2) { // LUA_TLIGHTUSERDATA
-                    return *(void**)(node + 0x00);
-                } else if (val_tt == 7) { // LUA_TUSERDATA
+                if (val_tt == 7) { // LUA_TUSERDATA
                     uintptr_t udata = *(uintptr_t*)(node + 0x00);
                     if (IsValidPtr(udata)) {
                         return (void*)(udata + 24);
