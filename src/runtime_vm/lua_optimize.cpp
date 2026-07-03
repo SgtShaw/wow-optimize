@@ -1528,6 +1528,14 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaStateFrames = 1;
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
 
+            // CRITICAL FIX: Set swapping flag BEFORE cache invalidation so inline
+            // hooks (GetStrInline, RawGetIInline, LuaRawGet) bail out to original
+            // functions instead of dereferencing freed lua_State memory. Without
+            // this, hooks operate on stale pointers between detection and
+            // invalidation, returning wrong nodes/nil and causing addon errors.
+            g_isSwapping.store(true, std::memory_order_release);
+            g_isReloading.store(true, std::memory_order_release);
+
             Log("[LuaOpt] Invalidating all caches immediately (old L=0x%08X, new L=0x%08X)",
                 (unsigned)(uintptr_t)Api.L, (unsigned)(uintptr_t)currentL);
 
@@ -1573,6 +1581,9 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateFrames = 0;
         g_luaInterfaceRetryCount = 0;
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
+
+        // Re-initialization about to begin — keep swapping flag set until
+        // DoMainThreadInit-style work below completes (line ~1648).
     } else if (g_pendingLuaState) {
         g_pendingLuaState = nullptr;
         g_pendingLuaStateTick = 0;
@@ -1645,6 +1656,10 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_lastSyncLoading = -1;
         g_lastLuaSwapTick = GetTickCount();
         g_smoothedGcMs = 0.5;
+
+        // Swap complete — inline hooks can safely resume on the new lua_State.
+        g_isSwapping.store(false, std::memory_order_release);
+        g_isReloading.store(false, std::memory_order_release);
         return;
     }
 
