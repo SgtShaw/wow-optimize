@@ -565,9 +565,9 @@ extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
     LONG tail = g_fieldTail;
     while (head != tail) {
         InterlockedCompareExchangePointer(
-            (volatile PVOID*)&g_fieldQueue[head & FIELD_QUEUE_MASK].unit,
+            (volatile PVOID*)&g_fieldQueue[head].unit,
             nullptr, unit);
-        head++;
+        head = (head + 1) & FIELD_QUEUE_MASK;
     }
 #endif
 }
@@ -582,8 +582,7 @@ static void FlushFieldUpdates() {
     if (head == tail) return;
 
     while (head != tail) {
-        int idx = head & FIELD_QUEUE_MASK;
-        FieldTask& task = g_fieldQueue[idx];
+        FieldTask& task = g_fieldQueue[head];
 
         // Atomically claim ownership of this task's unit pointer.
         // If invalidate already nulled it, we get nullptr and skip.
@@ -601,7 +600,7 @@ static void FlushFieldUpdates() {
                 // Unit was freed despite our checks - safe to ignore
             }
         }
-        head++;
+        head = (head + 1) & FIELD_QUEUE_MASK;
     }
     InterlockedExchange(&g_fieldHead, head);
 #endif
