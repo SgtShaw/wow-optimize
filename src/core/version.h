@@ -25,11 +25,11 @@
 
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
-#define WOW_OPTIMIZE_VERSION_MINOR  12
+#define WOW_OPTIMIZE_VERSION_MINOR  13
 #define WOW_OPTIMIZE_VERSION_PATCH  0
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.12.0"
+#define WOW_OPTIMIZE_VERSION_STR    "3.13.0"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -182,14 +182,14 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         1
+#define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
@@ -224,7 +224,7 @@
 #define TEST_DISABLE_LUA_FILE_CACHE         0
 
 // C-Level Combat Log Parser (bypasses Lua string parsing)
-#define TEST_DISABLE_COMBATLOG_PARSER   1
+#define TEST_DISABLE_COMBATLOG_PARSER   0
 
 // Force high-precision timing & block timingtesterror fallback
 #define TEST_DISABLE_TIMING_FIX         0
@@ -237,7 +237,7 @@
 
 // UI Frame Update Batching - batch OnUpdate callbacks for addons
 // Reduces CPU overhead by 30-50% in raids with DBM/Skada/ElvUI
-#define TEST_DISABLE_UI_FRAME_BATCH     1
+#define TEST_DISABLE_UI_FRAME_BATCH     0
 
 // Frame Script Throttling
 // PERMANENTLY DISABLED: Fundamental design flaws prevent safe re-enable:
@@ -256,7 +256,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // ENABLED: cached bytecode is stable with self-healing fallback
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // ENABLED: cached bytecode is stable with self-healing fallback
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -270,19 +270,19 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY         1
+#define TEST_DISABLE_MATRIX_MULTIPLY         0
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
@@ -303,7 +303,7 @@
 #define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2         1
+#define TEST_DISABLE_MATRIX_EXT_SSE2         0
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -312,13 +312,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         1
+#define TEST_DISABLE_MATRIX_MISC_SSE2         0
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -326,12 +326,12 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        1
+#define TEST_DISABLE_FRUSTUM_CULL        0
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
@@ -360,7 +360,7 @@
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   1
+#define TEST_DISABLE_SAVED_VARS_ASYNC   0
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
@@ -431,14 +431,14 @@
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
 // Prevents OOM crashes during M2 model loading on teleports
 // Safe: no WoW code patching, only Windows heap APIs
-#define TEST_DISABLE_HEAP_COMPACTOR     1
+#define TEST_DISABLE_HEAP_COMPACTOR     0
 
 // Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
 // every frame and sheds the DLL's own caches + drops texture budget toward
 // stock under critical VA pressure, restoring on ease. Shed callbacks are
 // registered at init and fire at YELLOW (free<48MB) / RED (free<24MB) with
 // hysteresis to avoid thrashing. Set to 1 to disable.
-#define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  1
+#define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
 
 // Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
@@ -475,7 +475,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    1
+#define TEST_DISABLE_EVENT_COALESCER    0
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -545,31 +545,31 @@
 #define TEST_DISABLE_LUA_BATCH_DG4 0  // master
 #define TEST_DISABLE_LUA_BATCH_DG4A 0
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
-#define TEST_DISABLE_LUA_INLINE_BATCH  1
+#define TEST_DISABLE_LUA_INLINE_BATCH  0
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1
+#define TEST_DISABLE_RAWGETI_INLINE  0
 
 // lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1
+#define TEST_DISABLE_RAWGET_INLINE    0
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE         1  // enabled: lua_toboolean inline
+#define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE         1  // enabled: lua_objlen inline
+#define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0).
-#define TEST_DISABLE_PUSHNUMBER_FAST         1
+#define TEST_DISABLE_PUSHNUMBER_FAST         0
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
-#define TEST_DISABLE_PUSHVALUE_FAST         1
+#define TEST_DISABLE_PUSHVALUE_FAST         0
 
 // FrameScript_Execute hook (inject DLL markers)
 #define TEST_DISABLE_FRAMESCRIPT_EXECUTE         0
@@ -589,7 +589,7 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST         1  // enabled: UIFrame accessor hooks
+#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: UIFrame accessor hooks
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
@@ -612,16 +612,16 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         1
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
-#define TEST_DISABLE_QUAT_SLERP_SSE2         1
+#define TEST_DISABLE_VEC3_CROSS_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
+#define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. Disassembly-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST         1  // enabled: Frame XML accessor hooks
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: Frame XML accessor hooks
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
@@ -630,7 +630,7 @@
 //  (L = Lua state). The decompiler defaulted to __usercall because it saw callee-saved
 //  register use (ebx/esi/edi), not because of a non-standard convention.
 //  MinHook is safe. Default ENABLED.
-#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         1  // enabled: layout accessor hooks
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0  // enabled: layout accessor hooks
 
 
 // ================================================================
