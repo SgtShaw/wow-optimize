@@ -178,7 +178,7 @@
 #define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
-#define TEST_DISABLE_ASYNC_MPQ_IO       0
+#define TEST_DISABLE_ASYNC_MPQ_IO       1
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
 #define TEST_DISABLE_TABLE_SORT_FASTPATH    0

@@ -1773,8 +1773,8 @@ struct ReadCache {
 };
 
 static const int   MAX_CACHED_HANDLES  = 16;
-static const DWORD READ_AHEAD_NORMAL   = 64 * 1024;
-static const DWORD READ_AHEAD_LOADING  = 256 * 1024;
+static const DWORD READ_AHEAD_NORMAL   = 16 * 1024;
+static const DWORD READ_AHEAD_LOADING  = 64 * 1024;
 static const DWORD READ_AHEAD_MAX      = 256 * 1024;  // buffer allocation size
 static ReadCache   g_readCache[MAX_CACHED_HANDLES] = {};
 static int         g_cacheEvictIndex = 0;               
@@ -1863,17 +1863,14 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     if (nBytesToRead >= READ_AHEAD_MAX)
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
-    AcquireSRWLockExclusive(&g_cacheLock);
-
-    __try {
-
     LARGE_INTEGER currentPos, zero;
     zero.QuadPart = 0;
     if (!SetFilePointerEx(hFile, zero, &currentPos, FILE_CURRENT)) {
-        ReleaseSRWLockExclusive(&g_cacheLock);
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
     }
 
+    // Acquire shared lock first to check cache
+    AcquireSRWLockShared(&g_cacheLock);
     ReadCache* cache = FindCache(hFile);
     if (cache && cache->validBytes > 0) {
         LONGLONG cStart = cache->fileOffset.QuadPart;
@@ -1886,43 +1883,67 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
             if (lpBytesRead) *lpBytesRead = nBytesToRead;
             LARGE_INTEGER newPos; newPos.QuadPart = rEnd;
             SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
-            ReleaseSRWLockExclusive(&g_cacheLock);
+            ReleaseSRWLockShared(&g_cacheLock);
             return TRUE;
         }
     }
+    ReleaseSRWLockShared(&g_cacheLock);
 
-    if (!cache) cache = AllocCache(hFile);
-    if (cache && cache->buffer) {
-        cache->fileOffset = currentPos;
-        DWORD readAhead = LuaOpt::IsLoadingMode() ? READ_AHEAD_LOADING : READ_AHEAD_NORMAL;
-        DWORD bytesRead = 0;
-        BOOL ok = orig_ReadFile(hFile, cache->buffer, readAhead, &bytesRead, NULL);
-        if (ok && bytesRead > 0) {
-            cache->validBytes = bytesRead;
-            DWORD toCopy = (nBytesToRead < bytesRead) ? nBytesToRead : bytesRead;
-            memcpy(lpBuffer, cache->buffer, toCopy);
-            if (lpBytesRead) *lpBytesRead = toCopy;
-            if (toCopy < bytesRead) {
-                LARGE_INTEGER newPos2; newPos2.QuadPart = currentPos.QuadPart + toCopy;
-                SetFilePointerEx(hFile, newPos2, NULL, FILE_BEGIN);
-                // Queue async prefetch of next chunk
-                LARGE_INTEGER prefetchOff; prefetchOff.QuadPart = currentPos.QuadPart + bytesRead;
-                QueuePrefetch(hFile, prefetchOff, readAhead);
+    // Cache miss - acquire exclusive lock to perform read-ahead and update cache
+    AcquireSRWLockExclusive(&g_cacheLock);
+
+    __try {
+        // Double check cache under exclusive lock
+        cache = FindCache(hFile);
+        if (cache && cache->validBytes > 0) {
+            LONGLONG cStart = cache->fileOffset.QuadPart;
+            LONGLONG cEnd   = cStart + cache->validBytes;
+            LONGLONG rStart = currentPos.QuadPart;
+            LONGLONG rEnd   = rStart + nBytesToRead;
+            if (rStart >= cStart && rEnd <= cEnd) {
+                DWORD off = (DWORD)(rStart - cStart);
+                memcpy(lpBuffer, cache->buffer + off, nBytesToRead);
+                if (lpBytesRead) *lpBytesRead = nBytesToRead;
+                LARGE_INTEGER newPos; newPos.QuadPart = rEnd;
+                SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
+                ReleaseSRWLockExclusive(&g_cacheLock);
+                return TRUE;
             }
-            ReleaseSRWLockExclusive(&g_cacheLock);
-            return TRUE;
         }
-        cache->validBytes = 0;
-        SetFilePointerEx(hFile, currentPos, NULL, FILE_BEGIN);
-    }
 
-    ReleaseSRWLockExclusive(&g_cacheLock);
+        if (!cache) cache = AllocCache(hFile);
+        if (cache && cache->buffer) {
+            cache->fileOffset = currentPos;
+            DWORD readAhead = LuaOpt::IsLoadingMode() ? READ_AHEAD_LOADING : READ_AHEAD_NORMAL;
+            DWORD bytesRead = 0;
+            BOOL ok = orig_ReadFile(hFile, cache->buffer, readAhead, &bytesRead, NULL);
+            if (ok && bytesRead > 0) {
+                cache->validBytes = bytesRead;
+                DWORD toCopy = (nBytesToRead < bytesRead) ? nBytesToRead : bytesRead;
+                memcpy(lpBuffer, cache->buffer, toCopy);
+                if (lpBytesRead) *lpBytesRead = toCopy;
+                if (toCopy < bytesRead) {
+                    LARGE_INTEGER newPos2; newPos2.QuadPart = currentPos.QuadPart + toCopy;
+                    SetFilePointerEx(hFile, newPos2, NULL, FILE_BEGIN);
+                    // Queue async prefetch of next chunk (only if async I/O is enabled)
+#if !TEST_DISABLE_ASYNC_MPQ_IO
+                    LARGE_INTEGER prefetchOff; prefetchOff.QuadPart = currentPos.QuadPart + bytesRead;
+                    QueuePrefetch(hFile, prefetchOff, readAhead);
+#endif
+                }
+                ReleaseSRWLockExclusive(&g_cacheLock);
+                return TRUE;
+            }
+            cache->validBytes = 0;
+            SetFilePointerEx(hFile, currentPos, NULL, FILE_BEGIN);
+        }
+
+        ReleaseSRWLockExclusive(&g_cacheLock);
 
         // === Async MPQ I/O Fast Path ===
-    #if !TEST_DISABLE_ASYNC_MPQ_IO
+#if !TEST_DISABLE_ASYNC_MPQ_IO
         if (IsMpqHandle(hFile) && nBytesToRead <= 65536) {
             __try {
-               
                 if (CheckAsyncCompletion(hFile, currentPos, nBytesToRead, (uint8_t*)lpBuffer)) {
                     if (lpBytesRead) *lpBytesRead = nBytesToRead;
                     LARGE_INTEGER newPos; newPos.QuadPart = currentPos.QuadPart + nBytesToRead;
@@ -1939,18 +1960,20 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
                 }
             } __except(EXCEPTION_EXECUTE_HANDLER) {}
         }
-    #endif    
+#endif    
 
-    // === Async prefetch check ===
-    if (IsMpqHandle(hFile)) {
-        if (CheckPrefetch(hFile, currentPos, lpBuffer, nBytesToRead, lpBytesRead)) {
-            LARGE_INTEGER newPos; newPos.QuadPart = currentPos.QuadPart + nBytesToRead;
-            SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
-            return TRUE;
+        // === Async prefetch check ===
+#if !TEST_DISABLE_ASYNC_MPQ_IO
+        if (IsMpqHandle(hFile)) {
+            if (CheckPrefetch(hFile, currentPos, lpBuffer, nBytesToRead, lpBytesRead)) {
+                LARGE_INTEGER newPos; newPos.QuadPart = currentPos.QuadPart + nBytesToRead;
+                SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
+                return TRUE;
+            }
         }
-    }
+#endif
 
-    return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         ReleaseSRWLockExclusive(&g_cacheLock);
