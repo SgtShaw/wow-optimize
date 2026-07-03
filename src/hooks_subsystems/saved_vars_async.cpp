@@ -110,7 +110,11 @@ static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
         if (b && b->data && b->size > 0) {
             __try {
                 DWORD written = 0;
-                orig_WriteFile_SV(hObject, b->data, (DWORD)b->size, &written, NULL);
+                if (orig_WriteFile_SV) {
+                    orig_WriteFile_SV(hObject, b->data, (DWORD)b->size, &written, NULL);
+                } else {
+                    WriteFile(hObject, b->data, (DWORD)b->size, &written, NULL);
+                }
             } __except(EXCEPTION_EXECUTE_HANDLER) {
                 CrashDumper::FeatureError("SavedVarsAsync", "sync write exception");
             }
@@ -132,7 +136,10 @@ static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
         }
         ReleaseSRWLockExclusive(&s_svHandleLock);
     }
-    return orig_CloseHandle(hObject);
+    if (orig_CloseHandle) {
+        return orig_CloseHandle(hObject);
+    }
+    return CloseHandle(hObject);
 }
 
 // WriteFile hook for SV handles - aggregates data in memory
@@ -155,7 +162,10 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
                 }
                 if (!newData) {
                     // Fallback to synchronous write on memory allocation failure
-                    return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+                    if (orig_WriteFile_SV) {
+                        return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+                    }
+                    return WriteFile(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
                 }
                 b->data = (uint8_t*)newData;
                 b->capacity = newCap;
@@ -167,7 +177,10 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
         }
     }
     
-    return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+    if (orig_WriteFile_SV) {
+        return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
+    }
+    return WriteFile(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
 }
 
 bool InstallSavedVarsAsync() {
