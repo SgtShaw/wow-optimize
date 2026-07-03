@@ -438,7 +438,7 @@
 // stock under critical VA pressure, restoring on ease. Shed callbacks are
 // registered at init and fire at YELLOW (free<48MB) / RED (free<24MB) with
 // hysteresis to avoid thrashing. Set to 1 to disable.
-#define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
+#define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  1
 
 // Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading

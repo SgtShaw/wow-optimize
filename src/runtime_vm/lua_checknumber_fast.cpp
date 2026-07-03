@@ -35,11 +35,8 @@ static double __cdecl hook(uintptr_t L, int idx) {
         g_hits++;
         return d;
     }
-    typedef int(__cdecl *type_fn)(uintptr_t, int);
-    int tt = ((type_fn)0x0084DEB0)(L, idx);
-    if (tt != 0 && tt != -1) {
-        LogEx(LOG_LEVEL_WARN, "LUA", "Type mismatch in luaL_checknumber at index %d: expected number, got type %d", idx, tt);
-    }
+    // Note: type mismatch is normal WoW engine behavior. No logging - it caused
+    // synchronous disk flushes on every miss, stalling the main thread.
     g_misses++;
     return orig(L, idx);  // Raise error
 }

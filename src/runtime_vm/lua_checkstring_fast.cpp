@@ -34,9 +34,10 @@ static const char* __cdecl hook(uintptr_t L, int idx, uint32_t* len_out) {
             g_hits++;
             return (const char*)(ts + 20);
         }
-    } else if (tt != 0 && tt != -1) { // Not LUA_TNIL (0) and not LUA_TNONE (-1)
-        LogEx(LOG_LEVEL_WARN, "LUA", "Type mismatch in luaL_checklstring at index %d: expected string, got type %d", idx, tt);
     }
+    // Note: type mismatch (e.g. number passed where string expected) is normal WoW
+    // engine behavior via auto-coercion. No logging - it was causing hundreds of
+    // SetEvent() calls per second, saturating the log ring and stalling main thread.
     g_misses++;
     return orig(L, idx, len_out);
 }
