@@ -3057,6 +3057,8 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
         if (lpFileName && (dwAccess & GENERIC_WRITE)) {
             const char* wtfMarker = strstr(lpFileName, "WTF");
+            if (!wtfMarker) wtfMarker = strstr(lpFileName, "wtf");
+            if (!wtfMarker) wtfMarker = strstr(lpFileName, "Wtf");
             const char* luaExt = strrchr(lpFileName, '.');
             if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
                 extern void TrackSVHandle(HANDLE h);
@@ -3083,8 +3085,11 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         TrackMpqHandle(result);
 #if !CRASH_TEST_DISABLE_MPQ_MMAP
         AcquireSRWLockExclusive(&g_mpqMapLock);
-        CreateMpqMapping(result, nullptr);
+        MpqMapping* m = CreateMpqMapping(result, lpFileName);
         ReleaseSRWLockExclusive(&g_mpqMapLock);
+        if (m) {
+            Log("MPQ mmap: %s (%.1f MB)", m->fileName, m->fileSize / (1024.0 * 1024.0));
+        }
 #endif
     }
     if (result != INVALID_HANDLE_VALUE && lpFileName) {
@@ -3096,6 +3101,8 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
         if (dwAccess & GENERIC_WRITE) {
             const char* wtfMarker = strstr(buf, "WTF");
+            if (!wtfMarker) wtfMarker = strstr(buf, "wtf");
+            if (!wtfMarker) wtfMarker = strstr(buf, "Wtf");
             const char* luaExt = strrchr(buf, '.');
             if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
                 extern void TrackSVHandle(HANDLE h);
