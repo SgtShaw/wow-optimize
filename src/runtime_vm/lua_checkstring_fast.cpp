@@ -34,6 +34,8 @@ static const char* __cdecl hook(uintptr_t L, int idx, uint32_t* len_out) {
             g_hits++;
             return (const char*)(ts + 20);
         }
+    } else if (tt != 0 && tt != -1) { // Not LUA_TNIL (0) and not LUA_TNONE (-1)
+        LogEx(LOG_LEVEL_WARN, "LUA", "Type mismatch in luaL_checklstring at index %d: expected string, got type %d", idx, tt);
     }
     g_misses++;
     return orig(L, idx, len_out);

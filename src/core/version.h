@@ -563,7 +563,7 @@
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    0
+#define TEST_DISABLE_GETSTR_INLINE    1
 
 // lua_pushnumber direct stack write (sub_84E2A0).
 #define TEST_DISABLE_PUSHNUMBER_FAST         0
@@ -589,7 +589,7 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: UIFrame accessor hooks
+#define TEST_DISABLE_UI_ACCESSOR_FAST         1  // enabled: UIFrame accessor hooks
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.
@@ -621,7 +621,7 @@
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
 //  Frame_GetFrameLevel 0x49E980. Disassembly-verified __cdecl(L) with correct field offsets.
 //  Default ENABLED.
-#define TEST_DISABLE_FRAME_ACCESSOR_FAST         0  // enabled: Frame XML accessor hooks
+#define TEST_DISABLE_FRAME_ACCESSOR_FAST         1  // enabled: Frame XML accessor hooks
 //
 // UI Layout accessors (ui_accessor_fast.cpp):
 //  GetWidth 0x49D3B0, GetHeight 0x49D550.
@@ -630,7 +630,7 @@
 //  (L = Lua state). The decompiler defaulted to __usercall because it saw callee-saved
 //  register use (ebx/esi/edi), not because of a non-standard convention.
 //  MinHook is safe. Default ENABLED.
-#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         0  // enabled: layout accessor hooks
+#define TEST_DISABLE_LAYOUT_ACCESSOR_FAST         1  // enabled: layout accessor hooks
 
 
 // ================================================================
@@ -742,3 +742,14 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 #define CRASH_TEST_DISABLE_GLOBALALLOC         1
 
 #define CRASH_TEST_DISABLE_VA_ARENA         1
+
+enum LogLevel {
+    LOG_LEVEL_DEBUG = 0,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_WARN,
+    LOG_LEVEL_ERROR,
+    LOG_LEVEL_CRITICAL
+};
+
+extern "C" void LogEx(LogLevel level, const char* context, const char* fmt, ...);
+

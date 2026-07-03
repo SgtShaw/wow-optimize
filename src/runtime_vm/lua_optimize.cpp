@@ -1241,10 +1241,10 @@ static void SetupLuaInterface(lua_State* L) {
         RegisterLuaFunction(L, "LuaBoostC_GetFastPathStats", (void*)LuaBoostC_GetFastPathStats_cb);
         */
         
-        Log("[LuaOpt] SetupLuaInterface: registered 6 globals (0 C functions) on L=0x%08X", 
+        LogEx(LOG_LEVEL_INFO, "LUA", "SetupLuaInterface: registered 6 globals on L=0x%08X", 
             (unsigned)(uintptr_t)L);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[LuaOpt] SetupLuaInterface: exception during registration");
+        LogEx(LOG_LEVEL_WARN, "LUA", "SetupLuaInterface: exception during registration");
     }
 }
 
@@ -1736,7 +1736,7 @@ void Shutdown() {
         }
     }
 
-    Log("[LuaOpt] Shutdown. Total: %d GC steps, %d full collects",
+    LogEx(LOG_LEVEL_INFO, "LUA", "Shutdown. Total: %d GC steps, %d full collects",
         State.gcStepsTotal, State.fullCollects);
 
     State.initialized = false;

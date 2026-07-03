@@ -43,39 +43,78 @@ static const char* ReadLuaErrorString(uintptr_t L) {
     }
 }
 
+typedef int (__cdecl *lua_getstack_fn)(uintptr_t L, int level, void* ar);
+typedef int (__cdecl *lua_getinfo_fn)(uintptr_t L, const char* what, void* ar);
+
+static void LogLuaTraceback(uintptr_t L) {
+    if (!L) return;
+    
+    auto getstack = (lua_getstack_fn)0x0084FE40;
+    auto getinfo = (lua_getinfo_fn)0x00850A90;
+
+    char ar[100];
+    memset(ar, 0, sizeof(ar));
+    int level = 0;
+    
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  Traceback:");
+    while (getstack(L, level, ar) == 1) {
+        getinfo(L, "nSl", ar);
+        
+        const char* name = *(const char**)(ar + 4);
+        const char* namewhat = *(const char**)(ar + 8);
+        const char* what = *(const char**)(ar + 12);
+        const char* source = *(const char**)(ar + 16);
+        int currentline = *(int*)(ar + 20);
+        const char* short_src = (const char*)(ar + 36);
+        
+        if (!name) name = "?";
+        if (!short_src) short_src = "?";
+        if (!what) what = "?";
+        
+        LogEx(LOG_LEVEL_ERROR, "LUA", "    [%d] %s:%d in function '%s' (%s)",
+            level, short_src, currentline, name, what);
+            
+        level++;
+        if (level > 20) {
+            LogEx(LOG_LEVEL_ERROR, "LUA", "    ... (truncated)");
+            break;
+        }
+    }
+}
+
 static int __cdecl DiagLuaError(uintptr_t L) {
     LONG errNum = InterlockedIncrement(&g_errorCount);
     if (errNum > MAX_DIAG_ERRORS) return s_origLuaError(L);
 
-    // If parameter L is bogus, try the global lua_State pointer
     uintptr_t useL = L;
     if (L < 0x10000 || L > 0xFFE00000) {
         useL = *(uintptr_t*)0x00D3F78C;
         if (useL < 0x10000 || useL > 0xFFE00000) useL = 0;
     }
 
-    Log("");
-    Log("=== LUA ERROR #%d ===", (int)errNum);
-    Log("  lua_State param: 0x%08X  global: 0x%08X", (unsigned)L, (unsigned)useL);
+    LogEx(LOG_LEVEL_ERROR, "LUA", "=== LUA ERROR #%d ===", (int)errNum);
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  lua_State param: 0x%08X  global: 0x%08X", (unsigned)L, (unsigned)useL);
 
     const char* errMsg = nullptr;
     if (useL) {
         errMsg = ReadLuaErrorString(useL);
     }
     if (errMsg && errMsg[0]) {
-        Log("  Message: %s", errMsg);
+        LogEx(LOG_LEVEL_ERROR, "LUA", "  Message: %s", errMsg);
     } else {
-        Log("  Message: <unable to read>");
+        LogEx(LOG_LEVEL_ERROR, "LUA", "  Message: <unable to read>");
     }
 
-    Log("  Last 32 hook calls:");
+    if (useL) {
+        LogLuaTraceback(useL);
+    }
+
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  Last 32 hook calls:");
     extern void CrashDumper_DumpHookTrace(int count);
     CrashDumper_DumpHookTrace(32);
 
-    Log("=== END LUA ERROR #%d ===", (int)errNum);
-    Log("");
+    LogEx(LOG_LEVEL_ERROR, "LUA", "=== END LUA ERROR #%d ===", (int)errNum);
 
-    if (errNum <= 10) LogFlushImmediate();  // flush first 10, then rely on crash dump
     return s_origLuaError(L);
 }
 
