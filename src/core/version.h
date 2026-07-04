@@ -491,7 +491,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    0
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -536,14 +536,14 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1         1  
-#define TEST_DISABLE_LUA_SAFE_G2         1  // enabled: Safe Group 2 hooks
-#define TEST_DISABLE_LUA_SAFE_G2AL 1
-#define TEST_DISABLE_LUA_SAFE_G2AI 1
-#define TEST_DISABLE_LUA_SAFE_G2B 1
-#define TEST_DISABLE_LUA_SAFE_G2C 1
-#define TEST_DISABLE_LUA_SAFE_G3         1  // enabled: buffer ops and helper hooks
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1         0  
+#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
+#define TEST_DISABLE_LUA_SAFE_G2AL 0
+#define TEST_DISABLE_LUA_SAFE_G2AI 0
+#define TEST_DISABLE_LUA_SAFE_G2B 0
+#define TEST_DISABLE_LUA_SAFE_G2C 0
+#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops and helper hooks
 
 // lua_setlocal fast path
 // PERMANENTLY DISABLED: 0x84F210 is luaL_where (debug location formatter), NOT
