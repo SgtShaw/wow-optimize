@@ -426,6 +426,12 @@
 // hysteresis to avoid thrashing. Set to 1 to disable.
 #define TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR  0
 
+// Next-Gen Memory & Address Space (VA) Management Defragmenter & Pre-committer
+#define TEST_DISABLE_LOADING_DEFRAG     0
+
+// Async Visual Frustum Culling Cache
+#define TEST_DISABLE_ASYNC_CULLING      0
+
 // Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
 // past short strings into adjacent allocations). Copied body is pure byte-by-

@@ -51,6 +51,8 @@
 #include "lua_loadstring_fast.h"
 #include "lua_yield_fast.h"
 #include "lua_getn_fast.h"
+#include "loading_defrag.h"
+#include "async_culling.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -1136,6 +1138,8 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
         LuaVMEngine_FrameTick();
         ApiCache::OnNewFrame();
+        LoadingDefrag::OnFrame();
+        AsyncCulling::OnFrameStart();
         FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
         InitHardwareCursor();
@@ -5404,6 +5408,7 @@ extern "C" void ReserveLoadingArena() {
     } else {
         Log("[VA-Arena] Failed to reserve 256MB (VA fragmented - continuing)");
     }
+    LoadingDefrag::NotifyLoadingState(true);
 }
 
 extern "C" void ReleaseLoadingArena() {
@@ -5414,6 +5419,7 @@ extern "C" void ReleaseLoadingArena() {
         Log("[VA-Arena] Released - VA space returned to process");
     }
     ReleaseSRWLockExclusive(&g_arenaLock);
+    LoadingDefrag::NotifyLoadingState(false);
 }
 
 // ================================================================
@@ -6915,6 +6921,24 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Hooks (worker pool, particle, prefetch) ---");
     bool asyncHooksOk = InstallAsyncHooks(); // BISECT
+
+    Log("");
+    Log("--- Loading Defragmenter & Pre-committer ---");
+#if !TEST_DISABLE_LOADING_DEFRAG
+    bool loadingDefragOk = LoadingDefrag::Init();
+#else
+    bool loadingDefragOk = false;
+    Log("[LoadingDefrag] DISABLED via TEST_DISABLE_LOADING_DEFRAG");
+#endif
+
+    Log("");
+    Log("--- Async Visual Frustum Culling Cache ---");
+#if !TEST_DISABLE_ASYNC_CULLING
+    bool asyncCullingOk = AsyncCulling::Init();
+#else
+    bool asyncCullingOk = false;
+    Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
+#endif
 
     // Register memory-pressure governor shed callbacks.  These fire from the
     // main thread (Sleep hook) when VA fragments below threshold, and each
@@ -8727,6 +8751,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             }
             HeapCompactor_Shutdown();
             VersionChecker_Shutdown();
+            LoadingDefrag::Shutdown();
+            AsyncCulling::Shutdown();
 
 #if !TEST_DISABLE_SAMPLING_PROFILER
             SamplingProfiler::Shutdown();

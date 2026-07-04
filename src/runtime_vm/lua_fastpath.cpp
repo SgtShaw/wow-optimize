@@ -2189,7 +2189,7 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
                 void* ts = sepSlot->value.gc;
                 if (ts) {
                     sepLen = (size_t)*(uint32_t*)((char*)ts + 16);
-                    sep = (const char*)((char*)ts + 16);
+                    sep = (const char*)((char*)ts + 20); // Correct offset: string data starts at +20
                     if (!sep) { g_tblConcatFallbacks++; return orig_tbl_concat(L); }
                 }
             } else if (sepSlot->tt != LUA_TNIL) {
@@ -2241,7 +2241,12 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
                 g_tblConcatFallbacks++;
                 return orig_tbl_concat(L);
             }
-            totalLen += *(uint32_t*)((uintptr_t)val->value.gc + 0x10);
+            uintptr_t gcPtr = (uintptr_t)val->value.gc;
+            if (gcPtr < 0x10000 || gcPtr >= 0xFFE00000) {
+                g_tblConcatFallbacks++;
+                return orig_tbl_concat(L);
+            }
+            totalLen += *(uint32_t*)(gcPtr + 16); // Correct offset: string length is at +16
         }
 
         if (seps > 0) {
@@ -2263,16 +2268,16 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
 
             // SAFETY: validate GC string object before direct memory read
             uintptr_t gcPtr = (uintptr_t)val->value.gc;
-            if (!gcPtr || !IsReadableMemory(gcPtr) || !IsReadableMemory(gcPtr + 0x14)) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+            if (gcPtr < 0x10000 || gcPtr >= 0xFFE00000) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
             // Validate string type byte at offset 9 (LUA_TSTRING = 4)
             uint8_t typeByte = *(uint8_t*)(gcPtr + 9);
             if ((typeByte & 0x1F) != 4) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
-            size_t slen = *(uint32_t*)(gcPtr + 0x08);      // len is at offset +8
+            size_t slen = *(uint32_t*)(gcPtr + 16);      // len is at offset +16
             if (slen == 0 || slen > 32768) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
-            const char* sdata = (const char*)(gcPtr + 0x10); // str[0] is at offset +16
+            const char* sdata = (const char*)(gcPtr + 20); // str[0] is at offset +20
 
             __try {
                 memcpy(p, sdata, slen);
@@ -2315,60 +2320,66 @@ static int __cdecl Hooked_Unpack(lua_State* L) {
     int nargs = lua_gettop_(L);
     if (nargs < 1) goto fallback;
 
-    RawTValue* base = GetStackBaseFast(L);
-    if (!base) goto fallback;
+    __try {
+        RawTValue* base = GetStackBaseFast(L);
+        if (!base) goto fallback;
 
-    RawTValue* tableSlot = base;
-    if (tableSlot->tt != LUA_TTABLE) goto fallback;
-    void* tablePtr = tableSlot->value.gc;
-    if (!tablePtr) goto fallback;
+        RawTValue* tableSlot = base;
+        if (tableSlot->tt != LUA_TTABLE) goto fallback;
+        void* tablePtr = tableSlot->value.gc;
+        if (!tablePtr) goto fallback;
 
-    int start = 1;
-    int end   = (int)luaH_getn_(tablePtr);
+        int start = 1;
+        int end   = (int)luaH_getn_(tablePtr);
 
-    if (nargs >= 2) {
-        if (lua_type_(L, 2) == LUA_TNUMBER) {
-            double s = ReadRawNumber(base + 1);
-            start = (int)s;
-            if (s != start) goto fallback;
-        } else if (lua_type_(L, 2) != LUA_TNIL) {
-            goto fallback;
+        if (nargs >= 2) {
+            if (lua_type_(L, 2) == LUA_TNUMBER) {
+                double s = ReadRawNumber(base + 1);
+                start = (int)s;
+                if (s != start) goto fallback;
+            } else if (lua_type_(L, 2) != LUA_TNIL) {
+                goto fallback;
+            }
         }
-    }
-    if (nargs >= 3) {
-        if (lua_type_(L, 3) == LUA_TNUMBER) {
-            double e = ReadRawNumber(base + 2);
-            end = (int)e;
-            if (e != end) goto fallback;
-        } else if (lua_type_(L, 3) != LUA_TNIL) {
-            goto fallback;
+        if (nargs >= 3) {
+            if (lua_type_(L, 3) == LUA_TNUMBER) {
+                double e = ReadRawNumber(base + 2);
+                end = (int)e;
+                if (e != end) goto fallback;
+            } else if (lua_type_(L, 3) != LUA_TNIL) {
+                goto fallback;
+            }
         }
+
+        int count = end - start + 1;
+        if (count <= 0 || count > 256) goto fallback;
+
+        RawTValue* top = GetStackTopFast(L);
+        if (!top) goto fallback;
+
+        // CRITICAL SAFETY: prevent stack overflow / out-of-bounds stack writes
+        if (top + count >= GetStackLastFast(L)) goto fallback;
+
+        for (int i = 0; i < count; i++) {
+            RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
+            if (!val || val->tt == LUA_TNIL) goto fallback;
+
+            // SAFETY: validate GC object pointer before copy (fast range checks)
+            uintptr_t gc = (uintptr_t)val->value.gc;
+            if (val->tt >= LUA_TSTRING && (gc < 0x10000 || gc >= 0xFFE00000))
+                goto fallback;
+
+            *top = *val;
+            top++;
+        }
+        SetStackTopFast(L, top);
+
+        g_unpackHits++;
+        return count;
     }
-
-    int count = end - start + 1;
-    if (count <= 0 || count > 256) goto fallback;
-
-    RawTValue* top = GetStackTopFast(L);
-    if (!top) goto fallback;
-
-    // CRITICAL SAFETY: prevent stack overflow / out-of-bounds stack writes
-    if (top + count >= GetStackLastFast(L)) goto fallback;
-
-    for (int i = 0; i < count; i++) {
-        RawTValue* val = (RawTValue*)luaH_getnum_(tablePtr, start + i);
-        if (!val || val->tt == LUA_TNIL) goto fallback;
-
-        // SAFETY: validate GC object pointer before copy
-        if (val->tt >= LUA_TSTRING && (!val->value.gc || !IsReadableMemory((uintptr_t)val->value.gc)))
-            goto fallback;
-
-        *top = *val;
-        top++;
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Fall through to fallback
     }
-    SetStackTopFast(L, top);
-
-    g_unpackHits++;
-    return count;
 
 fallback:
     g_unpackFallbacks++;
@@ -3423,13 +3434,10 @@ bool InitPhase2(lua_State* L) {
 #endif
 
 #if TEST_DISABLE_PHASE2_READS
-            // rawget / unpack: RawTValue* copies that move GC objects or
+            // rawget: RawTValue* copies that move GC objects or
             // push multiple values to the stack — caused hangs in real
-            // gameplay. table.concat is safe (pushes exactly one interned
-            // string, same pattern as the enabled math.random fast path)
-            // and is NOT gated here.
-            if (strcmp(e.name, "rawget") == 0 ||
-                strcmp(e.name, "unpack") == 0) {
+            // gameplay. table.concat and unpack are safe and NOT gated here.
+            if (strcmp(e.name, "rawget") == 0) {
                 Log("[FastPath]   %-8s.%-8s  SKIP (unsafe — RawTValue* stack writes)",
                     e.table ? e.table : "_G", e.name);
                 continue;
