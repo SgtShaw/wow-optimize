@@ -7,10 +7,12 @@
 #include "addon_dispatcher.h"
 #include "hot_patch.h"
 #include "MinHook.h"
+#include "lua_optimize.h"
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
 #include <vector>
+#include <mutex>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -25,7 +27,7 @@ struct AddonCallback {
 };
 
 // ================================================================
-// Lock-Free Queue (8192 entries, ring buffer)
+// Input Queue (8192 entries, ring buffer)
 // ================================================================
 static constexpr int QUEUE_SIZE = 8192;
 static constexpr int QUEUE_MASK = QUEUE_SIZE - 1;
@@ -38,6 +40,59 @@ struct QueueEntry {
 static QueueEntry g_queue[QUEUE_SIZE] = {};
 static volatile LONG g_queueHead = 0;  // Consumer index (worker threads)
 static volatile LONG g_queueTail = 0;  // Producer index (main thread)
+
+// ================================================================
+// Output Queue (Circular queue with mutex protection for main thread execution)
+// ================================================================
+static AddonCallback g_outputQueue[QUEUE_SIZE] = {};
+static int g_outputHead = 0;
+static int g_outputTail = 0;
+static std::mutex g_outputMutex;
+
+static bool QueueOutputCallback(const AddonCallback* cb) {
+    std::lock_guard<std::mutex> lock(g_outputMutex);
+    int nextTail = (g_outputTail + 1) & QUEUE_MASK;
+    if (nextTail == g_outputHead) {
+        return false;
+    }
+    g_outputQueue[g_outputTail] = *cb;
+    g_outputTail = nextTail;
+    return true;
+}
+
+static bool DequeueOutputCallback(AddonCallback* cb) {
+    std::lock_guard<std::mutex> lock(g_outputMutex);
+    if (g_outputHead == g_outputTail) {
+        return false;
+    }
+    *cb = g_outputQueue[g_outputHead];
+    g_outputHead = (g_outputHead + 1) & QUEUE_MASK;
+    return true;
+}
+
+// ================================================================
+// Lua 5.1 stack interaction helper structures and inline functions
+// ================================================================
+struct lua_State;
+struct RawTValue {
+    union {
+        void*     gc;
+        uintptr_t ptr;
+        double    n;
+        uint32_t  raw[2];
+    } value;
+    int       tt;
+    uint32_t  taint;
+};
+
+static inline RawTValue* GetStackTopFast(lua_State* L) {
+    return *(RawTValue**)((uintptr_t)L + 0x0C);
+}
+
+static inline void SetStackTopFast(lua_State* L, RawTValue* top) {
+    *(RawTValue**)((uintptr_t)L + 0x0C) = top;
+}
+
 
 // ================================================================
 // Batch Processing State
@@ -85,16 +140,25 @@ static bool IsReadable(uintptr_t addr) {
 // Callback Processing (Worker Thread)
 // ================================================================
 static void ProcessCallback(const AddonCallback* callback) {
-    // Validate pointers before calling
+    // Validate pointers before queueing
     if (!IsReadable((uintptr_t)callback->frame) || 
         !IsReadable((uintptr_t)callback->callback)) {
         return;
     }
 
-    // Call the addon callback
-    // TODO: Implement actual Lua callback execution
+    // Pre-fetch structures to keep cache lines hot
+    __try {
+        volatile char dummy1 = *(volatile char*)callback->frame;
+        volatile char dummy2 = *(volatile char*)callback->callback;
+        (void)dummy1;
+        (void)dummy2;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        return; // Guard against page faults during pre-fetch
+    }
 
-    InterlockedIncrement(&g_callbacksProcessed);
+    // Queue validated callback to output queue for main thread execution
+    QueueOutputCallback(callback);
 }
 
 // ================================================================
@@ -138,6 +202,7 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
 // ================================================================
 static void CollectCallback(void* frame, void* callback, double elapsed) {
     if (!g_initialized) return;
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) return;
 
     // Add to current batch
     AcquireSRWLockExclusive(&g_batchLock);
@@ -275,6 +340,13 @@ void Shutdown() {
     g_currentBatch.clear();
     ReleaseSRWLockExclusive(&g_batchLock);
 
+    // Clear output queue
+    {
+        std::lock_guard<std::mutex> lock(g_outputMutex);
+        g_outputHead = 0;
+        g_outputTail = 0;
+    }
+
     // Log final stats
     Log("[AddonDispatcher] Final stats: Queued=%d, Processed=%d, Dropped=%d, Batches=%d",
         g_callbacksQueued, g_callbacksProcessed, g_callbacksDropped, g_batchesProcessed);
@@ -285,6 +357,63 @@ void Shutdown() {
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;
+
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+        // Discard all pending callbacks during reload
+        AddonCallback cb;
+        while (DequeueOutputCallback(&cb)) {}
+        
+        AcquireSRWLockExclusive(&g_batchLock);
+        g_currentBatch.clear();
+        ReleaseSRWLockExclusive(&g_batchLock);
+        
+        // Also clean the input queue
+        LONG tail = g_queueTail;
+        LONG head = g_queueHead;
+        while (head != tail) {
+            int slot = head & QUEUE_MASK;
+            g_queue[slot].ready = 0;
+            head = (head + 1) & 0x7FFFFFFF;
+        }
+        InterlockedExchange(&g_queueHead, tail);
+        return;
+    }
+
+    // Dequeue and execute validated callbacks sequentially on the main thread
+    AddonCallback cb;
+    lua_State* L = *(lua_State**)0x00D3F78C;
+    
+    while (DequeueOutputCallback(&cb)) {
+        if (L && IsReadable((uintptr_t)cb.frame) && IsReadable((uintptr_t)cb.callback)) {
+            __try {
+                // Push callback (closure)
+                RawTValue* top = GetStackTopFast(L);
+                top->tt = 6; // LUA_TFUNCTION
+                top->value.gc = cb.callback;
+                SetStackTopFast(L, top + 1);
+                
+                // Push self (frame table) using virtual function PushSelf
+                uintptr_t* vtable = *(uintptr_t**)cb.frame;
+                typedef void (__thiscall *CSimpleFrame_PushSelf_fn)(void* frame, lua_State* L);
+                CSimpleFrame_PushSelf_fn PushSelf = (CSimpleFrame_PushSelf_fn)vtable[4];
+                PushSelf(cb.frame, L);
+                
+                // Push elapsed (double)
+                typedef void (__cdecl *lua_pushnumber_fn)(lua_State* L, double n);
+                lua_pushnumber_fn p_lua_pushnumber = (lua_pushnumber_fn)0x0084E2A0;
+                p_lua_pushnumber(L, cb.elapsed);
+                
+                // Call via lua_pcall(L, 2, 0, 0)
+                typedef int (__cdecl *lua_pcall_fn)(lua_State* L, int nargs, int nresults, int errfunc);
+                lua_pcall_fn p_lua_pcall = (lua_pcall_fn)0x0084EC50;
+                p_lua_pcall(L, 2, 0, 0);
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                // Safely catch errors
+            }
+        }
+        InterlockedIncrement(&g_callbacksProcessed);
+    }
 
     // Dispatch current batch at end of frame
     DispatchBatch();

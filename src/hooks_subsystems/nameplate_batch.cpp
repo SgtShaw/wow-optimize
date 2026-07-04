@@ -11,8 +11,45 @@
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
+#include <unordered_map>
+#include <mutex>
+#include <cmath>
 
 extern "C" void Log(const char* fmt, ...);
+
+// ================================================================
+// Function Pointers for Detoured WoW Subsystems
+// ================================================================
+typedef void* (__cdecl *ClntObjMgrObjectPtr_fn)(uint64_t guid, int type);
+static ClntObjMgrObjectPtr_fn ClntObjMgrObjectPtr = (ClntObjMgrObjectPtr_fn)0x004D4DB0;
+
+typedef const char* (__thiscall *GetUnitNameAndGuild_fn)(void* unit, const char** guildNameOut, int flag);
+static GetUnitNameAndGuild_fn GetUnitNameAndGuild = (GetUnitNameAndGuild_fn)0x004FD0E0;
+
+typedef void* (__thiscall *CSimpleFrame_GetColor_fn)(void* frame, DWORD* colorOut);
+static CSimpleFrame_GetColor_fn CSimpleFrame_GetColor = (CSimpleFrame_GetColor_fn)0x00487AB0;
+
+typedef void (__thiscall *CSimpleFrame_SetColor_fn)(void* frame, DWORD* color);
+static CSimpleFrame_SetColor_fn CSimpleFrame_SetColor = (CSimpleFrame_SetColor_fn)0x00487A10;
+
+typedef void (__thiscall *CSimpleFontString_SetText_fn)(void* fontString, const char* text, int flag);
+static CSimpleFontString_SetText_fn CSimpleFontString_SetText = (CSimpleFontString_SetText_fn)0x00483910;
+
+// Hook Function types & original pointers
+typedef void (__fastcall *NameplateUpdate_fn)(void* ecx, void* edx, float dt);
+static NameplateUpdate_fn orig_NameplateUpdate = nullptr;
+
+typedef void (__fastcall *NameplatePosition_fn)(void* ecx, void* edx, float* cameraPos, int unit);
+static NameplatePosition_fn orig_NameplatePosition = nullptr;
+
+// Thread-safe distance cache
+static std::unordered_map<void*, float> g_nameplateDistances;
+static std::mutex g_distanceMutex;
+
+// WoW descriptor offsets
+static constexpr int UNIT_FIELD_HEALTH = 18;
+static constexpr int UNIT_FIELD_MAXHEALTH = 26;
+
 
 // ================================================================
 // Constants
@@ -88,44 +125,43 @@ static bool IsExecutable(uintptr_t addr) {
 // Lock-Free Queue Operations
 // ================================================================
 
-// Queue a nameplate task for worker thread processing
+static std::mutex s_inputMutex;
+static std::mutex s_outputMutex;
+
+// Queue a nameplate task for processing (main thread)
 static bool QueueNameplateTask(const NameplateMT::NameplateTask* task) {
-    LONG tail = InterlockedIncrement(&g_inputTail) - 1;
-    int slot = tail & QUEUE_MASK;
+    std::lock_guard<std::mutex> lock(s_inputMutex);
     
-    // Check for queue overflow
+    LONG tail = g_inputTail;
     LONG head = g_inputHead;
+    
     if (((tail - head) & 0x7FFFFFFF) >= QUEUE_SIZE) {
         InterlockedIncrement(&g_tasksDropped);
-        Log("[NameplateMT] WARNING: Input queue overflow, dropping task");
         return false;
     }
     
-    // Copy task data (avoid pointer sharing)
+    int slot = tail & QUEUE_MASK;
     memcpy(&g_inputQueue[slot], task, sizeof(NameplateMT::NameplateTask));
     
-    // Signal worker threads
-    SetEvent(g_workerEvent);
+    g_inputTail++;
     InterlockedIncrement(&g_tasksQueued);
     
     // Update queue depth statistics
     LONG depth = (tail - head + 1) & 0x7FFFFFFF;
     InterlockedExchange(&g_inputQueueDepth, depth);
-    
-    // Update max depth if needed
-    LONG maxDepth = g_maxInputQueueDepth;
-    while (depth > maxDepth) {
-        LONG prev = InterlockedCompareExchange(&g_maxInputQueueDepth, depth, maxDepth);
-        if (prev == maxDepth) break;
-        maxDepth = prev;
+    if (depth > g_maxInputQueueDepth) {
+        InterlockedExchange(&g_maxInputQueueDepth, depth);
     }
     
+    SetEvent(g_workerEvent);
     return true;
 }
 
 // Dequeue a nameplate task for processing (worker thread)
 static bool DequeueNameplateTask(NameplateMT::NameplateTask* task) {
-    LONG head = InterlockedCompareExchange(&g_inputHead, 0, 0); // Read atomically
+    std::lock_guard<std::mutex> lock(s_inputMutex);
+    
+    LONG head = g_inputHead;
     LONG tail = g_inputTail;
     
     if (head == tail) return false; // Queue empty
@@ -133,36 +169,32 @@ static bool DequeueNameplateTask(NameplateMT::NameplateTask* task) {
     int slot = head & QUEUE_MASK;
     memcpy(task, &g_inputQueue[slot], sizeof(NameplateMT::NameplateTask));
     
-    InterlockedIncrement(&g_inputHead);
+    g_inputHead++;
     return true;
 }
 
 // Queue a nameplate result for main thread consumption (worker thread)
 static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
-    LONG tail = InterlockedIncrement(&g_outputTail) - 1;
-    int slot = tail & QUEUE_MASK;
+    std::lock_guard<std::mutex> lock(s_outputMutex);
     
-    // Check for queue overflow
+    LONG tail = g_outputTail;
     LONG head = g_outputHead;
+    
     if (((tail - head) & 0x7FFFFFFF) >= QUEUE_SIZE) {
         InterlockedIncrement(&g_tasksDropped);
-        Log("[NameplateMT] WARNING: Output queue overflow, dropping result");
         return false;
     }
     
-    // Copy result data (avoid pointer sharing)
+    int slot = tail & QUEUE_MASK;
     memcpy(&g_outputQueue[slot], result, sizeof(NameplateMT::NameplateResult));
+    
+    g_outputTail++;
     
     // Update queue depth statistics
     LONG depth = (tail - head + 1) & 0x7FFFFFFF;
     InterlockedExchange(&g_outputQueueDepth, depth);
-    
-    // Update max depth if needed
-    LONG maxDepth = g_maxOutputQueueDepth;
-    while (depth > maxDepth) {
-        LONG prev = InterlockedCompareExchange(&g_maxOutputQueueDepth, depth, maxDepth);
-        if (prev == maxDepth) break;
-        maxDepth = prev;
+    if (depth > g_maxOutputQueueDepth) {
+        InterlockedExchange(&g_maxOutputQueueDepth, depth);
     }
     
     return true;
@@ -170,7 +202,9 @@ static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
 
 // Dequeue a nameplate result for UI application (main thread)
 static bool DequeueNameplateResult(NameplateMT::NameplateResult* result) {
-    LONG head = InterlockedCompareExchange(&g_outputHead, 0, 0); // Read atomically
+    std::lock_guard<std::mutex> lock(s_outputMutex);
+    
+    LONG head = g_outputHead;
     LONG tail = g_outputTail;
     
     if (head == tail) return false; // Queue empty
@@ -178,7 +212,7 @@ static bool DequeueNameplateResult(NameplateMT::NameplateResult* result) {
     int slot = head & QUEUE_MASK;
     memcpy(result, &g_outputQueue[slot], sizeof(NameplateMT::NameplateResult));
     
-    InterlockedIncrement(&g_outputHead);
+    g_outputHead++;
     InterlockedIncrement(&g_resultsProcessed);
     return true;
 }
@@ -219,25 +253,15 @@ static void ProcessHealthUpdate(const NameplateMT::NameplateTask* task, Nameplat
 // Process text update task
 static void ProcessTextUpdate(const NameplateMT::NameplateTask* task, NameplateMT::NameplateResult* result) {
     __try {
-        // Format nameplate text: "[Level] Name <Guild>"
+        // Format nameplate text: "Name <Guild>"
         char formatted[128] = {0};
         
-        if (task->unitLevel > 0) {
-            if (task->guildName[0] != '\0') {
-                _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
-                           "[%d] %s <%s>", task->unitLevel, task->unitName, task->guildName);
-            } else {
-                _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
-                           "[%d] %s", task->unitLevel, task->unitName);
-            }
+        if (task->guildName[0] != '\0') {
+            _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
+                       "%s <%s>", task->unitName, task->guildName);
         } else {
-            if (task->guildName[0] != '\0') {
-                _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
-                           "%s <%s>", task->unitName, task->guildName);
-            } else {
-                _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
-                           "%s", task->unitName);
-            }
+            _snprintf_s(formatted, sizeof(formatted), _TRUNCATE, 
+                       "%s", task->unitName);
         }
         
         memcpy(result->formattedText, formatted, sizeof(result->formattedText));
@@ -369,6 +393,141 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
 }
 
 // ================================================================
+// Detoured Hook Functions
+// ================================================================
+static void SaveDistanceToCache(void* ecx, float distance) {
+    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    g_nameplateDistances[ecx] = distance;
+}
+
+void __fastcall Hooked_NameplatePosition(void* ecx, void* edx, float* cameraPos, int unit) {
+    orig_NameplatePosition(ecx, edx, cameraPos, unit);
+    
+    if (ecx && cameraPos && IsReadable((uintptr_t)ecx) && IsReadable((uintptr_t)cameraPos)) {
+        float distance = -1.0f;
+        __try {
+            float* posState = *(float**)((char*)ecx + 0xC38);
+            if (posState && IsReadable((uintptr_t)posState)) {
+                float dx = cameraPos[0] - posState[184];
+                float dy = cameraPos[1] - posState[185];
+                float dz = cameraPos[2] - posState[186];
+                distance = sqrtf(dx * dx + dy * dy + dz * dz);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            distance = -1.0f;
+        }
+        
+        if (distance >= 0.0f) {
+            SaveDistanceToCache(ecx, distance);
+        }
+    }
+}
+
+
+static float GetCachedNameplateDistance(void* ecx) {
+    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    auto it = g_nameplateDistances.find(ecx);
+    if (it != g_nameplateDistances.end()) {
+        return it->second;
+    }
+    return 0.0f;
+}
+
+void __fastcall Hooked_NameplateUpdate(void* ecx, void* edx, float dt) {
+    orig_NameplateUpdate(ecx, edx, dt);
+
+    if (LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) return;
+
+    if (!ecx || !IsReadable((uintptr_t)ecx)) return;
+
+    __try {
+        uint64_t guid = *(uint64_t*)((char*)ecx + 680);
+        if (!guid) return;
+
+        // Throttle non-target updates to prevent queue overflow
+        uint64_t targetGuid = *(uint64_t*)0x00BD07B0;
+        bool isTarget = (guid == targetGuid);
+        if (!isTarget) {
+            static uint32_t s_frameCounter = 0;
+            s_frameCounter++;
+            uintptr_t addrVal = (uintptr_t)ecx;
+            if (((addrVal >> 4) + s_frameCounter) % 5 != 0) {
+                return;
+            }
+        }
+
+        void* unit = ClntObjMgrObjectPtr(guid, 8);
+        if (!unit || !IsReadable((uintptr_t)unit)) return;
+
+        uintptr_t unitPtr = (uintptr_t)unit;
+        if (unitPtr < 0x10000 || unitPtr > 0xFFE00000) return;
+
+        void* descriptors = *(void**)(unitPtr + 0xD0);
+        if (!descriptors || !IsReadable((uintptr_t)descriptors)) return;
+
+        int currentHealth = *(int*)((char*)descriptors + UNIT_FIELD_HEALTH * 4);
+        int maxHealth = *(int*)((char*)descriptors + UNIT_FIELD_MAXHEALTH * 4);
+        int level = *(int*)((char*)descriptors + 54 * 4);
+
+        const char* guildName = nullptr;
+        const char* name = GetUnitNameAndGuild(unit, &guildName, 1);
+        if (!name) name = "Unknown";
+
+        // Read current health bar color
+        DWORD classColor = 0xFFFFFFFF;
+        void* healthBar = *(void**)((char*)ecx + 732);
+        if (healthBar && IsReadable((uintptr_t)healthBar)) {
+            DWORD tempColor = 0;
+            CSimpleFrame_GetColor(healthBar, &tempColor);
+            classColor = tempColor;
+        }
+
+        // Get distance using helper
+        float distance = GetCachedNameplateDistance(ecx);
+
+        // Populate tasks
+        NameplateMT::NameplateTask task = {};
+        task.nameplate = ecx;
+        task.priority = 2;
+        task.timestamp = GetTickCount();
+
+        // TASK_HEALTH_UPDATE
+        task.type = NameplateMT::TASK_HEALTH_UPDATE;
+        task.healthCurrent = currentHealth;
+        task.healthMax = maxHealth;
+        QueueNameplateTask(&task);
+
+        // TASK_TEXT_UPDATE
+        task.type = NameplateMT::TASK_TEXT_UPDATE;
+        strncpy_s(task.unitName, name, sizeof(task.unitName) - 1);
+        if (guildName) {
+            strncpy_s(task.guildName, guildName, sizeof(task.guildName) - 1);
+        } else {
+            task.guildName[0] = '\0';
+        }
+        task.unitLevel = level;
+        QueueNameplateTask(&task);
+
+        // TASK_COLOR_UPDATE
+        task.type = NameplateMT::TASK_COLOR_UPDATE;
+        task.classColor = classColor;
+        task.threatColor = 0xFFFF0000;
+        task.threatLevel = 0.0f;
+        QueueNameplateTask(&task);
+
+        // TASK_VISIBILITY_UPDATE
+        task.type = NameplateMT::TASK_VISIBILITY_UPDATE;
+        task.flags = 1; // Visible
+        task.distance = distance;
+        QueueNameplateTask(&task);
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        InterlockedIncrement(&g_exceptionsHandled);
+    }
+}
+
+// ================================================================
 // Public API Implementation
 // ================================================================
 namespace NameplateMT {
@@ -411,11 +570,31 @@ bool Init() {
         // Set worker thread priority
         SetThreadPriority(g_workerThreads[i], THREAD_PRIORITY_BELOW_NORMAL);
     }
+    // Install hooks using MinHook
+    if (MH_CreateHook((LPVOID)0x0098E9F0, (LPVOID)Hooked_NameplateUpdate, (LPVOID*)&orig_NameplateUpdate) != MH_OK) {
+        Log("[NameplateMT] ERROR: Failed to create Hooked_NameplateUpdate");
+        Shutdown();
+        return false;
+    }
+    if (MH_EnableHook((LPVOID)0x0098E9F0) != MH_OK) {
+        Log("[NameplateMT] ERROR: Failed to enable Hooked_NameplateUpdate");
+        Shutdown();
+        return false;
+    }
 
-    // TODO: Install hooks (Task 6)
+    if (MH_CreateHook((LPVOID)0x007256C0, (LPVOID)Hooked_NameplatePosition, (LPVOID*)&orig_NameplatePosition) != MH_OK) {
+        Log("[NameplateMT] ERROR: Failed to create Hooked_NameplatePosition");
+        Shutdown();
+        return false;
+    }
+    if (MH_EnableHook((LPVOID)0x007256C0) != MH_OK) {
+        Log("[NameplateMT] ERROR: Failed to enable Hooked_NameplatePosition");
+        Shutdown();
+        return false;
+    }
 
     g_initialized = true;
-    Log("[NameplateMT] [ OK ] Worker threads created (count: %d, queue size: %d)", 
+    Log("[NameplateMT] [ OK ] Worker threads created (count: %d, queue size: %d, hooks installed)", 
         WORKER_THREAD_COUNT, QUEUE_SIZE);
     return true;
 }
@@ -448,7 +627,17 @@ void Shutdown() {
         g_workerEvent = NULL;
     }
 
-    // TODO: Remove hooks (Task 6)
+    // Disable and remove hooks
+    MH_DisableHook((LPVOID)0x0098E9F0);
+    MH_RemoveHook((LPVOID)0x0098E9F0);
+    MH_DisableHook((LPVOID)0x007256C0);
+    MH_RemoveHook((LPVOID)0x007256C0);
+
+    // Clear distance cache
+    {
+        std::lock_guard<std::mutex> lock(g_distanceMutex);
+        g_nameplateDistances.clear();
+    }
 
     // Log final stats
     Log("[NameplateMT] Final stats: Queued=%d, Processed=%d, Dropped=%d, Results=%d",
@@ -457,12 +646,110 @@ void Shutdown() {
     g_initialized = false;
 }
 
+static void HandleNameplateReload() {
+    NameplateMT::NameplateResult result;
+    while (DequeueNameplateResult(&result)) {}
+    
+    NameplateMT::NameplateTask task;
+    while (DequeueNameplateTask(&task)) {}
+    
+    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    g_nameplateDistances.clear();
+}
+
 void OnFrame(DWORD mainThreadId) {
     if (!g_initialized) return;
     if (GetCurrentThreadId() != mainThreadId) return;
 
-    // TODO: Process results from output queue (Task 7)
-    // TODO: Update statistics (Task 9)
+    if (LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+        HandleNameplateReload();
+        return;
+    }
+
+    NameplateMT::NameplateResult result;
+    int processedCount = 0;
+    
+    // Dequeue results and apply them safely on the main thread
+    while (DequeueNameplateResult(&result)) {
+        void* nameplate = result.nameplate;
+        if (!nameplate || !IsReadable((uintptr_t)nameplate)) continue;
+        
+        __try {
+            switch (result.type) {
+                case NameplateMT::TASK_HEALTH_UPDATE: {
+                    void* healthBar = *(void**)((char*)nameplate + 732);
+                    if (healthBar && IsReadable((uintptr_t)healthBar)) {
+                        uintptr_t* vtable = *(uintptr_t**)healthBar;
+                        if (vtable && IsReadable((uintptr_t)vtable)) {
+                            typedef void (__stdcall *CSimpleStatusBar_SetValue_fn)(void* thisPtr, float value);
+                            CSimpleStatusBar_SetValue_fn SetValue = (CSimpleStatusBar_SetValue_fn)vtable[57];
+                            if (SetValue && IsExecutable((uintptr_t)SetValue)) {
+                                SetValue(healthBar, result.healthPercent);
+                            }
+                        }
+                    }
+                    break;
+                }
+                case NameplateMT::TASK_TEXT_UPDATE: {
+                    void* nameText = *(void**)((char*)nameplate + 720);
+                    
+                    if (nameText && IsReadable((uintptr_t)nameText)) {
+                        CSimpleFontString_SetText(nameText, result.formattedText, 0);
+                    }
+                    break;
+                }
+                case NameplateMT::TASK_COLOR_UPDATE: {
+                    void* healthBar = *(void**)((char*)nameplate + 732);
+                    void* borderFrame = *(void**)((char*)nameplate + 708);
+                    
+                    if (healthBar && IsReadable((uintptr_t)healthBar)) {
+                        DWORD col = result.finalColor;
+                        CSimpleFrame_SetColor(healthBar, &col);
+                    }
+                    if (borderFrame && IsReadable((uintptr_t)borderFrame)) {
+                        DWORD col = result.borderColor;
+                        CSimpleFrame_SetColor(borderFrame, &col);
+                    }
+                    break;
+                }
+                case NameplateMT::TASK_VISIBILITY_UPDATE: {
+                    if (result.shouldShow) {
+                        typedef void (__thiscall *CSimpleFrame_Show_fn)(void* frame);
+                        CSimpleFrame_Show_fn CSimpleFrame_Show = (CSimpleFrame_Show_fn)0x00487C40;
+                        CSimpleFrame_Show(nameplate);
+                    } else {
+                        typedef void (__thiscall *CSimpleFrame_Hide_fn)(void* frame);
+                        CSimpleFrame_Hide_fn CSimpleFrame_Hide = (CSimpleFrame_Hide_fn)0x00487BF0;
+                        CSimpleFrame_Hide(nameplate);
+                    }
+                    
+                    typedef void (__thiscall *CSimpleFrame_SetAlpha_fn)(void* frame, uint8_t alpha);
+                    CSimpleFrame_SetAlpha_fn CSimpleFrame_SetAlpha = (CSimpleFrame_SetAlpha_fn)0x00482BD0;
+                    uint8_t alphaByte = (uint8_t)(result.alpha * 255.0f);
+                    CSimpleFrame_SetAlpha(nameplate, alphaByte);
+                    break;
+                }
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            InterlockedIncrement(&g_exceptionsHandled);
+        }
+        
+        processedCount++;
+    }
+
+    // Update stats
+    if (processedCount > 0) {
+        static DWORD lastStatsTime = GetTickCount();
+        static LONG fpsFrames = 0;
+        fpsFrames += processedCount;
+        DWORD now = GetTickCount();
+        if (now - lastStatsTime >= 1000) {
+            InterlockedExchange(&g_nameplatesPerSecond, fpsFrames);
+            fpsFrames = 0;
+            lastStatsTime = now;
+        }
+    }
 }
 
 Stats GetStats() {

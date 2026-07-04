@@ -6697,10 +6697,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Multithreaded Addon Update Dispatcher ---");
-    // DISABLED: worker threads write to WoW game state without synchronization
-    // causing ACCESS_VIOLATION at 0x009E4F24 from background thread
-    Log("[AddonDispatcher] DISABLED: unsynchronized writes to WoW game state");
+#if TEST_DISABLE_ADDON_DISPATCHER
+    Log("[AddonDispatcher] DISABLED (test toggle)");
     bool addonDispatcherOk = false;
+#else
+    bool addonDispatcherOk = AddonDispatcher::Init();
+#endif
 
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
@@ -6796,9 +6798,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Multithreaded Nameplate Renderer ---");
-    // DISABLED: worker threads write to WoW rendering globals without synchronization
-    Log("[NameplateMT] DISABLED: unsynchronized writes to WoW game state");
+#if TEST_DISABLE_NAMEPLATE_MT
+    Log("[NameplateMT] DISABLED (test toggle)");
     bool nameplateMTOk = false;
+#else
+    bool nameplateMTOk = NameplateMT::Init();
+#endif
 
     Log("");
     Log("--- UI Cache ---");

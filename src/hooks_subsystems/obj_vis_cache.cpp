@@ -8,6 +8,7 @@
 #include "obj_vis_cache.h"
 #include "version.h"
 #include "MinHook.h"
+#include "lua_optimize.h"
 #include <cstring>
 #include <intrin.h>
 
@@ -74,10 +75,30 @@ static ThreadCacheSlot* GetThreadCacheSlot() {
     return nullptr;
 }
 
+typedef int (__cdecl *sub_5D9D90_fn)();
+static sub_5D9D90_fn orig_sub_5D9D90 = nullptr;
+static volatile LONG g_inWorldTeardown = 0;
+
+static int __cdecl hooked_sub_5D9D90() {
+    InterlockedExchange(&g_inWorldTeardown, 1);
+    int result = orig_sub_5D9D90();
+    InterlockedExchange(&g_inWorldTeardown, 0);
+    return result;
+}
+
+static inline bool IsTeardownState() {
+    uintptr_t gL = *(uintptr_t*)0x00D3F78C;
+    return (gL < 0x10000 || gL > 0xFFE00000);
+}
+
 static void* __fastcall hooked_HashLookup(
     void* thisPtr, void* /*edx*/, uint32_t hashKey, void* guidPtr)
 {
     if (!thisPtr || !guidPtr) {
+        return orig_HashLookup(thisPtr, hashKey, guidPtr);
+    }
+
+    if (g_inWorldTeardown || IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
         return orig_HashLookup(thisPtr, hashKey, guidPtr);
     }
 
@@ -156,6 +177,7 @@ bool Init() {
     InterlockedExchange(&g_poolInitDone, 1);
 
     void* target = (void*)0x4D4BB0;
+    void* teardownTarget = (void*)0x5D9D90;
 
     if (MH_CreateHook(target, (void*)hooked_HashLookup, (void**)&orig_HashLookup) != MH_OK) {
         Log("[ObjVisCache] ERROR: MH_CreateHook failed at 0x4D4BB0");
@@ -165,6 +187,10 @@ bool Init() {
         Log("[ObjVisCache] ERROR: MH_EnableHook failed");
         MH_RemoveHook(target);
         return false;
+    }
+
+    if (MH_CreateHook(teardownTarget, (void*)hooked_sub_5D9D90, (void**)&orig_sub_5D9D90) == MH_OK) {
+        MH_EnableHook(teardownTarget);
     }
 
     Log("[ObjVisCache] [ OK ] Hooked lookup, static pool=%d threads (no alloc)", MAX_THREADS);
@@ -181,9 +207,13 @@ void Shutdown() {
         hits, misses, rate, g_poolExhausted);
 
     void* target = (void*)0x4D4BB0;
+    void* teardownTarget = (void*)0x5D9D90;
 
     MH_DisableHook(target);
     MH_RemoveHook(target);
+
+    MH_DisableHook(teardownTarget);
+    MH_RemoveHook(teardownTarget);
 
     InterlockedExchange(&g_poolInitDone, 0);
 }
