@@ -29,6 +29,9 @@ static SetSamplerState_fn orig_SetSamplerState = nullptr;
 typedef HRESULT (WINAPI *Reset_fn)(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params);
 static Reset_fn orig_Reset = nullptr;
 
+typedef HRESULT (WINAPI *Present_fn)(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty);
+static Present_fn orig_Present = nullptr;
+
 // Cache structures
 static IDirect3DBaseTexture9* g_textureCache[16] = { nullptr };
 
@@ -117,6 +120,12 @@ static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETE
     return orig_Reset(device, params);
 }
 
+// Hooked Present
+static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty) {
+    InvalidateCache();
+    return orig_Present(device, src, dest, window, dirty);
+}
+
 // Resolve virtual table offsets by creating a temporary dummy device
 bool Init() {
     InvalidateCache();
@@ -165,6 +174,7 @@ bool Init() {
     // Retrieve VTable addresses
     uintptr_t* vtable = *(uintptr_t**)device;
     void* target_Reset = (void*)vtable[16];
+    void* target_Present = (void*)vtable[17];
     void* target_SetRenderState = (void*)vtable[57];
     void* target_SetTexture = (void*)vtable[65];
     void* target_SetTextureStageState = (void*)vtable[67];
@@ -172,6 +182,7 @@ bool Init() {
 
     // Install hooks
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
+        MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
         MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK ||
         MH_CreateHook(target_SetTexture, (void*)Hooked_SetTexture, (void**)&orig_SetTexture) != MH_OK ||
         MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK ||
@@ -185,6 +196,7 @@ bool Init() {
     }
 
     MH_EnableHook(target_Reset);
+    MH_EnableHook(target_Present);
     MH_EnableHook(target_SetRenderState);
     MH_EnableHook(target_SetTexture);
     MH_EnableHook(target_SetTextureStageState);

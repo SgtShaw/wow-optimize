@@ -23,7 +23,7 @@ namespace SavedVarsAsyncSerializer {
 
 // Function pointer signatures for Lua API
 typedef int (__cdecl *lua_type_fn)(uintptr_t L, int idx);
-static const lua_type_fn lua_type_ = (lua_type_fn)0x0084DE50;
+static const lua_type_fn lua_type_ = (lua_type_fn)0x0084DEB0;
 
 typedef int (__cdecl *lua_toboolean_fn)(uintptr_t L, int idx);
 static const lua_toboolean_fn lua_toboolean_ = (lua_toboolean_fn)0x0084E0B0;
@@ -38,10 +38,10 @@ typedef int (__cdecl *lua_next_fn)(uintptr_t L, int idx);
 static const lua_next_fn lua_next_ = (lua_next_fn)0x0084EF50;
 
 typedef void (__cdecl *lua_pushnil_fn)(uintptr_t L);
-static const lua_pushnil_fn lua_pushnil_ = (lua_pushnil_fn)0x0084E330;
+static const lua_pushnil_fn lua_pushnil_ = (lua_pushnil_fn)0x0084E280;
 
 typedef void (__cdecl *lua_settop_fn)(uintptr_t L, int idx);
-static const lua_settop_fn lua_settop_ = (lua_settop_fn)0x0084DC00;
+static const lua_settop_fn lua_settop_ = (lua_settop_fn)0x0084DBF0;
 
 typedef int (__cdecl *lua_gettop_fn)(uintptr_t L);
 static const lua_gettop_fn lua_gettop_ = (lua_gettop_fn)0x0084DBD0;
@@ -152,11 +152,11 @@ static std::shared_ptr<SavedVarNode> CloneLuaValue(uintptr_t L, int idx, int dep
     } else if (tt == LUA_TTABLE) {
         node->type = SavedVarNode::TYPE_TABLE;
         
-        lua_pushnil_(L);
         int absIdx = idx;
         if (idx < 0 && idx > -10000) {
             absIdx = lua_gettop_(L) + idx + 1; // convert to absolute
         }
+        lua_pushnil_(L);
         
         while (lua_next_(L, absIdx) != 0) {
             // Key is at -2, value is at -1
