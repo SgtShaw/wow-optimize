@@ -491,7 +491,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    1
+#define TEST_DISABLE_EVENT_COALESCER    0
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -521,7 +521,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -572,10 +572,10 @@
 #define TEST_DISABLE_RAWGET_INLINE    1
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE         1  // enabled: lua_toboolean inline
+#define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE         1  // enabled: lua_objlen inline
+#define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
