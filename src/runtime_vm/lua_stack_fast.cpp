@@ -56,6 +56,10 @@ static __forceinline uintptr_t ResolveTValue(
     uintptr_t L, int idx, bool* deferToOrig)
 {
     *deferToOrig = false;
+    if (idx > 8000 || idx < -8000) {
+        *deferToOrig = true;
+        return 0;
+    }
     if (idx > 0) {
         uintptr_t base = *(uintptr_t*)(L + 0x10);
         if (!IsValidPtr(base)) {

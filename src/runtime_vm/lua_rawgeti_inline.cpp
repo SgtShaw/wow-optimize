@@ -94,7 +94,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
         if (idx > 0) {
             if (L_base + (idx - 1) * 4 < L_top)
                 tableSlot = L_base + (idx - 1) * 4;
-        } else if (idx < 0 && idx >= -10000) {
+        } else if (idx < 0 && idx > -10000) {
             tableSlot = L_top + idx * 4;
             if (tableSlot < L_base) {
                 return g_orig_rawgeti(L, idx, n);
