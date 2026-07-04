@@ -221,6 +221,16 @@ add_library(wow_optimize SHARED
     src/allocators/loading_defrag.h
     src/hooks_subsystems/async_culling.cpp
     src/hooks_subsystems/async_culling.h
+    src/hooks_subsystems/d3d9_state_cache.cpp
+    src/hooks_subsystems/d3d9_state_cache.h
+    src/runtime_vm/saved_vars_async_serializer.cpp
+    src/runtime_vm/saved_vars_async_serializer.h
+    src/simd_math/simd_skinning.cpp
+    src/simd_math/simd_skinning.h
+    src/hooks_subsystems/net_packet_offload.cpp
+    src/hooks_subsystems/net_packet_offload.h
+    src/hooks_subsystems/predictive_prefetch.cpp
+    src/hooks_subsystems/predictive_prefetch.h
     src/runtime_vm/lua_tonumber_fast.cpp
     src/runtime_vm/lua_pushnumber_fast.cpp
     src/hooks_subsystems/gettime_fast.cpp

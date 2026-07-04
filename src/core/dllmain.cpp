@@ -53,6 +53,11 @@
 #include "lua_getn_fast.h"
 #include "loading_defrag.h"
 #include "async_culling.h"
+#include "d3d9_state_cache.h"
+#include "saved_vars_async_serializer.h"
+#include "simd_skinning.h"
+#include "net_packet_offload.h"
+#include "predictive_prefetch.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -1140,6 +1145,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         ApiCache::OnNewFrame();
         LoadingDefrag::OnFrame();
         AsyncCulling::OnFrameStart();
+#if !TEST_DISABLE_PREDICTIVE_PREFETCH
+        PredictivePrefetch::OnFrame();
+#endif
         FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
         InitHardwareCursor();
@@ -6940,6 +6948,51 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
 #endif
 
+    Log("");
+    Log("--- D3D9 Render State Cache ---");
+#if !TEST_DISABLE_D3D9_STATE_CACHE
+    bool d3d9StateCacheOk = D3D9StateCache::Init();
+#else
+    bool d3d9StateCacheOk = false;
+    Log("[D3D9StateCache] DISABLED via TEST_DISABLE_D3D9_STATE_CACHE");
+#endif
+
+    Log("");
+    Log("--- Lock-Free SavedVariables Serializer ---");
+#if !TEST_DISABLE_SAVED_VARS_SERIALIZER
+    bool savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
+#else
+    bool savedVarsSerializerOk = false;
+    Log("[SavedVarsSerializer] DISABLED via TEST_DISABLE_SAVED_VARS_SERIALIZER");
+#endif
+
+    Log("");
+    Log("--- SIMD AVX2 Mesh Skinning Accelerator ---");
+#if !TEST_DISABLE_SIMD_SKINNING
+    bool simdSkinningOk = SimdSkinning::Init();
+#else
+    bool simdSkinningOk = false;
+    Log("[SimdSkinning] DISABLED via TEST_DISABLE_SIMD_SKINNING");
+#endif
+
+    Log("");
+    Log("--- Parallel Network Packet Offloader ---");
+#if !TEST_DISABLE_NET_PACKET_OFFLOAD
+    bool netPacketOffloadOk = NetPacketOffload::Init();
+#else
+    bool netPacketOffloadOk = false;
+    Log("[NetPacketOffload] DISABLED via TEST_DISABLE_NET_PACKET_OFFLOAD");
+#endif
+
+    Log("");
+    Log("--- Velocity-Based Predictive Asset Prefetcher ---");
+#if !TEST_DISABLE_PREDICTIVE_PREFETCH
+    bool predictivePrefetchOk = PredictivePrefetch::Init();
+#else
+    bool predictivePrefetchOk = false;
+    Log("[PredictivePrefetch] DISABLED via TEST_DISABLE_PREDICTIVE_PREFETCH");
+#endif
+
     // Register memory-pressure governor shed callbacks.  These fire from the
     // main thread (Sleep hook) when VA fragments below threshold, and each
     // clears its cache via a pure memset-to-zero — all safe under pressure.
@@ -8753,6 +8806,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             VersionChecker_Shutdown();
             LoadingDefrag::Shutdown();
             AsyncCulling::Shutdown();
+            D3D9StateCache::Shutdown();
+            SavedVarsAsyncSerializer::Shutdown();
+            SimdSkinning::Shutdown();
+            NetPacketOffload::Shutdown();
+            PredictivePrefetch::Shutdown();
 
 #if !TEST_DISABLE_SAMPLING_PROFILER
             SamplingProfiler::Shutdown();

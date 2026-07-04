@@ -432,6 +432,21 @@
 // Async Visual Frustum Culling Cache
 #define TEST_DISABLE_ASYNC_CULLING      0
 
+// D3D9 Render State Redundancy Cache
+#define TEST_DISABLE_D3D9_STATE_CACHE   0
+
+// Lock-Free Addon SavedVariables Incremental Serializer
+#define TEST_DISABLE_SAVED_VARS_SERIALIZER 0
+
+// SIMD AVX2 Animated Model Vertex Skinning Accelerator
+#define TEST_DISABLE_SIMD_SKINNING      0
+
+// Parallel Network Packet Deserialization Offloader
+#define TEST_DISABLE_NET_PACKET_OFFLOAD 0
+
+// Velocity-Based Predictive Asset Prefetcher
+#define TEST_DISABLE_PREDICTIVE_PREFETCH 0
+
 // Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
 // past short strings into adjacent allocations). Copied body is pure byte-by-
