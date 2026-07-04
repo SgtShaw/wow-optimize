@@ -279,6 +279,7 @@ static constexpr int UI_SCRIPT_CACHE_SIZE = 256;
 static constexpr int UI_SCRIPT_CACHE_MASK = UI_SCRIPT_CACHE_SIZE - 1;
 
 struct UIScriptCacheEntry {
+    uint64_t  guid;     // unit GUID associated with this entry
     uint32_t  key;      // combined hash of function + args
     uintptr_t funcPtr;  // Lua function pointer (for type safety)
     double    nValue;   // cached number result
@@ -348,16 +349,26 @@ static bool LookupInvariantScript(uintptr_t funcPtr, uint32_t argHash, double* p
 }
 
 // Store a new cache entry
-static void StoreInvariantScript(uintptr_t funcPtr, uint32_t argHash, double value, uint16_t type) {
+static void StoreInvariantScript(uintptr_t funcPtr, uint32_t argHash, double value, uint16_t type, uint64_t guid) {
     if (!IsInvariantLuaFunc(funcPtr)) return;
 
     uint32_t key = HashScriptCache(funcPtr, argHash);
     UIScriptCacheEntry& entry = g_uiScriptCache[key & UI_SCRIPT_CACHE_MASK];
+    entry.guid      = guid;
     entry.key       = key;
     entry.funcPtr   = funcPtr;
     entry.nValue    = value;
     entry.frameGen  = g_uiScriptGen;
     entry.valueType = type;
+}
+
+// Invalidate cached values for a specific unit GUID (called on OnFieldUpdate/UnlinkNode)
+extern "C" void InvalidateUnitApiCacheFor(uint64_t guid) {
+    for (int i = 0; i < UI_SCRIPT_CACHE_SIZE; i++) {
+        if (g_uiScriptCache[i].guid == guid) {
+            g_uiScriptCache[i].frameGen = 0; // invalidate slot
+        }
+    }
 }
 
 // Invalidate all script caches at frame start
@@ -419,7 +430,7 @@ static int __cdecl Hooked_UnitHealth(uintptr_t L) {
                         uintptr_t top = *(uintptr_t*)(L + 0x0C);
                         if (top >= 0x10000 && *(int*)(top - 8) == 3) {
                             double actualVal = lua_tonumber_(L, -1);
-                            StoreInvariantScript(ADDR_LUA_UNITHEALTH, argHash, actualVal, 3);
+                            StoreInvariantScript(ADDR_LUA_UNITHEALTH, argHash, actualVal, 3, guid);
                         }
                     }
                     return results;
@@ -470,7 +481,7 @@ static int __cdecl Hooked_UnitPower(uintptr_t L) {
                         uintptr_t stack_top = *(uintptr_t*)(L + 0x0C);
                         if (stack_top >= 0x10000 && *(int*)(stack_top - 8) == 3) {
                             double actualVal = lua_tonumber_(L, -1);
-                            StoreInvariantScript(ADDR_LUA_UNITPOWER, argHash, actualVal, 3);
+                            StoreInvariantScript(ADDR_LUA_UNITPOWER, argHash, actualVal, 3, guid);
                         }
                     }
                     return results;
@@ -508,7 +519,7 @@ static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
                         uintptr_t top = *(uintptr_t*)(L + 0x0C);
                         if (top >= 0x10000 && *(int*)(top - 8) == 3) {
                             double actualVal = lua_tonumber_(L, -1);
-                            StoreInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, actualVal, 3);
+                            StoreInvariantScript(ADDR_LUA_UNITMAXHEALTH, argHash, actualVal, 3, guid);
                         }
                     }
                     return results;
@@ -546,7 +557,7 @@ static int __cdecl Hooked_UnitLevel(uintptr_t L) {
                         uintptr_t top = *(uintptr_t*)(L + 0x0C);
                         if (top >= 0x10000 && *(int*)(top - 8) == 3) {
                             double actualVal = lua_tonumber_(L, -1);
-                            StoreInvariantScript(ADDR_LUA_UNITLEVEL, argHash, actualVal, 3);
+                            StoreInvariantScript(ADDR_LUA_UNITLEVEL, argHash, actualVal, 3, guid);
                         }
                     }
                     return results;

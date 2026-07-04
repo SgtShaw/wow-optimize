@@ -533,11 +533,25 @@ static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
 #if !TEST_DISABLE_OBJ_VIS_CACHE
         InvalidateObjVisCacheFor(This);
 #endif
+        __try {
+            uint32_t* j = (uint32_t*)This;
+            uint64_t guid = ((uint64_t)j[13] << 32) | j[12];
+            extern void InvalidateUnitApiCacheFor(uint64_t guid);
+            InvalidateUnitApiCacheFor(guid);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
     return orig_UnlinkNode(This);
 }
 
 static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldId, int value) {
+    if (This) {
+        __try {
+            uint32_t* j = (uint32_t*)This;
+            uint64_t guid = ((uint64_t)j[13] << 32) | j[12];
+            extern void InvalidateUnitApiCacheFor(uint64_t guid);
+            InvalidateUnitApiCacheFor(guid);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 #if TEST_DISABLE_DEFERRED_FIELD_UPDATES
     return orig_OnFieldUpdate(This, fieldId, value);
 #else
