@@ -158,7 +158,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      1
+#define TEST_DISABLE_OBJ_VIS_CACHE      0
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -168,7 +168,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -191,7 +191,7 @@
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
+#define TEST_DISABLE_UNIT_API_FASTPATH 0  // disabled: returns wrong values → unknown HP/mana text
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
@@ -201,7 +201,7 @@
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
 // Likely bug in scalar fallback after SSE2 chunk processing
 // Keep disabled until rewritten with more careful null-terminator handling
-#define TEST_DISABLE_STRING_OPS_FAST         1
+#define TEST_DISABLE_STRING_OPS_FAST         0
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0

@@ -1,7 +1,8 @@
 // ============================================================================
 // Module: obj_vis_cache.cpp
-// Description: Supporting utility functions for `obj_vis_cache.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// Description: Cache lookup for Client Object Manager queries to optimize
+//              GUID-to-Object lookups.
+// Safety & Threading: Thread-safe pool of TLB slots. Invalidated on unlink.
 // ============================================================================
 
 #include "obj_vis_cache.h"
@@ -43,9 +44,6 @@ static volatile LONG g_poolExhausted = 0;
 
 typedef void* (__thiscall *HashLookup_fn)(void* thisPtr, uint32_t hashKey, void* guidPtr);
 static HashLookup_fn orig_HashLookup = nullptr;
-
-typedef void* (__thiscall *UnlinkNode_fn)(void* This);
-static UnlinkNode_fn orig_UnlinkNode = nullptr;
 
 static inline uint32_t HashKey(uint32_t hashKey, uint32_t low, uint32_t high) {
     uint32_t h = hashKey ^ (low * 0x9E3779B9u) ^ (high * 0x85EBCA6Bu);
@@ -124,9 +122,8 @@ static void* __fastcall hooked_HashLookup(
     return result;
 }
 
-extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit);
-
-static void* __fastcall hooked_UnlinkNode(void* This, void* /*edx*/) {
+// Public Invalidation API (called from Hooked_UnlinkNode in dllmain.cpp)
+extern "C" void InvalidateObjVisCacheFor(void* This) {
     if (This && g_poolInitDone) {
         uint32_t* j = (uint32_t*)This;
         __try {
@@ -147,11 +144,7 @@ static void* __fastcall hooked_UnlinkNode(void* This, void* /*edx*/) {
             }
         }
         __except(EXCEPTION_EXECUTE_HANDLER) {}
-        
-        // Invalidate any deferred field updates for this unit
-        InvalidateDeferredFieldUpdatesFor(This);
     }
-    return orig_UnlinkNode(This);
 }
 
 namespace ObjVisCache {
@@ -163,7 +156,6 @@ bool Init() {
     InterlockedExchange(&g_poolInitDone, 1);
 
     void* target = (void*)0x4D4BB0;
-    void* target_unlink = (void*)0x4D4C20;
 
     if (MH_CreateHook(target, (void*)hooked_HashLookup, (void**)&orig_HashLookup) != MH_OK) {
         Log("[ObjVisCache] ERROR: MH_CreateHook failed at 0x4D4BB0");
@@ -175,21 +167,7 @@ bool Init() {
         return false;
     }
 
-    if (MH_CreateHook(target_unlink, (void*)hooked_UnlinkNode, (void**)&orig_UnlinkNode) != MH_OK) {
-        Log("[ObjVisCache] ERROR: MH_CreateHook failed at 0x4D4C20");
-        MH_DisableHook(target);
-        MH_RemoveHook(target);
-        return false;
-    }
-    if (MH_EnableHook(target_unlink) != MH_OK) {
-        Log("[ObjVisCache] ERROR: MH_EnableHook failed at 0x4D4C20");
-        MH_DisableHook(target);
-        MH_RemoveHook(target);
-        MH_RemoveHook(target_unlink);
-        return false;
-    }
-
-    Log("[ObjVisCache] [ OK ] Hooked lookup/unlink, static pool=%d threads (no alloc)", MAX_THREADS);
+    Log("[ObjVisCache] [ OK ] Hooked lookup, static pool=%d threads (no alloc)", MAX_THREADS);
     return true;
 }
 
@@ -203,12 +181,9 @@ void Shutdown() {
         hits, misses, rate, g_poolExhausted);
 
     void* target = (void*)0x4D4BB0;
-    void* target_unlink = (void*)0x4D4C20;
 
     MH_DisableHook(target);
     MH_RemoveHook(target);
-    MH_DisableHook(target_unlink);
-    MH_RemoveHook(target_unlink);
 
     InterlockedExchange(&g_poolInitDone, 0);
 }

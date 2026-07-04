@@ -119,8 +119,8 @@ static ScriptFunc_fn orig_GetSpellInfo = (ScriptFunc_fn)0x00540A30;
 
 static constexpr int CACHE_SIZE    = 8192;
 static constexpr int CACHE_MASK    = CACHE_SIZE - 1;
-static constexpr int ITEM_RETVALS  = 11;  // GetItemInfo returns up to 11
-static constexpr int SPELL_RETVALS = 9;   // GetSpellInfo returns up to 9
+static constexpr int ITEM_RETVALS  = 16;  // Support up to 16 return values (LAA/HD safe)
+static constexpr int SPELL_RETVALS = 16;  // Support up to 16 return values (LAA/HD safe)
 
 struct CachedRetVal {
     int    type;
@@ -289,6 +289,7 @@ static inline uint32_t ComputeSpellHash(lua_State* L, RawTValue* base, int nargs
 static void CaptureItemReturnValues(lua_State* L, ItemCacheEntry* e,
                                      uint32_t keyHash, int topBefore, int pushed,
                                      int kType1, double kNum1, const char* kStr1) {
+    if (pushed > ITEM_RETVALS) pushed = ITEM_RETVALS;
     e->keyHash   = keyHash;
     e->valid     = true;
     e->retCount  = pushed;  // Approximation, matches actual return count
@@ -337,6 +338,7 @@ static void CaptureSpellReturnValues(lua_State* L, SpellCacheEntry* e,
                                       uint32_t keyHash, int topBefore, int pushed,
                                       int kType1, double kNum1, const char* kStr1,
                                       int kType2, double kNum2, const char* kStr2) {
+    if (pushed > SPELL_RETVALS) pushed = SPELL_RETVALS;
     e->keyHash   = keyHash;
     e->valid     = true;
     e->retCount  = pushed;

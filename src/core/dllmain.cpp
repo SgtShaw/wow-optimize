@@ -515,10 +515,16 @@ typedef void* (__thiscall *UnlinkNode_fn)(void*);
 static UnlinkNode_fn orig_UnlinkNode = nullptr;
 
 extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit);
+#if !TEST_DISABLE_OBJ_VIS_CACHE
+extern "C" void InvalidateObjVisCacheFor(void* This);
+#endif
 
 static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
     if (This) {
         InvalidateDeferredFieldUpdatesFor(This);
+#if !TEST_DISABLE_OBJ_VIS_CACHE
+        InvalidateObjVisCacheFor(This);
+#endif
     }
     return orig_UnlinkNode(This);
 }
