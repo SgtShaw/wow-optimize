@@ -352,14 +352,14 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       0   // lua_pushstring intern cache (cleared on luaC_step)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
 #ifndef TEST_DISABLE_RAWGETI_INLINE
-#define TEST_DISABLE_RAWGETI_INLINE             0   // lua_rawgeti inline v2 RE-ENABLED after root-causing vs sub_84E670: the array fast path omitted the engine's taint==0 branch (stamp pushed value with the global taint cell *0xD4139C, then return it), so values read in a tainted context came out untainted; and it resolved GLOBALSINDEX to a wrong slot (L_base+72). Fixed: taint logic now byte-exact to the engine (disasm-verified single-indirection store), pseudo-indices defer to index2adr. Array path only; hash part defers. SEH-guarded. (It was originally disabled as collateral with GetStrInline, not for a confirmed RawGetI bug — aura_env nil was the GetStr high-VA bail.)
+#define TEST_DISABLE_RAWGETI_INLINE             1   // lua_rawgeti inline v2 DISABLED due to VM state corruption crashes
 #endif
 #ifndef TEST_DISABLE_RAWGET_INLINE
-#define TEST_DISABLE_RAWGET_INLINE              0   // lua_rawget inline fast path using direct stack resolution and luaH_get (0x85C470) detour.
+#define TEST_DISABLE_RAWGET_INLINE              1   // lua_rawget inline fast path DISABLED due to VM state corruption crashes
 #endif
 #define TEST_DISABLE_STRTOD_FAST                0   // enabled: safe string->number fast path
 #ifndef TEST_DISABLE_GETSTR_INLINE
-#define TEST_DISABLE_GETSTR_INLINE              0   // luaH_getstr inline v2 RE-ENABLED after root-cause fix: the chain-walk's hard bounds-check `break` on nodes >0xFFE00000 bailed mid-chain on /3GB clients (mimalloc backs the whole heap, places arenas high) and returned the nil sentinel for a LIVE key -> WeakAuras aura_env nil. Now walks exactly like sub_85C430 (no early break) with an SEH backstop that defers to the engine on a genuinely corrupt chain. Offsets/hash/nil-sentinel verified identical to the engine.
+#define TEST_DISABLE_GETSTR_INLINE              1   // luaH_getstr inline v2 DISABLED due to VM state corruption crashes
 #endif
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----

@@ -12,7 +12,6 @@
 #include <cstring>
 #include <intrin.h>
 #include <unordered_map>
-#include <mutex>
 #include <cmath>
 
 extern "C" void Log(const char* fmt, ...);
@@ -44,7 +43,7 @@ static NameplatePosition_fn orig_NameplatePosition = nullptr;
 
 // Thread-safe distance cache
 static std::unordered_map<void*, float> g_nameplateDistances;
-static std::mutex g_distanceMutex;
+static SRWLOCK g_distanceSRW = SRWLOCK_INIT;
 
 // WoW descriptor offsets
 static constexpr int UNIT_FIELD_HEALTH = 18;
@@ -125,12 +124,22 @@ static bool IsExecutable(uintptr_t addr) {
 // Lock-Free Queue Operations
 // ================================================================
 
-static std::mutex s_inputMutex;
-static std::mutex s_outputMutex;
+struct SRWLockGuard {
+    SRWLOCK* srw;
+    SRWLockGuard(SRWLOCK* l) : srw(l) {
+        AcquireSRWLockExclusive(srw);
+    }
+    ~SRWLockGuard() {
+        ReleaseSRWLockExclusive(srw);
+    }
+};
+
+static SRWLOCK s_inputSRW = SRWLOCK_INIT;
+static SRWLOCK s_outputSRW = SRWLOCK_INIT;
 
 // Queue a nameplate task for processing (main thread)
 static bool QueueNameplateTask(const NameplateMT::NameplateTask* task) {
-    std::lock_guard<std::mutex> lock(s_inputMutex);
+    SRWLockGuard lock(&s_inputSRW);
     
     LONG tail = g_inputTail;
     LONG head = g_inputHead;
@@ -159,7 +168,7 @@ static bool QueueNameplateTask(const NameplateMT::NameplateTask* task) {
 
 // Dequeue a nameplate task for processing (worker thread)
 static bool DequeueNameplateTask(NameplateMT::NameplateTask* task) {
-    std::lock_guard<std::mutex> lock(s_inputMutex);
+    SRWLockGuard lock(&s_inputSRW);
     
     LONG head = g_inputHead;
     LONG tail = g_inputTail;
@@ -175,7 +184,7 @@ static bool DequeueNameplateTask(NameplateMT::NameplateTask* task) {
 
 // Queue a nameplate result for main thread consumption (worker thread)
 static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
-    std::lock_guard<std::mutex> lock(s_outputMutex);
+    SRWLockGuard lock(&s_outputSRW);
     
     LONG tail = g_outputTail;
     LONG head = g_outputHead;
@@ -202,7 +211,7 @@ static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
 
 // Dequeue a nameplate result for UI application (main thread)
 static bool DequeueNameplateResult(NameplateMT::NameplateResult* result) {
-    std::lock_guard<std::mutex> lock(s_outputMutex);
+    SRWLockGuard lock(&s_outputSRW);
     
     LONG head = g_outputHead;
     LONG tail = g_outputTail;
@@ -396,7 +405,7 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
 // Detoured Hook Functions
 // ================================================================
 static void SaveDistanceToCache(void* ecx, float distance) {
-    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    SRWLockGuard lock(&g_distanceSRW);
     g_nameplateDistances[ecx] = distance;
 }
 
@@ -426,7 +435,7 @@ void __fastcall Hooked_NameplatePosition(void* ecx, void* edx, float* cameraPos,
 
 
 static float GetCachedNameplateDistance(void* ecx) {
-    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    SRWLockGuard lock(&g_distanceSRW);
     auto it = g_nameplateDistances.find(ecx);
     if (it != g_nameplateDistances.end()) {
         return it->second;
@@ -550,6 +559,11 @@ bool Init() {
     g_outputHead = 0;
     g_outputTail = 0;
 
+    // Initialize SRWLOCKs explicitly
+    InitializeSRWLock(&s_inputSRW);
+    InitializeSRWLock(&s_outputSRW);
+    InitializeSRWLock(&g_distanceSRW);
+
     // Create worker event
     g_workerEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     if (!g_workerEvent) {
@@ -635,7 +649,7 @@ void Shutdown() {
 
     // Clear distance cache
     {
-        std::lock_guard<std::mutex> lock(g_distanceMutex);
+        SRWLockGuard lock(&g_distanceSRW);
         g_nameplateDistances.clear();
     }
 
@@ -653,7 +667,7 @@ static void HandleNameplateReload() {
     NameplateMT::NameplateTask task;
     while (DequeueNameplateTask(&task)) {}
     
-    std::lock_guard<std::mutex> lock(g_distanceMutex);
+    SRWLockGuard lock(&g_distanceSRW);
     g_nameplateDistances.clear();
 }
 
@@ -713,20 +727,8 @@ void OnFrame(DWORD mainThreadId) {
                     break;
                 }
                 case NameplateMT::TASK_VISIBILITY_UPDATE: {
-                    if (result.shouldShow) {
-                        typedef void (__thiscall *CSimpleFrame_Show_fn)(void* frame);
-                        CSimpleFrame_Show_fn CSimpleFrame_Show = (CSimpleFrame_Show_fn)0x00487C40;
-                        CSimpleFrame_Show(nameplate);
-                    } else {
-                        typedef void (__thiscall *CSimpleFrame_Hide_fn)(void* frame);
-                        CSimpleFrame_Hide_fn CSimpleFrame_Hide = (CSimpleFrame_Hide_fn)0x00487BF0;
-                        CSimpleFrame_Hide(nameplate);
-                    }
-                    
-                    typedef void (__thiscall *CSimpleFrame_SetAlpha_fn)(void* frame, uint8_t alpha);
-                    CSimpleFrame_SetAlpha_fn CSimpleFrame_SetAlpha = (CSimpleFrame_SetAlpha_fn)0x00482BD0;
-                    uint8_t alphaByte = (uint8_t)(result.alpha * 255.0f);
-                    CSimpleFrame_SetAlpha(nameplate, alphaByte);
+                    // Let WoW handle visibility and alpha transitions natively to avoid 
+                    // rendering state conflicts and camera top-down camera stuttering/freezes.
                     break;
                 }
             }

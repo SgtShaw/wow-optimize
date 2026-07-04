@@ -12,7 +12,6 @@
 #include <cstring>
 #include <intrin.h>
 #include <vector>
-#include <mutex>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -42,15 +41,25 @@ static volatile LONG g_queueHead = 0;  // Consumer index (worker threads)
 static volatile LONG g_queueTail = 0;  // Producer index (main thread)
 
 // ================================================================
-// Output Queue (Circular queue with mutex protection for main thread execution)
+// Output Queue (Circular queue with SRWLOCK protection for main thread execution)
 // ================================================================
+struct SRWLockGuard {
+    SRWLOCK* srw;
+    SRWLockGuard(SRWLOCK* l) : srw(l) {
+        AcquireSRWLockExclusive(srw);
+    }
+    ~SRWLockGuard() {
+        ReleaseSRWLockExclusive(srw);
+    }
+};
+
 static AddonCallback g_outputQueue[QUEUE_SIZE] = {};
 static int g_outputHead = 0;
 static int g_outputTail = 0;
-static std::mutex g_outputMutex;
+static SRWLOCK g_outputSRW = SRWLOCK_INIT;
 
 static bool QueueOutputCallback(const AddonCallback* cb) {
-    std::lock_guard<std::mutex> lock(g_outputMutex);
+    SRWLockGuard lock(&g_outputSRW);
     int nextTail = (g_outputTail + 1) & QUEUE_MASK;
     if (nextTail == g_outputHead) {
         return false;
@@ -61,7 +70,7 @@ static bool QueueOutputCallback(const AddonCallback* cb) {
 }
 
 static bool DequeueOutputCallback(AddonCallback* cb) {
-    std::lock_guard<std::mutex> lock(g_outputMutex);
+    SRWLockGuard lock(&g_outputSRW);
     if (g_outputHead == g_outputTail) {
         return false;
     }
@@ -276,6 +285,13 @@ namespace AddonDispatcher {
 bool Init() {
     Log("[AddonDispatcher] Init ");
 
+    // Reset output queue pointers
+    g_outputHead = 0;
+    g_outputTail = 0;
+
+    // Initialize SRWLOCK explicitly
+    InitializeSRWLock(&g_outputSRW);
+
     // Initialize QPC frequency
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
@@ -342,7 +358,7 @@ void Shutdown() {
 
     // Clear output queue
     {
-        std::lock_guard<std::mutex> lock(g_outputMutex);
+        SRWLockGuard lock(&g_outputSRW);
         g_outputHead = 0;
         g_outputTail = 0;
     }
