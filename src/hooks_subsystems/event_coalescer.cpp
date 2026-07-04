@@ -37,6 +37,7 @@ static constexpr int MAX_QUEUED = 256;
 static QueuedEvent g_queue[MAX_QUEUED];
 static int g_queueCount = 0;
 static thread_local bool g_isReplaying = false;
+static SRWLOCK g_eventLock = SRWLOCK_INIT;
 
 static uint32_t g_eventsTotal = 0;
 static uint32_t g_eventsDropped = 0;
@@ -112,14 +113,9 @@ static void DispatchSingle(const QueuedEvent* ev) {
 extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* vaStart) {
     if (g_isReplaying) return false;
 
-    g_eventsTotal++;
     const char* eventName = GetEventName(eventId);
     if (!eventName || !ShouldCoalesce(eventName)) {
         return false;
-    }
-
-    if (g_queueCount >= MAX_QUEUED) {
-        return false; // queue full, let it through
     }
 
     QueuedEvent ev;
@@ -175,12 +171,22 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
         return false; // failed to parse, let original handle it
     }
 
+    AcquireSRWLockExclusive(&g_eventLock);
+    g_eventsTotal++;
+
+    if (g_queueCount >= MAX_QUEUED) {
+        ReleaseSRWLockExclusive(&g_eventLock);
+        return false; // queue full, let it through
+    }
+
     if (IsDuplicate(&ev)) {
         g_eventsDropped++;
+        ReleaseSRWLockExclusive(&g_eventLock);
         return true; // Drop duplicate (it's already queued to be dispatched at the end of the frame)
     }
 
     g_queue[g_queueCount++] = ev;
+    ReleaseSRWLockExclusive(&g_eventLock);
     return true; // Defer: return true to skip immediate execution!
 }
 
@@ -208,14 +214,23 @@ __declspec(naked) void Hooked_FrameScript_SignalEvent() {
 }
 
 extern "C" void EventCoalescer_Flush() {
+    AcquireSRWLockExclusive(&g_eventLock);
     g_isReplaying = true;
-    for (int i = 0; i < g_queueCount; ++i) {
-        if (g_queue[i].used) {
-            DispatchSingle(&g_queue[i]);
+    int count = g_queueCount;
+    QueuedEvent localQueue[MAX_QUEUED];
+    memcpy(localQueue, g_queue, count * sizeof(QueuedEvent));
+    g_queueCount = 0;
+    ReleaseSRWLockExclusive(&g_eventLock);
+
+    for (int i = 0; i < count; ++i) {
+        if (localQueue[i].used) {
+            DispatchSingle(&localQueue[i]);
         }
     }
-    g_queueCount = 0;
+
+    AcquireSRWLockExclusive(&g_eventLock);
     g_isReplaying = false;
+    ReleaseSRWLockExclusive(&g_eventLock);
 }
 
 namespace EventCoalescer {

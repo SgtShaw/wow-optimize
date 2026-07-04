@@ -7,6 +7,7 @@
 #include "version.h"
 #include "lua_optimize.h"
 #include "frame_limiter.h"
+#include "lua_vm_engine.h"
 #include "MinHook.h"
 #include <cstdint>
 #include <cstring>
@@ -196,6 +197,10 @@ static void __cdecl Hooked_luaC_step(lua_State* L) {
     AcquireSRWLockExclusive(&g_cacheLock);
     std::memset(g_cache, 0, sizeof(g_cache));
     ReleaseSRWLockExclusive(&g_cacheLock);
+
+    // Also clear the VM inline cache!
+    ClearLuaVMEngineCaches();
+
     orig_luaC_step(L);
 }
 
@@ -282,4 +287,5 @@ bool InstallLuaVMCache() { return false; }
 void GetTableCacheStats(long long* hits, long long* misses) {}
 void ClearTableCache() {}
 extern "C" void InvalidateTableCacheSlot(void* table, void* key_str) {}
+extern "C" void ProcessDeferredGC(double idleBudgetMs) {}
 #endif

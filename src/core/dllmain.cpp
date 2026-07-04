@@ -6327,7 +6327,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
 
     Log("--- Render State Deduplication ---");
+#if !TEST_DISABLE_RENDER_STATE_DEDUP
     bool renderDedupOk = InstallRenderStateDedup();
+#else
+    Log("[RenderDedup] DISABLED via TEST_DISABLE_RENDER_STATE_DEDUP");
+    bool renderDedupOk = false;
+#endif
 
     Log("--- Lua SetTable Cache ---");
     bool setTableCacheOk = InstallLuaSetTableCache();
@@ -8849,7 +8854,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownLuaStackFast();
             ShutdownUIAccessorFast();
             ShutdownFontMetricsFast();
+#if !TEST_DISABLE_RENDER_STATE_DEDUP
             ShutdownRenderStateDedup();
+#endif
 
             ShutdownEventNameHash();
             ShutdownCDataStoreBatch();

@@ -301,9 +301,17 @@ static __declspec(thread) bool t_inOptimizedExecution = false;
 // ================================================================
 // The Hooked Interpreter Core
 // ================================================================
+static inline bool IsTeardownState() {
+    uintptr_t gL = *(uintptr_t*)0x00D3F78C;
+    return (gL < 0x10000 || gL > 0xFFE00000);
+}
+
 #pragma warning(push)
 #pragma warning(disable: 4715)
 static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
+    if (IsTeardownState()) {
+        return g_orig_luaV_execute(L, nexeccalls);
+    }
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
         return g_orig_luaV_execute(L, nexeccalls);
     }
@@ -471,7 +479,17 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 DISPATCH();
             }
             case OP_SETGLOBAL: {
-                DELEGATE_AND_RETURN(0);
+                TValue* ra = &base[RA(i)];
+                TValue* kstr = KBx(i);
+                void* envTable = *(void**)((char*)closure + 16);
+                if (envTable && (uintptr_t)envTable >= 0x10000) {
+                    TValue envVal;
+                    envVal.value.gc = envTable;
+                    envVal.tt = LUA_TTABLE;
+                    envVal.taint = GetGlobalTaint();
+                    FastSetTable(L, &envVal, kstr, ra);
+                }
+                DISPATCH();
             }
             case OP_SETUPVAL: {
                 int a = RA(i);
@@ -708,6 +726,7 @@ static int __cdecl Hooked_luaV_execute(void* L, int nexeccalls) {
                 
                 if (precall_res == 0) {
                     // Enter new Lua frame
+                    nexeccalls++;
                     ci = *(void**)((char*)L + 0x18);
                     funcSlot = *(TValue**)((char*)ci + 0x04);
                     closure = funcSlot->value.gc;

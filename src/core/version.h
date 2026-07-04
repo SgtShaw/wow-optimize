@@ -158,7 +158,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -168,7 +168,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -191,7 +191,7 @@
 #define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 0  // disabled: returns wrong values → unknown HP/mana text
+#define TEST_DISABLE_UNIT_API_FASTPATH 1  // disabled: returns wrong values → unknown HP/mana text
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
@@ -216,7 +216,7 @@
 #define TEST_DISABLE_TIMING_FIX         0
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE         1
+#define TEST_DISABLE_LUA_VM_ENGINE         0
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, disassembly-verified
 #define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
@@ -280,7 +280,7 @@
 #define TEST_DISABLE_CVAR_NULL_GUARD         0
 
 // UnitAura fast-path (sub_00614A76 and sub_00614B4D)
-#define TEST_DISABLE_UNIT_AURA_FAST         0
+#define TEST_DISABLE_UNIT_AURA_FAST         1
 
 // Network GUID unpacking fast-path (sub_0076DC20)
 #define TEST_DISABLE_NETWORK_GUID_SSE2         0
@@ -346,7 +346,7 @@
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   0
+#define TEST_DISABLE_SAVED_VARS_ASYNC   1
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
@@ -430,13 +430,16 @@
 #define TEST_DISABLE_LOADING_DEFRAG     0
 
 // Async Visual Frustum Culling Cache
-#define TEST_DISABLE_ASYNC_CULLING      0
+#define TEST_DISABLE_ASYNC_CULLING      1
 
 // D3D9 Render State Redundancy Cache
 #define TEST_DISABLE_D3D9_STATE_CACHE   0
 
+// Conflicting duplicate Render State Dedup hook
+#define TEST_DISABLE_RENDER_STATE_DEDUP 1
+
 // Lock-Free Addon SavedVariables Incremental Serializer
-#define TEST_DISABLE_SAVED_VARS_SERIALIZER 0
+#define TEST_DISABLE_SAVED_VARS_SERIALIZER 1
 
 // SIMD AVX2 Animated Model Vertex Skinning Accelerator
 #define TEST_DISABLE_SIMD_SKINNING      0
@@ -488,7 +491,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    0
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -505,7 +508,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. Disassembly-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST         0
+#define TEST_DISABLE_LUA_STACK_FAST         1
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
@@ -518,7 +521,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -533,14 +536,14 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
-#define TEST_DISABLE_LUA_SAFE_G1         0  
-#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
-#define TEST_DISABLE_LUA_SAFE_G2AL 0
-#define TEST_DISABLE_LUA_SAFE_G2AI 0
-#define TEST_DISABLE_LUA_SAFE_G2B 0
-#define TEST_DISABLE_LUA_SAFE_G2C 0
-#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops and helper hooks
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
+#define TEST_DISABLE_LUA_SAFE_G1         1  
+#define TEST_DISABLE_LUA_SAFE_G2         1  // enabled: Safe Group 2 hooks
+#define TEST_DISABLE_LUA_SAFE_G2AL 1
+#define TEST_DISABLE_LUA_SAFE_G2AI 1
+#define TEST_DISABLE_LUA_SAFE_G2B 1
+#define TEST_DISABLE_LUA_SAFE_G2C 1
+#define TEST_DISABLE_LUA_SAFE_G3         1  // enabled: buffer ops and helper hooks
 
 // lua_setlocal fast path
 // PERMANENTLY DISABLED: 0x84F210 is luaL_where (debug location formatter), NOT
@@ -549,7 +552,7 @@
 // corruption at login. Real lua_setlocal address UNKNOWN. Cannot safely re-enable.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
-#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  0
+#define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
 
 // Bisection groups for dangerous batch hooks — find which causes TValue corruption
 #define TEST_DISABLE_LUA_BATCH_DG1 0
@@ -558,31 +561,31 @@
 #define TEST_DISABLE_LUA_BATCH_DG4 0  // master
 #define TEST_DISABLE_LUA_BATCH_DG4A 0
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
-#define TEST_DISABLE_LUA_INLINE_BATCH  0
+#define TEST_DISABLE_LUA_INLINE_BATCH  1
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  0
+#define TEST_DISABLE_RAWGETI_INLINE  1
 
 // lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    0
+#define TEST_DISABLE_RAWGET_INLINE    1
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
+#define TEST_DISABLE_TOBOOLEAN_INLINE         1  // enabled: lua_toboolean inline
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
+#define TEST_DISABLE_OBJLEN_INLINE         1  // enabled: lua_objlen inline
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    0
+#define TEST_DISABLE_GETSTR_INLINE    1
 
 // lua_pushnumber direct stack write (sub_84E2A0).
-#define TEST_DISABLE_PUSHNUMBER_FAST         0
+#define TEST_DISABLE_PUSHNUMBER_FAST         1
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
-#define TEST_DISABLE_PUSHVALUE_FAST         0
+#define TEST_DISABLE_PUSHVALUE_FAST         1
 
 // FrameScript_Execute hook (inject DLL markers)
 #define TEST_DISABLE_FRAMESCRIPT_EXECUTE         0
