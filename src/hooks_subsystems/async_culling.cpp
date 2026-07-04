@@ -26,7 +26,7 @@ static IsSphereVisible1_fn orig_IsSphereVisible1 = nullptr;
 typedef int (__thiscall *IsSphereVisible2_fn)(void* This, void* sphere);
 static IsSphereVisible2_fn orig_IsSphereVisible2 = nullptr;
 
-typedef int (__thiscall *IsPointVisible_fn)(void* This, void* point);
+typedef void (__thiscall *IsPointVisible_fn)(void* This, const float* point, uint8_t* outMask);
 static IsPointVisible_fn orig_IsPointVisible = nullptr;
 
 // Cache parameters
@@ -147,7 +147,9 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
                     } else if (task.funcAddr == ADDR_IS_SPHERE_VISIBLE_2) {
                         res = orig_IsSphereVisible2(g_frustumSnapshot, sphere);
                     } else if (task.funcAddr == ADDR_IS_POINT_VISIBLE) {
-                        res = orig_IsPointVisible(g_frustumSnapshot, sphere);
+                        uint8_t tempMask = 0;
+                        orig_IsPointVisible(g_frustumSnapshot, sphere, &tempMask);
+                        res = tempMask;
                     }
                     
                     // Write to cache
@@ -265,13 +267,12 @@ static int __fastcall Hooked_IsSphereVisible2(void* This, void* unused, void* sp
 }
 
 // Hooked IsPointVisible
-static int __fastcall Hooked_IsPointVisible(void* This, void* unused, void* point) {
-    if (!This || !point) return 0;
+static void __fastcall Hooked_IsPointVisible(void* This, void* unused, const float* point, uint8_t* outMask) {
+    if (!This || !point) return;
     
-    float* p = (float*)point;
-    float x = p[0];
-    float y = p[1];
-    float z = p[2];
+    float x = point[0];
+    float y = point[1];
+    float z = point[2];
     float r = 0.0f; // Points have radius 0
     
     uint32_t currentGen = g_cullingFrameGen.load(std::memory_order_acquire);
@@ -283,7 +284,10 @@ static int __fastcall Hooked_IsPointVisible(void* This, void* unused, void* poin
         entry.x == x && entry.y == y && entry.z == z && entry.r == r &&
         entry.frameGen.load(std::memory_order_acquire) == currentGen) 
     {
-        return entry.result;
+        if (outMask) {
+            *outMask = (uint8_t)entry.result;
+        }
+        return;
     }
     
     if (!g_frustumReady.load(std::memory_order_relaxed)) {
@@ -291,7 +295,9 @@ static int __fastcall Hooked_IsPointVisible(void* This, void* unused, void* poin
         g_frustumReady.store(true, std::memory_order_release);
     }
     
-    int res = orig_IsPointVisible(This, point);
+    orig_IsPointVisible(This, point, outMask);
+    
+    int res = outMask ? *outMask : 0;
     
     entry.x = x;
     entry.y = y;
@@ -302,8 +308,6 @@ static int __fastcall Hooked_IsPointVisible(void* This, void* unused, void* poin
     entry.frameGen.store(currentGen, std::memory_order_release);
     
     RecordQuery(ADDR_IS_POINT_VISIBLE, x, y, z, r);
-    
-    return res;
 }
 
 bool Init() {
