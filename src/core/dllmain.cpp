@@ -3055,12 +3055,10 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
         
         // Track SavedVariables files for async writing
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
-        if (lpFileName && (dwAccess & GENERIC_WRITE)) {
-            const char* wtfMarker = strstr(lpFileName, "WTF");
-            if (!wtfMarker) wtfMarker = strstr(lpFileName, "wtf");
-            if (!wtfMarker) wtfMarker = strstr(lpFileName, "Wtf");
+        if (lpFileName && (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL))) {
+            extern bool ContainsWTF(const char* path);
             const char* luaExt = strrchr(lpFileName, '.');
-            if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
+            if (ContainsWTF(lpFileName) && luaExt && _stricmp(luaExt, ".lua") == 0) {
                 extern void TrackSVHandle(HANDLE h);
                 TrackSVHandle(result);
             }
@@ -3099,12 +3097,10 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
 
         // Track SavedVariables files for async writing
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
-        if (dwAccess & GENERIC_WRITE) {
-            const char* wtfMarker = strstr(buf, "WTF");
-            if (!wtfMarker) wtfMarker = strstr(buf, "wtf");
-            if (!wtfMarker) wtfMarker = strstr(buf, "Wtf");
+        if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
+            extern bool ContainsWTF(const char* path);
             const char* luaExt = strrchr(buf, '.');
-            if (wtfMarker && luaExt && _stricmp(luaExt, ".lua") == 0) {
+            if (ContainsWTF(buf) && luaExt && _stricmp(luaExt, ".lua") == 0) {
                 extern void TrackSVHandle(HANDLE h);
                 TrackSVHandle(result);
             }

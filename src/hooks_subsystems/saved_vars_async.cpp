@@ -16,6 +16,19 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Case-insensitive substring check for WTF folder
+bool ContainsWTF(const char* path) {
+    if (!path) return false;
+    for (const char* p = path; *p; p++) {
+        if ((p[0] == 'W' || p[0] == 'w') &&
+            (p[1] == 'T' || p[1] == 't') &&
+            (p[2] == 'F' || p[2] == 'f')) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // WriteFile hook - intercept SV writes and offload to buffer
 typedef BOOL (WINAPI* WriteFile_fn)(HANDLE, LPCVOID, DWORD, LPDWORD, LPOVERLAPPED);
 static WriteFile_fn orig_WriteFile_SV = nullptr;
@@ -24,7 +37,7 @@ static WriteFile_fn orig_WriteFile_SV = nullptr;
 typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
 static CloseHandle_fn orig_CloseHandle = nullptr;
 
-// Track which handles are SV files (WTF/Account/*.lua or WTF/SavedVariables/*.lua)
+// Track which handles are SV files
 static HANDLE s_svHandles[32] = {};
 static int s_svHandleCount = 0;
 static SRWLOCK s_svHandleLock = SRWLOCK_INIT;
@@ -96,31 +109,41 @@ static BufferedWrite* GetOrCreateBuffer(HANDLE hFile) {
 static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
     if (hObject != INVALID_HANDLE_VALUE && IsSVHandle(hObject)) {
         BufferedWrite* b = nullptr;
+        
+        // Find active buffer matching the handle
         AcquireSRWLockExclusive(&s_bufferLock);
         for (int i = 0; i < MAX_ACTIVE_BUFFERS; i++) {
             if (s_activeBuffers[i].hFile == hObject) {
                 b = &s_activeBuffers[i];
-                // Detach from active buffers array
-                s_activeBuffers[i].hFile = nullptr;
                 break;
             }
         }
         ReleaseSRWLockExclusive(&s_bufferLock);
 
-        if (b && b->data && b->size > 0) {
-            __try {
-                DWORD written = 0;
-                if (orig_WriteFile_SV) {
-                    orig_WriteFile_SV(hObject, b->data, (DWORD)b->size, &written, NULL);
-                } else {
-                    WriteFile(hObject, b->data, (DWORD)b->size, &written, NULL);
+        if (b) {
+            if (b->data && b->size > 0) {
+                __try {
+                    DWORD written = 0;
+                    if (orig_WriteFile_SV) {
+                        orig_WriteFile_SV(hObject, b->data, (DWORD)b->size, &written, NULL);
+                    } else {
+                        WriteFile(hObject, b->data, (DWORD)b->size, &written, NULL);
+                    }
+                } __except(EXCEPTION_EXECUTE_HANDLER) {
+                    CrashDumper::FeatureError("SavedVarsAsync", "sync write exception");
                 }
-            } __except(EXCEPTION_EXECUTE_HANDLER) {
-                CrashDumper::FeatureError("SavedVarsAsync", "sync write exception");
             }
-            HeapFree(GetProcessHeap(), 0, b->data);
-        } else if (b && b->data) {
-            HeapFree(GetProcessHeap(), 0, b->data);
+            if (b->data) {
+                HeapFree(GetProcessHeap(), 0, b->data);
+            }
+            
+            // Clear all slot fields cleanly under lock to prevent double-free / leakage
+            AcquireSRWLockExclusive(&s_bufferLock);
+            b->hFile = nullptr;
+            b->data = nullptr;
+            b->size = 0;
+            b->capacity = 0;
+            ReleaseSRWLockExclusive(&s_bufferLock);
         }
 
         // Clean up handle from tracked list
