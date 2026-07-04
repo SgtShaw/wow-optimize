@@ -116,7 +116,10 @@ float SSE2_Vec3Dot(const float* a, const float* b) {
 // SIMD Utility: Vector3 Normalize (SSE2)
 // ================================================================
 void SSE2_Vec3Normalize(float* __restrict v) {
-    __m128 xyz = _mm_loadu_ps(v);
+    float vx_val = v[0];
+    float vy_val = v[1];
+    float vz_val = v[2];
+    __m128 xyz = _mm_setr_ps(vx_val, vy_val, vz_val, 0.0f);
     __m128 sq  = _mm_mul_ps(xyz, xyz);
 
     __m128 shuf = _mm_shuffle_ps(sq, sq, _MM_SHUFFLE(2,3,0,1));
@@ -132,7 +135,13 @@ void SSE2_Vec3Normalize(float* __restrict v) {
 
     rlen = _mm_shuffle_ps(rlen, rlen, _MM_SHUFFLE(0,0,0,0));
     xyz = _mm_mul_ps(xyz, rlen);
-    _mm_storeu_ps(v, xyz);
+
+    float out_x = xyz.m128_f32[0];
+    float out_y = xyz.m128_f32[1];
+    float out_z = xyz.m128_f32[2];
+    v[0] = out_x;
+    v[1] = out_y;
+    v[2] = out_z;
 }
 
 // ================================================================
@@ -988,7 +997,8 @@ static float* __cdecl Hooked_QuatSlerp(float* result, float t, float* q1, float*
                 cosTheta = -cosTheta;
             }
             
-              float sinThetaSq = 1.0f - cosTheta * cosTheta;
+            float sinThetaSq = 1.0f - cosTheta * cosTheta;
+            if (sinThetaSq < 0.0f) sinThetaSq = 0.0f;
             if (sinThetaSq > 0.0f) {
                 float sinTheta = sqrtf(sinThetaSq);
                 if (sinTheta >= 0.00000047683716f) {

@@ -256,19 +256,19 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY         1
+#define TEST_DISABLE_MATRIX_MULTIPLY         0
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
@@ -289,7 +289,7 @@
 #define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2         1
+#define TEST_DISABLE_MATRIX_EXT_SSE2         0
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -298,13 +298,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         1
+#define TEST_DISABLE_MATRIX_MISC_SSE2         0
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -312,17 +312,17 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        1
+#define TEST_DISABLE_FRUSTUM_CULL        0
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -339,7 +339,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         1
+#define TEST_DISABLE_QUAT_NORMALIZE         0
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -488,7 +488,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    1
+#define TEST_DISABLE_EVENT_COALESCER    0
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -625,10 +625,10 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         1
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
-#define TEST_DISABLE_QUAT_SLERP_SSE2         1
+#define TEST_DISABLE_VEC3_CROSS_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
+#define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,

@@ -69,6 +69,9 @@ static bool ShouldCoalesce(const char* name) {
     if (strcmp(name, "UNIT_RAGE") == 0) return true;
     if (strcmp(name, "UNIT_HEALTH") == 0) return true;
     if (strcmp(name, "UNIT_THREAT_LIST_UPDATE") == 0) return true;
+    if (strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0) return true;
+    if (strcmp(name, "SPELL_UPDATE_USABLE") == 0) return true;
+    if (strcmp(name, "UNIT_MODEL_CHANGED") == 0) return true;
     return false;
 }
 
@@ -174,11 +177,11 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
 
     if (IsDuplicate(&ev)) {
         g_eventsDropped++;
-        return true; // drop duplicate
+        return true; // Drop duplicate (it's already queued to be dispatched at the end of the frame)
     }
 
     g_queue[g_queueCount++] = ev;
-    return false; // Not a duplicate: run original event immediately!
+    return true; // Defer: return true to skip immediate execution!
 }
 
 __declspec(naked) void Hooked_FrameScript_SignalEvent() {
@@ -205,7 +208,14 @@ __declspec(naked) void Hooked_FrameScript_SignalEvent() {
 }
 
 extern "C" void EventCoalescer_Flush() {
+    g_isReplaying = true;
+    for (int i = 0; i < g_queueCount; ++i) {
+        if (g_queue[i].used) {
+            DispatchSingle(&g_queue[i]);
+        }
+    }
     g_queueCount = 0;
+    g_isReplaying = false;
 }
 
 namespace EventCoalescer {

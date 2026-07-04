@@ -10,10 +10,21 @@
 #include <windows.h>
 
 extern "C" void Log(const char* fmt, ...);
+extern "C" void ProcessDeferredGC(double idleBudgetMs);
 
 namespace FrameLimiter {
 
 thread_local bool g_bypassSleep = false;
+
+LARGE_INTEGER g_frameStartQpc = {0};
+double g_ticksPerSec = 0.0;
+
+double GetActiveFrameElapsedTime() {
+    if (g_ticksPerSec == 0.0) return 0.0;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    return (double)(now.QuadPart - g_frameStartQpc.QuadPart) / g_ticksPerSec;
+}
 
 typedef unsigned int (__thiscall *EngineFrameLimit_fn)(void* This);
 static EngineFrameLimit_fn orig_EngineFrameLimit = nullptr;
@@ -64,21 +75,29 @@ unsigned int __fastcall Hooked_EngineFrameLimit(void* This, void* unused) {
 
     double targetDuration = 1.0 / limit;
 
-    static LARGE_INTEGER s_lastFrameTime = {0};
-    static double s_ticksPerSec = 0.0;
-    if (s_ticksPerSec == 0.0) {
+    if (g_ticksPerSec == 0.0) {
         LARGE_INTEGER freq;
         QueryPerformanceFrequency(&freq);
-        s_ticksPerSec = (double)freq.QuadPart;
-        QueryPerformanceCounter(&s_lastFrameTime);
+        g_ticksPerSec = (double)freq.QuadPart;
+        QueryPerformanceCounter(&g_frameStartQpc);
     }
 
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
-    double elapsed = (double)(now.QuadPart - s_lastFrameTime.QuadPart) / s_ticksPerSec;
+    double elapsed = (double)(now.QuadPart - g_frameStartQpc.QuadPart) / g_ticksPerSec;
     double remaining = targetDuration - elapsed;
 
     if (remaining > 0.0) {
+        // Run deferred GC sweeps during remaining idle time, leaving 0.5ms margin
+        if (remaining > 0.001) {
+            ProcessDeferredGC((remaining - 0.0005) * 1000.0);
+            
+            // Re-evaluate remaining time
+            QueryPerformanceCounter(&now);
+            elapsed = (double)(now.QuadPart - g_frameStartQpc.QuadPart) / g_ticksPerSec;
+            remaining = targetDuration - elapsed;
+        }
+
         // Coarse sleep first to yield CPU cycles
         if (remaining > 0.002) {
             DWORD sleepMs = (DWORD)((remaining - 0.0015) * 1000.0);
@@ -87,18 +106,18 @@ unsigned int __fastcall Hooked_EngineFrameLimit(void* This, void* unused) {
 
         // Precision spin-yield loop
         LARGE_INTEGER targetTime;
-        targetTime.QuadPart = s_lastFrameTime.QuadPart + (LONGLONG)(targetDuration * s_ticksPerSec);
+        targetTime.QuadPart = g_frameStartQpc.QuadPart + (LONGLONG)(targetDuration * g_ticksPerSec);
         while (true) {
             QueryPerformanceCounter(&now);
             if (now.QuadPart >= targetTime.QuadPart) break;
             SwitchToThread();
         }
-        s_lastFrameTime = targetTime;
+        g_frameStartQpc = targetTime;
     } else {
         if (remaining < -0.1) {
-            s_lastFrameTime = now;
+            g_frameStartQpc = now;
         } else {
-            s_lastFrameTime.QuadPart += (LONGLONG)(targetDuration * s_ticksPerSec);
+            g_frameStartQpc.QuadPart += (LONGLONG)(targetDuration * g_ticksPerSec);
         }
     }
 #endif
