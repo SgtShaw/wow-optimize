@@ -165,6 +165,20 @@ static void __cdecl Hooked_luaV_settable(lua_State* L, void* table, void* key, v
     orig_luaV_settable(L, table, key, value);
 }
 
+typedef void* (__cdecl *luaH_set_fn)(lua_State* L, void* t, const TValue* key);
+static luaH_set_fn orig_luaH_set = nullptr;
+
+static void* __cdecl Hooked_luaH_set(lua_State* L, void* t, const TValue* key) {
+    if (t && key) {
+        TValue* tv_key = (TValue*)key;
+        if (tv_key->tt == 4) { // String key
+            void* k = tv_key->value.gc;
+            InvalidateTableCacheSlot(t, k);
+        }
+    }
+    return orig_luaH_set(L, t, key);
+}
+
 static void __cdecl Hooked_luaC_step(lua_State* L) {
     // Clear entire cache on GC sweeps to prevent UAF/stale GC object addresses
     AcquireSRWLockExclusive(&g_cacheLock);
@@ -174,9 +188,10 @@ static void __cdecl Hooked_luaC_step(lua_State* L) {
 }
 
 bool InstallLuaVMCache() {
-    void* target_get = (void*)0x857250;
-    void* target_set = (void*)0x8573C0;
-    void* target_gc  = (void*)0x85B950;
+    void* target_get  = (void*)0x857250;
+    void* target_set  = (void*)0x8573C0;
+    void* target_gc   = (void*)0x85B950;
+    void* target_hset = (void*)0x85C520;
 
     if (MH_CreateHook(target_get, (void*)Hooked_luaV_gettable, (void**)&orig_luaV_gettable) != MH_OK) {
         Log("[GetTableCache] CreateHook failed for luaV_gettable");
@@ -196,6 +211,15 @@ bool InstallLuaVMCache() {
         return false;
     }
 
+    if (MH_CreateHook(target_hset, (void*)Hooked_luaH_set, (void**)&orig_luaH_set) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaH_set");
+        return false;
+    }
+    if (MH_EnableHook(target_hset) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaH_set");
+        return false;
+    }
+
     if (MH_CreateHook(target_gc, (void*)Hooked_luaC_step, (void**)&orig_luaC_step) != MH_OK) {
         Log("[GetTableCache] CreateHook failed for luaC_step");
         return false;
@@ -205,7 +229,7 @@ bool InstallLuaVMCache() {
         return false;
     }
 
-    Log("[GetTableCache] Active: %d-slot synchronized VM table cache (synced via settable/GC)", CACHE_SIZE);
+    Log("[GetTableCache] Active: %d-slot synchronized VM table cache (synced via settable/GC/hset)", CACHE_SIZE);
     return true;
 }
 
