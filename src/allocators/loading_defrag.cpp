@@ -273,7 +273,7 @@ static inline void SetStackTopFast(uintptr_t L, uintptr_t top) {
 static bool TryGetZoneName(uintptr_t L, char* outName, size_t outSize) {
     __try {
         if (FrameScript_Execute_) {
-            FrameScript_Execute_("LUABOOST_CURRENT_ZONE = GetRealZoneText();", "loading_defrag", 0);
+            FrameScript_Execute_("if GetRealZoneText then LUABOOST_CURRENT_ZONE = GetRealZoneText() else LUABOOST_CURRENT_ZONE = nil end", "loading_defrag", 0);
             
             // Read it from the stack using lua_getfield
             lua_getfield_(L, LUA_GLOBALSINDEX, "LUABOOST_CURRENT_ZONE");
