@@ -54,6 +54,7 @@
 #include "loading_defrag.h"
 #include "async_culling.h"
 #include "d3d9_state_cache.h"
+#include "frame_limiter.h"
 #include "saved_vars_async_serializer.h"
 #include "simd_skinning.h"
 #include "net_packet_offload.h"
@@ -6958,6 +6959,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
+    Log("--- High-Precision Hybrid Frame Limiter ---");
+#if !TEST_DISABLE_FRAME_LIMITER
+    bool frameLimiterOk = FrameLimiter::Init();
+#else
+    bool frameLimiterOk = false;
+    Log("[FrameLimiter] DISABLED via TEST_DISABLE_FRAME_LIMITER");
+#endif
+
+    Log("");
     Log("--- Lock-Free SavedVariables Serializer ---");
 #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
     bool savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
@@ -8807,6 +8817,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LoadingDefrag::Shutdown();
             AsyncCulling::Shutdown();
             D3D9StateCache::Shutdown();
+            FrameLimiter::Shutdown();
             SavedVarsAsyncSerializer::Shutdown();
             SimdSkinning::Shutdown();
             NetPacketOffload::Shutdown();

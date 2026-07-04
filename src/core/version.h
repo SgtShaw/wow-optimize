@@ -447,6 +447,12 @@
 // Velocity-Based Predictive Asset Prefetcher
 #define TEST_DISABLE_PREDICTIVE_PREFETCH 0
 
+// Low-Latency GPU Sync (Max Frame Latency = 1)
+#define TEST_DISABLE_LOW_LATENCY_SYNC    0
+
+// High-Precision Hybrid Frame Rate Limiter
+#define TEST_DISABLE_FRAME_LIMITER       0
+
 // Disassembly-verified rewrite (2026-06-23): byte-exact to the original __stdcall
 // sub_76ED20. No pre-scan strlen (the old heap-corruption root cause — reading
 // past short strings into adjacent allocations). Copied body is pure byte-by-

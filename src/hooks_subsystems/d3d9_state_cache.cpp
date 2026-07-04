@@ -6,6 +6,7 @@
 
 #include "d3d9_state_cache.h"
 #include "MinHook.h"
+#include "version.h"
 #include <d3d9.h>
 #include <atomic>
 
@@ -43,6 +44,23 @@ static bool g_textureStageStateValid[8][64] = { {false} };
 
 static DWORD g_samplerStateCache[16][32] = { {0} };
 static bool g_samplerStateValid[16][32] = { {false} };
+
+// Latency reduction structures (Max Frame Latency = 1)
+#define LATENCY_QUEUE_SIZE 2
+static IDirect3DQuery9* g_latencyQueries[LATENCY_QUEUE_SIZE] = { nullptr };
+static int g_latencyQueryIndex = 0;
+static bool g_latencyInitialized = false;
+
+static void InvalidateLatencyQueries() {
+    for (int i = 0; i < LATENCY_QUEUE_SIZE; i++) {
+        if (g_latencyQueries[i]) {
+            g_latencyQueries[i]->Release();
+            g_latencyQueries[i] = nullptr;
+        }
+    }
+    g_latencyInitialized = false;
+    g_latencyQueryIndex = 0;
+}
 
 // Statistics
 static std::atomic<long> g_textureSkips{0};
@@ -116,13 +134,54 @@ static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD sam
 // Hooked Reset
 static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
     InvalidateCache();
-    Log("[D3D9StateCache] Device reset detected - cache invalidated");
+    InvalidateLatencyQueries();
+    Log("[D3D9StateCache] Device reset detected - cache and latency queries invalidated");
     return orig_Reset(device, params);
 }
 
 // Hooked Present
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty) {
     InvalidateCache();
+
+#if !TEST_DISABLE_LOW_LATENCY_SYNC
+    if (device) {
+        if (!g_latencyInitialized) {
+            bool ok = true;
+            for (int i = 0; i < LATENCY_QUEUE_SIZE; i++) {
+                HRESULT hr = device->CreateQuery(D3DQUERYTYPE_EVENT, &g_latencyQueries[i]);
+                if (FAILED(hr)) {
+                    ok = false;
+                    g_latencyQueries[i] = nullptr;
+                }
+            }
+            if (ok) {
+                g_latencyInitialized = true;
+                Log("[D3D9StateCache] Low-latency GPU sync active (MaxFrameLatency = 1)");
+            } else {
+                InvalidateLatencyQueries();
+            }
+        }
+
+        if (g_latencyInitialized) {
+            IDirect3DQuery9* q = g_latencyQueries[g_latencyQueryIndex];
+            if (q) {
+                // Wait for the GPU to finish rendering the frame from LATENCY_QUEUE_SIZE frames ago
+                while (q->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
+                    SwitchToThread();
+                }
+            }
+
+            // Issue query for the current frame
+            IDirect3DQuery9* current_q = g_latencyQueries[g_latencyQueryIndex];
+            if (current_q) {
+                current_q->Issue(D3DISSUE_END);
+            }
+
+            g_latencyQueryIndex = (g_latencyQueryIndex + 1) % LATENCY_QUEUE_SIZE;
+        }
+    }
+#endif
+
     return orig_Present(device, src, dest, window, dirty);
 }
 
@@ -212,6 +271,7 @@ bool Init() {
 }
 
 void Shutdown() {
+    InvalidateLatencyQueries();
     MH_DisableHook(MH_ALL_HOOKS); // Safely disable all hooks
     Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld",
         g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load());
