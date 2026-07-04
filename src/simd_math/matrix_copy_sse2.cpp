@@ -126,14 +126,18 @@ static float* __cdecl HookMatrixMultiply(float* result, float* a, float* b) {
             __m128 b1 = _mm_loadu_ps(b + 4);
             __m128 b2 = _mm_loadu_ps(b + 8);
             __m128 b3 = _mm_loadu_ps(b + 12);
+            
+            float out_val[16];
             for (int row = 0; row < 4; ++row) {
                 __m128 ar = _mm_loadu_ps(a + row * 4);
                 __m128 acc = _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(0,0,0,0)), b0);
                 acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(1,1,1,1)), b1));
                 acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(2,2,2,2)), b2));
                 acc = _mm_add_ps(acc, _mm_mul_ps(_mm_shuffle_ps(ar, ar, _MM_SHUFFLE(3,3,3,3)), b3));
-                _mm_storeu_ps(result + row * 4, acc);
+                _mm_storeu_ps(out_val + row * 4, acc);
             }
+            _ReadWriteBarrier();
+            memcpy(result, out_val, 16 * sizeof(float));
             return result;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
             // Unmapped page mid-op — fall through to the original.
@@ -557,10 +561,15 @@ static float* __cdecl Hooked_MatScalarMul(float* out, float* src, float scalar) 
     if (o > 0x10000 && o < 0xFFE00000 && s > 0x10000 && s < 0xFFE00000) {
         __try {
             __m128 k = _mm_set1_ps(scalar);
-            _mm_storeu_ps(out,      _mm_mul_ps(_mm_loadu_ps(src),      k));
-            _mm_storeu_ps(out + 4,  _mm_mul_ps(_mm_loadu_ps(src + 4),  k));
-            _mm_storeu_ps(out + 8,  _mm_mul_ps(_mm_loadu_ps(src + 8),  k));
-            _mm_storeu_ps(out + 12, _mm_mul_ps(_mm_loadu_ps(src + 12), k));
+            __m128 r0 = _mm_mul_ps(_mm_loadu_ps(src),      k);
+            __m128 r1 = _mm_mul_ps(_mm_loadu_ps(src + 4),  k);
+            __m128 r2 = _mm_mul_ps(_mm_loadu_ps(src + 8),  k);
+            __m128 r3 = _mm_mul_ps(_mm_loadu_ps(src + 12), k);
+            _ReadWriteBarrier();
+            _mm_storeu_ps(out,      r0);
+            _mm_storeu_ps(out + 4,  r1);
+            _mm_storeu_ps(out + 8,  r2);
+            _mm_storeu_ps(out + 12, r3);
             return out;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
