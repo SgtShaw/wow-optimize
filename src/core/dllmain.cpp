@@ -324,7 +324,9 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef CRASH_TEST_DISABLE_SETFILEPOINTER
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
 #endif
+#ifndef CRASH_TEST_DISABLE_READFILE
 #define CRASH_TEST_DISABLE_READFILE        1   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
+#endif
 #define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_QPC_CACHE       1   // QPC coalescing cache (DISABLED to fix random stutters under DXVK)
@@ -6137,7 +6139,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
     Log("--- File I/O ---");
     bool fileOk  = InstallFileHooks();
+#if !CRASH_TEST_DISABLE_READFILE
     bool readOk  = InstallReadFileHook();
+#else
+    bool readOk  = false;
+    Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
+#endif
     bool closeOk = InstallCloseHandleHook();
     bool flushOk = InstallFlushFileBuffersHook();
     Log("--- Async MPQ I/O ---");
