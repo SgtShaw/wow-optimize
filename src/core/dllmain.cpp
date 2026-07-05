@@ -2626,6 +2626,7 @@ struct FileAttrEntry {
 static FileAttrEntry g_fileAttrCache[FILE_ATTR_CACHE_SIZE] = {};
 static long g_fileAttrHits   = 0;
 static long g_fileAttrMisses = 0;
+static SRWLOCK g_fileAttrLock = SRWLOCK_INIT;
 
 static uint32_t HashPathCI(const char* path) {
     uint32_t h = 0x811C9DC5;
@@ -2642,22 +2643,35 @@ static uint32_t HashPathCI(const char* path) {
 static DWORD WINAPI hooked_GetFileAttributesA(LPCSTR lpFileName) {
     if (!lpFileName) return orig_GetFileAttributesA(lpFileName);
 
-    // Bypass cache for mutable runtime directories to prevent stale file-exist queries
-    // on SavedVariables, Cache, or logs.
-    bool bypassCache = false;
+    // Strictly limit cache to Interface and Data directories (guaranteed static).
+    // WTF, Cache, Logs, and config files must never be cached.
+    bool isStatic = false;
     for (const char* p = lpFileName; *p; ++p) {
-        char c1 = p[0];
-        char c2 = p[0] ? p[1] : '\0';
-        char c3 = (p[0] && p[1]) ? p[2] : '\0';
-        if (((c1 == 'W' || c1 == 'w') && (c2 == 'T' || c2 == 't') && (c3 == 'F' || c3 == 'f')) ||
-            ((c1 == 'C' || c1 == 'c') && (c2 == 'A' || c2 == 'a') && (c3 == 'C' || c3 == 'c')) ||
-            ((c1 == 'L' || c1 == 'l') && (c2 == 'O' || c2 == 'o') && (c3 == 'G' || c3 == 'g'))) {
-            bypassCache = true;
-            break;
+        char c = *p;
+        if (c == 'I' || c == 'i') {
+            if ((p[1] == 'N' || p[1] == 'n') &&
+                (p[2] == 'T' || p[2] == 't') &&
+                (p[3] == 'E' || p[3] == 'e') &&
+                (p[4] == 'R' || p[4] == 'r') &&
+                (p[5] == 'F' || p[5] == 'f') &&
+                (p[6] == 'A' || p[6] == 'a') &&
+                (p[7] == 'C' || p[7] == 'c') &&
+                (p[8] == 'E' || p[8] == 'e')) {
+                isStatic = true;
+                break;
+            }
+        }
+        if (c == 'D' || c == 'd') {
+            if ((p[1] == 'A' || p[1] == 'a') &&
+                (p[2] == 'T' || p[2] == 't') &&
+                (p[3] == 'A' || p[3] == 'a')) {
+                isStatic = true;
+                break;
+            }
         }
     }
 
-    if (bypassCache) {
+    if (!isStatic) {
         return orig_GetFileAttributesA(lpFileName);
     }
 
@@ -2665,16 +2679,22 @@ static DWORD WINAPI hooked_GetFileAttributesA(LPCSTR lpFileName) {
     int slot = hash & FILE_ATTR_CACHE_MASK;
     FileAttrEntry* e = &g_fileAttrCache[slot];
 
+    AcquireSRWLockShared(&g_fileAttrLock);
     if (e->valid && e->pathHash == hash) {
+        DWORD attr = e->attributes;
+        ReleaseSRWLockShared(&g_fileAttrLock);
         g_fileAttrHits++;
-        return e->attributes;
+        return attr;
     }
+    ReleaseSRWLockShared(&g_fileAttrLock);
 
     DWORD result = orig_GetFileAttributesA(lpFileName);
 
+    AcquireSRWLockExclusive(&g_fileAttrLock);
     e->pathHash   = hash;
     e->attributes = result;
     e->valid      = true;
+    ReleaseSRWLockExclusive(&g_fileAttrLock);
 
     g_fileAttrMisses++;
     return result;
@@ -5208,6 +5228,7 @@ struct RegCacheEntry {
 
 static constexpr int REG_CACHE_SIZE = 256;
 static RegCacheEntry g_regCache[REG_CACHE_SIZE] = {};
+static SRWLOCK g_regCacheLock = SRWLOCK_INIT;
 long g_regCacheHits = 0, g_regCacheMisses = 0;
 
 static LONG WINAPI hooked_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWORD lpReserved,
@@ -5220,23 +5241,28 @@ static LONG WINAPI hooked_RegQueryValueExA(HKEY hKey, LPCSTR lpValueName, LPDWOR
     uint32_t slot = (hash ^ (uint32_t)(uintptr_t)hKey) & (REG_CACHE_SIZE - 1);
     RegCacheEntry* e = &g_regCache[slot];
 
+    AcquireSRWLockShared(&g_regCacheLock);
     if (e->valid && e->hKey == hKey && e->nameHash == hash) {
         *lpType = e->type;
         DWORD copySize = e->size < *lpcbData ? e->size : *lpcbData;
         if (lpData) memcpy(lpData, e->data, copySize);
         *lpcbData = e->size;
+        ReleaseSRWLockShared(&g_regCacheLock);
         InterlockedIncrement(&g_regCacheHits);
         return ERROR_SUCCESS;
     }
+    ReleaseSRWLockShared(&g_regCacheLock);
 
     LONG result = orig_RegQueryValueExA(hKey, lpValueName, lpReserved, lpType, lpData, lpcbData);
     if (result == ERROR_SUCCESS && *lpcbData <= sizeof(e->data) && lpData) {
+        AcquireSRWLockExclusive(&g_regCacheLock);
         e->hKey = hKey;
         e->nameHash = hash;
         e->type = *lpType;
         e->size = *lpcbData;
         memcpy(e->data, lpData, *lpcbData);
         e->valid = true;
+        ReleaseSRWLockExclusive(&g_regCacheLock);
     }
     InterlockedIncrement(&g_regCacheMisses);
     return result;
@@ -7564,6 +7590,7 @@ struct ModCacheEntry {
 };
 
 static ModCacheEntry g_modCache[MOD_CACHE_SIZE] = {};
+static SRWLOCK g_modCacheLock = SRWLOCK_INIT;
 
 typedef HMODULE (WINAPI* GetModuleHandleA_fn)(LPCSTR);
 static GetModuleHandleA_fn orig_GetModuleHandleA = nullptr;
@@ -7581,16 +7608,22 @@ static HMODULE WINAPI hooked_GetModuleHandleA(LPCSTR lpModuleName) {
     int slot = hash & MOD_CACHE_MASK;
     ModCacheEntry* e = &g_modCache[slot];
 
+    AcquireSRWLockShared(&g_modCacheLock);
     if (e->valid && e->nameHash == hash) {
+        HMODULE h = e->hModule;
+        ReleaseSRWLockShared(&g_modCacheLock);
         g_modHits++;
-        return e->hModule;
+        return h;
     }
+    ReleaseSRWLockShared(&g_modCacheLock);
 
     HMODULE h = orig_GetModuleHandleA(lpModuleName);
     if (h) {
+        AcquireSRWLockExclusive(&g_modCacheLock);
         e->nameHash = hash;
         e->hModule = h;
         e->valid = true;
+        ReleaseSRWLockExclusive(&g_modCacheLock);
     }
     g_modMisses++;
     return h;
@@ -7719,6 +7752,7 @@ struct ProfCacheEntry {
 };
 
 static ProfCacheEntry g_profCache[PROF_CACHE_SIZE] = {};
+static SRWLOCK g_profCacheLock = SRWLOCK_INIT;
 
 typedef DWORD (WINAPI* GetPrivateProfileStringA_fn)(LPCSTR, LPCSTR, LPCSTR, LPSTR, DWORD, LPCSTR);
 static GetPrivateProfileStringA_fn orig_GetPrivateProfileStringA = nullptr;
@@ -7749,21 +7783,26 @@ static DWORD WINAPI hooked_GetPrivateProfileStringA(LPCSTR lpAppName, LPCSTR lpK
     int slot = hash & PROF_CACHE_MASK;
     ProfCacheEntry* e = &g_profCache[slot];
 
+    AcquireSRWLockShared(&g_profCacheLock);
     if (e->valid && e->keyHash == hash) {
         DWORD valLen = (DWORD)strlen(e->value);
         DWORD copyLen = (valLen < nSize - 1) ? valLen : (nSize - 1);
         memcpy(lpReturnedString, e->value, copyLen);
         lpReturnedString[copyLen] = '\0';
+        ReleaseSRWLockShared(&g_profCacheLock);
         g_profHits++;
         return copyLen;
     }
+    ReleaseSRWLockShared(&g_profCacheLock);
 
     DWORD result = orig_GetPrivateProfileStringA(lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, lpFileName);
 
     if (result > 0 && lpReturnedString[0] != '\0' && result < PROF_MAX_VALUE) {
+        AcquireSRWLockExclusive(&g_profCacheLock);
         e->keyHash = hash;
         memcpy(e->value, lpReturnedString, result + 1);
         e->valid = true;
+        ReleaseSRWLockExclusive(&g_profCacheLock);
     }
 
     g_profMisses++;
@@ -8428,6 +8467,7 @@ static const int ENV_CACHE_MASK = ENV_CACHE_SIZE - 1;
 
 struct EnvCacheEntry { uint32_t nameHash; char value[512]; DWORD len; bool valid; };
 static EnvCacheEntry g_envCache[ENV_CACHE_SIZE] = {};
+static SRWLOCK g_envCacheLock = SRWLOCK_INIT;
 
 static inline uint32_t HashNameLower(LPCSTR name) {
     uint32_t h = 0;
@@ -8445,20 +8485,25 @@ static DWORD WINAPI hooked_GetEnvironmentVariableA(LPCSTR lpName, LPSTR lpBuffer
     uint32_t h = HashNameLower(lpName);
     int idx = h & ENV_CACHE_MASK;
 
+    AcquireSRWLockShared(&g_envCacheLock);
     if (g_envCache[idx].valid && g_envCache[idx].nameHash == h) {
         if (g_envCache[idx].len < nSize) {
             memcpy(lpBuffer, g_envCache[idx].value, g_envCache[idx].len + 1);
+            ReleaseSRWLockShared(&g_envCacheLock);
             g_envHits++;
             return g_envCache[idx].len;
         }
     }
+    ReleaseSRWLockShared(&g_envCacheLock);
 
     DWORD result = orig_GetEnvironmentVariableA(lpName, lpBuffer, nSize);
     if (result > 0 && result < sizeof(g_envCache[idx].value)) {
+        AcquireSRWLockExclusive(&g_envCacheLock);
         g_envCache[idx].nameHash = h;
         memcpy(g_envCache[idx].value, lpBuffer, result + 1);
         g_envCache[idx].len = result;
         g_envCache[idx].valid = true;
+        ReleaseSRWLockExclusive(&g_envCacheLock);
     }
     g_envMisses++;
     return result;
