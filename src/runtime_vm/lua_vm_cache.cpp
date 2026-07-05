@@ -187,12 +187,6 @@ static lua_State* g_lastLuaState = nullptr;
 static void __cdecl Hooked_luaC_step(lua_State* L) {
     g_lastLuaState = L;
 
-    double elapsed = FrameLimiter::GetActiveFrameElapsedTime();
-    if (elapsed > 0.008 && g_deferredGCSteps < 500) {
-        InterlockedIncrement(&g_deferredGCSteps);
-        return;
-    }
-
     // Clear entire cache on GC sweeps to prevent UAF/stale GC object addresses
     AcquireSRWLockExclusive(&g_cacheLock);
     std::memset(g_cache, 0, sizeof(g_cache));
@@ -205,24 +199,7 @@ static void __cdecl Hooked_luaC_step(lua_State* L) {
 }
 
 extern "C" void ProcessDeferredGC(double idleBudgetMs) {
-    if (!g_lastLuaState || !orig_luaC_step) return;
-    if (g_deferredGCSteps <= 0) return;
-
-    LARGE_INTEGER freq, start, now;
-    QueryPerformanceFrequency(&freq);
-    QueryPerformanceCounter(&start);
-    double ticksPerSec = (double)freq.QuadPart;
-    double budgetTicks = (idleBudgetMs / 1000.0) * ticksPerSec;
-
-    while (g_deferredGCSteps > 0) {
-        QueryPerformanceCounter(&now);
-        if ((double)(now.QuadPart - start.QuadPart) >= budgetTicks) {
-            break;
-        }
-
-        orig_luaC_step(g_lastLuaState);
-        InterlockedDecrement(&g_deferredGCSteps);
-    }
+    // GC deferral disabled to prevent stop-the-world freezes and memory bloat.
 }
 
 bool InstallLuaVMCache() {

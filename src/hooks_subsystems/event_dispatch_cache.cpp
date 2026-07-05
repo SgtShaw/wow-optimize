@@ -101,61 +101,10 @@ static int __cdecl Hooked_GetFramesRegistered(uintptr_t L) {
     CrashDumper::RecordHookCall("EventDispatchCache", (uintptr_t)L);
     ++g_cacheCalls;
 
-    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
-        return orig_GetFramesRegistered(L);
-    }
-
-    if (L < 0x10000 || L > 0xFFE00000) {
-        return orig_GetFramesRegistered(L);
-    }
-
-    __try {
-        uintptr_t tv = ResolveIndex(L, 1);
-        if (tv && *(int*)(tv + 8) == 4) { // LUA_TSTRING
-            uintptr_t tstr = *(uintptr_t*)(tv + 0);
-            if (tstr > 0x10000 && tstr < 0xFFE00000) {
-                const char* event_name = (const char*)(tstr + 20);
-                if (event_name) {
-                    typedef uintptr_t (__cdecl *EventResolve_t)(const char* name);
-                    EventResolve_t resolve = (EventResolve_t)0x0081B510;
-                    uintptr_t v3 = resolve(event_name);
-                    if (v3 > 0x10000 && v3 < 0xFFE00000) {
-                        uintptr_t event_ptr = v3 - 24;
-                        
-                        auto& entry = g_eventCache[event_ptr];
-                        if (entry.valid) {
-                            for (int ref_id : entry.ref_ids) {
-                                typedef int (__cdecl *rawgeti_t)(uintptr_t L, int idx, int n);
-                                rawgeti_t rawgeti = (rawgeti_t)0x0084E670;
-                                rawgeti(L, -10000, ref_id);
-                            }
-                            ++g_cacheHits;
-                            return (int)entry.ref_ids.size();
-                        }
-                        
-                        // Miss: run original function first to initialize any XML-registered frame tables
-                        int res = orig_GetFramesRegistered(L);
-                        
-                        // Populate cache now that all wrappers are guaranteed initialized
-                        entry.ref_ids.clear();
-                        uintptr_t list_head = *(uintptr_t*)(event_ptr + 32); // v1 + 32
-                        while ((list_head & 1) == 0 && list_head) {
-                            uintptr_t frame = *(uintptr_t*)(list_head + 8);
-                            if (frame > 0x10000 && frame < 0xFFE00000) {
-                                int ref_id = *(int*)(frame + 8);
-                                entry.ref_ids.push_back(ref_id);
-                            }
-                            list_head = *(uintptr_t*)(list_head + 4);
-                        }
-                        entry.valid = true;
-                        ++g_cacheMisses;
-                        return res;
-                    }
-                }
-            }
-        }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
-
+    // Always use the original function. The previous cache fastpath was
+    // missing luaD_checkstack and frame visibility validation, causing
+    // Lua stack overflow and stale ref_id pushes that broke addon
+    // OnEvent handlers (e.g., welcome text during PLAYER_ENTERING_WORLD).
     return orig_GetFramesRegistered(L);
 }
 
