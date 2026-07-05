@@ -322,7 +322,7 @@
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -536,14 +536,14 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
-#define TEST_DISABLE_LUA_SAFE_G1         1  
-#define TEST_DISABLE_LUA_SAFE_G2         1  // enabled: Safe Group 2 hooks
-#define TEST_DISABLE_LUA_SAFE_G2AL 1
-#define TEST_DISABLE_LUA_SAFE_G2AI 1
-#define TEST_DISABLE_LUA_SAFE_G2B 1
-#define TEST_DISABLE_LUA_SAFE_G2C 1
-#define TEST_DISABLE_LUA_SAFE_G3         1  // enabled: buffer ops and helper hooks
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_SAFE_G1         0  
+#define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
+#define TEST_DISABLE_LUA_SAFE_G2AL 0
+#define TEST_DISABLE_LUA_SAFE_G2AI 0
+#define TEST_DISABLE_LUA_SAFE_G2B 0
+#define TEST_DISABLE_LUA_SAFE_G2C 0
+#define TEST_DISABLE_LUA_SAFE_G3         0  // enabled: buffer ops and helper hooks
 
 // lua_setlocal fast path
 // PERMANENTLY DISABLED: 0x84F210 is luaL_where (debug location formatter), NOT
@@ -565,21 +565,21 @@
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1
+#define TEST_DISABLE_RAWGETI_INLINE  0
 
 // lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1
+#define TEST_DISABLE_RAWGET_INLINE    0
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
-#define TEST_DISABLE_TOBOOLEAN_INLINE         1  // enabled: lua_toboolean inline
+#define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
 
 // lua_objlen inline (0x84E150) — fast path for length check
-#define TEST_DISABLE_OBJLEN_INLINE         1  // enabled: lua_objlen inline
+#define TEST_DISABLE_OBJLEN_INLINE         0  // enabled: lua_objlen inline
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0).
 #define TEST_DISABLE_PUSHNUMBER_FAST         1
@@ -628,10 +628,10 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         1
+#define TEST_DISABLE_VEC3_CROSS_SSE2         0
 #define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
-#define TEST_DISABLE_QUAT_SLERP_SSE2         1
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
+#define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
@@ -745,7 +745,7 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 #define CRASH_TEST_DISABLE_COMPARESTRING         0
 
-#define CRASH_TEST_DISABLE_GETFILEATTR         1
+#define CRASH_TEST_DISABLE_GETFILEATTR         0
 
 #define CRASH_TEST_DISABLE_SETFILEPOINTER         0
 
@@ -753,7 +753,7 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 #define CRASH_TEST_DISABLE_GETFILESIZE_CACHE         0
 
-#define CRASH_TEST_DISABLE_MODHANDLE_CACHE         1
+#define CRASH_TEST_DISABLE_MODHANDLE_CACHE         0
 
 #define CRASH_TEST_DISABLE_GLOBALALLOC         1
 
