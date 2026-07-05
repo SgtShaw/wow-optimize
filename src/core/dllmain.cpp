@@ -1808,6 +1808,7 @@ static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, D
 struct ReadCache {
     HANDLE handle; uint8_t* buffer;
     LARGE_INTEGER fileOffset; DWORD validBytes; bool active;
+    SRWLOCK lock;
 };
 
 static const int   MAX_CACHED_HANDLES  = 16;
@@ -1826,12 +1827,12 @@ static ReadCache* FindCache(HANDLE h) {
 }
 
 static ReadCache* AllocCache(HANDLE h) {
-
     for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
         if (!g_readCache[i].active) {
             g_readCache[i].handle = h;
             if (!g_readCache[i].buffer) g_readCache[i].buffer = (uint8_t*)mi_malloc(READ_AHEAD_MAX);
             g_readCache[i].validBytes = 0;
+            InitializeSRWLock(&g_readCache[i].lock);
             g_readCache[i].active = true;
             return &g_readCache[i];
         }
@@ -1842,8 +1843,36 @@ static ReadCache* AllocCache(HANDLE h) {
     g_readCache[idx].handle = h;
     if (!g_readCache[idx].buffer) g_readCache[idx].buffer = (uint8_t*)mi_malloc(READ_AHEAD_MAX);
     g_readCache[idx].validBytes = 0;
+    InitializeSRWLock(&g_readCache[idx].lock);
     g_readCache[idx].active = true;
     return &g_readCache[idx];
+}
+
+static ReadCache* LockCacheForHandle(HANDLE hFile) {
+    while (true) {
+        AcquireSRWLockShared(&g_cacheLock);
+        ReadCache* cache = FindCache(hFile);
+        if (!cache) {
+            ReleaseSRWLockShared(&g_cacheLock);
+            
+            AcquireSRWLockExclusive(&g_cacheLock);
+            cache = FindCache(hFile);
+            if (!cache) {
+                cache = AllocCache(hFile);
+            }
+            ReleaseSRWLockExclusive(&g_cacheLock);
+        } else {
+            ReleaseSRWLockShared(&g_cacheLock);
+        }
+        
+        if (!cache) return nullptr;
+        
+        AcquireSRWLockExclusive(&cache->lock);
+        if (cache->active && cache->handle == hFile) {
+            return cache;
+        }
+        ReleaseSRWLockExclusive(&cache->lock);
+    }
 }
 
 static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
@@ -1865,16 +1894,26 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     if (!lpBuffer || !nBytesToRead)
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
-    // === Memory-mapped fast path (ANY read size, zero kernel transitions) ===
+    // Get the atomic locked cache for this handle to prevent concurrent seek/read races
+    ReadCache* cache = LockCacheForHandle(hFile);
+    if (!cache) {
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+    }
+
+    __try {
+        LARGE_INTEGER currentPos, zero;
+        zero.QuadPart = 0;
+        if (!SetFilePointerEx(hFile, zero, &currentPos, FILE_CURRENT)) {
+            ReleaseSRWLockExclusive(&cache->lock);
+            return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+        }
+
+        // === Memory-mapped fast path (ANY read size, zero kernel transitions) ===
 #if !CRASH_TEST_DISABLE_MPQ_MMAP
-    {
-        AcquireSRWLockShared(&g_mpqMapLock);
-        MpqMapping* m = FindMpqMapping(hFile);
-        if (m) {
-            LARGE_INTEGER zero, currentPos;
-            zero.QuadPart = 0;
-            BOOL gotPos = SetFilePointerEx(hFile, zero, &currentPos, FILE_CURRENT);
-            if (gotPos) {
+        {
+            AcquireSRWLockShared(&g_mpqMapLock);
+            MpqMapping* m = FindMpqMapping(hFile);
+            if (m) {
                 DWORD offset = (DWORD)currentPos.QuadPart;
                 if (offset + nBytesToRead <= m->fileSize) {
                     __try {
@@ -1885,6 +1924,7 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
                         SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
                         InterlockedIncrement(&g_mpqMapHits);
                         ReleaseSRWLockShared(&g_mpqMapLock);
+                        ReleaseSRWLockExclusive(&cache->lock);
                         return TRUE;
                     }
                     __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -1892,48 +1932,18 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
                     }
                 }
             }
+            ReleaseSRWLockShared(&g_mpqMapLock);
         }
-        ReleaseSRWLockShared(&g_mpqMapLock);
-    }
 #endif
 
-    // === Read-ahead cache path (only for small reads) ===
-    if (nBytesToRead >= READ_AHEAD_MAX)
-        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
-
-    LARGE_INTEGER currentPos, zero;
-    zero.QuadPart = 0;
-    if (!SetFilePointerEx(hFile, zero, &currentPos, FILE_CURRENT)) {
-        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
-    }
-
-    // Acquire shared lock first to check cache
-    AcquireSRWLockShared(&g_cacheLock);
-    ReadCache* cache = FindCache(hFile);
-    if (cache && cache->validBytes > 0) {
-        LONGLONG cStart = cache->fileOffset.QuadPart;
-        LONGLONG cEnd   = cStart + cache->validBytes;
-        LONGLONG rStart = currentPos.QuadPart;
-        LONGLONG rEnd   = rStart + nBytesToRead;
-        if (rStart >= cStart && rEnd <= cEnd) {
-            DWORD off = (DWORD)(rStart - cStart);
-            memcpy(lpBuffer, cache->buffer + off, nBytesToRead);
-            if (lpBytesRead) *lpBytesRead = nBytesToRead;
-            LARGE_INTEGER newPos; newPos.QuadPart = rEnd;
-            SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
-            ReleaseSRWLockShared(&g_cacheLock);
-            return TRUE;
+        // === Read-ahead cache path (only for small reads) ===
+        if (nBytesToRead >= READ_AHEAD_MAX) {
+            ReleaseSRWLockExclusive(&cache->lock);
+            return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
         }
-    }
-    ReleaseSRWLockShared(&g_cacheLock);
 
-    // Cache miss - acquire exclusive lock to perform read-ahead and update cache
-    AcquireSRWLockExclusive(&g_cacheLock);
-
-    __try {
-        // Double check cache under exclusive lock
-        cache = FindCache(hFile);
-        if (cache && cache->validBytes > 0) {
+        // Check if hit
+        if (cache->validBytes > 0) {
             LONGLONG cStart = cache->fileOffset.QuadPart;
             LONGLONG cEnd   = cStart + cache->validBytes;
             LONGLONG rStart = currentPos.QuadPart;
@@ -1944,39 +1954,38 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
                 if (lpBytesRead) *lpBytesRead = nBytesToRead;
                 LARGE_INTEGER newPos; newPos.QuadPart = rEnd;
                 SetFilePointerEx(hFile, newPos, NULL, FILE_BEGIN);
-                ReleaseSRWLockExclusive(&g_cacheLock);
+                ReleaseSRWLockExclusive(&cache->lock);
                 return TRUE;
             }
         }
 
-        if (!cache) cache = AllocCache(hFile);
-        if (cache && cache->buffer) {
-            cache->fileOffset = currentPos;
-            DWORD readAhead = LuaOpt::IsLoadingMode() ? READ_AHEAD_LOADING : READ_AHEAD_NORMAL;
-            DWORD bytesRead = 0;
-            BOOL ok = orig_ReadFile(hFile, cache->buffer, readAhead, &bytesRead, NULL);
-            if (ok && bytesRead > 0) {
-                cache->validBytes = bytesRead;
-                DWORD toCopy = (nBytesToRead < bytesRead) ? nBytesToRead : bytesRead;
-                memcpy(lpBuffer, cache->buffer, toCopy);
-                if (lpBytesRead) *lpBytesRead = toCopy;
-                if (toCopy < bytesRead) {
-                    LARGE_INTEGER newPos2; newPos2.QuadPart = currentPos.QuadPart + toCopy;
-                    SetFilePointerEx(hFile, newPos2, NULL, FILE_BEGIN);
-                    // Queue async prefetch of next chunk (only if async I/O is enabled)
+        // Cache miss - perform read-ahead and update cache
+        cache->fileOffset = currentPos;
+        DWORD readAhead = LuaOpt::IsLoadingMode() ? READ_AHEAD_LOADING : READ_AHEAD_NORMAL;
+        DWORD bytesRead = 0;
+        BOOL ok = orig_ReadFile(hFile, cache->buffer, readAhead, &bytesRead, NULL);
+        if (ok && bytesRead > 0) {
+            cache->validBytes = bytesRead;
+            DWORD toCopy = (nBytesToRead < bytesRead) ? nBytesToRead : bytesRead;
+            memcpy(lpBuffer, cache->buffer, toCopy);
+            if (lpBytesRead) *lpBytesRead = toCopy;
+            if (toCopy < bytesRead) {
+                LARGE_INTEGER newPos2; newPos2.QuadPart = currentPos.QuadPart + toCopy;
+                SetFilePointerEx(hFile, newPos2, NULL, FILE_BEGIN);
+                // Queue async prefetch of next chunk (only if async I/O is enabled)
 #if !TEST_DISABLE_ASYNC_MPQ_IO
-                    LARGE_INTEGER prefetchOff; prefetchOff.QuadPart = currentPos.QuadPart + bytesRead;
-                    QueuePrefetch(hFile, prefetchOff, readAhead);
+                LARGE_INTEGER prefetchOff; prefetchOff.QuadPart = currentPos.QuadPart + bytesRead;
+                QueuePrefetch(hFile, prefetchOff, readAhead);
 #endif
-                }
-                ReleaseSRWLockExclusive(&g_cacheLock);
-                return TRUE;
             }
-            cache->validBytes = 0;
-            SetFilePointerEx(hFile, currentPos, NULL, FILE_BEGIN);
+            ReleaseSRWLockExclusive(&cache->lock);
+            return TRUE;
         }
 
-        ReleaseSRWLockExclusive(&g_cacheLock);
+        // Failed to read ahead, clear cache and fall back
+        cache->validBytes = 0;
+        SetFilePointerEx(hFile, currentPos, NULL, FILE_BEGIN);
+        ReleaseSRWLockExclusive(&cache->lock);
 
         // === Async MPQ I/O Fast Path ===
 #if !TEST_DISABLE_ASYNC_MPQ_IO
@@ -2014,7 +2023,7 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        ReleaseSRWLockExclusive(&g_cacheLock);
+        ReleaseSRWLockExclusive(&cache->lock);
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
     }
 }
