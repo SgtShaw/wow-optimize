@@ -22,7 +22,6 @@ typedef int (__cdecl *lua_toboolean_fn)(uintptr_t L, int idx);
 static lua_toboolean_fn orig_toboolean = nullptr;
 
 static int __cdecl Hooked_Toboolean(uintptr_t L, int idx) {
-    CrashDumper::RecordHookCall("lua_toboolean", (uintptr_t)L);
     ++g_tobooleanCalls;
     __try {
         if (idx > 0) {

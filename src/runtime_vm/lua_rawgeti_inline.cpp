@@ -41,7 +41,6 @@ static lua_rawgeti_fn g_orig_rawgeti = nullptr;
 // ----------------------------------------------------------------
 static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 {
-    CrashDumper::RecordHookCall("RawGetIInline", (uintptr_t)L);
     ++g_total_calls;
 
     // Bail out during lua_State swap — L->base and L->top become garbage

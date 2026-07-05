@@ -55,7 +55,6 @@ typedef int (__cdecl *lua_objlen_fn)(uintptr_t L, int idx);
 static lua_objlen_fn orig_objlen = nullptr;
 
 static int __cdecl Hooked_ObjLen(uintptr_t L, int idx) {
-    CrashDumper::RecordHookCall("lua_objlen", (uintptr_t)L);
     ++g_objlenCalls;
     __try {
         if (IsTeardownState()) goto fallback;

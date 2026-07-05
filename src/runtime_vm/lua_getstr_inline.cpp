@@ -52,7 +52,6 @@ static luaH_getstr_fn g_orig_getstr = nullptr;
 // ----------------------------------------------------------------
 static void* __cdecl Optimized_GetStr(int table, int tstring)
 {
-    CrashDumper::RecordHookCall("GetStrInline", (uintptr_t)table);
     ++g_total_calls;
 
     // Bail out during lua_State swap — table and tstring pointers become
