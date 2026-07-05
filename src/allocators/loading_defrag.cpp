@@ -137,29 +137,9 @@ static void PrecommitAllocAndFree(size_t totalPrecommitMB) {
 
 // Speculatively pre-commit pages in mimalloc thread-local slabs
 static void PerformSpeculativePrecommit() {
-    Log("[LoadingDefrag] Starting speculative memory pre-commit...");
-    
-    // Determine allocation intensity based on zone history if needed
-    size_t totalPrecommitMB = 64; // Default: pre-commit 64MB of slabs
-    
-    EnterCriticalSection(&g_zoneLock);
-    bool knownZone = false;
-    for (const auto& zone : g_zoneHistory) {
-        if (zone.name == g_currentZone) {
-            knownZone = true;
-            if (zone.visitCount > 3) {
-                // Heavily visited zones (e.g. Dalaran, main cities) get larger pre-commits
-                totalPrecommitMB = 128;
-            }
-            break;
-        }
-    }
-    LeaveCriticalSection(&g_zoneLock);
-    
-    Log("[LoadingDefrag] Target zone: '%s' (Pre-commit target: %dMB)", g_currentZone, (int)totalPrecommitMB);
-
-    PrecommitAllocAndFree(totalPrecommitMB);
-    Log("[LoadingDefrag] Speculative pre-commit complete. Caches pre-warmed.");
+    // Disabled: allocating on the background thread thrashes the background thread's
+    // thread-local mimalloc cache, which is not shared with the main thread.
+    // This only causes CPU load and page faults during loading screens.
 }
 
 // Background thread function
@@ -194,10 +174,8 @@ static DWORD WINAPI DefragWorkerThread(LPVOID) {
             // Step 3: Final sweep when loading screen finishes
             mi_collect(true);
             
-            // Perform a single heap compaction pass on the main process heap to consolidate allocations
-            __try {
-                HeapCompact(GetProcessHeap(), 0);
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            // Disabled: HeapCompact on GetProcessHeap() locks the default process heap
+            // and stalls the main thread for several seconds after loading completes.
             
             Log("[LoadingDefrag] Defragmenter loop finished (compactions run: %d)", compactionCount);
             

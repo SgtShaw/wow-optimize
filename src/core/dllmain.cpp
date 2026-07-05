@@ -2642,6 +2642,25 @@ static uint32_t HashPathCI(const char* path) {
 static DWORD WINAPI hooked_GetFileAttributesA(LPCSTR lpFileName) {
     if (!lpFileName) return orig_GetFileAttributesA(lpFileName);
 
+    // Bypass cache for mutable runtime directories to prevent stale file-exist queries
+    // on SavedVariables, Cache, or logs.
+    bool bypassCache = false;
+    for (const char* p = lpFileName; *p; ++p) {
+        char c1 = p[0];
+        char c2 = p[0] ? p[1] : '\0';
+        char c3 = (p[0] && p[1]) ? p[2] : '\0';
+        if (((c1 == 'W' || c1 == 'w') && (c2 == 'T' || c2 == 't') && (c3 == 'F' || c3 == 'f')) ||
+            ((c1 == 'C' || c1 == 'c') && (c2 == 'A' || c2 == 'a') && (c3 == 'C' || c3 == 'c')) ||
+            ((c1 == 'L' || c1 == 'l') && (c2 == 'O' || c2 == 'o') && (c3 == 'G' || c3 == 'g'))) {
+            bypassCache = true;
+            break;
+        }
+    }
+
+    if (bypassCache) {
+        return orig_GetFileAttributesA(lpFileName);
+    }
+
     uint32_t hash = HashPathCI(lpFileName);
     int slot = hash & FILE_ATTR_CACHE_MASK;
     FileAttrEntry* e = &g_fileAttrCache[slot];

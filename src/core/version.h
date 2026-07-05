@@ -417,7 +417,7 @@
 // Monitors LargestFreeBlock every 5 seconds, triggers HeapCompact when < 8MB
 // Prevents OOM crashes during M2 model loading on teleports
 // Safe: no WoW code patching, only Windows heap APIs
-#define TEST_DISABLE_HEAP_COMPACTOR     0
+#define TEST_DISABLE_HEAP_COMPACTOR     1
 
 // Memory-Pressure Governor - reads HeapCompactor's cached LargestFreeBlock
 // every frame and sheds the DLL's own caches + drops texture budget toward
