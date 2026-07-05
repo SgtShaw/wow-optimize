@@ -79,7 +79,7 @@ static DWORD          g_mainThreadId = 0;
 
 // Forward-declared here because the watchdog (below) is defined before
 // lua_optimize.h is included; definitions match that header.
-namespace LuaOpt { bool IsLoadingMode(); bool IsReloading(); bool IsSwapping(); }
+namespace LuaOpt { bool IsLoadingMode(); bool IsReloading(); bool IsSwapping(); DWORD GetLastSwapTick(); }
 
 static void UpdateMainThreadActivity() {
     g_lastMainThreadTick = GetTickCount();
@@ -101,7 +101,12 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
             // a hang the player feels -- it's a progress-bar load -- so don't spam
             // the log with a full freeze report. Note it on one line and wait it
             // out. This is the source of the "many FREEZE DETECTED" entries.
-            bool expected = LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping();
+            // Grace period: for 30s after a lua_State swap, treat main-thread silence
+            // as expected. WoW's addon loader runs synchronously after the swap completes
+            // (our IsReloading/IsSwapping flags clear before this begins).
+            DWORD swapTick = LuaOpt::GetLastSwapTick();
+            bool inPostSwapGrace = (swapTick != 0 && (GetTickCount() - swapTick) < 30000);
+            bool expected = LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping() || inPostSwapGrace;
             if (expected) {
                 Log("[FreezeWatchdog] main thread blocked %u ms during loading/transition (expected, not a hang)", elapsed);
             } else {
@@ -3768,7 +3773,7 @@ static void TryRemoveFPSCap() {
         if (VirtualProtect((void*)(addr + 1), 4, PAGE_EXECUTE_READWRITE, &old)) {
             *(uint32_t*)(addr + 1) = 200;  // stock cap — 999 breaks camera interpolation
             VirtualProtect((void*)(addr + 1), 4, old, &old);
-            Log("FPS cap: changed from 200 to 999 at 0x%08X", (unsigned)addr);
+            Log("FPS cap: stock value 200 preserved at 0x%08X (999 breaks camera interpolation)", (unsigned)addr);
         }
     } else {
         Log("FPS cap: signature not found (may be a different build)");
@@ -6706,10 +6711,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
-    // DISABLED: worker threads call hooked SFile2 which touches WoW globals
-    // causing ACCESS_VIOLATION at 0x009E4F24 from MPQPrefetch worker thread
-    Log("[MPQPrefetch] DISABLED: workers touch WoW globals via hooked SFile2");
+#if !TEST_DISABLE_MPQ_PREFETCH
+    bool mpqPrefetchOk = MPQPrefetch::Init();
+#else
+    Log("[MPQPrefetch] DISABLED via TEST_DISABLE_MPQ_PREFETCH");
     bool mpqPrefetchOk = false;
+#endif
 
     Log("");
     Log("--- Object Visibility Cache ---");
@@ -6793,6 +6800,96 @@ static DWORD WINAPI MainThread(LPVOID param) {
             } else {
                 Log("[CrashFix] sub_5E90D0 NULL guard: hook creation failed");
             }
+        }
+    }
+
+    // Hook sub_6D4920 to protect against null pointer dereference and out-of-bounds on dword_C9EB50
+    {
+        typedef int (__thiscall *Sub6D4920_fn)(void* ecx, int a2);
+        static Sub6D4920_fn orig_Sub6D4920 = nullptr;
+
+        struct NullGuard_6D4920 {
+            static int __fastcall Hooked(void* ecx, void* edx, int a2) {
+                __try {
+                    if (!ecx || IsBadReadPtr(ecx, 4)) {
+                        return a2 ? *(int*)a2 : 0;
+                    }
+                    if (!a2 || IsBadReadPtr((const void*)a2, 288)) {
+                        return 0;
+                    }
+                    if ((*(char*)(a2 + 64) & 0x10) != 0) {
+                        return *(int*)a2;
+                    }
+                    if ((*(int*)(a2 + 24) & 0x8000000) != 0
+                        || *(int*)(a2 + 284) == 25
+                        || *(int*)(a2 + 272) != 2
+                        || !*(int*)(a2 + 276)) 
+                    {
+                        return *(int*)a2;
+                    }
+
+                    int** pArray = (int**)0x00C9EB50;
+                    int* pCount = (int*)0x00C9EB4C;
+                    if (!pArray || IsBadReadPtr(pArray, 4) || !*pArray || !pCount || IsBadReadPtr(pCount, 4) || *pCount <= 0) {
+                        return *(int*)a2;
+                    }
+
+                    int* arrayPtr = *pArray;
+                    int arrayCount = *pCount;
+
+                    int v4 = 0;
+                    unsigned char* v5 = nullptr;
+                    
+                    uintptr_t vtable = *(uintptr_t*)ecx;
+                    if (!vtable || IsBadReadPtr((const void*)(vtable + 300), 4)) {
+                        return *(int*)a2;
+                    }
+                    typedef unsigned char* (__thiscall* GetVal_fn)(void* This, int idx, int unused);
+                    GetVal_fn GetVal = *(GetVal_fn*)(vtable + 300);
+                    if (!GetVal || IsBadReadPtr((const void*)GetVal, 4)) {
+                        return *(int*)a2;
+                    }
+
+                    while (1) {
+                        v5 = GetVal(ecx, v4, 0);
+                        if (v5) {
+                            if (v5[0] == *(int*)(a2 + 272)) {
+                                int v6 = v5[1];
+                                if (((1 << v6) & *(int*)(a2 + 276)) != 0) {
+                                    if (v6 < arrayCount && arrayPtr[v6]) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (++v4 >= 3) {
+                            return *(int*)a2;
+                        }
+                    }
+                    
+                    if (v5) {
+                        int v6_final = v5[1];
+                        if (v6_final < arrayCount) {
+                            return arrayPtr[v6_final];
+                        }
+                    }
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                    // Fallback on access violation
+                }
+                return a2 ? *(int*)a2 : 0;
+            }
+        };
+
+        void* target_6D4920 = (void*)0x006D4920;
+        if (WineSafe_CreateHook(target_6D4920, (void*)NullGuard_6D4920::Hooked, (void**)&orig_Sub6D4920) == MH_OK) {
+            if (MH_EnableHook(target_6D4920) == MH_OK) {
+                Log("[CrashFix] sub_6D4920 NULL/bounds guard: ACTIVE");
+            } else {
+                Log("[CrashFix] sub_6D4920 NULL/bounds guard: enable failed");
+                MH_RemoveHook(target_6D4920);
+            }
+        } else {
+            Log("[CrashFix] sub_6D4920 NULL/bounds guard: hook creation failed");
         }
     }
 

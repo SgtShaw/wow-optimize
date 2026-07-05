@@ -23,29 +23,24 @@ static const uint32_t TAINT_CELL = 0x00D4139C;
 typedef int (__cdecl *lua_rawget_fn)(uintptr_t L, int idx);
 static lua_rawget_fn orig_rawget = nullptr;
 
-// Resolve stack index to TValue pointer
 static __forceinline bool IsValidPtr(uintptr_t p) {
     return p > 0x10000 && p < 0xFFE00000;
 }
 
-static __forceinline uintptr_t ResolveIndex(uintptr_t L, int idx) {
-    if (idx > 0) {
-        uintptr_t base = *(uintptr_t*)(L + 0x10);
-        if (!IsValidPtr(base)) return 0;
-        uintptr_t tv = base + (uintptr_t)(idx - 1) * 16;
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (tv >= top) return 0;
-        return tv;
+// ----------------------------------------------------------------
+// Custom calling convention wrapper for index2adr:
+// EAX = idx, ECX = L. Returns TValue pointer in EAX.
+// ----------------------------------------------------------------
+static inline int* CallIndex2Adr(uintptr_t L, int idx) {
+    int* result = nullptr;
+    __asm {
+        mov eax, idx
+        mov ecx, L
+        mov edx, 0x0084D9C0
+        call edx
+        mov result, eax
     }
-    if (idx < 0 && idx > -10000) { // LUA_REGISTRYINDEX (-10000)
-        uintptr_t top = *(uintptr_t*)(L + 0x0C);
-        if (!IsValidPtr(top)) return 0;
-        uintptr_t tv = top + (uintptr_t)idx * 16;
-        uintptr_t base = *(uintptr_t*)(L + 0x10);
-        if (tv < base) return 0;
-        return tv;
-    }
-    return 0;
+    return result;
 }
 
 // Hooked lua_rawget (0x84E600): reads table at idx, lookup using key at L->top - 1,
@@ -63,8 +58,8 @@ static int __cdecl Hooked_RawGet(uintptr_t L, int idx) {
     }
 
     __try {
-        uintptr_t t_tv = ResolveIndex(L, idx);
-        if (t_tv && *(int*)(t_tv + 8) == 5) { // LUA_TTABLE
+        int* t_tv = CallIndex2Adr(L, idx);
+        if (t_tv && IsValidPtr((uintptr_t)t_tv) && t_tv[2] == 5) { // LUA_TTABLE
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
             uintptr_t key = top - 16;
             uintptr_t base = *(uintptr_t*)(L + 0x10);

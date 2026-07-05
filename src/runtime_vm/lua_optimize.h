@@ -65,6 +65,7 @@ Stats GetStats();
 // Thread-safe swap/reload state queries for worker threads
 bool IsReloading();
 bool IsSwapping();
+DWORD GetLastSwapTick();
 
 // Restore original Lua allocator (safe to call during ExitProcess teardown)
 void RestoreAllocator();

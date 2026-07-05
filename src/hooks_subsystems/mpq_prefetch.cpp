@@ -1,20 +1,42 @@
 // ============================================================================
 // Module: mpq_prefetch.cpp
-// Description: Supporting utility functions for `mpq_prefetch.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// Description: Predicts zone changes and pre-caches zone WMO/ADT/WDT files
+//              on background threads using private Storm archive handles.
+// Safety & Threading: Thread-safe queue and worker threads.
 // ============================================================================
 
 #include "mpq_prefetch.h"
 #include "MinHook.h"
-#include <cstdio>
-#include <cstring>
-#include <intrin.h>
+#include "version.h"
+#include <windows.h>
+#include <string>
+#include <vector>
+#include <queue>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <atomic>
 #include <unordered_map>
 #include <unordered_set>
-#include <vector>
-#include <string>
 
 extern "C" void Log(const char* fmt, ...);
+
+namespace MPQPrefetch {
+
+// Storm API Types
+typedef BOOL (APIENTRY *SFileOpenArchive_fn)(const char* szArchiveName, DWORD dwPriority, DWORD dwFlags, HANDLE* phArchive);
+typedef BOOL (APIENTRY *SFileOpenFileEx_fn)(HANDLE hArchive, const char* szFileName, DWORD dwSearchScope, HANDLE* phFile);
+typedef BOOL (APIENTRY *SFileReadFile_fn)(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped);
+typedef BOOL (APIENTRY *SFileCloseFile_fn)(HANDLE hFile);
+typedef BOOL (APIENTRY *SFileCloseArchive_fn)(HANDLE hArchive);
+
+static SFileOpenArchive_fn pSFileOpenArchive = nullptr;
+static SFileOpenFileEx_fn pSFileOpenFileEx = nullptr;
+static SFileReadFile_fn pSFileReadFile = nullptr;
+static SFileCloseFile_fn pSFileCloseFile = nullptr;
+static SFileCloseArchive_fn pSFileCloseArchive = nullptr;
+
+static std::vector<HANDLE> g_privateArchives;
 
 // ================================================================
 // Zone Transition Tracking
@@ -29,18 +51,11 @@ static constexpr int ZONE_HISTORY_SIZE = 10;
 static ZoneTransition g_zoneHistory[ZONE_HISTORY_SIZE] = {};
 static int g_zoneHistoryHead = 0;
 static int g_currentZone = 0;
-static int g_currentSubZone = 0;
 static SRWLOCK g_zoneLock = SRWLOCK_INIT;
 
 // ================================================================
 // Zone → File Mapping (common files per zone)
 // ================================================================
-struct ZoneFiles {
-    int zoneID;
-    std::vector<std::string> files;
-};
-
-// Common zone file patterns
 static std::unordered_map<int, std::vector<std::string>> g_zoneFileMap;
 
 // ================================================================
@@ -53,19 +68,13 @@ struct PrefetchRequest {
 };
 
 // ================================================================
-// Lock-Free Queue (2048 entries, ring buffer)
+// Thread-Safe Queue & Worker Variables
 // ================================================================
-static constexpr int QUEUE_SIZE = 2048;
-static constexpr int QUEUE_MASK = QUEUE_SIZE - 1;
-
-struct QueueEntry {
-    PrefetchRequest data;
-    volatile LONG ready;  // 1 = ready to process, 0 = empty
-};
-
-static QueueEntry g_queue[QUEUE_SIZE] = {};
-static volatile LONG g_queueHead = 0;  // Consumer index (worker threads)
-static volatile LONG g_queueTail = 0;  // Producer index (main thread)
+static std::vector<std::thread> g_workerThreads;
+static std::queue<std::string> g_prefetchQueue;
+static std::mutex g_queueMutex;
+static std::condition_variable g_queueCv;
+static std::atomic<bool> g_workerShutdown{false};
 
 // ================================================================
 // Prefetch Cache (track which files we've already prefetched)
@@ -85,29 +94,23 @@ static volatile LONG g_zoneTransitions = 0;
 static double g_totalPrefetchTimeMs = 0.0;
 static SRWLOCK g_prefetchTimeLock = SRWLOCK_INIT;
 
-// ================================================================
-// Worker Thread Pool State
-// ================================================================
 static constexpr int WORKER_THREAD_COUNT = 2;
-static HANDLE g_workerThreads[WORKER_THREAD_COUNT] = {};
-static volatile bool g_workerShutdown = false;
-static HANDLE g_workerEvent = NULL;
 static double g_qpcFreqMs = 0.0;
-
-// ================================================================
-// Hook State
-// ================================================================
 static bool g_initialized = false;
 
 // ================================================================
-// Memory Validation Helpers
+// Hook definitions
 // ================================================================
-static bool IsReadable(uintptr_t addr) {
-    if (addr == 0) return false;
-    MEMORY_BASIC_INFORMATION mbi;
-    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
-    if (mbi.State != MEM_COMMIT) return false;
-    return !(mbi.Protect & PAGE_NOACCESS) && !(mbi.Protect & PAGE_GUARD);
+typedef int (__cdecl *sub_5204C0_fn)(int a1, int a2, int a3, const char* a4, const char* a5, const char* a6, int a7);
+static sub_5204C0_fn orig_sub_5204C0 = nullptr;
+
+static void OnZoneChange(int newZone);
+
+static int __cdecl Hooked_sub_5204C0(int a1, int a2, int a3, const char* a4, const char* a5, const char* a6, int a7) {
+    if (a1 > 0) {
+        OnZoneChange(a1);
+    }
+    return orig_sub_5204C0(a1, a2, a3, a4, a5, a6, a7);
 }
 
 // ================================================================
@@ -142,7 +145,6 @@ static void InitializeZoneFileMap() {
         "World\\Wmo\\Azeroth\\Stormwind\\stormwind.wmo"
     };
 
-    // Add more zones as needed...
     Log("[MPQPrefetch] Initialized zone file map with %d zones", (int)g_zoneFileMap.size());
 }
 
@@ -150,8 +152,6 @@ static void InitializeZoneFileMap() {
 // Zone Transition Prediction
 // ================================================================
 static int PredictNextZone(int currentZone) {
-    // Simple prediction based on common patterns
-
     // Dalaran → ICC (common raid teleport)
     if (currentZone == 4395) return 4812;
     
@@ -164,8 +164,42 @@ static int PredictNextZone(int currentZone) {
     // Stormwind → Dalaran (boat)
     if (currentZone == 1519) return 4395;
     
-    // No prediction
     return 0;
+}
+
+// Load Storm APIs
+static bool LoadStormAPIs() {
+    HMODULE hStorm = GetModuleHandleA("storm.dll");
+    if (!hStorm) hStorm = LoadLibraryA("storm.dll");
+    if (!hStorm) return false;
+
+    pSFileOpenArchive = (SFileOpenArchive_fn)GetProcAddress(hStorm, "SFileOpenArchive");
+    pSFileOpenFileEx = (SFileOpenFileEx_fn)GetProcAddress(hStorm, "SFileOpenFileEx");
+    pSFileReadFile = (SFileReadFile_fn)GetProcAddress(hStorm, "SFileReadFile");
+    pSFileCloseFile = (SFileCloseFile_fn)GetProcAddress(hStorm, "SFileCloseFile");
+    pSFileCloseArchive = (SFileCloseArchive_fn)GetProcAddress(hStorm, "SFileCloseArchive");
+
+    return pSFileOpenArchive && pSFileOpenFileEx && pSFileReadFile && pSFileCloseFile && pSFileCloseArchive;
+}
+
+// Open main WoW archives privately to read files on worker thread safely
+static void OpenPrivateArchives() {
+    const char* archiveNames[] = {
+        "Data\\common.MPQ",
+        "Data\\world.MPQ",
+        "Data\\lichking.MPQ",
+        "Data\\patch.MPQ",
+        "Data\\patch-2.MPQ",
+        "Data\\patch-3.MPQ"
+    };
+
+    for (const char* name : archiveNames) {
+        HANDLE hArchive = nullptr;
+        if (pSFileOpenArchive(name, 0, 0, &hArchive)) {
+            g_privateArchives.push_back(hArchive);
+        }
+    }
+    Log("[MPQPrefetch] Opened %d MPQ archives privately for background loading", (int)g_privateArchives.size());
 }
 
 // ================================================================
@@ -185,32 +219,31 @@ static void PrefetchFile(const PrefetchRequest* request) {
 
     InterlockedIncrement(&g_cacheMisses);
 
-    // Open file and read it to force OS to cache it
-    HANDLE hFile = CreateFileA(
-        request->filename,
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        NULL,
-        OPEN_EXISTING,
-        FILE_FLAG_SEQUENTIAL_SCAN,
-        NULL
-    );
-
-    if (hFile != INVALID_HANDLE_VALUE) {
-        // Read file in chunks to load into OS cache
-        char buffer[65536];  // 64KB chunks
-        DWORD bytesRead = 0;
-        
-        while (ReadFile(hFile, buffer, sizeof(buffer), &bytesRead, NULL) && bytesRead > 0) {
-            // Just reading - OS will cache the data
+    // Try to open the file from our private handles
+    char readBuffer[65536];
+    bool opened = false;
+    for (HANDLE hArchive : g_privateArchives) {
+        HANDLE hFile = nullptr;
+        if (pSFileOpenFileEx(hArchive, request->filename, 0, &hFile)) {
+            opened = true;
+            // Force load into OS page cache
+            DWORD bytesRead = 0;
+            while (pSFileReadFile(hFile, readBuffer, sizeof(readBuffer), &bytesRead, NULL) && bytesRead > 0) {
+                // Just reading
+            }
+            pSFileCloseFile(hFile);
+            Log("[MPQPrefetch] Background loaded from MPQ: '%s'", request->filename);
+            
+            // Mark as prefetched
+            AcquireSRWLockExclusive(&g_cacheLock);
+            g_prefetchedFiles.insert(request->filename);
+            ReleaseSRWLockExclusive(&g_cacheLock);
+            break;
         }
+    }
 
-        CloseHandle(hFile);
-
-        // Mark as prefetched
-        AcquireSRWLockExclusive(&g_cacheLock);
-        g_prefetchedFiles.insert(request->filename);
-        ReleaseSRWLockExclusive(&g_cacheLock);
+    if (!opened) {
+        Log("[MPQPrefetch] WARNING: Failed to find file in private MPQs: '%s'", request->filename);
     }
 
     InterlockedIncrement(&g_filesCompleted);
@@ -219,48 +252,41 @@ static void PrefetchFile(const PrefetchRequest* request) {
 // ================================================================
 // Worker Thread Procedure
 // ================================================================
-static DWORD WINAPI WorkerThreadProc(LPVOID) {
-    Log("[MPQPrefetch] Worker thread started (TID: %d)", GetCurrentThreadId());
+static void WorkerProc() {
+    Log("[MPQPrefetch] Worker thread started");
 
-    while (!g_workerShutdown) {
-        // Wait for events (10ms timeout to check shutdown flag)
-        WaitForSingleObject(g_workerEvent, 10);
-
-        // Process all available requests
-        LONG head = g_queueHead;
-        LONG tail = InterlockedCompareExchange(&g_queueTail, 0, 0); // Read tail atomically
-
-        if (head == tail) {
-            continue; // Queue empty
+    while (!g_workerShutdown.load(std::memory_order_relaxed)) {
+        std::string filename;
+        {
+            std::unique_lock<std::mutex> lock(g_queueMutex);
+            g_queueCv.wait_for(lock, std::chrono::milliseconds(20), [] {
+                return !g_prefetchQueue.empty() || g_workerShutdown.load();
+            });
+            if (g_workerShutdown.load() && g_prefetchQueue.empty()) break;
+            if (g_prefetchQueue.empty()) continue;
+            filename = std::move(g_prefetchQueue.front());
+            g_prefetchQueue.pop();
         }
 
-        while (head != tail) {
-            int slot = head & QUEUE_MASK;
-            QueueEntry* entry = &g_queue[slot];
+        PrefetchRequest req;
+        strncpy_s(req.filename, sizeof(req.filename), filename.c_str(), _TRUNCATE);
+        req.priority = 1;
+        req.predictedZone = 0;
 
-            if (entry->ready) {
-                LARGE_INTEGER start, end;
-                QueryPerformanceCounter(&start);
+        LARGE_INTEGER start, end;
+        QueryPerformanceCounter(&start);
 
-                PrefetchFile(&entry->data);
+        PrefetchFile(&req);
 
-                QueryPerformanceCounter(&end);
-                double prefetchTimeMs = (double)(end.QuadPart - start.QuadPart) / g_qpcFreqMs;
+        QueryPerformanceCounter(&end);
+        double prefetchTimeMs = (double)(end.QuadPart - start.QuadPart) / g_qpcFreqMs;
 
-                AcquireSRWLockExclusive(&g_prefetchTimeLock);
-                g_totalPrefetchTimeMs += prefetchTimeMs;
-                ReleaseSRWLockExclusive(&g_prefetchTimeLock);
-
-                InterlockedExchange(&entry->ready, 0);
-            }
-
-            head = (head + 1) & 0x7FFFFFFF; // Prevent overflow
-            InterlockedExchange(&g_queueHead, head);
-        }
+        AcquireSRWLockExclusive(&g_prefetchTimeLock);
+        g_totalPrefetchTimeMs += prefetchTimeMs;
+        ReleaseSRWLockExclusive(&g_prefetchTimeLock);
     }
 
     Log("[MPQPrefetch] Worker thread exiting");
-    return 0;
 }
 
 // ================================================================
@@ -294,29 +320,15 @@ static void OnZoneChange(int newZone) {
             Log("[MPQPrefetch] Predicting zone %d, queuing %d files", 
                 predictedZone, (int)it->second.size());
 
+            std::lock_guard<std::mutex> lock(g_queueMutex);
+            // Clear current queue to prioritize new zone files
+            while (!g_prefetchQueue.empty()) g_prefetchQueue.pop();
+
             for (const auto& filename : it->second) {
-                // Queue for prefetch
-                LONG tail = InterlockedIncrement(&g_queueTail) - 1;
-                int slot = tail & QUEUE_MASK;
-
-                QueueEntry* queueEntry = &g_queue[slot];
-
-                // Check if slot is still being processed (queue overflow)
-                if (!queueEntry->ready) {
-                    strncpy_s(queueEntry->data.filename, sizeof(queueEntry->data.filename),
-                              filename.c_str(), _TRUNCATE);
-                    queueEntry->data.priority = 1;  // High priority
-                    queueEntry->data.predictedZone = predictedZone;
-
-                    InterlockedExchange(&queueEntry->ready, 1);
-                    InterlockedIncrement(&g_filesQueued);
-
-                    // Signal worker threads
-                    SetEvent(g_workerEvent);
-                } else {
-                    InterlockedIncrement(&g_filesDropped);
-                }
+                g_prefetchQueue.push(filename);
+                InterlockedIncrement(&g_filesQueued);
             }
+            g_queueCv.notify_all();
         }
     }
 }
@@ -324,10 +336,17 @@ static void OnZoneChange(int newZone) {
 // ================================================================
 // Public API Implementation
 // ================================================================
-namespace MPQPrefetch {
 
 bool Init() {
-    Log("[MPQPrefetch] Init ");
+    Log("[MPQPrefetch] Init");
+
+    if (!LoadStormAPIs()) {
+        Log("[MPQPrefetch] ERROR: Failed to resolve Storm.dll exports");
+        return false;
+    }
+
+    // Open private archives
+    OpenPrivateArchives();
 
     // Initialize QPC frequency
     LARGE_INTEGER freq;
@@ -337,29 +356,30 @@ bool Init() {
     // Initialize zone file map
     InitializeZoneFileMap();
 
-    // Create worker event
-    g_workerEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-    if (!g_workerEvent) {
-        Log("[MPQPrefetch] ERROR: Failed to create worker event");
-        return false;
-    }
-
-    // Create worker thread pool
+    // Spawn background threads
     g_workerShutdown = false;
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        g_workerThreads[i] = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
-        if (!g_workerThreads[i]) {
-            Log("[MPQPrefetch] ERROR: Failed to create worker thread %d", i);
+        g_workerThreads.push_back(std::thread(WorkerProc));
+    }
+
+    // Install zone change hook on sub_5204C0
+    if (MH_CreateHook((void*)0x005204C0, (void*)Hooked_sub_5204C0, (void**)&orig_sub_5204C0) == MH_OK) {
+        if (MH_EnableHook((void*)0x005204C0) == MH_OK) {
+            Log("[MPQPrefetch] Zone change hook installed successfully at 0x005204C0");
+        } else {
+            Log("[MPQPrefetch] ERROR: Failed to enable zone change hook");
             Shutdown();
             return false;
         }
-        // Set worker thread priority
-        SetThreadPriority(g_workerThreads[i], THREAD_PRIORITY_BELOW_NORMAL);
+    } else {
+        Log("[MPQPrefetch] ERROR: Failed to create zone change hook");
+        Shutdown();
+        return false;
     }
 
     g_initialized = true;
-    Log("[MPQPrefetch] [ OK ] Worker thread pool created (%d threads, queue size: %d)",
-        WORKER_THREAD_COUNT, QUEUE_SIZE);
+    Log("[MPQPrefetch] [ OK ] Worker thread pool created (%d threads) and hooks active",
+        WORKER_THREAD_COUNT);
     return true;
 }
 
@@ -368,28 +388,27 @@ void Shutdown() {
 
     Log("[MPQPrefetch] Shutdown");
 
+    // Disable and remove zone change hook
+    MH_DisableHook((void*)0x005204C0);
+    MH_RemoveHook((void*)0x005204C0);
+
     // Signal worker threads to exit
     g_workerShutdown = true;
-    if (g_workerEvent) SetEvent(g_workerEvent);
+    g_queueCv.notify_all();
 
-    // Wait for worker threads (5 second timeout each)
-    for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        if (g_workerThreads[i]) {
-            DWORD waitResult = WaitForSingleObject(g_workerThreads[i], 5000);
-            if (waitResult == WAIT_TIMEOUT) {
-                Log("[MPQPrefetch] WARNING: Worker thread %d did not exit, terminating", i);
-                TerminateThread(g_workerThreads[i], 1);
-            }
-            CloseHandle(g_workerThreads[i]);
-            g_workerThreads[i] = NULL;
+    // Wait for worker threads
+    for (auto& thread : g_workerThreads) {
+        if (thread.joinable()) {
+            thread.join();
         }
     }
+    g_workerThreads.clear();
 
-    // Cleanup event
-    if (g_workerEvent) {
-        CloseHandle(g_workerEvent);
-        g_workerEvent = NULL;
+    // Close private archive handles
+    for (HANDLE hArchive : g_privateArchives) {
+        pSFileCloseArchive(hArchive);
     }
+    g_privateArchives.clear();
 
     // Clear cache
     AcquireSRWLockExclusive(&g_cacheLock);
@@ -404,21 +423,7 @@ void Shutdown() {
 }
 
 void OnFrame(DWORD mainThreadId) {
-    if (!g_initialized) return;
-    if (GetCurrentThreadId() != mainThreadId) return;
-
-    // TODO: Hook into WoW's zone/area change detection
-    // Hook GetZoneText or similar functions to detect zone changes
-
-    // Zone change detection (requires actual hook implementation)
-    static DWORD lastCheckTick = 0;
-    DWORD nowTick = GetTickCount();
-
-    if ((nowTick - lastCheckTick) >= 1000) {  // Check every second
-        lastCheckTick = nowTick;
-
-        // Read current zone from WoW memory (requires implementation)
-    }
+    // Hooks handle it asynchronously; no polling required.
 }
 
 Stats GetStats() {
@@ -430,11 +435,8 @@ Stats GetStats() {
     s.cacheMisses = g_cacheMisses;
     s.zoneTransitions = g_zoneTransitions;
 
-    LONG head = g_queueHead;
-    LONG tail = g_queueTail;
-    LONG depth = (tail - head) & 0x7FFFFFFF;
-    if (depth > QUEUE_SIZE) depth = QUEUE_SIZE;
-    s.queueDepth = depth;
+    std::lock_guard<std::mutex> lock(g_queueMutex);
+    s.queueDepth = (long)g_prefetchQueue.size();
 
     AcquireSRWLockShared(&g_prefetchTimeLock);
     s.totalPrefetchTimeMs = g_totalPrefetchTimeMs;

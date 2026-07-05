@@ -38,7 +38,7 @@
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
 // GetSpellInfo hook also disabled below.
-#define TEST_DISABLE_ALL_APICACHE       0
+#define TEST_DISABLE_ALL_APICACHE       1
 
 // Phase 2 Lua fast paths
 #define TEST_DISABLE_ALL_PHASE2         0
@@ -98,7 +98,7 @@
 #define TEST_DISABLE_PHASE2_NEW_DMA     0
 
 // GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 0
+#define TEST_DISABLE_GETSPELLINFO_CACHE 1
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES
@@ -106,7 +106,7 @@
 
 // ipairs factory hook - closure creation causes
 // EXCEPTION crashes (architectural mismatch: factory vs. iterator)
-#define TEST_DISABLE_HOOK_IPAIRS        0
+#define TEST_DISABLE_HOOK_IPAIRS        1
 
 // math.random
 #define TEST_DISABLE_HOOK_MATH_RANDOM   0
@@ -153,12 +153,12 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -175,27 +175,27 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         0
+#define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       1
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
-#define TEST_DISABLE_SYSTEM_METRICS_CACHE   0
+#define TEST_DISABLE_SYSTEM_METRICS_CACHE   1
 
 // Unit API fast paths - returns 0 HP (HD patch offsets differ)
-#define TEST_DISABLE_UNIT_API_FASTPATH 0  // enabled: safe cache with GUID invalidation on OnFieldUpdate
+#define TEST_DISABLE_UNIT_API_FASTPATH 1  // enabled: safe cache with GUID invalidation on OnFieldUpdate
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 0
+#define TEST_DISABLE_DATASTORE_FASTPATH 1
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -216,7 +216,7 @@
 #define TEST_DISABLE_TIMING_FIX         0
 
 // Custom Lua VM Engine (direct-threaded interpreter) - crashes on transitions/raids
-#define TEST_DISABLE_LUA_VM_ENGINE         0
+#define TEST_DISABLE_LUA_VM_ENGINE         1
 
 // FrameScript hash dispatch - 18 handlers, O(1) FNV-1a hash, disassembly-verified
 #define TEST_DISABLE_FRAME_SCRIPT_DISPATCH 0
@@ -242,7 +242,7 @@
 #define TEST_DISABLE_TOOLTIP_CACHE      0
 
 // Lua bytecode cache - WoW modified Lua bytecode incompatible
-#define TEST_DISABLE_LUA_BYTECODE_CACHE         0  // ENABLED: cached bytecode is stable with self-healing fallback
+#define TEST_DISABLE_LUA_BYTECODE_CACHE         1  // DISABLED: WoW modified Lua bytecode incompatible
 
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
@@ -339,10 +339,10 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         1
+#define TEST_DISABLE_QUAT_NORMALIZE         0
 
 // Addon file RAM-disk - interferes with WoW file I/O
-#define TEST_DISABLE_ADDON_PRELOAD      0
+#define TEST_DISABLE_ADDON_PRELOAD      1
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
@@ -392,7 +392,7 @@
 // Tracks zone transitions, predicts next zone, prefetches common files
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
-#define TEST_DISABLE_MPQ_PREFETCH       1
+#define TEST_DISABLE_MPQ_PREFETCH       0
 
 // Async Sound/Audio Prefetching - DISABLED.
 // Placeholder: the worker loads nothing (TODOs only), so it just spins 2 idle
@@ -451,7 +451,7 @@
 #define TEST_DISABLE_PREDICTIVE_PREFETCH 0
 
 // Low-Latency GPU Sync (Max Frame Latency = 1)
-#define TEST_DISABLE_LOW_LATENCY_SYNC    0
+#define TEST_DISABLE_LOW_LATENCY_SYNC    1
 
 // High-Precision Hybrid Frame Rate Limiter
 #define TEST_DISABLE_FRAME_LIMITER       0
@@ -508,7 +508,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. Disassembly-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST         0
+#define TEST_DISABLE_LUA_STACK_FAST         1
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
@@ -521,7 +521,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
@@ -582,10 +582,10 @@
 #define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0).
-#define TEST_DISABLE_PUSHNUMBER_FAST         0
+#define TEST_DISABLE_PUSHNUMBER_FAST         1
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
-#define TEST_DISABLE_PUSHVALUE_FAST         0
+#define TEST_DISABLE_PUSHVALUE_FAST         1
 
 // FrameScript_Execute hook (inject DLL markers)
 #define TEST_DISABLE_FRAMESCRIPT_EXECUTE         0
@@ -629,7 +629,7 @@
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
 #define TEST_DISABLE_VEC3_CROSS_SSE2         0
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
 #define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //

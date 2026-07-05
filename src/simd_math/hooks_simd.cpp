@@ -574,51 +574,71 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
             return 0;
         }
 
-        // Edge vectors
-        float edge1_x = v1[0] - v0[0];
-        float edge1_y = v1[1] - v0[1];
-        float edge1_z = v1[2] - v0[2];
+        // Perform all calculations in double precision to match x87 FPU's 80-bit/64-bit precision.
+        // This prevents camera jiggle/chatter at triangle edges during environment collision updates.
+        double ray_org_x = ray[0];
+        double ray_org_y = ray[1];
+        double ray_org_z = ray[2];
+        double ray_dir_x = ray[3];
+        double ray_dir_y = ray[4];
+        double ray_dir_z = ray[5];
 
-        float edge2_x = v2[0] - v0[0];
-        float edge2_y = v2[1] - v0[1];
-        float edge2_z = v2[2] - v0[2];
+        double v0_x = v0[0];
+        double v0_y = v0[1];
+        double v0_z = v0[2];
+        double v1_x = v1[0];
+        double v1_y = v1[1];
+        double v1_z = v1[2];
+        double v2_x = v2[0];
+        double v2_y = v2[1];
+        double v2_z = v2[2];
+
+        // Edge vectors
+        double edge1_x = v1_x - v0_x;
+        double edge1_y = v1_y - v0_y;
+        double edge1_z = v1_z - v0_z;
+
+        double edge2_x = v2_x - v0_x;
+        double edge2_y = v2_y - v0_y;
+        double edge2_z = v2_z - v0_z;
 
         // pvec = dir x edge2
-        float pvec_x = ray[4] * edge2_z - ray[5] * edge2_y;
-        float pvec_y = ray[5] * edge2_x - ray[3] * edge2_z;
-        float pvec_z = ray[3] * edge2_y - ray[4] * edge2_x;
+        double pvec_x = ray_dir_y * edge2_z - ray_dir_z * edge2_y;
+        double pvec_y = ray_dir_z * edge2_x - ray_dir_x * edge2_z;
+        double pvec_z = ray_dir_x * edge2_y - ray_dir_y * edge2_x;
 
         // det = edge1 . pvec
-        float det = edge1_x * pvec_x + edge1_y * pvec_y + edge1_z * pvec_z;
+        double det = edge1_x * pvec_x + edge1_y * pvec_y + edge1_z * pvec_z;
 
-        if (det > -0.000001f && det < 0.000001f) {
+        // Exact threshold check in double
+        if (det > -0.000001 && det < 0.000001) {
             return 0;
         }
 
-        float inv_det = 1.0f / det;
+        double inv_det = 1.0 / det;
 
         // tvec = origin - v0
-        float tvec_x = ray[0] - v0[0];
-        float tvec_y = ray[1] - v0[1];
-        float tvec_z = ray[2] - v0[2];
+        double tvec_x = ray_org_x - v0_x;
+        double tvec_y = ray_org_y - v0_y;
+        double tvec_z = ray_org_z - v0_z;
 
         // u = (tvec . pvec) * inv_det
-        float u = (tvec_x * pvec_x + tvec_y * pvec_y + tvec_z * pvec_z) * inv_det;
+        double u = (tvec_x * pvec_x + tvec_y * pvec_y + tvec_z * pvec_z) * inv_det;
 
-        float min_val = -margin;
-        float max_val = margin + 1.0f;
+        double min_val = -(double)margin;
+        double max_val = (double)margin + 1.0;
 
         if (u < min_val || u > max_val) {
             return 0;
         }
 
         // qvec = tvec x edge1
-        float qvec_x = tvec_y * edge1_z - tvec_z * edge1_y;
-        float qvec_y = tvec_z * edge1_x - tvec_x * edge1_z;
-        float qvec_z = tvec_x * edge1_y - tvec_y * edge1_x;
+        double qvec_x = tvec_y * edge1_z - tvec_z * edge1_y;
+        double qvec_y = tvec_z * edge1_x - tvec_x * edge1_z;
+        double qvec_z = tvec_x * edge1_y - tvec_y * edge1_x;
 
         // v = (dir . qvec) * inv_det
-        float v = (ray[3] * qvec_x + ray[4] * qvec_y + ray[5] * qvec_z) * inv_det;
+        double v = (ray_dir_x * qvec_x + ray_dir_y * qvec_y + ray_dir_z * qvec_z) * inv_det;
 
         if (v < min_val || (u + v) > max_val) {
             return 0;
@@ -626,12 +646,12 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
 
         if (outT) {
             // t = (edge2 . qvec) * inv_det
-            *outT = (edge2_x * qvec_x + edge2_y * qvec_y + edge2_z * qvec_z) * inv_det;
+            *outT = (float)((edge2_x * qvec_x + edge2_y * qvec_y + edge2_z * qvec_z) * inv_det);
         }
 
         if (outUV) {
-            outUV[0] = u;
-            outUV[1] = v;
+            outUV[0] = (float)u;
+            outUV[1] = (float)v;
         }
 
         return 1;
@@ -725,10 +745,6 @@ static IsAABBVisible_t orig_IsAABBVisible = nullptr;
  */
 static int __fastcall Hooked_IsAABBVisible(void* ecx, void* edx, const float* bounds) {
     InterlockedIncrement(&g_frustumCalls);
-    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
-        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
-        g_hasActiveFrustum = true;
-    }
     int res = SSE2_IsAABBVisible((const float*)ecx, bounds);
     if (res == 0) {
         InterlockedIncrement(&g_frustumCulled);
@@ -748,10 +764,6 @@ static IsAABBVisibleType2_t orig_IsAABBVisibleType2 = nullptr;
  */
 static int __fastcall Hooked_IsAABBVisibleType2(void* ecx, void* edx, const float* bounds) {
     InterlockedIncrement(&g_frustumCalls);
-    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
-        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
-        g_hasActiveFrustum = true;
-    }
     int res = SSE2_IsAABBVisible_Type2((const float*)ecx, bounds);
     if (res == 0) {
         InterlockedIncrement(&g_frustumCulled);
@@ -771,10 +783,6 @@ static IsPointVisible_t orig_IsPointVisible = nullptr;
  */
 static void __fastcall Hooked_IsPointVisible(void* ecx, void* edx, const float* point, uint8_t* outMask) {
     InterlockedIncrement(&g_frustumCalls);
-    if (ecx && (uintptr_t)ecx >= 0x10000 && (uintptr_t)ecx < 0xFFE00000) {
-        memcpy(g_activeFrustum, ecx, sizeof(g_activeFrustum));
-        g_hasActiveFrustum = true;
-    }
     SSE2_IsPointVisible((const float*)ecx, point, outMask);
     if (outMask && *outMask != 0) {
         InterlockedIncrement(&g_frustumCulled);

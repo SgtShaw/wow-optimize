@@ -11,7 +11,6 @@
 #include <cstdio>
 #include <cstring>
 #include <intrin.h>
-#include <unordered_map>
 #include <cmath>
 
 extern "C" void Log(const char* fmt, ...);
@@ -41,8 +40,14 @@ static NameplateUpdate_fn orig_NameplateUpdate = nullptr;
 typedef void (__fastcall *NameplatePosition_fn)(void* ecx, void* edx, float* cameraPos, int unit);
 static NameplatePosition_fn orig_NameplatePosition = nullptr;
 
-// Thread-safe distance cache
-static std::unordered_map<void*, float> g_nameplateDistances;
+// Fixed-size distance cache (replaces std::unordered_map to avoid heap allocs + reduce lock contention)
+static constexpr int DISTANCE_CACHE_SIZE = 256;
+static constexpr int DISTANCE_CACHE_MASK = DISTANCE_CACHE_SIZE - 1;
+struct DistanceCacheEntry {
+    void* key;
+    float distance;
+};
+static DistanceCacheEntry g_distanceCache[DISTANCE_CACHE_SIZE] = {};
 static SRWLOCK g_distanceSRW = SRWLOCK_INIT;
 
 // WoW descriptor offsets
@@ -405,8 +410,11 @@ static DWORD WINAPI WorkerThreadProc(LPVOID threadIndex) {
 // Detoured Hook Functions
 // ================================================================
 static void SaveDistanceToCache(void* ecx, float distance) {
-    SRWLockGuard lock(&g_distanceSRW);
-    g_nameplateDistances[ecx] = distance;
+    uint32_t hash = ((uint32_t)(uintptr_t)ecx >> 4) & DISTANCE_CACHE_MASK;
+    AcquireSRWLockExclusive(&g_distanceSRW);
+    g_distanceCache[hash].key = ecx;
+    g_distanceCache[hash].distance = distance;
+    ReleaseSRWLockExclusive(&g_distanceSRW);
 }
 
 void __fastcall Hooked_NameplatePosition(void* ecx, void* edx, float* cameraPos, int unit) {
@@ -435,12 +443,11 @@ void __fastcall Hooked_NameplatePosition(void* ecx, void* edx, float* cameraPos,
 
 
 static float GetCachedNameplateDistance(void* ecx) {
-    SRWLockGuard lock(&g_distanceSRW);
-    auto it = g_nameplateDistances.find(ecx);
-    if (it != g_nameplateDistances.end()) {
-        return it->second;
-    }
-    return 0.0f;
+    uint32_t hash = ((uint32_t)(uintptr_t)ecx >> 4) & DISTANCE_CACHE_MASK;
+    AcquireSRWLockShared(&g_distanceSRW);
+    float d = (g_distanceCache[hash].key == ecx) ? g_distanceCache[hash].distance : 0.0f;
+    ReleaseSRWLockShared(&g_distanceSRW);
+    return d;
 }
 
 void __fastcall Hooked_NameplateUpdate(void* ecx, void* edx, float dt) {
@@ -449,6 +456,10 @@ void __fastcall Hooked_NameplateUpdate(void* ecx, void* edx, float dt) {
     if (LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) return;
 
     if (!ecx || !IsReadable((uintptr_t)ecx)) return;
+
+    // Skip updating hidden or culled nameplates to avoid layout/dirtying storm
+    bool isVisible = (*(uint8_t*)((uintptr_t)ecx + 204) & 0x20) != 0;
+    if (!isVisible) return;
 
     __try {
         uint64_t guid = *(uint64_t*)((char*)ecx + 680);
@@ -649,8 +660,9 @@ void Shutdown() {
 
     // Clear distance cache
     {
-        SRWLockGuard lock(&g_distanceSRW);
-        g_nameplateDistances.clear();
+        AcquireSRWLockExclusive(&g_distanceSRW);
+        memset(g_distanceCache, 0, sizeof(g_distanceCache));
+        ReleaseSRWLockExclusive(&g_distanceSRW);
     }
 
     // Log final stats
@@ -667,8 +679,9 @@ static void HandleNameplateReload() {
     NameplateMT::NameplateTask task;
     while (DequeueNameplateTask(&task)) {}
     
-    SRWLockGuard lock(&g_distanceSRW);
-    g_nameplateDistances.clear();
+    AcquireSRWLockExclusive(&g_distanceSRW);
+    memset(g_distanceCache, 0, sizeof(g_distanceCache));
+    ReleaseSRWLockExclusive(&g_distanceSRW);
 }
 
 void OnFrame(DWORD mainThreadId) {
@@ -682,9 +695,11 @@ void OnFrame(DWORD mainThreadId) {
 
     NameplateMT::NameplateResult result;
     int processedCount = 0;
+    static constexpr int MAX_RESULTS_PER_FRAME = 32;
     
     // Dequeue results and apply them safely on the main thread
-    while (DequeueNameplateResult(&result)) {
+    // Cap processing to avoid stalling the main thread in top-down camera views
+    while (processedCount < MAX_RESULTS_PER_FRAME && DequeueNameplateResult(&result)) {
         void* nameplate = result.nameplate;
         if (!nameplate || !IsReadable((uintptr_t)nameplate)) continue;
         

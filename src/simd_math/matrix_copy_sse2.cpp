@@ -158,38 +158,32 @@ static float* __cdecl Hooked_MatVec3Mul(float* result, const float* vec3, const 
         pv > 0x10000 && pv < 0xFFE00000 &&
         pm > 0x10000 && pm < 0xFFE00000) {
         __try {
-            // Stage all inputs to local variables before any output writes
-            float vx_val = vec3[0];
-            float vy_val = vec3[1];
-            float vz_val = vec3[2];
+            double vx = vec3[0];
+            double vy = vec3[1];
+            double vz = vec3[2];
 
-            __m128 col0 = _mm_loadu_ps(matrix44);
-            __m128 col1 = _mm_loadu_ps(matrix44 + 4);
-            __m128 col2 = _mm_loadu_ps(matrix44 + 8);
-            __m128 col3 = _mm_loadu_ps(matrix44 + 12);
+            double m0 = matrix44[0];
+            double m4 = matrix44[4];
+            double m8 = matrix44[8];
+            double m12 = matrix44[12];
 
-            // Hard optimization barrier: force all reads to finish before calculations or writes
-            _ReadWriteBarrier();
+            double m1 = matrix44[1];
+            double m5 = matrix44[5];
+            double m9 = matrix44[9];
+            double m13 = matrix44[13];
 
-            __m128 vx = _mm_set1_ps(vx_val);
-            __m128 vy = _mm_set1_ps(vy_val);
-            __m128 vz = _mm_set1_ps(vz_val);
+            double m2 = matrix44[2];
+            double m6 = matrix44[6];
+            double m10 = matrix44[10];
+            double m14 = matrix44[14];
 
-            __m128 res = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
-                _mm_add_ps(_mm_mul_ps(vz, col2), col3)
-            );
+            double rx = vx * m0 + vy * m4 + vz * m8 + m12;
+            double ry = vx * m1 + vy * m5 + vz * m9 + m13;
+            double rz = vx * m2 + vy * m6 + vz * m10 + m14;
 
-            // Stage output through a local stack-allocated float array
-            float out_val[4];
-            _mm_storeu_ps(out_val, res);
-
-            // Force calculation and local store to complete before writing to result
-            _ReadWriteBarrier();
-
-            result[0] = out_val[0];
-            result[1] = out_val[1];
-            result[2] = out_val[2];
+            result[0] = (float)rx;
+            result[1] = (float)ry;
+            result[2] = (float)rz;
 
             return result;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -211,41 +205,40 @@ static float* __cdecl Hooked_MatVec4Mul(float* result, const float* vec4, const 
         pv > 0x10000 && pv < 0xFFE00000 &&
         pm > 0x10000 && pm < 0xFFE00000) {
         __try {
-            // Stage all inputs to local variables before any output writes
-            float vx_val = vec4[0];
-            float vy_val = vec4[1];
-            float vz_val = vec4[2];
-            float vw_val = vec4[3];
+            double vx = vec4[0];
+            double vy = vec4[1];
+            double vz = vec4[2];
+            double vw = vec4[3];
 
-            __m128 col0 = _mm_loadu_ps(matrix44);
-            __m128 col1 = _mm_loadu_ps(matrix44 + 4);
-            __m128 col2 = _mm_loadu_ps(matrix44 + 8);
-            __m128 col3 = _mm_loadu_ps(matrix44 + 12);
+            double m0 = matrix44[0];
+            double m4 = matrix44[4];
+            double m8 = matrix44[8];
+            double m12 = matrix44[12];
 
-            // Hard optimization barrier: force all reads to finish before calculations or writes
-            _ReadWriteBarrier();
+            double m1 = matrix44[1];
+            double m5 = matrix44[5];
+            double m9 = matrix44[9];
+            double m13 = matrix44[13];
 
-            __m128 vx = _mm_set1_ps(vx_val);
-            __m128 vy = _mm_set1_ps(vy_val);
-            __m128 vz = _mm_set1_ps(vz_val);
-            __m128 vw = _mm_set1_ps(vw_val);
+            double m2 = matrix44[2];
+            double m6 = matrix44[6];
+            double m10 = matrix44[10];
+            double m14 = matrix44[14];
 
-            __m128 res = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
-                _mm_add_ps(_mm_mul_ps(vz, col2), _mm_mul_ps(vw, col3))
-            );
+            double m3 = matrix44[3];
+            double m7 = matrix44[7];
+            double m11 = matrix44[11];
+            double m15 = matrix44[15];
 
-            // Stage output through a local stack-allocated float array
-            float out_val[4];
-            _mm_storeu_ps(out_val, res);
+            double rx = vx * m0 + vy * m4 + vz * m8 + vw * m12;
+            double ry = vx * m1 + vy * m5 + vz * m9 + vw * m13;
+            double rz = vx * m2 + vy * m6 + vz * m10 + vw * m14;
+            double rw = vx * m3 + vy * m7 + vz * m11 + vw * m15;
 
-            // Force calculation and local store to complete before writing to result
-            _ReadWriteBarrier();
-
-            result[0] = out_val[0];
-            result[1] = out_val[1];
-            result[2] = out_val[2];
-            result[3] = out_val[3];
+            result[0] = (float)rx;
+            result[1] = (float)ry;
+            result[2] = (float)rz;
+            result[3] = (float)rw;
 
             return result;
         } __except(EXCEPTION_EXECUTE_HANDLER) {
@@ -458,22 +451,31 @@ static float* __cdecl Hooked_PointXformInPlace(float* a1, float* a2, float* a3) 
         p2 > 0x10000 && p2 < 0xFFE00000 &&
         p3 > 0x10000 && p3 < 0xFFE00000) {
         __try {
-            // Read the point fully before writing -> safe for a1 aliasing a2.
-            __m128 vx = _mm_set1_ps(a2[0]);
-            __m128 vy = _mm_set1_ps(a2[1]);
-            __m128 vz = _mm_set1_ps(a2[2]);
-            __m128 col0 = _mm_loadu_ps(a3);
-            __m128 col1 = _mm_loadu_ps(a3 + 4);
-            __m128 col2 = _mm_loadu_ps(a3 + 8);
-            __m128 col3 = _mm_loadu_ps(a3 + 12);
-            __m128 res = _mm_add_ps(_mm_add_ps(_mm_mul_ps(vx, col0), _mm_mul_ps(vy, col1)),
-                                    _mm_add_ps(_mm_mul_ps(vz, col2), col3));
-            float rx, ry, rz;
-            _mm_store_ss(&rx, res);
-            _mm_store_ss(&ry, _mm_shuffle_ps(res, res, _MM_SHUFFLE(1, 1, 1, 1)));
-            _mm_store_ss(&rz, _mm_shuffle_ps(res, res, _MM_SHUFFLE(2, 2, 2, 2)));
-            a2[0] = rx; a2[1] = ry; a2[2] = rz;   // in-place result
-            a1[0] = rx; a1[1] = ry; a1[2] = rz;   // and the output copy
+            double vx = a2[0];
+            double vy = a2[1];
+            double vz = a2[2];
+
+            double m0 = a3[0];
+            double m4 = a3[4];
+            double m8 = a3[8];
+            double m12 = a3[12];
+
+            double m1 = a3[1];
+            double m5 = a3[5];
+            double m9 = a3[9];
+            double m13 = a3[13];
+
+            double m2 = a3[2];
+            double m6 = a3[6];
+            double m10 = a3[10];
+            double m14 = a3[14];
+
+            double rx = vx * m0 + vy * m4 + vz * m8 + m12;
+            double ry = vx * m1 + vy * m5 + vz * m9 + m13;
+            double rz = vx * m2 + vy * m6 + vz * m10 + m14;
+
+            a2[0] = (float)rx; a2[1] = (float)ry; a2[2] = (float)rz;
+            a1[0] = (float)rx; a1[1] = (float)ry; a1[2] = (float)rz;
             return a1;
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }
@@ -529,16 +531,6 @@ static float* __fastcall Hooked_MatInvertRigid(float* self, void* edx, float* ou
                            _mm_mul_ps(r1, _mm_set1_ps(-ty))),
                 _mm_mul_ps(r2, _mm_set1_ps(-tz)));          // (out12,out13,out14,0)
             trans = _mm_add_ps(trans, _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f)); // out15=1
-
-            float out_t[4];
-            _mm_storeu_ps(out_t, trans);
-
-            static int logged = 0;
-            if (logged < 10) {
-                logged++;
-                Log("[MatrixSSE2] Hooked_MatInvertRigid: self translation=(%.3f, %.3f, %.3f) out translation=(%.3f, %.3f, %.3f)",
-                    tx, ty, tz, out_t[0], out_t[1], out_t[2]);
-            }
 
             _mm_storeu_ps(out,      r0);
             _mm_storeu_ps(out + 4,  r1);
@@ -646,20 +638,25 @@ static float* __fastcall Hooked_MatTranslateLocal(float* self, void* edx, float*
     uintptr_t s = (uintptr_t)self, v = (uintptr_t)vec3;
     if (s > 0x10000 && s < 0xFFE00000 && v > 0x10000 && v < 0xFFE00000) {
         __try {
-            __m128 r0 = _mm_loadu_ps(self);       // (this[0],this[1],this[2], _)  = col0
-            __m128 r1 = _mm_loadu_ps(self + 4);   // (this[4],this[5],this[6], _)  = col1
-            __m128 r2 = _mm_loadu_ps(self + 8);   // (this[8],this[9],this[10],_)  = col2
-            __m128 delta = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(_mm_set1_ps(vec3[0]), r0),
-                           _mm_mul_ps(_mm_set1_ps(vec3[1]), r1)),
-                _mm_mul_ps(_mm_set1_ps(vec3[2]), r2));   // lanes 0..2 = increments
-            float d0, d1, d2;
-            _mm_store_ss(&d0, delta);
-            _mm_store_ss(&d1, _mm_shuffle_ps(delta, delta, _MM_SHUFFLE(1, 1, 1, 1)));
-            _mm_store_ss(&d2, _mm_shuffle_ps(delta, delta, _MM_SHUFFLE(2, 2, 2, 2)));
-            self[12] += d0;
-            self[13] += d1;
-            self[14] += d2;
+            double vx = vec3[0];
+            double vy = vec3[1];
+            double vz = vec3[2];
+
+            double r0 = self[0];
+            double r4 = self[4];
+            double r8 = self[8];
+
+            double r1 = self[1];
+            double r5 = self[5];
+            double r9 = self[9];
+
+            double r2 = self[2];
+            double r6 = self[6];
+            double r10 = self[10];
+
+            self[12] = (float)(self[12] + vx * r0 + vy * r4 + vz * r8);
+            self[13] = (float)(self[13] + vx * r1 + vy * r5 + vz * r9);
+            self[14] = (float)(self[14] + vx * r2 + vy * r6 + vz * r10);
             return vec3;   // original returns the vec3 argument
         } __except (EXCEPTION_EXECUTE_HANDLER) {
         }

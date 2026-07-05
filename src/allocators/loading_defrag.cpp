@@ -183,22 +183,22 @@ static DWORD WINAPI DefragWorkerThread(LPVOID) {
             while (g_loadingActive.load(std::memory_order_relaxed) && 
                    !g_shutdown.load(std::memory_order_relaxed)) 
             {
-                Sleep(200); // Check every 200ms
+                Sleep(1000); // Check every 1000ms (was 200ms) to reduce CPU/lock overhead
                 
-                // Trigger page release and compaction
+                // Trigger page release and compaction inside mimalloc
                 mi_collect(true);
-                
-                HANDLE heaps[64];
-                DWORD heapCount = GetProcessHeaps(64, heaps);
-                for (DWORD i = 0; i < heapCount && i < 16; i++) {
-                    HeapCompact(heaps[i], 0);
-                }
                 
                 compactionCount++;
             }
             
             // Step 3: Final sweep when loading screen finishes
             mi_collect(true);
+            
+            // Perform a single heap compaction pass on the main process heap to consolidate allocations
+            __try {
+                HeapCompact(GetProcessHeap(), 0);
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            
             Log("[LoadingDefrag] Defragmenter loop finished (compactions run: %d)", compactionCount);
             
             ResetEvent(g_defragEvent);

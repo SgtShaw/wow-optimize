@@ -1353,6 +1353,23 @@ static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* sou
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_LOADED");
                 Api.lua_pushboolean(currentL, 1);
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_ACTIVE");
+                
+                if (Api.FrameScript_Execute) {
+                    Api.FrameScript_Execute(
+                        "local f=CreateFrame'Frame' "
+                        "f:RegisterEvent'VARIABLES_LOADED' "
+                        "f:RegisterEvent'PLAYER_LOGIN' "
+                        "f:RegisterEvent'PLAYER_ENTERING_WORLD' "
+                        "f:SetScript('OnEvent', function() "
+                        "  local gm = GMChatFrame "
+                        "  if gm then "
+                        "    if type(gm.lastGM) ~= 'table' then gm.lastGM = {} end "
+                        "    setmetatable(gm.lastGM, {__index = function() return '' end}) "
+                        "  end "
+                        "end)",
+                        "wow_optimize_gm_fix", 0);
+                }
+                
                 Log("[LuaOpt] FrameScript hook: injected DLL markers before addon load on L=0x%08X",
                     (unsigned)(uintptr_t)currentL);
             }
@@ -1771,6 +1788,7 @@ bool LuaOpt::IsLoadingMode() {
 
 bool IsReloading() { return g_isReloading.load(std::memory_order_acquire); }
 bool IsSwapping()  { return g_isSwapping.load(std::memory_order_acquire); }
+DWORD GetLastSwapTick() { return g_lastLuaSwapTick; }
 
 void RestoreAllocator() {
     if (g_luaAllocReplaced) {
