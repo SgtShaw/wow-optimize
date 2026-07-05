@@ -625,10 +625,11 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
         // u = (tvec . pvec) * inv_det
         double u = (tvec_x * pvec_x + tvec_y * pvec_y + tvec_z * pvec_z) * inv_det;
 
-        double min_val = -(double)margin;
-        double max_val = (double)margin + 1.0;
+        float u_flt = (float)u;
+        float min_flt = -(float)margin;
+        float max_flt = (float)margin + 1.0f;
 
-        if (u < min_val || u > max_val) {
+        if (u_flt < min_flt || u_flt > max_flt) {
             return 0;
         }
 
@@ -639,8 +640,9 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
 
         // v = (dir . qvec) * inv_det
         double v = (ray_dir_x * qvec_x + ray_dir_y * qvec_y + ray_dir_z * qvec_z) * inv_det;
+        float v_flt = (float)v;
 
-        if (v < min_val || (u + v) > max_val) {
+        if (v_flt < min_flt || (u_flt + v_flt) > max_flt) {
             return 0;
         }
 

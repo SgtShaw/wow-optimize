@@ -20,27 +20,11 @@ static volatile long g_rawgetFast  = 0;
 
 static const uint32_t TAINT_CELL = 0x00D4139C;
 
-typedef int (__cdecl *lua_rawget_fn)(uintptr_t L, int idx);
+typedef int (__cdecl* lua_rawget_fn)(uintptr_t L, int idx);
 static lua_rawget_fn orig_rawget = nullptr;
 
 static __forceinline bool IsValidPtr(uintptr_t p) {
     return p > 0x10000 && p < 0xFFE00000;
-}
-
-// ----------------------------------------------------------------
-// Custom calling convention wrapper for index2adr:
-// EAX = idx, ECX = L. Returns TValue pointer in EAX.
-// ----------------------------------------------------------------
-static inline int* CallIndex2Adr(uintptr_t L, int idx) {
-    int* result = nullptr;
-    __asm {
-        mov eax, idx
-        mov ecx, L
-        mov edx, 0x0084D9C0
-        call edx
-        mov result, eax
-    }
-    return result;
 }
 
 // Hooked lua_rawget (0x84E600): reads table at idx, lookup using key at L->top - 1,
@@ -58,13 +42,35 @@ static int __cdecl Hooked_RawGet(uintptr_t L, int idx) {
     }
 
     __try {
-        int* t_tv = CallIndex2Adr(L, idx);
-        if (t_tv && IsValidPtr((uintptr_t)t_tv) && t_tv[2] == 5) { // LUA_TTABLE
+        int* L_base = *(int**)(L + 0x10);  // L->base
+        int* L_top  = *(int**)(L + 0x0C);  // L->top
+
+        // Validate stack pointers
+        if ((uintptr_t)L_base < 0x10000 || (uintptr_t)L_base > 0xFFE00000 ||
+            (uintptr_t)L_top < 0x10000 || (uintptr_t)L_top > 0xFFE00000) {
+            return orig_rawget(L, idx);
+        }
+
+        // Fast inline stack lookup
+        int* tableSlot = nullptr;
+        if (idx > 0) {
+            int* targetSlot = L_base + (idx - 1) * 4;
+            if (targetSlot < L_top) {
+                tableSlot = targetSlot;
+            }
+        } else if (idx < 0 && idx > -10000) {
+            int* targetSlot = L_top + idx * 4;
+            if (targetSlot >= L_base) {
+                tableSlot = targetSlot;
+            }
+        }
+
+        if (tableSlot && IsValidPtr((uintptr_t)tableSlot) && tableSlot[2] == 5) { // LUA_TTABLE
             uintptr_t top = *(uintptr_t*)(L + 0x0C);
             uintptr_t key = top - 16;
             uintptr_t base = *(uintptr_t*)(L + 0x10);
             if (IsValidPtr(top) && IsValidPtr(base) && key >= base) {
-                uintptr_t tab = *(uintptr_t*)(t_tv + 0);
+                uintptr_t tab = *(uintptr_t*)(tableSlot + 0);
                 if (IsValidPtr(tab)) {
                     // Call the engine's luaH_get (0x0085C470)
                     typedef uintptr_t (__cdecl *luaH_get_t)(uintptr_t t, uintptr_t key);

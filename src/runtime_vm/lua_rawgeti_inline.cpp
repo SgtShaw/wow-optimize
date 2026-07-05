@@ -37,22 +37,6 @@ typedef int (__cdecl *lua_rawgeti_fn)(int L, int idx, int n);
 static lua_rawgeti_fn g_orig_rawgeti = nullptr;
 
 // ----------------------------------------------------------------
-// Custom calling convention wrapper for index2adr:
-// EAX = idx, ECX = L. Returns TValue pointer in EAX.
-// ----------------------------------------------------------------
-static inline int* CallIndex2Adr(int L, int idx) {
-    int* result = nullptr;
-    __asm {
-        mov eax, idx
-        mov ecx, L
-        mov edx, 0x0084D9C0
-        call edx
-        mov result, eax
-    }
-    return result;
-}
-
-// ----------------------------------------------------------------
 // Optimized replacement — SAFE (no pointer caching)
 // ----------------------------------------------------------------
 static int __cdecl Optimized_RawGetI(int L, int idx, int n)
@@ -72,19 +56,37 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
     }
 
     __try {
-        // Resolve table address using the engine's index2adr
-        int* tableTVal = CallIndex2Adr(L, idx);
-        if (!tableTVal || (uintptr_t)tableTVal < 0x10000 || (uintptr_t)tableTVal > 0xFFE00000) {
+        int* L_base = *(int**)(L + 0x10);  // L->base
+        int* L_top  = *(int**)(L + 0x0C);  // L->top
+
+        // Validate stack pointers
+        if ((uintptr_t)L_base < 0x10000 || (uintptr_t)L_base > 0xFFE00000 ||
+            (uintptr_t)L_top < 0x10000 || (uintptr_t)L_top > 0xFFE00000) {
             return g_orig_rawgeti(L, idx, n);
         }
 
+        // Fast inline stack lookup: bypasses CallIndex2Adr function overhead
+        int* tableSlot = nullptr;
+        if (idx > 0) {
+            int* targetSlot = L_base + (idx - 1) * 4; // 4 DWORDs = 16 bytes per TValue
+            if (targetSlot < L_top) {
+                tableSlot = targetSlot;
+            }
+        } else if (idx < 0 && idx > -10000) {
+            int* targetSlot = L_top + idx * 4;
+            if (targetSlot >= L_base) {
+                tableSlot = targetSlot;
+            }
+        }
+
+        // Pseudo-indices and RegistryTable defer to the engine
+        if (!tableSlot) {
+            return g_orig_rawgeti(L, idx, n);
+        }
+
+        int table = tableSlot[0];
         // Validate: must be a table (tt == 5)
-        if (tableTVal[2] != 5) {
-            return g_orig_rawgeti(L, idx, n);
-        }
-
-        int table = tableTVal[0];
-        if (table < 0x10000 || table > 0xFFE00000) {
+        if (tableSlot[2] != 5 || table < 0x10000 || table > 0xFFE00000) {
             return g_orig_rawgeti(L, idx, n);
         }
 
@@ -161,7 +163,7 @@ bool InstallLuaRawGetIInline()
         return false;
     }
 
-    Log("[RawGetIInline] Hook ACTIVE (safe array fast path + index2adr)");
+    Log("[RawGetIInline] Hook ACTIVE (fast inline stack lookup + array fast path)");
     return true;
 }
 
