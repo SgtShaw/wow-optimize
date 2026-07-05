@@ -327,7 +327,9 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef CRASH_TEST_DISABLE_READFILE
 #define CRASH_TEST_DISABLE_READFILE        1   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
 #endif
-#define CRASH_TEST_DISABLE_ISBADPTR        0   // IsBadReadPtr/WritePtr fast path (re-enabled - was disabled preemptively)
+#ifndef CRASH_TEST_DISABLE_ISBADPTR
+#define CRASH_TEST_DISABLE_ISBADPTR        1   // IsBadReadPtr/WritePtr fast path (DISABLED - VirtualQuery is slow)
+#endif
 #define CRASH_TEST_DISABLE_MPQ_MMAP        1   // MPQ memory mapping (ALREADY DISABLED - risky)
 #define CRASH_TEST_DISABLE_QPC_CACHE       1   // QPC coalescing cache (DISABLED to fix random stutters under DXVK)
 #define CRASH_TEST_DISABLE_TICK_COUNT      1   // GetTickCount/timeGetTime redirection to QPC (DISABLED to fix random stutters and CPU overhead)
@@ -1141,66 +1143,79 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 
     if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
         UpdateMainThreadActivity();
-        RunPeriodicMaintenanceOnMainThread();
 
         LARGE_INTEGER now;
         QueryPerformanceCounter(&now);
+        double elapsedMs = 0.0;
         if (g_lastSleepTime.QuadPart > 0 && g_sleepFreq > 0) {
-            g_lastFrameMs = (double)(now.QuadPart - g_lastSleepTime.QuadPart) / g_sleepFreq;
+            elapsedMs = (double)(now.QuadPart - g_lastSleepTime.QuadPart) / g_sleepFreq;
         }
         g_lastSleepTime = now;
 
-        // Detect lua_State destruction (logout/exit) - clear caches
-        static uintptr_t g_lastLState = 0;
-        uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
-        if (currentL != g_lastLState) {
-            ClearAssetPathCache();
-            ApiCache::ClearCache();
-            ClearCombatLogCache();
-            ClearTableCache();
-            ClearLuaPushStringCache();
-            g_lastLState = currentL;
+        // Gate frame ticks so they run at most once every 8ms
+        static LARGE_INTEGER lastFrameTickTime = {};
+        double msSinceLastTick = 0.0;
+        if (lastFrameTickTime.QuadPart > 0 && g_sleepFreq > 0) {
+            msSinceLastTick = (double)(now.QuadPart - lastFrameTickTime.QuadPart) / g_sleepFreq;
         }
 
-        LuaOpt::OnMainThreadSleep(g_mainThreadId, g_lastFrameMs);
-        LuaVMEngine_FrameTick();
-        ApiCache::OnNewFrame();
-        LoadingDefrag::OnFrame();
-        AsyncCulling::OnFrameStart();
+        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= 8.0) {
+            lastFrameTickTime = now;
+
+            RunPeriodicMaintenanceOnMainThread();
+
+            // Detect lua_State destruction (logout/exit) - clear caches
+            static uintptr_t g_lastLState = 0;
+            uintptr_t currentL = *(uintptr_t*)0x00D3F78C;  // lua_State* global
+            if (currentL != g_lastLState) {
+                ClearAssetPathCache();
+                ApiCache::ClearCache();
+                ClearCombatLogCache();
+                ClearTableCache();
+                ClearLuaPushStringCache();
+                g_lastLState = currentL;
+            }
+
+            LuaOpt::OnMainThreadSleep(g_mainThreadId, elapsedMs);
+            LuaVMEngine_FrameTick();
+            ApiCache::OnNewFrame();
+            LoadingDefrag::OnFrame();
+            AsyncCulling::OnFrameStart();
 #if !TEST_DISABLE_PREDICTIVE_PREFETCH
-        PredictivePrefetch::OnFrame();
+            PredictivePrefetch::OnFrame();
 #endif
-        FlushFieldUpdates();
+            FlushFieldUpdates();
 #if !TEST_DISABLE_HARDWARE_CURSOR
-        InitHardwareCursor();
+            InitHardwareCursor();
 #endif
-        CombatLogOpt::OnFrame(g_mainThreadId);
-        CombatLogBuffer::OnFrame(g_mainThreadId);
+            CombatLogOpt::OnFrame(g_mainThreadId);
+            CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_ADDON_DISPATCHER
-        AddonDispatcher::OnFrame(g_mainThreadId);
+            AddonDispatcher::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
-        MPQPrefetch::OnFrame(g_mainThreadId);
+            MPQPrefetch::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_OBJ_VIS_CACHE
-        ObjVisCache::OnFrame();
+            ObjVisCache::OnFrame();
 #endif
 #if !TEST_DISABLE_NAMEPLATE_MT
-        NameplateMT::OnFrame(g_mainThreadId);
+            NameplateMT::OnFrame(g_mainThreadId);
 #endif
 #if !TEST_DISABLE_EVENT_COALESCER
-        EventCoalescer_Flush();
+            EventCoalescer_Flush();
 #endif
 
 #if !TEST_DISABLE_PARTICLE_THROTTLE
-        IncrementParticleFrameCount();
+            IncrementParticleFrameCount();
 #endif
 
-        // D3D9 disabled (DXVK vtable mismatch), other 4 enabled
-        // OnFrameD3D9StateManager(g_mainThreadId);
-        OnFrameRenderHooks(g_mainThreadId);
-        OnFrameLogicHooks(g_mainThreadId);
-        OnFrameAsyncHooks(g_mainThreadId);
+            // D3D9 disabled (DXVK vtable mismatch), other 4 enabled
+            // OnFrameD3D9StateManager(g_mainThreadId);
+            OnFrameRenderHooks(g_mainThreadId);
+            OnFrameLogicHooks(g_mainThreadId);
+            OnFrameAsyncHooks(g_mainThreadId);
+        }
 
         if (ms <= 3) {
             PreciseSleep((double)ms);

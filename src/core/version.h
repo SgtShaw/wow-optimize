@@ -759,6 +759,8 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 #define CRASH_TEST_DISABLE_VA_ARENA         1
 
+#define CRASH_TEST_DISABLE_ISBADPTR         1
+
 enum LogLevel {
     LOG_LEVEL_DEBUG = 0,
     LOG_LEVEL_INFO,
