@@ -2908,81 +2908,94 @@ static lua_CFunction_t orig_UnitHealthMax   = nullptr;
 static lua_CFunction_t orig_UnitPower       = nullptr;
 static lua_CFunction_t orig_UnitPowerMax    = nullptr;
 #if !TEST_DISABLE_TABLE_SORT_FASTPATH
-static int __cdecl Hooked_TableSort(lua_State* L) {
-    __try {
-        if (lua_gettop_(L) != 1) goto fallback;
+static void SafeSortNumberArray(RawTValue* array, int n) {
+    std::sort(array, array + n, [](const RawTValue& a, const RawTValue& b) {
+        return a.value.n < b.value.n;
+    });
+}
 
-        RawTValue* base = GetStackBaseFast(L);
-        if (!base || base->tt != LUA_TTABLE) goto fallback;
+static void SafeSortStringArray(RawTValue* array, int n) {
+    std::sort(array, array + n, [](const RawTValue& a, const RawTValue& b) {
+        char* tsA = (char*)a.value.gc;
+        char* tsB = (char*)b.value.gc;
+        if (!tsA && !tsB) return false;
+        if (!tsA) return true;
+        if (!tsB) return false;
+        int lenA = *(int*)(tsA + 16);
+        int lenB = *(int*)(tsB + 16);
+        const char* strA = tsA + 20;
+        const char* strB = tsB + 20;
+        int cmp = memcmp(strA, strB, (lenA < lenB) ? lenA : lenB);
+        if (cmp != 0) return cmp < 0;
+        return lenA < lenB;
+    });
+}
 
-        void* tablePtr = base->value.gc;
-        if (!tablePtr) goto fallback;
+static int Hooked_TableSort_Internal(lua_State* L) {
+    if (lua_gettop_(L) != 1) return -1;
 
-        int sizearray = *(int*)((char*)tablePtr + 32);
-        if (sizearray < 2 || sizearray > 100000) goto fallback;
+    RawTValue* base = GetStackBaseFast(L);
+    if (!base || base->tt != LUA_TTABLE) return -1;
 
-        RawTValue* array = *(RawTValue**)((char*)tablePtr + 16);
-        if (!array) goto fallback;
+    void* tablePtr = base->value.gc;
+    if (!tablePtr) return -1;
 
-        int n = 0;
-        while (n < sizearray && array[n].tt != LUA_TNIL) {
-            n++;
-        }
-        if (n < 2) {
-            g_tableSortHits++;
-            return 0;
-        }
+    int sizearray = *(int*)((char*)tablePtr + 32);
+    if (sizearray < 2 || sizearray > 100000) return -1;
 
-        if (n == sizearray) {
-            // FIX: lsizenode is at offset 11 (0x0B) in Table struct, not offset 9!
-            unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
-            if (lsizenode > 0) goto fallback;
-        }
+    RawTValue* array = *(RawTValue**)((char*)tablePtr + 16);
+    if (!array) return -1;
 
-        bool isNumber = true;
-        bool isString = true;
-
-        for (int i = 0; i < n; i++) {
-            if (array[i].tt != LUA_TNUMBER) {
-                isNumber = false;
-            } else if (array[i].value.n != array[i].value.n) {
-                // Reject NaNs to prevent std::sort strict weak ordering violation crash
-                goto fallback;
-            }
-            if (array[i].tt != LUA_TSTRING) isString = false;
-            if (!isNumber && !isString) goto fallback;
-        }
-
-        if (isNumber) {
-            std::sort(array, array + n, [](const RawTValue& a, const RawTValue& b) {
-                return a.value.n < b.value.n;
-            });
-        } else if (isString) {
-            std::sort(array, array + n, [](const RawTValue& a, const RawTValue& b) {
-                char* tsA = (char*)a.value.gc;
-                char* tsB = (char*)b.value.gc;
-                // Strict weak ordering compliant null guards
-                if (!tsA && !tsB) return false;
-                if (!tsA) return true;
-                if (!tsB) return false;
-                int lenA = *(int*)(tsA + 16);
-                int lenB = *(int*)(tsB + 16);
-                const char* strA = tsA + 20;
-                const char* strB = tsB + 20;
-                int cmp = memcmp(strA, strB, (lenA < lenB) ? lenA : lenB);
-                if (cmp != 0) return cmp < 0;
-                return lenA < lenB;
-            });
-        } else {
-            goto fallback;
-        }
-
+    int n = 0;
+    while (n < sizearray && array[n].tt != LUA_TNIL) {
+        n++;
+    }
+    if (n < 2) {
         g_tableSortHits++;
         return 0;
     }
-    __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-fallback:
+    if (n == sizearray) {
+        unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
+        if (lsizenode > 0) return -1;
+    }
+
+    bool isNumber = true;
+    bool isString = true;
+
+    for (int i = 0; i < n; i++) {
+        if (array[i].tt != LUA_TNUMBER) {
+            isNumber = false;
+        } else if (array[i].value.n != array[i].value.n) {
+            return -1; // Reject NaNs
+        }
+        if (array[i].tt != LUA_TSTRING) isString = false;
+        if (!isNumber && !isString) return -1;
+    }
+
+    if (isNumber) {
+        SafeSortNumberArray(array, n);
+    } else if (isString) {
+        SafeSortStringArray(array, n);
+    } else {
+        return -1;
+    }
+
+    g_tableSortHits++;
+    return 0;
+}
+
+static int __cdecl Hooked_TableSort(lua_State* L) {
+    int res = -1;
+    __try {
+        res = Hooked_TableSort_Internal(L);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        res = -1;
+    }
+
+    if (res == 0) return 0;
+
     g_tableSortFallbacks++;
     return orig_table_sort(L);
 }

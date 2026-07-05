@@ -181,10 +181,10 @@
 #define TEST_DISABLE_ASYNC_MPQ_IO       1
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
