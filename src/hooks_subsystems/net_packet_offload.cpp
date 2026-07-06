@@ -85,10 +85,56 @@ static void WorkerProc(int threadId) {
     }
 }
 
+// Coalesced packet queue
+struct BufferedPacket {
+    int args[18];
+    char arg9;
+};
+
+static constexpr int PACKET_QUEUE_CAPACITY = 2048;
+static BufferedPacket g_packetQueue[PACKET_QUEUE_CAPACITY] = {};
+static int g_packetQueueCount = 0;
+static bool g_coalescePackets = true;
+
+extern "C" void FlushCoalescedPackets() {
+    #if !TEST_DISABLE_NET_PACKET_COALESCE
+    if (g_packetQueueCount > 0) {
+        g_coalescePackets = false; // suspend coalescing during flush
+        for (int i = 0; i < g_packetQueueCount; i++) {
+            const BufferedPacket& pkt = g_packetQueue[i];
+            __try {
+                orig_ProcessMessage(pkt.args[0], pkt.args[1], pkt.args[2], pkt.args[3],
+                                    pkt.args[4], pkt.args[5], pkt.args[6], pkt.args[7],
+                                    pkt.arg9,
+                                    pkt.args[9], pkt.args[10], pkt.args[11], pkt.args[12],
+                                    pkt.args[13], pkt.args[14], pkt.args[15], pkt.args[16],
+                                    pkt.args[17]);
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        g_packetQueueCount = 0;
+        g_coalescePackets = true; // resume
+    }
+    #endif
+}
+
 // Hooked packet processor
 static int __cdecl Hooked_ProcessMessage(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, char a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18) {
-    // Opcode is usually located in a3
     uint32_t opcode = (uint32_t)a3;
+
+    #if !TEST_DISABLE_NET_PACKET_COALESCE
+    // Coalesce non-critical movement/update packets (0x1F6, 0x0A6, 0x0DD, 0x2A6)
+    bool isDeferrable = (opcode == 0x1F6 || opcode == 0x0A6 || opcode == 0x0DD || opcode == 0x2A6);
+    if (g_coalescePackets && isDeferrable && g_packetQueueCount < PACKET_QUEUE_CAPACITY) {
+        BufferedPacket& pkt = g_packetQueue[g_packetQueueCount++];
+        pkt.args[0] = a1; pkt.args[1] = a2; pkt.args[2] = a3; pkt.args[3] = a4;
+        pkt.args[4] = a5; pkt.args[5] = a6; pkt.args[6] = a7; pkt.args[7] = a8;
+        pkt.arg9 = a9;
+        pkt.args[9] = a10; pkt.args[10] = a11; pkt.args[11] = a12; pkt.args[12] = a13;
+        pkt.args[13] = a14; pkt.args[14] = a15; pkt.args[15] = a16; pkt.args[16] = a17;
+        pkt.args[17] = a18;
+        return 1;
+    }
+    #endif
 
     // SMSG_COMPRESSED_UPDATE_OBJECT (0x1F6) is the heaviest packet in WoW
     if (opcode == 0x1F6) {

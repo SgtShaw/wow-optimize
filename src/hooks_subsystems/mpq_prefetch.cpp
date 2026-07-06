@@ -123,7 +123,9 @@ static void InitializeZoneFileMap() {
         "World\\Maps\\IcecrownCitadel\\IcecrownCitadel_tex0.adt",
         "World\\Wmo\\Northrend\\IcecrownRaid\\icecrown_raid.wmo",
         "Creature\\LichKing\\LichKing.m2",
-        "Creature\\Sindragosa\\Sindragosa.m2"
+        "Creature\\Sindragosa\\Sindragosa.m2",
+        "Sound\\Spells\\IceCrown_Sindragosa_Hurt.wav",
+        "Sound\\Spells\\Fizzle.wav"
     };
 
     // Dalaran (zone 4395)
@@ -131,7 +133,10 @@ static void InitializeZoneFileMap() {
         "World\\Maps\\Northrend\\Dalaran.wdt",
         "World\\Maps\\Northrend\\Dalaran_tex0.adt",
         "World\\Wmo\\Northrend\\Dalaran\\dalaran.wmo",
-        "Creature\\DalaranGuard\\DalaranGuard.m2"
+        "Creature\\DalaranGuard\\DalaranGuard.m2",
+        "Sound\\Spells\\SpellCastHorde.wav",
+        "Sound\\Spells\\SpellCastAlliance.wav",
+        "Sound\\Spells\\Fizzle.wav"
     };
 
     // Orgrimmar (zone 1637)

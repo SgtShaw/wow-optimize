@@ -15,6 +15,10 @@
 #include "version.h"
 #include "hooks_async.h"
 
+typedef unsigned char _BYTE;
+typedef unsigned short _WORD;
+typedef unsigned long _DWORD;
+
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
@@ -204,10 +208,130 @@ static bool EnqueueTask(AsyncTaskType type, uint32_t p1, uint32_t p2, uint32_t p
 // per-emitter dispatch loop.
 
 #ifndef ADDR_PARTICLE_EMITTER_UPDATE
-#define ADDR_PARTICLE_EMITTER_UPDATE 0x00000000
+#define ADDR_PARTICLE_EMITTER_UPDATE 0x007C2700
 #endif
 
-#define TEST_DISABLE_PARTICLE_ASYNC 1  // Phase 2 disabled: D3D buffer writes not thread-safe
+#define TEST_DISABLE_PARTICLE_ASYNC 0  // Enabled!
+
+static void* orig_ParticleEmitterUpdate = nullptr;
+
+typedef void (__cdecl *sub_7C25D0_t)(int emitter, int a1, int a2, int a3, int a4, int a5);
+static const sub_7C25D0_t call_sub_7C25D0 = (sub_7C25D0_t)0x007C25D0;
+
+typedef bool (__cdecl *sub_7B3990_t)(int a1, int a2);
+static const sub_7B3990_t call_sub_7B3990 = (sub_7B3990_t)0x007B3990;
+
+struct ParticleTaskData {
+    int emitter;
+    int a1, a2, a3, a4, a5;
+};
+
+static ParticleTaskData g_particleTasks[1024];
+static volatile LONG g_particleTaskIndex = 0;
+static volatile LONG g_particleTaskCount = 0;
+
+static DWORD WINAPI ParticleWorkerThread(LPVOID) {
+    while (true) {
+        LONG idx = InterlockedIncrement(&g_particleTaskIndex) - 1;
+        if (idx >= g_particleTaskCount) break;
+
+        const ParticleTaskData& task = g_particleTasks[idx];
+        __try {
+            call_sub_7C25D0(task.emitter, task.a1, task.a2, task.a3, task.a4, task.a5);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return 0;
+}
+
+extern "C" char __cdecl Hooked_ParticleEmitterUpdate(int a1, int a2, int a3, int a4, int a5, int a6) {
+    *(float *)(a5 + 8) = 1.05f;
+    *(_DWORD *)a5 = 0;
+    *(float *)(a5 + 24) = 1.05f;
+    *(_DWORD *)(a5 + 16) = 0;
+    *(float *)(a4 + 8) = 1.05f;
+    *(_DWORD *)a4 = 0;
+    *(float *)(a4 + 24) = 1.05f;
+    *(_DWORD *)(a4 + 16) = 0;
+
+    g_particleTaskCount = 0;
+    g_particleTaskIndex = 0;
+
+    if (a6) {
+        int v7 = *(_DWORD *)(a6 + 216);
+        if ((v7 & 1) == 0 && v7) {
+            int v8 = v7;
+            while ((v8 & 1) == 0 && v8) {
+                int v9 = *(_DWORD *)(v8 + 4);
+                if ((*(_BYTE *)(v9 + 12) & 0x20) == 0) {
+                    if (call_sub_7B3990(a1, a2)) {
+                        if (g_particleTaskCount < 1024) {
+                            ParticleTaskData& task = g_particleTasks[g_particleTaskCount++];
+                            task.emitter = v9;
+                            task.a1 = a1; task.a2 = a2; task.a3 = a3; task.a4 = a4; task.a5 = a5;
+                        }
+                    }
+                }
+                v8 = *(_DWORD *)(v8 + *(_DWORD *)(a6 + 208) + 4);
+            }
+        }
+    } else {
+        int v10 = *(int*)0x00D25440;
+        while ((v10 & 1) == 0 && v10) {
+            if ((*(_BYTE *)(v10 + 12) & 0x20) == 0 && call_sub_7B3990(a1, a2)) {
+                if (g_particleTaskCount < 1024) {
+                    ParticleTaskData& task = g_particleTasks[g_particleTaskCount++];
+                    task.emitter = v10;
+                    task.a1 = a1; task.a2 = a2; task.a3 = a3; task.a4 = a4; task.a5 = a5;
+                }
+            }
+            v10 = *(_DWORD *)(*(int*)0x00D25438 + v10 + 4);
+        }
+    }
+
+    if (g_particleTaskCount > 0) {
+        SYSTEM_INFO sysInfo;
+        GetSystemInfo(&sysInfo);
+        int numCores = sysInfo.dwNumberOfProcessors;
+        if (numCores < 2) numCores = 2;
+        if (numCores > 8) numCores = 8;
+
+        HANDLE threads[8] = {};
+        for (int i = 0; i < numCores; i++) {
+            threads[i] = CreateThread(NULL, 0, ParticleWorkerThread, NULL, 0, NULL);
+        }
+        WaitForMultipleObjects(numCores, threads, TRUE, INFINITE);
+        for (int i = 0; i < numCores; i++) {
+            if (threads[i]) CloseHandle(threads[i]);
+        }
+    }
+
+    if (!*(_DWORD *)a4 && *(_DWORD *)a5) {
+        *(double*)a4 = *(double*)a5;
+        *(double*)(a4 + 8) = *(double*)(a5 + 8);
+    }
+    if (!*(_DWORD *)(a4 + 16) && *(_DWORD *)(a5 + 16)) {
+        *(double*)(a4 + 16) = *(double*)(a5 + 16);
+        *(double*)(a4 + 24) = *(double*)(a5 + 24);
+    }
+    if (!*(_DWORD *)a4) {
+        if (!*(_DWORD *)(a4 + 16)) return 0;
+        *(double*)a4 = *(double*)(a4 + 16);
+        *(double*)(a4 + 8) = *(double*)(a4 + 24);
+        *(double*)a5 = *(double*)(a5 + 16);
+        *(double*)(a5 + 8) = *(double*)(a5 + 24);
+        *(_DWORD *)(a4 + 16) = 0;
+        *(_DWORD *)(a5 + 16) = 0;
+    }
+    if (!*(_DWORD *)a5) {
+        *(double*)a5 = *(double*)a4;
+        *(WORD *)(a5 + 12) = -1;
+    }
+    if (!*(_DWORD *)(a5 + 16)) {
+        *(double*)(a5 + 16) = *(double*)(a4 + 16);
+        *(WORD *)(a5 + 28) = -1;
+    }
+    return 1;
+}
 
 // SSE2-accelerated particle transform (Phase 1 — inline math replacement)
 // Transforms N particle positions by a 4x4 matrix.
@@ -639,6 +763,16 @@ bool InstallAsyncHooks(void) {
         if (WineSafe_CreateHook((void*)ADDR_DBC_LOAD_DISPATCH, (void*)Hooked_DbcLoadDispatch, (void**)&orig_DbcLoadDispatch) == MH_OK) {
             if (WO_EnableHook((void*)ADDR_DBC_LOAD_DISPATCH) == MH_OK) {
                 Log("[AsyncHooks] Hook installed: DBC Parallel loader (0x%08X)", ADDR_DBC_LOAD_DISPATCH);
+            }
+        }
+    }
+    #endif
+
+    #if !TEST_DISABLE_PARTICLE_ASYNC
+    if (ADDR_PARTICLE_EMITTER_UPDATE) {
+        if (WineSafe_CreateHook((void*)ADDR_PARTICLE_EMITTER_UPDATE, (void*)Hooked_ParticleEmitterUpdate, (void**)&orig_ParticleEmitterUpdate) == MH_OK) {
+            if (WO_EnableHook((void*)ADDR_PARTICLE_EMITTER_UPDATE) == MH_OK) {
+                Log("[AsyncHooks] Hook installed: Multi-threaded Particle simulation (0x%08X)", ADDR_PARTICLE_EMITTER_UPDATE);
             }
         }
     }

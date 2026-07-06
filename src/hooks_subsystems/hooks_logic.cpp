@@ -15,6 +15,7 @@
 #include "crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
+extern "C" void FlushCoalescedPackets();
 
 // ================================================================
 // Coalesced layout recalculation
@@ -717,6 +718,9 @@ void OnFrameLogicHooks(DWORD mainThreadId) {
 
     // Flush any pending coalesced layout updates
     FlushLayoutUpdates();
+
+    // Flush any coalesced network packets
+    FlushCoalescedPackets();
 
     // Flush combat text batch every frame
     FlushCombatTextBatch();

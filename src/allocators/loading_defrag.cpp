@@ -306,11 +306,27 @@ static void UpdateZoneHistory(const char* zoneName) {
 }
 
 void OnFrame() {
+    DWORD now = GetTickCount();
+    #if !TEST_DISABLE_DEFRAG_LF
+    static DWORD lastCollect = 0;
+    if (g_loadingActive.load(std::memory_order_relaxed)) {
+        if (now - lastCollect >= 500) {
+            mi_collect(true);
+            lastCollect = now;
+        }
+        return;
+    } else {
+        if (now - lastCollect >= 30000) {
+            mi_collect(false);
+            lastCollect = now;
+        }
+    }
+    #endif
+
     // Only query zone text on the main thread when we are not actively in loading screen
     if (g_loadingActive.load(std::memory_order_relaxed)) return;
     
     static DWORD lastQueryTick = 0;
-    DWORD now = GetTickCount();
     if (now - lastQueryTick < 1000) return; // Limit to 1 query per second
     lastQueryTick = now;
     
