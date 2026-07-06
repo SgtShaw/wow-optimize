@@ -451,7 +451,6 @@ bool Init() {
 void Shutdown() {
     InvalidateLatencyQueries();
     CleanVBCache();
-    MH_DisableHook(MH_ALL_HOOKS); // Safely disable all hooks
     Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld, Transforms: %ld, Viewports: %ld, VSConstants: %ld",
         g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load(), g_transformSkips.load(), g_viewportSkips.load(), g_vsConstantSkips.load());
 }

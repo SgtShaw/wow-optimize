@@ -9173,6 +9173,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 
             // Dynamic FreeLibrary - safe to clean up
             __try {
+#if !TEST_DISABLE_SAMPLING_PROFILER
+            SamplingProfiler::Shutdown();
+#endif
             LuaFastPath::Shutdown();
             LuaInternals::Shutdown();
             LuaBytecodeCache::Shutdown();
@@ -9259,11 +9262,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             MipBiasGovernor::Shutdown();
             SpatialCulling::Shutdown();
             PerfDiagnostics::Shutdown();
-
-#if !TEST_DISABLE_SAMPLING_PROFILER
-            SamplingProfiler::Shutdown();
-#endif
-
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
             TooltipCache::Shutdown();

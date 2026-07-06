@@ -68,7 +68,7 @@
 // Hooking it as lua_error causes all 50 logged entries to show <unable to read>
 // (the L parameter is actually a size_t) and fills the log with noise.
 // Set to 1 to disable until the correct lua_error address is found.
-#define TEST_DISABLE_LUA_ERROR_DIAG         0
+#define TEST_DISABLE_LUA_ERROR_DIAG         1
 
 // Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
 // Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
@@ -233,7 +233,7 @@
 // 3. Throttling OnUpdate breaks MoveAnything position tracking and addon timing
 //    contracts (addons expect OnUpdate every frame for smooth animation).
 // Would need complete rewrite with different hook target and proper addon compat.
-#define TEST_DISABLE_FRAME_THROTTLE     0
+#define TEST_DISABLE_FRAME_THROTTLE     1
 
 // Tooltip String Caching - cache formatted tooltip strings by item/spell ID
 // Reduces tooltip rendering overhead by 40-60% (sub_6277F0 is 24KB of code)
@@ -256,25 +256,25 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY         0
+#define TEST_DISABLE_MATRIX_MULTIPLY         1
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
 
 // Network socket hooks (connect, send, recv, WSARecv)
-#define TEST_DISABLE_NETWORK_HOOKS         0
+#define TEST_DISABLE_NETWORK_HOOKS         1
 
 // CVar null pointer guard (sub_7668C0)
 #define TEST_DISABLE_CVAR_NULL_GUARD         0
@@ -339,7 +339,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         0
+#define TEST_DISABLE_QUAT_NORMALIZE         1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -530,7 +530,7 @@
 // ================================================================
 #define TEST_DISABLE_M2_SIMD_MT                 0
 #define TEST_DISABLE_GUID_MAP_LF                0
-#define TEST_DISABLE_SIMD_MATH_FAST             0
+#define TEST_DISABLE_SIMD_MATH_FAST             1
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                1
 #define TEST_DISABLE_D3D_STATE_CACHE            1
@@ -540,17 +540,17 @@
 #define TEST_DISABLE_HW_SKINNING                0
 #define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
 #define TEST_DISABLE_FONT_METRICS_LOCK_FREE    0  // enabled: lock-free font metrics cache
-#define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch
+#define TEST_DISABLE_NET_PACKET_COALESCE       1  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // enabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // enabled: D3D9 VB Shadow Cache
-#define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
+#define TEST_DISABLE_ADDON_TICK_GOVERNOR        1  // enabled: Addon Tick Governor
 #define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     1  // enabled: D3D9 VS Constant Cache
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        1  // enabled: SavedVariables Preloader
-#define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
+#define TEST_DISABLE_NET_ADDON_COALESCER        1  // enabled: Net Addon Message Coalescer
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // enabled: Dynamic Mipmap Bias Governor
 #define TEST_DISABLE_SPATIAL_CULLING            1  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
