@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
+#include <atomic>
 #include "MinHook.h"
 #include "version.h"
 #include "dbc_lookup_cache.h"
@@ -24,6 +25,7 @@ struct DbcRowEntry {
     uint32_t  recordId;
     uint8_t   data[0x2A8]; // Raw or transformed DBC record data
     bool      valid;
+    std::atomic<bool> lock; // Spinlock to prevent concurrent read/write races
 };
 
 static DbcRowEntry g_cache[CACHE_SIZE];
@@ -42,11 +44,25 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
     uint32_t idx = ((uint32_t)(storeKey >> 2) ^ recordId) & CACHE_MASK;
     DbcRowEntry* e = &g_cache[idx];
 
+    // Attempt to read under spinlock
+    bool hit = false;
+    bool expected = false;
+    while (!e->lock.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
+        expected = false;
+        YieldProcessor();
+    }
+
     if (e->valid && e->storePtr == storeKey && e->recordId == (uint32_t)recordId) {
         g_hits++;
         if (outBuf) {
             memcpy(outBuf, e->data, 0x2A8);
         }
+        hit = true;
+    }
+
+    e->lock.store(false, std::memory_order_release);
+
+    if (hit) {
         return true;
     }
 
@@ -54,10 +70,19 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
     bool result = g_orig(store, recordId, outBuf);
 
     if (result && outBuf && store) {
+        // Attempt to write under spinlock
+        expected = false;
+        while (!e->lock.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
+            expected = false;
+            YieldProcessor();
+        }
+
         e->storePtr = storeKey;
         e->recordId = (uint32_t)recordId;
         memcpy(e->data, outBuf, 0x2A8);
         e->valid = true;
+
+        e->lock.store(false, std::memory_order_release);
     }
 
     return result;
@@ -66,7 +91,12 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
 
 bool InstallDbcLookupCache()
 {
-    memset(g_cache, 0, sizeof(g_cache));
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        g_cache[i].storePtr = 0;
+        g_cache[i].recordId = 0;
+        g_cache[i].valid = false;
+        g_cache[i].lock.store(false, std::memory_order_relaxed);
+    }
     g_hits = 0;
     g_misses = 0;
 
