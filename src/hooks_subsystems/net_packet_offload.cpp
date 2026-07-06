@@ -137,20 +137,20 @@ bool Init() {
     g_shutdown = false;
 
     // Hook verification
-    void* target = (void*)0x005B2D20;
+    void* target = (void*)0x005B2CB0;
     unsigned char prologue[3];
     if (!SafeReadHeader(target, prologue, 3)) {
-        Log("[NetPacketOffload] Target address 0x005B2D20 not readable; skipping hook.");
+        Log("[NetPacketOffload] Target address 0x005B2CB0 not readable; skipping hook.");
         return true;
     }
 
     // Verify target matches expected function prologue (e.g., push ebp; mov ebp, esp or similar)
-    // 0x5B2D20 in WoW 3.3.5a has signature: 55 8B EC (push ebp; mov ebp, esp)
+    // 0x5B2CB0 in WoW 3.3.5a has signature: 55 8B EC (push ebp; mov ebp, esp)
     if (prologue[0] == 0x55 && prologue[1] == 0x8B && prologue[2] == 0xEC) {
         // Safe to hook
         if (MH_CreateHook(target, (void*)Hooked_ProcessMessage, (void**)&orig_ProcessMessage) == MH_OK) {
             MH_EnableHook(target);
-            Log("[NetPacketOffload] Hooked NetClient::ProcessMessage at 0x005B2D20");
+            Log("[NetPacketOffload] Hooked NetClient::ProcessMessage at 0x005B2CB0");
         } else {
             Log("[NetPacketOffload] Failed to hook NetClient::ProcessMessage");
             return false;
@@ -176,7 +176,7 @@ void Shutdown() {
             g_workers[i].join();
         }
     }
-    MH_DisableHook((void*)0x005B2D20);
+    MH_DisableHook((void*)0x005B2CB0);
 }
 
 } // namespace NetPacketOffload

@@ -131,7 +131,7 @@ static bool TryGetGlobal(uintptr_t L, const char* varName) {
 // Clone Lua value recursively
 static std::shared_ptr<SavedVarNode> CloneLuaValue(uintptr_t L, int idx, int depth) {
     auto node = std::make_shared<SavedVarNode>();
-    if (depth > 64) return node; // Recursion depth safety guard
+    if (depth > 24) return node; // Recursion depth safety guard (prevent Lua stack overflow)
 
     int tt = lua_type_(L, idx);
     if (tt == LUA_TNIL) {
@@ -183,7 +183,7 @@ static void SerializeNode(std::string& out, const std::shared_ptr<SavedVarNode>&
         out += node->boolVal ? "true" : "false";
     } else if (node->type == SavedVarNode::TYPE_NUMBER) {
         char buf[64];
-        sprintf_s(buf, "%g", node->numVal);
+        sprintf_s(buf, "%.17g", node->numVal);
         out += buf;
     } else if (node->type == SavedVarNode::TYPE_STRING) {
         out += "\"";
