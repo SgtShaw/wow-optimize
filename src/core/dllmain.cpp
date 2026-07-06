@@ -299,6 +299,17 @@ void ClearCombatLogCache();
 #include "wow_memory_opt.h"
 #include "wow_source_opt.h"
 #include "tls_object_cache.h"
+#include "sound_mixer_opt.h"
+#include "lua_gc_governor.h"
+#include "m2_lod_bias.h"
+#include "async_tex_loader.h"
+#include "unit_aura_coalesce.h"
+#include "addon_tick_governor.h"
+#include "saved_vars_pretoken.h"
+#include "net_addon_coalescer.h"
+#include "mip_bias_governor.h"
+#include "spatial_culling.h"
+#include "perf_diagnostics.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -1230,6 +1241,24 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
+#if !TEST_DISABLE_LUA_GC_GOVERNOR
+            LuaGCGovernor::OnFrame(elapsedMs);
+#endif
+#if !TEST_DISABLE_M2_LOD_BIAS
+            M2LodBias::UpdateLodBias(elapsedMs);
+#endif
+#if !TEST_DISABLE_NET_ADDON_COALESCER
+            NetAddonCoalescer::OnFrame();
+#endif
+#if !TEST_DISABLE_SPATIAL_CULLING
+            SpatialCulling::OnFrame();
+#endif
+#if !TEST_DISABLE_MIP_BIAS_GOVERNOR
+            MipBiasGovernor::UpdateMipBias(elapsedMs);
+#endif
+#if !TEST_DISABLE_PERF_DIAGNOSTICS
+            PerfDiagnostics::OnFrame(elapsedMs);
+#endif
         }
 
         if (ms <= 3) {
@@ -1917,6 +1946,11 @@ static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
     // Addon file RAM-disk: serve pre-loaded addon files from memory
     if (AddonPreload_TryServe(hFile, lpBuffer, nBytesToRead, lpBytesRead))
         return TRUE;
+
+    #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+    if (SavedVarsPretoken::TryServe(hFile, lpBuffer, nBytesToRead, lpBytesRead))
+        return TRUE;
+    #endif
 
     if (!g_cacheInitialized || !IsMpqHandle(hFile))
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
@@ -3170,6 +3204,9 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
     // Track addon file handles for RAM-disk serving
     if (result != INVALID_HANDLE_VALUE) {
         AddonPreload_OnCreateFile(result, lpFileName);
+        #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+        SavedVarsPretoken::OnCreateFile(result, lpFileName);
+        #endif
         
         // Track SavedVariables files for async writing
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
@@ -3212,6 +3249,9 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         char buf[512];
         WideCharToMultiByte(CP_UTF8, 0, lpFileName, -1, buf, 512, NULL, NULL);
         AddonPreload_OnCreateFile(result, buf);
+        #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+        SavedVarsPretoken::OnCreateFile(result, buf);
+        #endif
 
         // Track SavedVariables files for async writing
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
@@ -3260,6 +3300,9 @@ static BOOL WINAPI hooked_CloseHandle(HANDLE hObject) {
 #endif
     UntrackMpqHandle(hObject);
     AddonPreload_OnCloseHandle(hObject);
+    #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+    SavedVarsPretoken::OnCloseHandle(hObject);
+    #endif
     if (g_cacheInitialized) {
         AcquireSRWLockExclusive(&g_cacheLock);
         for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
@@ -7292,6 +7335,50 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Hardware-Accelerated Vertex Skinning ---");
     bool hwSkinningOk = HwVertexSkinning::Init();
 
+    Log("");
+    Log("--- FMOD Sound Mixer Optimizer ---");
+    SoundMixerOpt::Init();
+
+    Log("");
+    Log("--- Adaptive Lua GC Governor ---");
+    LuaGCGovernor::Init();
+
+    Log("");
+    Log("--- M2 LOD Bias Control ---");
+    M2LodBias::Init();
+
+    Log("");
+    Log("--- Lock-Free Texture Loader ---");
+    AsyncTexLoader::Init();
+
+    Log("");
+    Log("--- Unit Aura Update Coalescing ---");
+    UnitAuraCoalesce::Init();
+
+    Log("");
+    Log("--- Adaptive Addon Tick Governor ---");
+    AddonTickGovernor::Init();
+
+    Log("");
+    Log("--- SavedVariables Pretoken Caching ---");
+    SavedVarsPretoken::Init();
+
+    Log("");
+    Log("--- Net Addon message Coalescer ---");
+    NetAddonCoalescer::Init();
+
+    Log("");
+    Log("--- Mipmap Bias Governor ---");
+    MipBiasGovernor::Init();
+
+    Log("");
+    Log("--- Spatial Culling Grid ---");
+    SpatialCulling::Init();
+
+    Log("");
+    Log("--- Performance Diagnostics Monitor ---");
+    PerfDiagnostics::Init();
+
     // Register memory-pressure governor shed callbacks.  These fire from the
     // main thread (Sleep hook) when VA fragments below threshold, and each
     // clears its cache via a pure memset-to-zero — all safe under pressure.
@@ -9137,6 +9224,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LuaAllocPool::Shutdown();
             WorldStateCoalesce::Shutdown();
             HwVertexSkinning::Shutdown();
+            SoundMixerOpt::Shutdown();
+            LuaGCGovernor::Shutdown();
+            M2LodBias::Shutdown();
+            AsyncTexLoader::Shutdown();
+            UnitAuraCoalesce::Shutdown();
+            AddonTickGovernor::Shutdown();
+            SavedVarsPretoken::Shutdown();
+            NetAddonCoalescer::Shutdown();
+            MipBiasGovernor::Shutdown();
+            SpatialCulling::Shutdown();
+            PerfDiagnostics::Shutdown();
 
 #if !TEST_DISABLE_SAMPLING_PROFILER
             SamplingProfiler::Shutdown();

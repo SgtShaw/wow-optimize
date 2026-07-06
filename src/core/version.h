@@ -529,12 +529,12 @@
 // 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
 // ================================================================
 #define TEST_DISABLE_M2_SIMD_MT                 0
-#define TEST_DISABLE_GUID_MAP_LF                1
+#define TEST_DISABLE_GUID_MAP_LF                0
 #define TEST_DISABLE_SIMD_MATH_FAST             0
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                1
 #define TEST_DISABLE_D3D_STATE_CACHE            0
-#define TEST_DISABLE_DBC_LOOKUP_CACHE           1
+#define TEST_DISABLE_DBC_LOOKUP_CACHE           0
 #define TEST_DISABLE_SAVEDVARS_ASYNC            0
 #define TEST_DISABLE_WORLD_STATE_COALESCE       0
 #define TEST_DISABLE_HW_SKINNING                0
@@ -543,6 +543,17 @@
 #define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
+#define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
+#define TEST_DISABLE_M2_LOD_BIAS                0  // enabled: M2 LOD Bias Control
+#define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
+#define TEST_DISABLE_D3D9_VB_CACHE              0  // enabled: D3D9 VB Shadow Cache
+#define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
+#define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     0  // enabled: D3D9 VS Constant Cache
+#define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader
+#define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
+#define TEST_DISABLE_MIP_BIAS_GOVERNOR          0  // enabled: Dynamic Mipmap Bias Governor
+#define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
+#define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing

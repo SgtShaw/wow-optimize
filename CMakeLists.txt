@@ -113,6 +113,28 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_lessthan_fast.h
     src/runtime_vm/lua_gc_fast.cpp
     src/runtime_vm/lua_gc_fast.h
+    src/runtime_vm/lua_gc_governor.cpp
+    src/runtime_vm/lua_gc_governor.h
+    src/runtime_vm/addon_tick_governor.cpp
+    src/runtime_vm/addon_tick_governor.h
+    src/hooks_subsystems/sound_mixer_opt.cpp
+    src/hooks_subsystems/sound_mixer_opt.h
+    src/hooks_subsystems/async_tex_loader.cpp
+    src/hooks_subsystems/async_tex_loader.h
+    src/hooks_subsystems/unit_aura_coalesce.cpp
+    src/hooks_subsystems/unit_aura_coalesce.h
+    src/simd_math/m2_lod_bias.cpp
+    src/simd_math/m2_lod_bias.h
+    src/runtime_vm/saved_vars_pretoken.cpp
+    src/runtime_vm/saved_vars_pretoken.h
+    src/hooks_subsystems/net_addon_coalescer.cpp
+    src/hooks_subsystems/net_addon_coalescer.h
+    src/hooks_subsystems/mip_bias_governor.cpp
+    src/hooks_subsystems/mip_bias_governor.h
+    src/hooks_subsystems/spatial_culling.cpp
+    src/hooks_subsystems/spatial_culling.h
+    src/diagnostics/perf_diagnostics.cpp
+    src/diagnostics/perf_diagnostics.h
     src/runtime_vm/lua_xpcall_fast.cpp
     src/runtime_vm/lua_xpcall_fast.h
     src/runtime_vm/lua_getmetafield_fast.cpp

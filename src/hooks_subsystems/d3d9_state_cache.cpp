@@ -7,6 +7,7 @@
 #include "d3d9_state_cache.h"
 #include "MinHook.h"
 #include "version.h"
+#include "mip_bias_governor.h"
 #include <d3d9.h>
 #include <atomic>
 
@@ -19,6 +20,29 @@ namespace D3D9StateCache {
 
 typedef HRESULT (WINAPI *SetRenderState_fn)(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value);
 static SetRenderState_fn orig_SetRenderState = nullptr;
+
+typedef HRESULT (WINAPI *SetTransform_fn)(IDirect3DDevice9* device, D3DTRANSFORMSTATETYPE state, const D3DMATRIX* matrix);
+static SetTransform_fn orig_SetTransform = nullptr;
+
+typedef HRESULT (WINAPI *SetViewport_fn)(IDirect3DDevice9* device, const D3DVIEWPORT9* viewport);
+static SetViewport_fn orig_SetViewport = nullptr;
+
+typedef HRESULT (WINAPI *CreateVertexBuffer_fn)(IDirect3DDevice9* device, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer9** ppVertexBuffer, HANDLE* pSharedHandle);
+static CreateVertexBuffer_fn orig_CreateVertexBuffer = nullptr;
+
+typedef HRESULT (WINAPI *VB_Lock_fn)(IDirect3DVertexBuffer9* vb, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags);
+static VB_Lock_fn orig_VB_Lock = nullptr;
+
+typedef HRESULT (WINAPI *VB_Unlock_fn)(IDirect3DVertexBuffer9* vb);
+static VB_Unlock_fn orig_VB_Unlock = nullptr;
+
+typedef HRESULT (WINAPI *SetVertexShaderConstantF_fn)(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
+static SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
+
+typedef HRESULT (WINAPI *SetSamplerState_fn)(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value);
+static SetSamplerState_fn orig_SetSamplerState = nullptr;
+
+static bool g_vbHooksInstalled = false;
 
 
 
@@ -39,6 +63,36 @@ static bool g_textureStageStateValid[8][64] = { {false} };
 
 static DWORD g_samplerStateCache[16][32] = { {0} };
 static bool g_samplerStateValid[16][32] = { {false} };
+
+struct CachedMatrix {
+    D3DMATRIX matrix;
+    bool valid;
+};
+static CachedMatrix g_transformCache[512] = { { {0}, false } };
+
+static D3DVIEWPORT9 g_viewportCache = { 0 };
+static bool g_viewportValid = false;
+
+struct ShadowBufferEntry {
+    IDirect3DVertexBuffer9* vb;
+    void* data;
+    UINT size;
+    bool valid;
+};
+static constexpr int VB_CACHE_SIZE = 128;
+static constexpr int VB_CACHE_MASK = VB_CACHE_SIZE - 1;
+static ShadowBufferEntry g_vbCache[VB_CACHE_SIZE] = {};
+
+static inline unsigned int HashVB(IDirect3DVertexBuffer9* vb) {
+    uintptr_t val = (uintptr_t)vb;
+    return (uint32_t)((val ^ (val >> 12)) & VB_CACHE_MASK);
+}
+
+struct ConstantRegister {
+    float val[4];
+    bool valid;
+};
+static ConstantRegister g_vsConstantCache[256] = { { {0.0f}, false } };
 
 // Latency reduction structures (Max Frame Latency = 1)
 #define LATENCY_QUEUE_SIZE 2
@@ -62,8 +116,21 @@ static std::atomic<long> g_textureSkips{0};
 static std::atomic<long> g_renderStateSkips{0};
 static std::atomic<long> g_stageStateSkips{0};
 static std::atomic<long> g_samplerSkips{0};
+static std::atomic<long> g_transformSkips{0};
+static std::atomic<long> g_viewportSkips{0};
+static std::atomic<long> g_vsConstantSkips{0};
 
 // Clear the cache (called on Init and after device Reset)
+static void CleanVBCache() {
+    for (int i = 0; i < VB_CACHE_SIZE; i++) {
+        if (g_vbCache[i].valid && g_vbCache[i].data) {
+            _aligned_free(g_vbCache[i].data);
+            g_vbCache[i].data = nullptr;
+            g_vbCache[i].valid = false;
+        }
+    }
+}
+
 static void InvalidateCache() {
     for (int i = 0; i < 16; i++) g_textureCache[i] = nullptr;
     for (int i = 0; i < 512; i++) g_renderStateValid[i] = false;
@@ -73,11 +140,14 @@ static void InvalidateCache() {
     for (int i = 0; i < 16; i++) {
         for (int j = 0; j < 32; j++) g_samplerStateValid[i][j] = false;
     }
+    for (int i = 0; i < 512; i++) g_transformCache[i].valid = false;
+    g_viewportValid = false;
+    for (int i = 0; i < 256; i++) g_vsConstantCache[i].valid = false;
+    CleanVBCache();
 }
 
 
 
-// Hooked SetRenderState
 static HRESULT WINAPI Hooked_SetRenderState(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value) {
     if ((DWORD)state < 512) {
         if (g_renderStateValid[state] && g_renderStateCache[state] == value) {
@@ -88,6 +158,142 @@ static HRESULT WINAPI Hooked_SetRenderState(IDirect3DDevice9* device, D3DRENDERS
         g_renderStateValid[state] = true;
     }
     return orig_SetRenderState(device, state, value);
+}
+
+static HRESULT WINAPI Hooked_SetTransform(IDirect3DDevice9* device, D3DTRANSFORMSTATETYPE state, const D3DMATRIX* matrix) {
+    if ((DWORD)state < 512 && matrix) {
+        if (g_transformCache[state].valid && memcmp(&g_transformCache[state].matrix, matrix, sizeof(D3DMATRIX)) == 0) {
+            g_transformSkips.fetch_add(1, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        memcpy(&g_transformCache[state].matrix, matrix, sizeof(D3DMATRIX));
+        g_transformCache[state].valid = true;
+    }
+    return orig_SetTransform(device, state, matrix);
+}
+
+static HRESULT WINAPI Hooked_SetViewport(IDirect3DDevice9* device, const D3DVIEWPORT9* viewport) {
+    if (viewport) {
+        if (g_viewportValid && memcmp(&g_viewportCache, viewport, sizeof(D3DVIEWPORT9)) == 0) {
+            g_viewportSkips.fetch_add(1, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        memcpy(&g_viewportCache, viewport, sizeof(D3DVIEWPORT9));
+        g_viewportValid = true;
+    }
+    return orig_SetViewport(device, viewport);
+}
+
+static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags) {
+    #if !TEST_DISABLE_D3D9_VB_CACHE
+    if (vb && ppbData && (Flags & D3DLOCK_DISCARD)) {
+        unsigned int slot = HashVB(vb);
+        ShadowBufferEntry* e = &g_vbCache[slot];
+        
+        if (e->valid && e->vb != vb) {
+            if (e->data) _aligned_free(e->data);
+            e->valid = false;
+            e->data = nullptr;
+        }
+        
+        if (!e->valid) {
+            D3DVERTEXBUFFER_DESC desc;
+            if (SUCCEEDED(vb->GetDesc(&desc))) {
+                e->vb = vb;
+                e->size = desc.Size;
+                e->data = _aligned_malloc(desc.Size, 16);
+                e->valid = true;
+            }
+        }
+        
+        if (e->valid && e->data) {
+            *ppbData = (void*)((uintptr_t)e->data + OffsetToLock);
+            return D3D_OK;
+        }
+    }
+    #endif
+    return orig_VB_Lock(vb, OffsetToLock, SizeToLock, ppbData, Flags);
+}
+
+static HRESULT WINAPI Hooked_VB_Unlock(IDirect3DVertexBuffer9* vb) {
+    #if !TEST_DISABLE_D3D9_VB_CACHE
+    if (vb) {
+        unsigned int slot = HashVB(vb);
+        ShadowBufferEntry* e = &g_vbCache[slot];
+        if (e->valid && e->vb == vb && e->data) {
+            void* realData = nullptr;
+            HRESULT hr = orig_VB_Lock(vb, 0, e->size, &realData, D3DLOCK_DISCARD);
+            if (SUCCEEDED(hr) && realData) {
+                memcpy(realData, e->data, e->size);
+                orig_VB_Unlock(vb);
+            }
+            return D3D_OK;
+        }
+    }
+    #endif
+    return orig_VB_Unlock(vb);
+}
+
+static HRESULT WINAPI Hooked_CreateVertexBuffer(IDirect3DDevice9* device, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer9** ppVertexBuffer, HANDLE* pSharedHandle) {
+    HRESULT hr = orig_CreateVertexBuffer(device, Length, Usage, FVF, Pool, ppVertexBuffer, pSharedHandle);
+    if (hr == D3D_OK && ppVertexBuffer && *ppVertexBuffer && (Usage & D3DUSAGE_DYNAMIC)) {
+        if (!g_vbHooksInstalled) {
+            uintptr_t* vb_vtable = *(uintptr_t**)(*ppVertexBuffer);
+            void* target_Lock = (void*)vb_vtable[11];
+            void* target_Unlock = (void*)vb_vtable[12];
+            
+            if (MH_CreateHook(target_Lock, (void*)Hooked_VB_Lock, (void**)&orig_VB_Lock) == MH_OK) {
+                MH_EnableHook(target_Lock);
+            }
+            if (MH_CreateHook(target_Unlock, (void*)Hooked_VB_Unlock, (void**)&orig_VB_Unlock) == MH_OK) {
+                MH_EnableHook(target_Unlock);
+            }
+            g_vbHooksInstalled = true;
+            Log("[D3D9StateCache] Detoured IDirect3DVertexBuffer9::Lock/Unlock for dynamic buffer optimization");
+        }
+    }
+    return hr;
+}
+
+static HRESULT WINAPI Hooked_SetVertexShaderConstantF(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount) {
+    #if !TEST_DISABLE_D3D9_VS_CONSTANT_CACHE
+    if (pConstantData && StartRegister + Vector4fCount <= 256) {
+        bool allCached = true;
+        for (UINT i = 0; i < Vector4fCount; i++) {
+            UINT reg = StartRegister + i;
+            if (!g_vsConstantCache[reg].valid || memcmp(g_vsConstantCache[reg].val, pConstantData + i * 4, 16) != 0) {
+                allCached = false;
+                break;
+            }
+        }
+        
+        if (allCached) {
+            g_vsConstantSkips.fetch_add(Vector4fCount, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        
+        for (UINT i = 0; i < Vector4fCount; i++) {
+            UINT reg = StartRegister + i;
+            memcpy(g_vsConstantCache[reg].val, pConstantData + i * 4, 16);
+            g_vsConstantCache[reg].valid = true;
+        }
+    }
+    #endif
+    return orig_SetVertexShaderConstantF(device, StartRegister, pConstantData, Vector4fCount);
+}
+
+static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value) {
+    #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
+    if (Type == 10 /* D3DSAMP_MIPMAPLODBIAS */) {
+        float bias = MipBiasGovernor::GetCurrentBias();
+        if (bias > 0.0f) {
+            float floatVal = *(float*)&Value;
+            floatVal += bias;
+            Value = *(DWORD*)&floatVal;
+        }
+    }
+    #endif
+    return orig_SetSamplerState(device, Sampler, Type, Value);
 }
 
 
@@ -201,11 +407,21 @@ bool Init() {
     void* target_Reset = (void*)vtable[16];
     void* target_Present = (void*)vtable[17];
     void* target_SetRenderState = (void*)vtable[57];
+    void* target_SetTransform = (void*)vtable[44];
+    void* target_SetViewport = (void*)vtable[47];
+    void* target_CreateVertexBuffer = (void*)vtable[26];
+    void* target_SetVertexShaderConstantF = (void*)vtable[94];
+    void* target_SetSamplerState = (void*)vtable[69];
 
     // Install hooks
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
         MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
-        MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK) 
+        MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK ||
+        MH_CreateHook(target_SetTransform, (void*)Hooked_SetTransform, (void**)&orig_SetTransform) != MH_OK ||
+        MH_CreateHook(target_SetViewport, (void*)Hooked_SetViewport, (void**)&orig_SetViewport) != MH_OK ||
+        MH_CreateHook(target_CreateVertexBuffer, (void*)Hooked_CreateVertexBuffer, (void**)&orig_CreateVertexBuffer) != MH_OK ||
+        MH_CreateHook(target_SetVertexShaderConstantF, (void*)Hooked_SetVertexShaderConstantF, (void**)&orig_SetVertexShaderConstantF) != MH_OK ||
+        MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK) 
     {
         device->Release();
         DestroyWindow(hwnd);
@@ -217,6 +433,11 @@ bool Init() {
     MH_EnableHook(target_Reset);
     MH_EnableHook(target_Present);
     MH_EnableHook(target_SetRenderState);
+    MH_EnableHook(target_SetTransform);
+    MH_EnableHook(target_SetViewport);
+    MH_EnableHook(target_CreateVertexBuffer);
+    MH_EnableHook(target_SetVertexShaderConstantF);
+    MH_EnableHook(target_SetSamplerState);
 
     // Release dummy objects
     device->Release();
@@ -229,9 +450,10 @@ bool Init() {
 
 void Shutdown() {
     InvalidateLatencyQueries();
+    CleanVBCache();
     MH_DisableHook(MH_ALL_HOOKS); // Safely disable all hooks
-    Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld",
-        g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load());
+    Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld, Transforms: %ld, Viewports: %ld, VSConstants: %ld",
+        g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load(), g_transformSkips.load(), g_viewportSkips.load(), g_vsConstantSkips.load());
 }
 
 } // namespace D3D9StateCache

@@ -13,6 +13,7 @@
 #include "lua_bytecode_cache.h"
 #include "addon_preload.h"
 #include "event_dispatch_cache.h"
+#include "addon_tick_governor.h"
 
 // VA Arena helpers (defined in dllmain.cpp)
 extern "C" void ReserveLoadingArena();
@@ -1345,6 +1346,9 @@ extern "C" bool FrameThrottle_Check(const char* namePtr);
 static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
     __try {
         if (source && *source) {
+            if (AddonTickGovernor::ShouldThrottle(source)) {
+                return; // Throttled!
+            }
             if (!FrameThrottle_Check(source)) {
                 return; // Throttled!
             }

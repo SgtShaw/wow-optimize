@@ -109,6 +109,17 @@ static int __cdecl DiagLuaError(uintptr_t L) {
         LogLuaTraceback(useL);
     }
 
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  DLL optimization features status:");
+    FeatureState features[64];
+    int fcount = CrashDumper::GetFeatureStates(features, 64);
+    for (int i = 0; i < fcount; i++) {
+        LogEx(LOG_LEVEL_ERROR, "LUA", "    %-28s active=%d calls=%lld errors=%lld",
+            features[i].name ? features[i].name : "(null)",
+            features[i].active ? 1 : 0,
+            features[i].callCount,
+            features[i].errorCount);
+    }
+
     LogEx(LOG_LEVEL_ERROR, "LUA", "  Last 32 hook calls:");
     extern void CrashDumper_DumpHookTrace(int count);
     CrashDumper_DumpHookTrace(32);
