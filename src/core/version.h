@@ -436,7 +436,7 @@
 #define TEST_DISABLE_D3D9_STATE_CACHE   1
 
 // Conflicting duplicate Render State Dedup hook
-#define TEST_DISABLE_RENDER_STATE_DEDUP 1
+#define TEST_DISABLE_RENDER_STATE_DEDUP 0
 
 // Lock-Free Addon SavedVariables Incremental Serializer
 #define TEST_DISABLE_SAVED_VARS_SERIALIZER 0
