@@ -10,6 +10,7 @@
 #include <windows.h>
 #include <cstdint>
 #include <intrin.h>
+#include <cstdio>
 #include "MinHook.h"
 #include "version.h"
 #include "hooks_async.h"
@@ -68,6 +69,34 @@ static volatile LONG64 g_tasksProcessed  = 0;
 static volatile LONG64 g_tasksDropped    = 0;
 static volatile LONG64 g_tasksByType[6]  = {0};
 
+static void ProcessAdtPrefetch(const char* path) {
+    void* handle = nullptr;
+    typedef int (__stdcall *SFileOpenFileEx_t)(void*, const char*, int, void**);
+    SFileOpenFileEx_t openFile = (SFileOpenFileEx_t)0x00424B50;
+
+    typedef int (__stdcall *SFileCloseFile_t)(void*);
+    SFileCloseFile_t closeFile = (SFileCloseFile_t)0x00422910;
+
+    typedef int (__stdcall *SFileReadFile_t)(int, void*, unsigned int, int*, int, int);
+    SFileReadFile_t readFile = (SFileReadFile_t)0x00422530;
+
+    typedef int (__stdcall *SFileGetFileSize_t)(void*, int*);
+    SFileGetFileSize_t getFileSize = (SFileGetFileSize_t)0x004218C0;
+
+    if (openFile(nullptr, path, 0, &handle)) {
+        int size = getFileSize(handle, nullptr);
+        if (size > 0 && size < 15 * 1024 * 1024) { // sanity check < 15MB
+            void* buf = malloc(size);
+            if (buf) {
+                int readBytes = 0;
+                readFile((int)handle, buf, size, &readBytes, 0, 0);
+                free(buf);
+            }
+        }
+        closeFile(handle);
+    }
+}
+
 // ---- Worker thread ----
 static DWORD WINAPI AsyncWorkerProc(LPVOID) {
     while (!g_asyncShutdown) {
@@ -88,10 +117,10 @@ static DWORD WINAPI AsyncWorkerProc(LPVOID) {
                         break;
 
                     case TASK_ADT_PREFETCH:
-                        // Prefetch terrain chunk from disk
-                        // Touch the memory to bring it into cache
-                        if (task->param1 && IsReadable(task->param1)) {
-                            _mm_prefetch((const char*)task->param1, _MM_HINT_T0);
+                        if (task->param1) {
+                            char* path = (char*)task->param1;
+                            ProcessAdtPrefetch(path);
+                            free(path);
                         }
                         break;
 
@@ -277,10 +306,10 @@ static void SSE2_LerpColors4(uint8_t* __restrict dst,
 // restrict to read-only operations with SEH guards.
 
 #ifndef ADDR_ADT_CHUNK_LOAD
-#define ADDR_ADT_CHUNK_LOAD 0x00000000
+#define ADDR_ADT_CHUNK_LOAD 0x007D9A20
 #endif
 
-#define TEST_DISABLE_ADT_PREFETCH 1  // Requires MPQ handle thread-safety audit
+#define TEST_DISABLE_ADT_PREFETCH 0  // Enabled!
 
 // LRU cache for prefetched terrain data
 static constexpr int ADT_CACHE_SLOTS = 64;
@@ -295,6 +324,60 @@ struct AdtCacheEntry {
 
 static AdtCacheEntry g_adtCache[ADT_CACHE_SLOTS] = {};
 static SRWLOCK      g_adtCacheLock = SRWLOCK_INIT;
+
+static void* orig_AdtChunkLoad = nullptr;
+
+static char g_prefetchHistory[64][260] = {};
+static int g_prefetchHistoryIndex = 0;
+static SRWLOCK g_prefetchLock = SRWLOCK_INIT;
+
+static bool AddToPrefetchHistory(const char* path) {
+    AcquireSRWLockExclusive(&g_prefetchLock);
+    for (int i = 0; i < 64; i++) {
+        if (strcmp(g_prefetchHistory[i], path) == 0) {
+            ReleaseSRWLockExclusive(&g_prefetchLock);
+            return false;
+        }
+    }
+    strcpy_s(g_prefetchHistory[g_prefetchHistoryIndex], path);
+    g_prefetchHistoryIndex = (g_prefetchHistoryIndex + 1) % 64;
+    ReleaseSRWLockExclusive(&g_prefetchLock);
+    return true;
+}
+
+extern "C" int __cdecl Hooked_sub_7D9A20(void* map_structure) {
+    if (map_structure) {
+        int x = *(int*)((uintptr_t)map_structure + 0x48);
+        int y = *(int*)((uintptr_t)map_structure + 0x4C);
+
+        const char* mapName = (const char*)0x00CE06D0;
+        const char* mapDir = (const char*)0x00CE07D0;
+
+        if (mapName && mapName[0] != '\0' && mapDir && mapDir[0] != '\0') {
+            for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
+                    if (dx == 0 && dy == 0) continue;
+                    int nx = x + dx;
+                    int ny = y + dy;
+                    if (nx >= 0 && nx < 64 && ny >= 0 && ny < 64) {
+                        char path[260];
+                        sprintf_s(path, "%s\\%s_%d_%d.adt", mapDir, mapName, nx, ny);
+                        if (AddToPrefetchHistory(path)) {
+                            char* pathAlloc = _strdup(path);
+                            if (pathAlloc) {
+                                if (!EnqueueTask(TASK_ADT_PREFETCH, (uint32_t)pathAlloc, 0, 0)) {
+                                    free(pathAlloc);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    typedef int (__cdecl *orig_fn)(void*);
+    return ((orig_fn)orig_AdtChunkLoad)(map_structure);
+}
 
 // ================================================================
 // 3. DBC Parallel Loading
@@ -312,10 +395,69 @@ static SRWLOCK      g_adtCacheLock = SRWLOCK_INIT;
 // dbcFiles[] array and calls individual loaders).
 
 #ifndef ADDR_DBC_LOAD_DISPATCH
-#define ADDR_DBC_LOAD_DISPATCH 0x00000000
+#define ADDR_DBC_LOAD_DISPATCH 0x006337D0
 #endif
 
-#define TEST_DISABLE_DBC_PARALLEL 1  // Requires careful synchronization of WoW's DBC globals
+#define TEST_DISABLE_DBC_PARALLEL 0  // Enabled!
+
+static void* orig_DbcLoadDispatch = nullptr;
+
+static volatile LONG g_currentDbcIndex = 0;
+static void* g_dbcLoaderFn = nullptr;
+static const uintptr_t DBC_ARRAY_START = 0x00AD305C;
+static const int DBC_COUNT = 233;
+static const int DBC_STRUCT_SIZE = 36;
+
+static DWORD WINAPI DbcWorkerThread(LPVOID) {
+    typedef int (__thiscall *Loader_t)(void*);
+    Loader_t load = (Loader_t)g_dbcLoaderFn;
+
+    while (true) {
+        LONG idx = InterlockedIncrement(&g_currentDbcIndex) - 1;
+        if (idx >= DBC_COUNT) break;
+
+        void* dbcStore = (void*)(DBC_ARRAY_START + idx * DBC_STRUCT_SIZE);
+        __try {
+            load(dbcStore);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
+    return 0;
+}
+
+extern "C" void __stdcall ParallelDbcLoad(void* loader_fn) {
+    g_dbcLoaderFn = loader_fn;
+    g_currentDbcIndex = 0;
+
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    int numCores = sysInfo.dwNumberOfProcessors;
+    if (numCores < 2) numCores = 2;
+    if (numCores > 8) numCores = 8;
+
+    HANDLE threads[8] = {};
+    for (int i = 0; i < numCores; i++) {
+        threads[i] = CreateThread(NULL, 0, DbcWorkerThread, NULL, 0, NULL);
+        if (threads[i]) {
+            SetThreadPriority(threads[i], THREAD_PRIORITY_HIGHEST);
+        }
+    }
+
+    WaitForMultipleObjects(numCores, threads, TRUE, INFINITE);
+
+    for (int i = 0; i < numCores; i++) {
+        if (threads[i]) CloseHandle(threads[i]);
+    }
+}
+
+extern "C" __declspec(naked) void Hooked_DbcLoadDispatch() {
+    __asm {
+        pushad
+        push esi // pass loader function pointer
+        call ParallelDbcLoad
+        popad
+        ret
+    }
+}
 
 // ================================================================
 // 4. CDataStore Compression Offloading
@@ -481,6 +623,26 @@ bool InstallAsyncHooks(void) {
         Log("[AsyncHooks] CDataStore async: fill ADDR_CDATASTORE_PROCESS");
 
     Log("[AsyncHooks] Worker pool: %d threads, %d task slots", ASYNC_POOL_WORKERS, TASK_QUEUE_SIZE);
+
+    #if !TEST_DISABLE_ADT_PREFETCH
+    if (ADDR_ADT_CHUNK_LOAD) {
+        if (WineSafe_CreateHook((void*)ADDR_ADT_CHUNK_LOAD, (void*)Hooked_sub_7D9A20, (void**)&orig_AdtChunkLoad) == MH_OK) {
+            if (WO_EnableHook((void*)ADDR_ADT_CHUNK_LOAD) == MH_OK) {
+                Log("[AsyncHooks] Hook installed: ADT prefetcher (0x%08X)", ADDR_ADT_CHUNK_LOAD);
+            }
+        }
+    }
+    #endif
+
+    #if !TEST_DISABLE_DBC_PARALLEL
+    if (ADDR_DBC_LOAD_DISPATCH) {
+        if (WineSafe_CreateHook((void*)ADDR_DBC_LOAD_DISPATCH, (void*)Hooked_DbcLoadDispatch, (void**)&orig_DbcLoadDispatch) == MH_OK) {
+            if (WO_EnableHook((void*)ADDR_DBC_LOAD_DISPATCH) == MH_OK) {
+                Log("[AsyncHooks] Hook installed: DBC Parallel loader (0x%08X)", ADDR_DBC_LOAD_DISPATCH);
+            }
+        }
+    }
+    #endif
 
     // Note: existing string.format and math fast paths are in lua_fastpath.cpp
     // and dllmain.cpp. This module adds the worker-pool infrastructure for
