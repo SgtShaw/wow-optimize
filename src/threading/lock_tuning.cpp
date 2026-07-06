@@ -80,7 +80,7 @@ bool InstallLockTuning() {
     // 1. Retrofit the already-created CRT locks (the heap lock #4 is the prize).
     __try {
         for (int n = 0; n < CRT_LOCK_SPAN; ++n) {
-            LPCRITICAL_SECTION* slot = (LPCRITICAL_SECTION*)(CRT_LOCKTABLE + (uintptr_t)n * 8);
+            LPCRITICAL_SECTION* slot = (LPCRITICAL_SECTION*)(CRT_LOCKTABLE + (uintptr_t)n * 4);
             LPCRITICAL_SECTION cs = *slot;   // runtime-populated; NULL if lock n unused
             if (cs && TuneCS(cs))
                 ++g_retrofitted;
