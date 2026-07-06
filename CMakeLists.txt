@@ -123,6 +123,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/async_tex_loader.h
     src/hooks_subsystems/unit_aura_coalesce.cpp
     src/hooks_subsystems/unit_aura_coalesce.h
+    src/hooks_subsystems/adaptive_farclip.cpp
+    src/hooks_subsystems/adaptive_farclip.h
     src/simd_math/m2_lod_bias.cpp
     src/simd_math/m2_lod_bias.h
     src/runtime_vm/saved_vars_pretoken.cpp

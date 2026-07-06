@@ -491,7 +491,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    1
+#define TEST_DISABLE_EVENT_COALESCER    0
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -543,13 +543,14 @@
 #define TEST_DISABLE_NET_PACKET_COALESCE       1  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
-#define TEST_DISABLE_LUA_GC_GOVERNOR            1  // enabled: adaptive Lua GC governor
+#define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // enabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // enabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        1  // enabled: Addon Tick Governor
 #define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     1  // enabled: D3D9 VS Constant Cache
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        1  // enabled: SavedVariables Preloader
+#define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        1  // enabled: Net Addon Message Coalescer
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // enabled: Dynamic Mipmap Bias Governor
 #define TEST_DISABLE_SPATIAL_CULLING            1  // enabled: Spatial Culling Grid

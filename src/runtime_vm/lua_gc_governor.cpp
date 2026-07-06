@@ -34,10 +34,10 @@ static inline double GetLuaMemoryKB(void* L) {
     return (double)count + (double)countb / 1024.0;
 }
 
+bool g_inCombat = false;
+bool g_isIdle = false;
+bool g_isLoading = false;
 static bool g_initialized = false;
-static bool g_inCombat = false;
-static bool g_isIdle = false;
-static bool g_isLoading = false;
 static double g_lastMemoryKB = 0.0;
 
 bool Init() {
@@ -55,10 +55,6 @@ void OnFrame(double frameMs) {
 
     void* L = *(void**)0x00D3F78C;
     if (!L) return;
-
-    g_inCombat = ReadGlobalBool(L, "LUABOOST_ADDON_COMBAT");
-    g_isIdle = ReadGlobalBool(L, "LUABOOST_ADDON_IDLE");
-    g_isLoading = ReadGlobalBool(L, "LUABOOST_ADDON_LOADING");
 
     double memKB = GetLuaMemoryKB(L);
     double diffKB = memKB - g_lastMemoryKB;

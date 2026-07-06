@@ -13,6 +13,8 @@
 #include "MinHook.h"
 #include "version.h"
 
+#include "runtime_vm/lua_gc_governor.h"
+
 extern "C" void Log(const char* fmt, ...);
 
 static constexpr uintptr_t ADDR_FrameScript_SignalEvent = 0x0081AC90;
@@ -61,18 +63,6 @@ static const char* GetEventName(int eventId) {
 }
 
 static bool ShouldCoalesce(const char* name) {
-    if (!name) return false;
-    if (strcmp(name, "UNIT_AURA") == 0) return true;
-    if (strcmp(name, "BAG_UPDATE") == 0) return true;
-    if (strcmp(name, "UNIT_POWER") == 0) return true;
-    if (strcmp(name, "UNIT_MANA") == 0) return true;
-    if (strcmp(name, "UNIT_ENERGY") == 0) return true;
-    if (strcmp(name, "UNIT_RAGE") == 0) return true;
-    if (strcmp(name, "UNIT_HEALTH") == 0) return true;
-    if (strcmp(name, "UNIT_THREAT_LIST_UPDATE") == 0) return true;
-    if (strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0) return true;
-    if (strcmp(name, "SPELL_UPDATE_USABLE") == 0) return true;
-    if (strcmp(name, "UNIT_MODEL_CHANGED") == 0) return true;
     return false;
 }
 
@@ -114,6 +104,18 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
     if (g_isReplaying) return false;
 
     const char* eventName = GetEventName(eventId);
+    if (eventName) {
+        if (strcmp(eventName, "PLAYER_REGEN_DISABLED") == 0) {
+            LuaGCGovernor::g_inCombat = true;
+        } else if (strcmp(eventName, "PLAYER_REGEN_ENABLED") == 0) {
+            LuaGCGovernor::g_inCombat = false;
+        } else if (strcmp(eventName, "PLAYER_LEAVING_WORLD") == 0) {
+            LuaGCGovernor::g_isLoading = true;
+        } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
+            LuaGCGovernor::g_isLoading = false;
+        }
+    }
+
     if (!eventName || !ShouldCoalesce(eventName)) {
         return false;
     }

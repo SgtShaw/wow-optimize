@@ -310,6 +310,7 @@ void ClearCombatLogCache();
 #include "mip_bias_governor.h"
 #include "spatial_culling.h"
 #include "perf_diagnostics.h"
+#include "adaptive_farclip.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -1243,6 +1244,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameAsyncHooks(g_mainThreadId);
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
+#endif
+#if !TEST_DISABLE_ADAPTIVE_FARCLIP
+            AdaptiveFarclip::OnFrame((float)elapsedMs);
 #endif
 #if !TEST_DISABLE_M2_LOD_BIAS
             M2LodBias::UpdateLodBias(elapsedMs);
@@ -7345,6 +7349,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     LuaGCGovernor::Init();
 
     Log("");
+    Log("--- Adaptive Farclip Controller ---");
+    AdaptiveFarclip::Init();
+
+    Log("");
     Log("--- M2 LOD Bias Control ---");
     M2LodBias::Init();
 
@@ -9254,6 +9262,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             HwVertexSkinning::Shutdown();
             SoundMixerOpt::Shutdown();
             LuaGCGovernor::Shutdown();
+            AdaptiveFarclip::Shutdown();
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();
