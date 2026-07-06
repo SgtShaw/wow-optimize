@@ -524,6 +524,20 @@
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
 #define TEST_DISABLE_LUA_GC_COALESCE           0  // enabled: incremental Lua GC coalescing
 #define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
+
+// ================================================================
+// 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
+// ================================================================
+#define TEST_DISABLE_M2_SIMD_MT                 0
+#define TEST_DISABLE_GUID_MAP_LF                1
+#define TEST_DISABLE_SIMD_MATH_FAST             0
+#define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
+#define TEST_DISABLE_LUA_POOL_LF                1
+#define TEST_DISABLE_D3D_STATE_CACHE            0
+#define TEST_DISABLE_DBC_LOOKUP_CACHE           0
+#define TEST_DISABLE_SAVEDVARS_ASYNC            0
+#define TEST_DISABLE_WORLD_STATE_COALESCE       0
+#define TEST_DISABLE_HW_SKINNING                0
 #define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
 #define TEST_DISABLE_FONT_METRICS_LOCK_FREE    0  // enabled: lock-free font metrics cache
 #define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch

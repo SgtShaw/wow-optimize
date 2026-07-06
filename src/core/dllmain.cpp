@@ -59,6 +59,13 @@
 #include "simd_skinning.h"
 #include "net_packet_offload.h"
 #include "predictive_prefetch.h"
+#include "parallel_m2_skinning.h"
+#include "guid_lookup_cache.h"
+#include "simd_math_fast.h"
+#include "combatlog_incremental.h"
+#include "lua_alloc_pool.h"
+#include "world_state_coalesce.h"
+#include "hw_vertex_skinning.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -548,6 +555,7 @@ static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
             uint32_t* j = (uint32_t*)This;
             uint64_t guid = ((uint64_t)j[13] << 32) | j[12];
             InvalidateUnitApiCacheFor(guid);
+            GuidLookupCache::Invalidate(guid);
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
     return orig_UnlinkNode(This);
@@ -567,6 +575,9 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
     __try {
         // Critical fields (HP, Mana, GUID, Flags, Level) process immediately
         if (fieldId < 0x40) {
+            if (WorldStateCoalesce::ProcessFieldUpdate(This, fieldId, value, (void*)orig_OnFieldUpdate)) {
+                return;
+            }
             return orig_OnFieldUpdate(This, fieldId, value);
         }
 
@@ -1187,6 +1198,8 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             PredictivePrefetch::OnFrame();
 #endif
             FlushFieldUpdates();
+            CombatLogIncremental::OnFrame((int)currentL);
+            WorldStateCoalesce::OnFrame();
 #if !TEST_DISABLE_HARDWARE_CURSOR
             InitHardwareCursor();
 #endif
@@ -4926,6 +4939,12 @@ static inline uint64_t* GetLuaTopPtr(int L) {
 }
 
 static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int luaState) {
+    if (This && luaState) {
+        if (CombatLogIncremental::ShouldDefer(This, luaState, (void*)orig_CombatLogEvent)) {
+            return 0;
+        }
+    }
+
 #if CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE
     return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
 #else
@@ -7245,6 +7264,34 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[PredictivePrefetch] DISABLED via TEST_DISABLE_PREDICTIVE_PREFETCH");
 #endif
 
+    Log("");
+    Log("--- Parallel M2 Geometry SIMD Skinning ---");
+    bool parallelM2Ok = ParallelM2Skinning::Init();
+
+    Log("");
+    Log("--- Lock-Free Object GUID Lookup Cache ---");
+    bool guidCacheOk = GuidLookupCache::Init();
+
+    Log("");
+    Log("--- SSE2 Math Fast Paths ---");
+    bool simdMathOk = SimdMathFast::Init();
+
+    Log("");
+    Log("--- Incremental Combat Log Parsing ---");
+    bool combatLogIncOk = CombatLogIncremental::Init();
+
+    Log("");
+    Log("--- Thread-Local Lua Allocator Pool ---");
+    bool luaPoolOk = LuaAllocPool::Init();
+
+    Log("");
+    Log("--- Coalesced World State Updates ---");
+    bool worldStateCoalesceOk = WorldStateCoalesce::Init();
+
+    Log("");
+    Log("--- Hardware-Accelerated Vertex Skinning ---");
+    bool hwSkinningOk = HwVertexSkinning::Init();
+
     // Register memory-pressure governor shed callbacks.  These fire from the
     // main thread (Sleep hook) when VA fragments below threshold, and each
     // clears its cache via a pure memset-to-zero — all safe under pressure.
@@ -9083,6 +9130,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SimdSkinning::Shutdown();
             NetPacketOffload::Shutdown();
             PredictivePrefetch::Shutdown();
+            ParallelM2Skinning::Shutdown();
+            GuidLookupCache::Shutdown();
+            SimdMathFast::Shutdown();
+            CombatLogIncremental::Shutdown();
+            LuaAllocPool::Shutdown();
+            WorldStateCoalesce::Shutdown();
+            HwVertexSkinning::Shutdown();
 
 #if !TEST_DISABLE_SAMPLING_PROFILER
             SamplingProfiler::Shutdown();

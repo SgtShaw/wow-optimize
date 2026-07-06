@@ -5,6 +5,7 @@
 // ============================================================================
 
 #include "loading_defrag.h"
+#include "api_cache.h"
 #include <windows.h>
 #include <psapi.h>
 #include <vector>
@@ -234,6 +235,7 @@ void NotifyLoadingState(bool isLoading) {
     if (isLoading) {
         g_loadingActive.store(true);
         SetEvent(g_defragEvent);
+        ApiCache::ClearCache();
     } else {
         g_loadingActive.store(false);
     }

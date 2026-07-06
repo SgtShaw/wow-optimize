@@ -318,6 +318,11 @@ static int __cdecl Hooked_FileClose(int fd) {
 }
 
 bool Init() {
+#if TEST_DISABLE_SAVEDVARS_ASYNC
+    Log("[SavedVarsAsyncSerializer] DISABLED via TEST_DISABLE_SAVEDVARS_ASYNC.");
+    return false;
+#endif
+
     g_shutdown = false;
     
     // Spawn worker thread

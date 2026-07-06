@@ -187,6 +187,11 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, 
 
 // Resolve virtual table offsets by creating a temporary dummy device
 bool Init() {
+#if TEST_DISABLE_D3D_STATE_CACHE
+    Log("[D3D9StateCache] DISABLED via TEST_DISABLE_D3D_STATE_CACHE.");
+    return false;
+#endif
+
     InvalidateCache();
 
     HMODULE d3d9 = LoadLibraryA("d3d9.dll");
