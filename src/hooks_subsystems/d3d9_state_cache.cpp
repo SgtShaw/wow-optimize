@@ -20,11 +20,7 @@ namespace D3D9StateCache {
 typedef HRESULT (WINAPI *SetRenderState_fn)(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value);
 static SetRenderState_fn orig_SetRenderState = nullptr;
 
-typedef HRESULT (WINAPI *SetTextureStageState_fn)(IDirect3DDevice9* device, DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value);
-static SetTextureStageState_fn orig_SetTextureStageState = nullptr;
 
-typedef HRESULT (WINAPI *SetSamplerState_fn)(IDirect3DDevice9* device, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value);
-static SetSamplerState_fn orig_SetSamplerState = nullptr;
 
 typedef HRESULT (WINAPI *Reset_fn)(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params);
 static Reset_fn orig_Reset = nullptr;
@@ -94,31 +90,7 @@ static HRESULT WINAPI Hooked_SetRenderState(IDirect3DDevice9* device, D3DRENDERS
     return orig_SetRenderState(device, state, value);
 }
 
-// Hooked SetTextureStageState
-static HRESULT WINAPI Hooked_SetTextureStageState(IDirect3DDevice9* device, DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value) {
-    if (stage < 8 && (DWORD)type < 64) {
-        if (g_textureStageStateValid[stage][type] && g_textureStageStateCache[stage][type] == value) {
-            g_stageStateSkips.fetch_add(1, std::memory_order_relaxed);
-            return D3D_OK;
-        }
-        g_textureStageStateCache[stage][type] = value;
-        g_textureStageStateValid[stage][type] = true;
-    }
-    return orig_SetTextureStageState(device, stage, type, value);
-}
 
-// Hooked SetSamplerState
-static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value) {
-    if (sampler < 16 && (DWORD)type < 32) {
-        if (g_samplerStateValid[sampler][type] && g_samplerStateCache[sampler][type] == value) {
-            g_samplerSkips.fetch_add(1, std::memory_order_relaxed);
-            return D3D_OK;
-        }
-        g_samplerStateCache[sampler][type] = value;
-        g_samplerStateValid[sampler][type] = true;
-    }
-    return orig_SetSamplerState(device, sampler, type, value);
-}
 
 // Hooked Reset
 static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
@@ -229,15 +201,11 @@ bool Init() {
     void* target_Reset = (void*)vtable[16];
     void* target_Present = (void*)vtable[17];
     void* target_SetRenderState = (void*)vtable[57];
-    void* target_SetTextureStageState = (void*)vtable[67];
-    void* target_SetSamplerState = (void*)vtable[69];
 
     // Install hooks
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
         MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
-        MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK ||
-        MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK ||
-        MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK) 
+        MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK) 
     {
         device->Release();
         DestroyWindow(hwnd);
@@ -249,8 +217,6 @@ bool Init() {
     MH_EnableHook(target_Reset);
     MH_EnableHook(target_Present);
     MH_EnableHook(target_SetRenderState);
-    MH_EnableHook(target_SetTextureStageState);
-    MH_EnableHook(target_SetSamplerState);
 
     // Release dummy objects
     device->Release();
