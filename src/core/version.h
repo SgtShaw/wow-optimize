@@ -544,7 +544,7 @@
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
-#define TEST_DISABLE_M2_LOD_BIAS                0  // enabled: M2 LOD Bias Control
+#define TEST_DISABLE_M2_LOD_BIAS                1  // enabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // enabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
