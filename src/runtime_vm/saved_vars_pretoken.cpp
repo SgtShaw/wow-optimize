@@ -229,7 +229,7 @@ bool GetMinifiedFileSize(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
 }
 
 bool Init() {
-    #if TEST_DISABLE_SAVEDVARS_ASYNC
+    #if TEST_DISABLE_SAVED_VARS_PRETOKEN
     return true;
     #endif
     
