@@ -92,18 +92,32 @@ static int __cdecl DiagLuaError(uintptr_t L) {
         if (useL < 0x10000 || useL > 0xFFE00000) useL = 0;
     }
 
-    LogEx(LOG_LEVEL_ERROR, "LUA", "=== LUA ERROR #%d ===", (int)errNum);
-    LogEx(LOG_LEVEL_ERROR, "LUA", "  lua_State param: 0x%08X  global: 0x%08X", (unsigned)L, (unsigned)useL);
+    bool isCaught = false;
+    if (useL) {
+        __try {
+            // Offset 0x74 is L->errorJmp in Lua 5.1 32-bit structure.
+            uintptr_t errorJmp = *(uintptr_t*)(useL + 0x74);
+            if (errorJmp != 0) {
+                isCaught = true;
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 
     const char* errMsg = nullptr;
     if (useL) {
         errMsg = ReadLuaErrorString(useL);
     }
-    if (errMsg && errMsg[0]) {
-        LogEx(LOG_LEVEL_ERROR, "LUA", "  Message: %s", errMsg);
-    } else {
-        LogEx(LOG_LEVEL_ERROR, "LUA", "  Message: <unable to read>");
+    if (!errMsg) errMsg = "<unable to read>";
+
+    if (isCaught) {
+        // Silently log caught errors as a single line to avoid log flooding
+        LogEx(LOG_LEVEL_INFO, "LUA", "[LuaError] Caught exception: %s", errMsg);
+        return s_origLuaError(L);
     }
+
+    LogEx(LOG_LEVEL_ERROR, "LUA", "=== UNHANDLED LUA ERROR #%d ===", (int)errNum);
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  lua_State param: 0x%08X  global: 0x%08X", (unsigned)L, (unsigned)useL);
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  Message: %s", errMsg);
 
     if (useL) {
         LogLuaTraceback(useL);

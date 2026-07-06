@@ -1215,15 +1215,42 @@ static void SetupLuaInterface(lua_State* L) {
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_IDLE", false);
         WriteLuaGlobal_Bool(L, "LUABOOST_ADDON_LOADING", false);
 
-        // Also inject via FrameScript_Execute for addon-side visibility
+        // Also inject via FrameScript_Execute for addon-side visibility and throttling
         if (Api.FrameScript_Execute) {
             __try {
                 Api.FrameScript_Execute(
                     "LUABOOST_DLL_LOADED=true "
                     "LUABOOST_DLL_GC_ACTIVE=true "
-                    "LUABOOST_DLL_LUA_ALLOC=true",
+                    "LUABOOST_DLL_LUA_ALLOC=true "
+                    "local mt = getmetatable(CreateFrame('Frame')) "
+                    "if mt and mt.__index and mt.__index.SetScript then "
+                    "  local orig = mt.__index.SetScript "
+                    "  local list = {details=true, recount=true, skada=true, auctionator=true, auctioneer=true, questhelper=true, gatherer=true, carbonite=true, postal=true, bagnon=true, arkinventory=true, atlasloot=true, overachiever=true, wim=true, chatter=true, prat=true} "
+                    "  mt.__index.SetScript = function(self, st, h) "
+                    "    if st == 'OnUpdate' and h then "
+                    "      local n = self:GetName() "
+                    "      if n then "
+                    "        n = string.lower(n) "
+                    "        for k in pairs(list) do "
+                    "          if string.find(n, k, 1, true) then "
+                    "            local last = 0 "
+                    "            orig(self, st, function(self, el) "
+                    "              local now = GetTime() "
+                    "              if now - last >= 0.05 then "
+                    "                last = now "
+                    "                h(self, el) "
+                    "              end "
+                    "            end) "
+                    "            return "
+                    "          end "
+                    "        end "
+                    "      end "
+                    "    end "
+                    "    orig(self, st, h) "
+                    "  end "
+                    "end",
                     "wow_optimize_inject", 0);
-                Log("[LuaOpt] SetupLuaInterface: injected markers via FrameScript_Execute");
+                Log("[LuaOpt] SetupLuaInterface: injected markers and throttler via FrameScript_Execute");
             } __except(EXCEPTION_EXECUTE_HANDLER) {
                 Log("[LuaOpt] SetupLuaInterface: FrameScript injection failed");
             }
@@ -1344,17 +1371,6 @@ static lua_State* g_pendingInjectState = nullptr;
 extern "C" bool FrameThrottle_Check(const char* namePtr);
 
 static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
-    __try {
-        if (source && *source) {
-            if (AddonTickGovernor::ShouldThrottle(source)) {
-                return; // Throttled!
-            }
-            if (!FrameThrottle_Check(source)) {
-                return; // Throttled!
-            }
-        }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
-
     // Inject markers before addon code on new lua_State
     lua_State* currentL = ReadLuaState();
     if (currentL && currentL == g_pendingInjectState &&
