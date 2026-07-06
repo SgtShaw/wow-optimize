@@ -7,4 +7,5 @@ namespace SavedVarsPretoken {
     void OnCreateFile(HANDLE hFile, const char* filename);
     void OnCloseHandle(HANDLE hFile);
     bool TryServe(HANDLE hFile, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead);
+    bool GetMinifiedFileSize(HANDLE hFile, PLARGE_INTEGER lpFileSize);
 }

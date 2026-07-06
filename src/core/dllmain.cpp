@@ -7725,25 +7725,49 @@ static FSizeEntry g_fsizeCache[FSIZE_CACHE_SIZE] = {};
 typedef BOOL (WINAPI* GetFileSizeEx_fn)(HANDLE, PLARGE_INTEGER);
 static GetFileSizeEx_fn orig_GetFileSizeEx = nullptr;
 
+typedef DWORD (WINAPI* GetFileSize_fn)(HANDLE, LPDWORD);
+static GetFileSize_fn orig_GetFileSize = nullptr;
+
 static BOOL WINAPI hooked_GetFileSizeEx(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
-    // Cache disabled for testing - pass through to original
+    #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+    if (SavedVarsPretoken::GetMinifiedFileSize(hFile, lpFileSize)) {
+        return TRUE;
+    }
+    #endif
     return orig_GetFileSizeEx(hFile, lpFileSize);
 }
 
+static DWORD WINAPI hooked_GetFileSize(HANDLE hFile, LPDWORD lpFileSizeHigh) {
+    #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
+    LARGE_INTEGER sz;
+    if (SavedVarsPretoken::GetMinifiedFileSize(hFile, &sz)) {
+        if (lpFileSizeHigh) {
+            *lpFileSizeHigh = sz.HighPart;
+        }
+        return sz.LowPart;
+    }
+    #endif
+    return orig_GetFileSize(hFile, lpFileSizeHigh);
+}
+
 static bool InstallGetFileSizeCache() {
-#if CRASH_TEST_DISABLE_GETFILESIZE_CACHE
-    Log("GetFileSizeEx cache: DISABLED (crash isolation)");
-    return false;
-#else
     HMODULE hK32 = GetModuleHandleA("kernel32.dll");
     if (!hK32) return false;
-    void* p = (void*)GetProcAddress(hK32, "GetFileSizeEx");
-    if (!p) return false;
-    if (MH_CreateHook(p, (void*)hooked_GetFileSizeEx, (void**)&orig_GetFileSizeEx) != MH_OK) return false;
-    if (WO_EnableHook(p) != MH_OK) return false;
-    Log("GetFileSizeEx hook: ACTIVE (cache via FileNameInfo, %d slots)", FSIZE_CACHE_SIZE);
+    
+    void* pEx = (void*)GetProcAddress(hK32, "GetFileSizeEx");
+    if (pEx) {
+        MH_CreateHook(pEx, (void*)hooked_GetFileSizeEx, (void**)&orig_GetFileSizeEx);
+        WO_EnableHook(pEx);
+    }
+    
+    void* pSize = (void*)GetProcAddress(hK32, "GetFileSize");
+    if (pSize) {
+        MH_CreateHook(pSize, (void*)hooked_GetFileSize, (void**)&orig_GetFileSize);
+        WO_EnableHook(pSize);
+    }
+    
+    Log("GetFileSize / GetFileSizeEx hooks: ACTIVE");
     return true;
-#endif
 }
 
 // ================================================================

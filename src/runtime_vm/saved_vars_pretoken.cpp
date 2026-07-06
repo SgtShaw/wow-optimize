@@ -204,6 +204,30 @@ bool TryServe(HANDLE hFile, LPVOID lpBuffer, DWORD nBytes, LPDWORD lpBytesRead) 
     return false;
 }
 
+bool GetMinifiedFileSize(HANDLE hFile, PLARGE_INTEGER lpFileSize) {
+    if (!hFile || hFile == INVALID_HANDLE_VALUE || !lpFileSize) return false;
+    
+    AcquireSRWLockShared(&g_handleLock);
+    for (int i = 0; i < g_handleCount; i++) {
+        if (g_handles[i] == hFile) {
+            std::string path = g_handlePaths[i];
+            ReleaseSRWLockShared(&g_handleLock);
+            
+            AcquireSRWLockShared(&g_cacheLock);
+            auto it = g_cache.find(path);
+            if (it != g_cache.end() && !it->second.empty()) {
+                lpFileSize->QuadPart = it->second.size();
+                ReleaseSRWLockShared(&g_cacheLock);
+                return true;
+            }
+            ReleaseSRWLockShared(&g_cacheLock);
+            return false;
+        }
+    }
+    ReleaseSRWLockShared(&g_handleLock);
+    return false;
+}
+
 bool Init() {
     #if TEST_DISABLE_SAVEDVARS_ASYNC
     return true;
