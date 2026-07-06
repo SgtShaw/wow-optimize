@@ -153,12 +153,12 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -168,7 +168,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -181,10 +181,10 @@
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
@@ -195,7 +195,7 @@
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 0
+#define TEST_DISABLE_DATASTORE_FASTPATH 1
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -533,7 +533,7 @@
 #define TEST_DISABLE_SIMD_MATH_FAST             0
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                1
-#define TEST_DISABLE_D3D_STATE_CACHE            0
+#define TEST_DISABLE_D3D_STATE_CACHE            1
 #define TEST_DISABLE_DBC_LOOKUP_CACHE           1
 #define TEST_DISABLE_SAVEDVARS_ASYNC            0
 #define TEST_DISABLE_WORLD_STATE_COALESCE       0
