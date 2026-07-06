@@ -439,7 +439,7 @@
 #define TEST_DISABLE_RENDER_STATE_DEDUP 1
 
 // Lock-Free Addon SavedVariables Incremental Serializer
-#define TEST_DISABLE_SAVED_VARS_SERIALIZER 1
+#define TEST_DISABLE_SAVED_VARS_SERIALIZER 0
 
 // SIMD AVX2 Animated Model Vertex Skinning Accelerator
 #define TEST_DISABLE_SIMD_SKINNING      0
@@ -728,12 +728,7 @@ static inline MH_STATUS WineSafe_CreateHook(void* target, void* detour, void** o
 // directly) enables apply immediately. Defined in dllmain.cpp.
 extern volatile long g_hookBatchMode;
 static inline MH_STATUS WO_EnableHook(void* target) {
-#if defined(TEST_DISABLE_HOOK_BATCHING) && TEST_DISABLE_HOOK_BATCHING
     return MH_EnableHook(target);
-#else
-    if (g_hookBatchMode) return MH_QueueEnableHook(target);
-    return MH_EnableHook(target);
-#endif
 }
 #endif
 #endif

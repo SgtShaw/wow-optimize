@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.14)
 project(wow_optimize LANGUAGES C CXX)
 
+# Force static CRT globally for all targets and dependencies (mimalloc, minhook, etc.)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+
 # ============================================================================
 # Whole-program / link-time optimization (LTO) for the DLL.
 #   -DWO_ENABLE_LTO=ON  ->  /GL (whole-program) + /LTCG (link-time codegen)
@@ -46,6 +50,7 @@ FetchContent_MakeAvailable(mimalloc)
 # === Main optimization DLL ===
 add_library(wow_optimize SHARED
     src/core/dllmain.cpp
+    src/core/config.cpp
     src/hooks_subsystems/crt_mem_fastpath.cpp
     src/runtime_vm/lua_optimize.cpp
     src/runtime_vm/lua_optimize.h

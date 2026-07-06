@@ -7,6 +7,7 @@
 #include <windows.h>
 #include "MinHook.h"
 #include "version.h"
+#include "config.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -90,6 +91,10 @@ __declspec(naked) static int Hooked_FrameUpdateLoop() {
 // Installation
 // ================================================================
 bool InstallUIFrameBatching() {
+    if (!Config::g_settings.UIFrameBatch) {
+        Log("[UIFrameBatch] DISABLED via configuration (wow_opt.ini)");
+        return false;
+    }
 #if TEST_DISABLE_UI_FRAME_BATCH
     Log("[UIFrameBatch] DISABLED (test toggle)");
     return false;

@@ -303,6 +303,7 @@ void ClearCombatLogCache();
 extern "C" void IncrementParticleFrameCount();
 
 #include "version.h"
+#include "config.h"
 
 // ================================================================
 // TOGGLES// Each toggle disables a specific optimization for binary search
@@ -1113,7 +1114,9 @@ static void RunPeriodicMaintenanceOnMainThread() {
     TexCacheTuning_Tick();
 
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
-    PressureGovernor::OnFrame();
+    if (Config::g_settings.MemoryPressure) {
+        PressureGovernor::OnFrame();
+    }
 #endif
 
     if (g_isMultiClient) {
@@ -1159,7 +1162,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             msSinceLastTick = (double)(now.QuadPart - lastFrameTickTime.QuadPart) / g_sleepFreq;
         }
 
-        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= 8.0) {
+        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= (double)Config::g_settings.SleepPrecision) {
             lastFrameTickTime = now;
 
             RunPeriodicMaintenanceOnMainThread();
@@ -5922,6 +5925,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     GetSystemInfo(&g_cachedSysInfo);
     g_sysInfoCached = true;
 
+    // Load runtime configuration from wow_opt.ini
+    Config::Load();
+
     // --- Early allocator redirect ---
     // Install mimalloc BEFORE the 5s Sleep so it captures EVERY allocation during
     // login/world-load (MPQ data, world LOD assets, UI setup) — that's precisely
@@ -6364,9 +6370,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
-    HeapCompactor_Init();
+    if (Config::g_settings.HeapCompactor) {
+        HeapCompactor_Init();
+    } else {
+        Log("[HeapCompactor] DISABLED via configuration (wow_opt.ini)");
+    }
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
-    PressureGovernor::Init();
+    if (Config::g_settings.MemoryPressure) {
+        PressureGovernor::Init();
+    } else {
+        Log("[PressureGovernor] DISABLED via configuration (wow_opt.ini)");
+    }
 #endif
     VersionChecker_Init();
 
@@ -7158,7 +7172,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- High-Precision Hybrid Frame Limiter ---");
 #if !TEST_DISABLE_FRAME_LIMITER
-    bool frameLimiterOk = FrameLimiter::Init();
+    bool frameLimiterOk = false;
+    if (Config::g_settings.FrameLimiter) {
+        frameLimiterOk = FrameLimiter::Init();
+    } else {
+        Log("[FrameLimiter] DISABLED via configuration (wow_opt.ini)");
+    }
 #else
     bool frameLimiterOk = false;
     Log("[FrameLimiter] DISABLED via TEST_DISABLE_FRAME_LIMITER");
@@ -7167,7 +7186,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Lock-Free SavedVariables Serializer ---");
 #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
-    bool savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
+    bool savedVarsSerializerOk = false;
+    if (Config::g_settings.SavedVarsSerializer) {
+        savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
+    } else {
+        Log("[SavedVarsSerializer] DISABLED via configuration (wow_opt.ini)");
+    }
 #else
     bool savedVarsSerializerOk = false;
     Log("[SavedVarsSerializer] DISABLED via TEST_DISABLE_SAVED_VARS_SERIALIZER");
@@ -7185,7 +7209,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Parallel Network Packet Offloader ---");
 #if !TEST_DISABLE_NET_PACKET_OFFLOAD
-    bool netPacketOffloadOk = NetPacketOffload::Init();
+    bool netPacketOffloadOk = false;
+    if (Config::g_settings.PacketOffload) {
+        netPacketOffloadOk = NetPacketOffload::Init();
+    } else {
+        Log("[NetPacketOffload] DISABLED via configuration (wow_opt.ini)");
+    }
 #else
     bool netPacketOffloadOk = false;
     Log("[NetPacketOffload] DISABLED via TEST_DISABLE_NET_PACKET_OFFLOAD");
