@@ -92,7 +92,7 @@ __declspec(naked) void Hook_UnitAura_Match() {
         push ecx
         push edx
 
-        mov ecx, [ebp+8]      // q (AuraQuery*)
+        mov ecx, edi          // q (AuraQuery*)
         mov edx, esi          // pos (loop index)
         call RecordAuraCache
 

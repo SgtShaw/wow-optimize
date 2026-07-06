@@ -181,24 +181,30 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
         WaitForSingleObject(g_workerEvent, 1);
 
         // Process all available callbacks
-        LONG head = g_queueHead;
-        LONG tail = InterlockedCompareExchange(&g_queueTail, 0, 0); // Read tail atomically
-
-        if (head == tail) {
-            continue; // Queue empty
-        }
-
-        while (head != tail) {
-            int slot = head & QUEUE_MASK;
-            QueueEntry* entry = &g_queue[slot];
-
-            if (entry->ready) {
-                ProcessCallback(&entry->data);
-                InterlockedExchange(&entry->ready, 0);
+        while (true) {
+            LONG head = g_queueHead;
+            LONG tail = InterlockedCompareExchange(&g_queueTail, 0, 0);
+            if (head == tail) {
+                break; // Queue empty
             }
 
-            head = (head + 1) & 0x7FFFFFFF; // Prevent overflow
-            InterlockedExchange(&g_queueHead, head);
+            LONG nextHead = head + 1;
+            if (InterlockedCompareExchange(&g_queueHead, nextHead, head) == head) {
+                int slot = head & QUEUE_MASK;
+                QueueEntry* entry = &g_queue[slot];
+
+                // Spin-wait briefly if the producer has reserved the slot but not yet set ready=1
+                int spins = 0;
+                while (!entry->ready && !g_workerShutdown && spins < 1000) {
+                    _mm_pause();
+                    spins++;
+                }
+
+                if (entry->ready) {
+                    ProcessCallback(&entry->data);
+                    InterlockedExchange(&entry->ready, 0);
+                }
+            }
         }
     }
 
@@ -389,7 +395,7 @@ void OnFrame(DWORD mainThreadId) {
         while (head != tail) {
             int slot = head & QUEUE_MASK;
             g_queue[slot].ready = 0;
-            head = (head + 1) & 0x7FFFFFFF;
+            head = head + 1;
         }
         InterlockedExchange(&g_queueHead, tail);
         return;

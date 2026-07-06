@@ -5144,6 +5144,7 @@ static int __cdecl luaTable_reshape_decision(int newSize, void* table) {
     // CRITICAL: Clear luaH_getstr cache on every resize - old Node* pointers are invalidated
     InvalidateLuaGetStrInlineCache();
     ClearRawGetIInlineCache();
+    ClearLuaVMEngineCaches();
 
     return newSize;
 }

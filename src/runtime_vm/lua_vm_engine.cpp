@@ -129,8 +129,7 @@ static luaV_settable_fn g_orig_luaV_settable = nullptr;
 typedef void* (__cdecl* luaH_getstr_fn)(int table, int tstring);
 static luaH_getstr_fn g_orig_luaH_getstr = nullptr;
 
-typedef void* (__cdecl* luaH_resize_fn)(void* L, void* t, int nasize, int nhsize);
-static luaH_resize_fn g_orig_luaH_resize = nullptr;
+
 
 typedef void (__cdecl* luaC_barrier__fn)(void* L, void* p, void* v);
 static luaC_barrier__fn g_orig_luaC_barrier_ = (luaC_barrier__fn)0x0085BA50;
@@ -278,16 +277,7 @@ static void* __fastcall FastSetTable(void* L, TValue* table, TValue* key, TValue
     return g_orig_luaV_settable((int)L, (int*)table, (int*)key, (int*)val);
 }
 
-__declspec(naked) static void Hooked_luaH_resize() {
-    __asm {
-        pushad
-        pushfd
-        call ICInvalidate
-        popfd
-        popad
-        jmp g_orig_luaH_resize
-    }
-}
+
 
 // ================================================================
 // Thread-local VM execution state
@@ -904,15 +894,7 @@ bool InstallLuaVMEngine()
         return false;
     }
     
-    // Hook luaH_resize (0x0085C6F0) to invalidate inline cache on table resizing
-    if (MH_CreateHook((void*)0x0085C6F0, (void*)Hooked_luaH_resize, (void**)&g_orig_luaH_resize) != MH_OK) {
-        Log("[VMEngine] MH_CreateHook FAILED for luaH_resize");
-        return false;
-    }
-    if (MH_EnableHook((void*)0x0085C6F0) != MH_OK) {
-        Log("[VMEngine] MH_EnableHook FAILED for luaH_resize");
-        return false;
-    }
+
     
     // Initialize caches
     memset(g_inlineCache, 0, sizeof(g_inlineCache));
