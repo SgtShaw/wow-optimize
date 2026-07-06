@@ -218,7 +218,7 @@ static void* orig_ParticleEmitterUpdate = nullptr;
 typedef void (__cdecl *sub_7C25D0_t)(int emitter, int a1, int a2, int a3, int a4, int a5);
 static const sub_7C25D0_t call_sub_7C25D0 = (sub_7C25D0_t)0x007C25D0;
 
-typedef bool (__cdecl *sub_7B3990_t)(int a1, int a2);
+typedef bool (__fastcall *sub_7B3990_t)(void* ecx, int edx, int a1, int a2);
 static const sub_7B3990_t call_sub_7B3990 = (sub_7B3990_t)0x007B3990;
 
 struct ParticleTaskData {
@@ -263,7 +263,7 @@ extern "C" char __cdecl Hooked_ParticleEmitterUpdate(int a1, int a2, int a3, int
             while ((v8 & 1) == 0 && v8) {
                 int v9 = *(_DWORD *)(v8 + 4);
                 if ((*(_BYTE *)(v9 + 12) & 0x20) == 0) {
-                    if (call_sub_7B3990(a1, a2)) {
+                    if (call_sub_7B3990((void*)v9, 0, a1, a2)) {
                         if (g_particleTaskCount < 1024) {
                             ParticleTaskData& task = g_particleTasks[g_particleTaskCount++];
                             task.emitter = v9;
@@ -277,7 +277,7 @@ extern "C" char __cdecl Hooked_ParticleEmitterUpdate(int a1, int a2, int a3, int
     } else {
         int v10 = *(int*)0x00D25440;
         while ((v10 & 1) == 0 && v10) {
-            if ((*(_BYTE *)(v10 + 12) & 0x20) == 0 && call_sub_7B3990(a1, a2)) {
+            if ((*(_BYTE *)(v10 + 12) & 0x20) == 0 && call_sub_7B3990((void*)v10, 0, a1, a2)) {
                 if (g_particleTaskCount < 1024) {
                     ParticleTaskData& task = g_particleTasks[g_particleTaskCount++];
                     task.emitter = v10;
