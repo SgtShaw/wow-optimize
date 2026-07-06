@@ -559,19 +559,10 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
             return 0;
         }
 
-        // Call the original engine FPU function first.
-        // If the engine finds an intersection, we return it immediately.
-        // This guarantees zero precision mismatch and zero camera jitter
-        // during normal environment collision traversal.
-        char orig_res = orig_fn(ray, vertices, indices, outT, outUV, margin);
-        if (orig_res) {
-            return 1;
-        }
-
-        // If the engine returns 0 (no collision), check with our double-precision
-        // SSE2 path. If we find a collision that the engine missed (due to single-precision
-        // underflow/rounding at steep angles), we return 1. This acts as a safety net
-        // to prevent the camera from going underground.
+        // Double-precision math is executed first to eliminate camera jitter.
+        // We cast the computed u and v to float for the margin boundary check
+        // to match the engine's original FPU edge threshold, preventing the camera
+        // from sliding underground.
         IndexType idx0 = indices[0];
         IndexType idx1 = indices[1];
         IndexType idx2 = indices[2];
@@ -583,6 +574,7 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
         if ((uintptr_t)v0 < 0x10000 || (uintptr_t)v0 >= 0xFFE00000 ||
             (uintptr_t)v1 < 0x10000 || (uintptr_t)v1 >= 0xFFE00000 ||
             (uintptr_t)v2 < 0x10000 || (uintptr_t)v2 >= 0xFFE00000) {
+            if (orig_fn) return orig_fn(ray, vertices, indices, outT, outUV, margin);
             return 0;
         }
 
@@ -621,7 +613,7 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
         double det = edge1_x * pvec_x + edge1_y * pvec_y + edge1_z * pvec_z;
 
         if (det > -0.000001 && det < 0.000001) {
-            return 0;
+            goto fallback;
         }
 
         double inv_det = 1.0 / det;
@@ -633,11 +625,12 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
 
         // u = (tvec . pvec) * inv_det
         double u = (tvec_x * pvec_x + tvec_y * pvec_y + tvec_z * pvec_z) * inv_det;
-        double min_margin = -margin;
-        double max_margin = margin + 1.0;
+        float u_f = (float)u;
+        float min_margin = -margin;
+        float max_margin = margin + 1.0f;
 
-        if (u < min_margin || u > max_margin) {
-            return 0;
+        if (u_f < min_margin || u_f > max_margin) {
+            goto fallback;
         }
 
         // qvec = tvec x edge1
@@ -647,9 +640,10 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
 
         // v = (dir . qvec) * inv_det
         double v = (ray_dir_x * qvec_x + ray_dir_y * qvec_y + ray_dir_z * qvec_z) * inv_det;
+        float v_f = (float)v;
 
-        if (v < min_margin || (u + v) > max_margin) {
-            return 0;
+        if (v_f < min_margin || (u_f + v_f) > max_margin) {
+            goto fallback;
         }
 
         if (outT) {
@@ -657,11 +651,17 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
         }
 
         if (outUV) {
-            outUV[0] = (float)u;
-            outUV[1] = (float)v;
+            outUV[0] = u_f;
+            outUV[1] = v_f;
         }
 
         return 1;
+
+    fallback:
+        if (orig_fn) {
+            return orig_fn(ray, vertices, indices, outT, outUV, margin);
+        }
+        return 0;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         if (orig_fn) return orig_fn(ray, vertices, indices, outT, outUV, margin);
