@@ -822,14 +822,7 @@ static int __cdecl Hooked_StrFind(lua_State* L) {
     if (pLen == 1) {
         found = (const char*)memchr(searchStart, p[0], searchLen);
     } else {
-        size_t limit = searchLen - pLen + 1;
-        char first = p[0];
-        for (size_t i = 0; i < limit; i++) {
-            if (searchStart[i] == first && memcmp(searchStart + i, p, pLen) == 0) {
-                found = searchStart + i;
-                break;
-            }
-        }
+        found = strstr(searchStart, p);
     }
 
     if (found) {
