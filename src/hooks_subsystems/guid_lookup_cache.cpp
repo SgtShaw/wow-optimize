@@ -36,6 +36,10 @@ static inline unsigned int HashGuid(unsigned __int64 guid) {
     return h & CACHE_MASK;
 }
 
+static inline bool IsValidPtr(uintptr_t p) {
+    return p > 0x10000 && p < 0xFFE00000;
+}
+
 static void* __cdecl Hooked_GetObject(unsigned __int64 guid, int typemask) {
 #if TEST_DISABLE_GUID_MAP_LF
     return orig_GetObject(guid, typemask);
@@ -47,9 +51,20 @@ static void* __cdecl Hooked_GetObject(unsigned __int64 guid, int typemask) {
     
     if (cachedGuid == guid) {
         void* cachedObj = g_cache[slot].obj.load(std::memory_order_relaxed);
-        if (cachedObj) {
-            return cachedObj;
+        if (cachedObj && IsValidPtr((uintptr_t)cachedObj)) {
+            // Replicate the original function's type mask validation:
+            // ecx = [cachedObj + 8] (metadata descriptor)
+            // test [ecx + 8], typemask
+            void* ecx = *(void**)((uintptr_t)cachedObj + 8);
+            if (ecx && IsValidPtr((uintptr_t)ecx)) {
+                int typeMask = *(int*)((uintptr_t)ecx + 8);
+                if ((typeMask & typemask) != 0) {
+                    return cachedObj;
+                }
+            }
         }
+        // If type check fails or object is invalid, return nullptr since GUID is unique
+        return nullptr;
     }
 
     void* result = orig_GetObject(guid, typemask);

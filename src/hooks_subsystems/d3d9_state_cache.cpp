@@ -15,8 +15,7 @@ extern "C" void Log(const char* fmt, ...);
 namespace D3D9StateCache {
 
 // Original function pointers
-typedef HRESULT (WINAPI *SetTexture_fn)(IDirect3DDevice9* device, DWORD stage, IDirect3DBaseTexture9* texture);
-static SetTexture_fn orig_SetTexture = nullptr;
+
 
 typedef HRESULT (WINAPI *SetRenderState_fn)(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value);
 static SetRenderState_fn orig_SetRenderState = nullptr;
@@ -80,17 +79,7 @@ static void InvalidateCache() {
     }
 }
 
-// Hooked SetTexture
-static HRESULT WINAPI Hooked_SetTexture(IDirect3DDevice9* device, DWORD stage, IDirect3DBaseTexture9* texture) {
-    if (stage < 16) {
-        if (g_textureCache[stage] == texture) {
-            g_textureSkips.fetch_add(1, std::memory_order_relaxed);
-            return D3D_OK;
-        }
-        g_textureCache[stage] = texture;
-    }
-    return orig_SetTexture(device, stage, texture);
-}
+
 
 // Hooked SetRenderState
 static HRESULT WINAPI Hooked_SetRenderState(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value) {
@@ -240,7 +229,6 @@ bool Init() {
     void* target_Reset = (void*)vtable[16];
     void* target_Present = (void*)vtable[17];
     void* target_SetRenderState = (void*)vtable[57];
-    void* target_SetTexture = (void*)vtable[65];
     void* target_SetTextureStageState = (void*)vtable[67];
     void* target_SetSamplerState = (void*)vtable[69];
 
@@ -248,7 +236,6 @@ bool Init() {
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
         MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
         MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK ||
-        MH_CreateHook(target_SetTexture, (void*)Hooked_SetTexture, (void**)&orig_SetTexture) != MH_OK ||
         MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK ||
         MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK) 
     {
@@ -262,7 +249,6 @@ bool Init() {
     MH_EnableHook(target_Reset);
     MH_EnableHook(target_Present);
     MH_EnableHook(target_SetRenderState);
-    MH_EnableHook(target_SetTexture);
     MH_EnableHook(target_SetTextureStageState);
     MH_EnableHook(target_SetSamplerState);
 
