@@ -322,7 +322,7 @@
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_RAY_TRIANGLE_SSE2   0
+#define TEST_DISABLE_RAY_TRIANGLE_SSE2   1
 
 // Batch the main-init MinHook enables (MH_QueueEnableHook + one MH_ApplyQueued)
 // instead of one per-hook MH_EnableHook (each freezes all threads ~20ms via a
@@ -628,10 +628,10 @@
 //  Vec3Cross 0x5FEC70, IsSphereVisible 0x983D20, FromAngleAxis 0x982400,
 //  QuatSlerp 0x982460. IsSphereVisible + FromAngleAxis had __fastcall→__thiscall
 //  calling-convention bugs fixed (disassembly-verified). Default ENABLED.
-#define TEST_DISABLE_VEC3_CROSS_SSE2         0
+#define TEST_DISABLE_VEC3_CROSS_SSE2         1
 #define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
-#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
-#define TEST_DISABLE_QUAT_SLERP_SSE2         0
+#define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         1
+#define TEST_DISABLE_QUAT_SLERP_SSE2         1
 //
 // UI Frame XML accessor hooks (ui_accessor_fast.cpp):
 //  Frame_IsShown 0x49FE90, Frame_IsVisible 0x49FE30, Frame_GetAlpha 0x49F980,
