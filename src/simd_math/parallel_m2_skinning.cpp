@@ -162,36 +162,15 @@ static void __fastcall Hooked_SkinVertices_Parallel(void* mesh, void* dummyEDX, 
 }
 
 bool Init() {
-    void* target = (void*)0x00703B80;
-    
-    unsigned char prologue[3];
-    __try {
-        memcpy(prologue, target, 3);
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[ParallelM2Skinning] Target 0x00703B80 not readable; skipping hook.");
-        return true;
-    }
-
-    if (prologue[0] == 0x56 && prologue[1] == 0x8B && prologue[2] == 0xF1) {
-        Log("[ParallelM2Skinning] Target matches CMissile. Skipping hook for stability.");
-        return true;
-    }
-
-    if (MH_CreateHook(target, (void*)Hooked_SkinVertices_Parallel, (void**)&orig_SkinVertices) == MH_OK) {
-        if (MH_EnableHook(target) == MH_OK) {
-            Log("[ParallelM2Skinning] Detour installed successfully.");
-            return true;
-        }
-        MH_RemoveHook(target);
-    }
-    
-    Log("[ParallelM2Skinning] Active - Parallel CPU SIMD Skinning subsystem ready.");
+    // 0x00703B80 is the constructor/initializer of CMissile in WoW 3.3.5a (12340),
+    // not SkinVertices. Detouring it here causes stack corruption and crashes.
+    // We skip hooking it entirely.
+    Log("[ParallelM2Skinning] Target address 0x00703B80 is CMissile. Skipping hook for stability.");
     return true;
 }
 
 void Shutdown() {
-    void* target = (void*)0x00703B80;
-    MH_DisableHook(target);
+    // No hooks were enabled to prevent crashes on CMissile address
 }
 
 } // namespace ParallelM2Skinning
