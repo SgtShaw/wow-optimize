@@ -82,6 +82,13 @@ static void InvalidateCache() {
 
 // Hooked SetTexture
 static HRESULT WINAPI Hooked_SetTexture(IDirect3DDevice9* device, DWORD stage, IDirect3DBaseTexture9* texture) {
+    if (stage < 16) {
+        if (g_textureCache[stage] == texture) {
+            g_textureSkips.fetch_add(1, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        g_textureCache[stage] = texture;
+    }
     return orig_SetTexture(device, stage, texture);
 }
 

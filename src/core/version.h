@@ -168,7 +168,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -178,7 +178,7 @@
 #define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
-#define TEST_DISABLE_ASYNC_MPQ_IO       1
+#define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
 #define TEST_DISABLE_TABLE_SORT_FASTPATH    0
@@ -508,7 +508,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. Disassembly-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST         1
+#define TEST_DISABLE_LUA_STACK_FAST         0
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
@@ -521,7 +521,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing

@@ -536,6 +536,7 @@ extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit);
 #if !TEST_DISABLE_OBJ_VIS_CACHE
 extern "C" void InvalidateObjVisCacheFor(void* This);
 #endif
+extern "C" void InvalidateUnitApiCacheFor(uint64_t guid);
 
 static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
     if (This) {
@@ -546,7 +547,6 @@ static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
         __try {
             uint32_t* j = (uint32_t*)This;
             uint64_t guid = ((uint64_t)j[13] << 32) | j[12];
-            extern void InvalidateUnitApiCacheFor(uint64_t guid);
             InvalidateUnitApiCacheFor(guid);
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
@@ -558,7 +558,6 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
         __try {
             uint32_t* j = (uint32_t*)This;
             uint64_t guid = ((uint64_t)j[13] << 32) | j[12];
-            extern void InvalidateUnitApiCacheFor(uint64_t guid);
             InvalidateUnitApiCacheFor(guid);
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
