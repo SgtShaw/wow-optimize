@@ -175,6 +175,8 @@ static bool g_active      = false;
 static SRWLOCK g_itemCacheLock = SRWLOCK_INIT;
 static SRWLOCK g_spellCacheLock = SRWLOCK_INIT;
 
+void ClearCache();
+
 // ================================================================
 // FNV-1a Hash - limited length for long item links.
 // ================================================================
@@ -414,11 +416,18 @@ static inline void ReplaySpellCachedValues(lua_State* L, SpellCacheEntry* e) {
     }
 }
 
+static lua_State* g_cacheLuaState = nullptr;
+
 // ================================================================
 // Hooked_GetItemInfo - Direct Memory Access version.
 // ================================================================
 
 static int __cdecl Hooked_GetItemInfo(lua_State* L) {
+    if (L != g_cacheLuaState) {
+        g_cacheLuaState = L;
+        ClearCache();
+    }
+
     int nargs = lua_gettop_(L);
     if (nargs < 1) return orig_GetItemInfo(L);
 
@@ -483,6 +492,11 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 // ================================================================
 
 static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
+    if (L != g_cacheLuaState) {
+        g_cacheLuaState = L;
+        ClearCache();
+    }
+
     int nargs = lua_gettop_(L);
     if (nargs < 1) return orig_GetSpellInfo(L);
 

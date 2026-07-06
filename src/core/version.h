@@ -153,7 +153,7 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -175,7 +175,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         1
+#define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       1
@@ -195,7 +195,7 @@
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 1
+#define TEST_DISABLE_DATASTORE_FASTPATH 0
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -233,7 +233,7 @@
 // 3. Throttling OnUpdate breaks MoveAnything position tracking and addon timing
 //    contracts (addons expect OnUpdate every frame for smooth animation).
 // Would need complete rewrite with different hook target and proper addon compat.
-#define TEST_DISABLE_FRAME_THROTTLE     1
+#define TEST_DISABLE_FRAME_THROTTLE     0
 
 // Tooltip String Caching - cache formatted tooltip strings by item/spell ID
 // Reduces tooltip rendering overhead by 40-60% (sub_6277F0 is 24KB of code)

@@ -1340,7 +1340,17 @@ static fn_FrameScript_Execute g_origFrameScript = nullptr;
 static volatile LONG g_frameScriptInjected = 0;
 static lua_State* g_pendingInjectState = nullptr;
 
+extern "C" bool FrameThrottle_Check(const char* namePtr);
+
 static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* source, int unknown) {
+    __try {
+        if (source && *source) {
+            if (!FrameThrottle_Check(source)) {
+                return; // Throttled!
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
     // Inject markers before addon code on new lua_State
     lua_State* currentL = ReadLuaState();
     if (currentL && currentL == g_pendingInjectState &&

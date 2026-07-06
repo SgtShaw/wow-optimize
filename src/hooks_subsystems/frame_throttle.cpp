@@ -1,40 +1,29 @@
 // ============================================================================
 // Module: frame_throttle.cpp
-// Description: Supporting utility functions for `frame_throttle.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
+// Description: Lock-free high-performance UI script execution throttling.
+// Safety & Threading: Thread-safe under single-threaded Lua VM execution constraints.
 // ============================================================================
 
 #include <windows.h>
-#include <unordered_map>
-#include <string>
-#include "MinHook.h"
+#include <cstdint>
+#include <cstring>
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
 
-// ================================================================
-// Frame Script Throttling
-// ================================================================
-
-struct ScriptThrottleEntry {
-    LARGE_INTEGER lastExecution;  // Last execution time (QPC)
-    LONGLONG minInterval;          // Min interval in QPC ticks (16ms default)
-    long skipCount;                // Number of times skipped
-    long execCount;                // Number of times executed
+struct ThrottleSlot {
+    uint32_t nameHash;
+    LARGE_INTEGER lastExecution;
 };
 
-static std::unordered_map<std::string, ScriptThrottleEntry>* g_scriptThrottle = nullptr;
-static SRWLOCK g_throttleLock = SRWLOCK_INIT;
+static constexpr int THROTTLE_CACHE_SIZE = 512;
+static ThrottleSlot g_throttleCache[THROTTLE_CACHE_SIZE] = {};
 static LARGE_INTEGER g_qpcFreq = {};
 
 // Stats
 static long g_throttleSkipped = 0;
 static long g_throttleExecuted = 0;
 static long g_throttleBypassed = 0;
-
-// Original FrameScript_Execute
-typedef int (__cdecl* FrameScript_Execute_fn)(int scriptCode, int scriptName, int globalEnv);
-static FrameScript_Execute_fn orig_FrameScript_Execute = nullptr;
 
 // Bypass list - critical scripts that should never be throttled
 static const char* g_bypassScripts[] = {
@@ -71,77 +60,53 @@ static bool ShouldBypassThrottle(const char* scriptName) {
     return false;
 }
 
-// ================================================================
-// Hooked FrameScript_Execute - Throttle excessive calls
-// ================================================================
-static int __cdecl Hooked_FrameScript_Execute(int scriptCode, int scriptName, int globalEnv) {
+// Check if a script execution should be allowed or throttled
+extern "C" bool FrameThrottle_Check(const char* namePtr) {
 #if TEST_DISABLE_FRAME_THROTTLE
-    return orig_FrameScript_Execute(scriptCode, scriptName, globalEnv);
+    return true; // Bypass all throttling if disabled
 #else
-    // Extract script name from scriptName parameter (it's a pointer to string)
-    const char* namePtr = (const char*)scriptName;
-    if (!namePtr || !*namePtr) {
-        // No name, execute normally
-        return orig_FrameScript_Execute(scriptCode, scriptName, globalEnv);
-    }
+    if (!namePtr || !*namePtr) return true;
 
     // Check bypass list
     if (ShouldBypassThrottle(namePtr)) {
         g_throttleBypassed++;
-        return orig_FrameScript_Execute(scriptCode, scriptName, globalEnv);
+        return true;
     }
 
     // Get current time
     LARGE_INTEGER now;
     QueryPerformanceCounter(&now);
 
-    // Check throttle map
-    AcquireSRWLockExclusive(&g_throttleLock);
-
-    if (!g_scriptThrottle) {
-        g_scriptThrottle = new std::unordered_map<std::string, ScriptThrottleEntry>();
+    // Compute fast hash
+    uint32_t hash = 0x811C9DC5;
+    const char* p = namePtr;
+    while (*p) {
+        hash ^= (uint8_t)*p++;
+        hash *= 0x01000193;
     }
 
-    std::string key(namePtr);
-    auto it = g_scriptThrottle->find(key);
+    int slot = hash % THROTTLE_CACHE_SIZE;
+    ThrottleSlot& entry = g_throttleCache[slot];
 
-    if (it == g_scriptThrottle->end()) {
-        // First time seeing this script, add to map
-        ScriptThrottleEntry entry;
-        entry.lastExecution = now;
-        entry.minInterval = (g_qpcFreq.QuadPart * 16) / 1000; // 16ms in QPC ticks
-        entry.skipCount = 0;
-        entry.execCount = 1;
-       (*g_scriptThrottle)[key] = entry;
+    // QPC conversion for 16ms
+    LONGLONG minInterval = (g_qpcFreq.QuadPart * 16) / 1000;
 
-        ReleaseSRWLockExclusive(&g_throttleLock);
-        g_throttleExecuted++;
-        return orig_FrameScript_Execute(scriptCode, scriptName, globalEnv);
+    if (entry.nameHash == hash) {
+        LONGLONG elapsed = now.QuadPart - entry.lastExecution.QuadPart;
+        if (elapsed < minInterval) {
+            g_throttleSkipped++;
+            return false; // Throttle / skip execution
+        }
+    } else {
+        entry.nameHash = hash;
     }
 
-    // Check if enough time has passed
-    LONGLONG elapsed = now.QuadPart - it->second.lastExecution.QuadPart;
-    if (elapsed < it->second.minInterval) {
-        // Too soon, skip execution
-        it->second.skipCount++;
-        ReleaseSRWLockExclusive(&g_throttleLock);
-        g_throttleSkipped++;
-        return 0; // Return success without executing
-    }
-
-    // Enough time passed, execute
-    it->second.lastExecution = now;
-    it->second.execCount++;
-    ReleaseSRWLockExclusive(&g_throttleLock);
-
+    entry.lastExecution = now;
     g_throttleExecuted++;
-    return orig_FrameScript_Execute(scriptCode, scriptName, globalEnv);
+    return true; // Execute
 #endif
 }
 
-// ================================================================
-// Installation
-// ================================================================
 bool InstallFrameThrottling() {
 #if TEST_DISABLE_FRAME_THROTTLE
     Log("[FrameThrottle] DISABLED (test toggle)");
@@ -149,40 +114,18 @@ bool InstallFrameThrottling() {
 #else
     // Initialize QPC frequency
     QueryPerformanceFrequency(&g_qpcFreq);
-
-    // Hook FrameScript_Execute at 0x00819210 (target address)
-    void* targetAddr = (void*)0x00819210;
-    
-    if (MH_CreateHook(targetAddr, (void*)Hooked_FrameScript_Execute, (void**)&orig_FrameScript_Execute) != MH_OK) {
-        Log("[FrameThrottle] Failed to hook FrameScript_Execute");
-        return false;
-    }
-    if (MH_EnableHook(targetAddr) != MH_OK) {
-        Log("[FrameThrottle] Failed to enable FrameScript_Execute hook");
-        return false;
-    }
-
-    Log("[FrameThrottle] ACTIVE (16ms throttle, bypass critical scripts)");
+    std::memset(g_throttleCache, 0, sizeof(g_throttleCache));
+    Log("[FrameThrottle] ACTIVE (16ms lock-free inline throttle enabled)");
     return true;
 #endif
 }
 
-// ================================================================
-// Stats
-// ================================================================
 void GetFrameThrottleStats(long* skipped, long* executed, long* bypassed) {
     if (skipped) *skipped = g_throttleSkipped;
     if (executed) *executed = g_throttleExecuted;
     if (bypassed) *bypassed = g_throttleBypassed;
 }
 
-// ================================================================
-// Cleanup
-// ================================================================
 void ShutdownFrameThrottling() {
-    if (g_scriptThrottle) {
-        delete g_scriptThrottle;
-        g_scriptThrottle = nullptr;
-    }
+    // No cleanup required for static array cache
 }
-

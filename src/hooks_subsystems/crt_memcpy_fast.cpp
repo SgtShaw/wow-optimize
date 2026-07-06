@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <intrin.h>
 #include <cstdint>
 #include <cstring>
 #include <emmintrin.h>
@@ -43,9 +44,14 @@ static bool ranges_overlap_down(const unsigned char* dst, const unsigned char* s
 
 static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
 {
-    if (!dest || !src || Size == 0) return g_orig_memcpy(dest, src, Size);
+    if (!g_orig_memcpy) {
+        if (dest && src && Size > 0) {
+            __movsb((unsigned char*)dest, (const unsigned char*)src, Size);
+        }
+        return dest;
+    }
 
-    g_total_calls++;
+    if (!dest || !src || Size == 0) return g_orig_memcpy(dest, src, Size);
 
     const unsigned char* d = (const unsigned char*)dest;
     const unsigned char* s = (const unsigned char*)src;
@@ -62,35 +68,10 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
         return g_orig_memcpy(dest, src, Size);
     }
 
-    // Very large non-overlapping copy: stream with non-temporal stores so the
-    // bulk data does not pollute the cache (WoW's VEC path does not do this).
+    // Very large non-overlapping copy: let original handle
     if (Size >= NT_THRESHOLD) {
-        g_nt_path++;
-        unsigned char* pd = (unsigned char*)dest;
-        const unsigned char* ps = (const unsigned char*)src;
-
-        // Align the destination so movntdq (which requires 16-byte alignment)
-        // is legal; the source stays unaligned (loadu).
-        size_t head = (0u - (uintptr_t)pd) & 15;
-        if (head) {
-            _mm_storeu_si128((__m128i*)pd, _mm_loadu_si128((const __m128i*)ps));
-            pd += head; ps += head; Size -= head;
-        }
-        size_t blocks = Size & ~(size_t)15;
-        for (size_t i = 0; i < blocks; i += 16) {
-            // Prefetch the source ahead with a non-temporal hint to hide memory
-            // latency. _mm_prefetch never faults (a hint, dropped for invalid
-            // addresses), so reading past the buffer end here is harmless.
-            _mm_prefetch((const char*)(ps + i + 512), _MM_HINT_NTA);
-            __m128i v = _mm_loadu_si128((const __m128i*)(ps + i));
-            _mm_stream_si128((__m128i*)(pd + i), v);
-        }
-        if (Size != blocks) {
-            _mm_storeu_si128((__m128i*)(pd + Size - 16),
-                             _mm_loadu_si128((const __m128i*)(ps + Size - 16)));
-        }
-        _mm_sfence();
-        return dest;
+        g_fallback_path++;
+        return g_orig_memcpy(dest, src, Size);
     }
 
     // 256B .. NT_THRESHOLD → let original handle (VEC/SSE2 path already fast)
@@ -99,44 +80,37 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
         return g_orig_memcpy(dest, src, Size);
     }
 
-    // 16-255B non-overlapping: SSE2 unaligned copy
+    // 16-255B non-overlapping: SSE2 copy via inline assembly (prevents recursive compiler-inserted memcpy calls)
+    g_total_calls++;
     g_sse2_path++;
 
     unsigned char* pd = (unsigned char*)dest;
     const unsigned char* ps = (const unsigned char*)src;
+    size_t len = Size;
 
-    if (Size < 128) {
-        // Unaligned 16-byte blocks + overlapping trailing store
-        size_t i = 0;
-        for (; i + 16 <= Size; i += 16) {
-            __m128i v = _mm_loadu_si128((const __m128i*)(ps + i));
-            _mm_storeu_si128((__m128i*)(pd + i), v);
-        }
-        // Single overlapping trailing store covers the <16 remainder
-        _mm_storeu_si128((__m128i*)(pd + Size - 16),
-                         _mm_loadu_si128((const __m128i*)(ps + Size - 16)));
-        return dest;
+    __asm {
+        mov edi, pd
+        mov esi, ps
+        mov ecx, len
+        
+    copy_loop:
+        cmp ecx, 16
+        jl copy_tail
+        movdqu xmm0, [esi]
+        movdqu [edi], xmm0
+        add esi, 16
+        add edi, 16
+        sub ecx, 16
+        jmp copy_loop
+
+    copy_tail:
+        test ecx, ecx
+        jz copy_done
+        rep movsb
+
+    copy_done:
     }
 
-    // 128-255B: align the destination for the bulk loop
-    size_t head = (0u - (uintptr_t)pd) & 15;
-    if (head) {
-        __m128i v = _mm_loadu_si128((const __m128i*)ps);
-        _mm_storeu_si128((__m128i*)pd, v);
-        pd += head;
-        ps += head;
-        Size -= head;
-    }
-
-    size_t blocks = Size & ~(size_t)15;
-    for (size_t i = 0; i < blocks; i += 16) {
-        __m128i v = _mm_loadu_si128((const __m128i*)(ps + i));
-        _mm_store_si128((__m128i*)(pd + i), v);
-    }
-    if (Size != blocks) {
-        _mm_storeu_si128((__m128i*)(pd + Size - 16),
-                         _mm_loadu_si128((const __m128i*)(ps + Size - 16)));
-    }
     return dest;
 }
 

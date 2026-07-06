@@ -59,7 +59,19 @@ static luaV_settable_fn orig_luaV_settable = nullptr;
 typedef void (__cdecl *luaC_step_fn)(lua_State*);
 static luaC_step_fn orig_luaC_step = nullptr;
 
+static volatile uintptr_t g_lastGlobalState = 0;
+
+void ClearTableCache();
+
 static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, void* result) {
+    if (L) {
+        uintptr_t gG = *(uintptr_t*)((uintptr_t)L + 0x14);
+        if (gG != g_lastGlobalState) {
+            g_lastGlobalState = gG;
+            ClearTableCache();
+        }
+    }
+
     if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
         orig_luaV_gettable(L, table, key, result);
         return;
