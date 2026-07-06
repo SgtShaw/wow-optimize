@@ -211,7 +211,7 @@ static bool EnqueueTask(AsyncTaskType type, uint32_t p1, uint32_t p2, uint32_t p
 #define ADDR_PARTICLE_EMITTER_UPDATE 0x007C2700
 #endif
 
-#define TEST_DISABLE_PARTICLE_ASYNC 0  // Enabled!
+#define TEST_DISABLE_PARTICLE_ASYNC 1  // Enabled!
 
 static void* orig_ParticleEmitterUpdate = nullptr;
 
@@ -433,7 +433,7 @@ static void SSE2_LerpColors4(uint8_t* __restrict dst,
 #define ADDR_ADT_CHUNK_LOAD 0x007D9A20
 #endif
 
-#define TEST_DISABLE_ADT_PREFETCH 0  // Enabled!
+#define TEST_DISABLE_ADT_PREFETCH 1  // Enabled!
 
 // LRU cache for prefetched terrain data
 static constexpr int ADT_CACHE_SLOTS = 64;
@@ -522,7 +522,7 @@ extern "C" int __cdecl Hooked_sub_7D9A20(void* map_structure) {
 #define ADDR_DBC_LOAD_DISPATCH 0x006337D0
 #endif
 
-#define TEST_DISABLE_DBC_PARALLEL 0  // Enabled!
+#define TEST_DISABLE_DBC_PARALLEL 1  // Enabled!
 
 static void* orig_DbcLoadDispatch = nullptr;
 
