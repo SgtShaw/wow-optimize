@@ -451,7 +451,7 @@
 #define TEST_DISABLE_PREDICTIVE_PREFETCH 0
 
 // Low-Latency GPU Sync (Max Frame Latency = 1)
-#define TEST_DISABLE_LOW_LATENCY_SYNC    1
+#define TEST_DISABLE_LOW_LATENCY_SYNC    0
 
 // High-Precision Hybrid Frame Rate Limiter
 #define TEST_DISABLE_FRAME_LIMITER       0
