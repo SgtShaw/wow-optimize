@@ -1387,7 +1387,7 @@ static void InstallFrameScriptInjectionHook() {
         Log("[LuaOpt] FrameScript injection hook: FAILED");
         return;
     }
-    if (MH_EnableHook((void*)Api.FrameScript_Execute) != MH_OK) {
+    if (WO_EnableHook((void*)Api.FrameScript_Execute) != MH_OK) {
         Log("[LuaOpt] FrameScript injection hook: enable FAILED");
         return;
     }

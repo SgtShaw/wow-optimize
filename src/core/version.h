@@ -728,7 +728,12 @@ static inline MH_STATUS WineSafe_CreateHook(void* target, void* detour, void** o
 // directly) enables apply immediately. Defined in dllmain.cpp.
 extern volatile long g_hookBatchMode;
 static inline MH_STATUS WO_EnableHook(void* target) {
+#if defined(TEST_DISABLE_HOOK_BATCHING) && TEST_DISABLE_HOOK_BATCHING
     return MH_EnableHook(target);
+#else
+    if (g_hookBatchMode) return MH_QueueEnableHook(target);
+    return MH_EnableHook(target);
+#endif
 }
 #endif
 #endif

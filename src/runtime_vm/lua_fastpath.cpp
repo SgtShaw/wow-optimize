@@ -3344,9 +3344,9 @@ bool Init() {
                 Log("[FastPath]   string.format MH_CreateHook failed (%d)", (int)s);
                 return false;
             }
-            s = MH_EnableHook((void*)ADDR_str_format);
-            if (s != MH_OK) {
-                Log("[FastPath]   string.format MH_EnableHook failed (%d)", (int)s);
+            s = WO_EnableHook((void*)ADDR_str_format);
+            if (s != MH_OK && s != MH_ERROR_ENABLED) {
+                Log("[FastPath]   string.format WO_EnableHook failed (%d)", (int)s);
                 return false;
             }
             Log("[FastPath]   string.format      0x%08X  [ OK ]%s",
@@ -3550,9 +3550,9 @@ bool InitPhase2(lua_State* L) {
                         e.table ? e.table : "_G", e.name ? e.name : "ipairsaux", (int)s);
                     continue;
                 }
-                s = MH_EnableHook((void*)e.address);
-                if (s != MH_OK) {
-                    Log("[FastPath]   %-8s.%-8s  MH_EnableHook failed (%d)",
+                s = WO_EnableHook((void*)e.address);
+                if (s != MH_OK && s != MH_ERROR_ENABLED) {
+                    Log("[FastPath]   %-8s.%-8s  WO_EnableHook failed (%d)",
                         e.table ? e.table : "_G", e.name ? e.name : "ipairsaux", (int)s);
                     continue;
                 }
