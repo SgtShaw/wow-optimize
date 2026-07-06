@@ -4438,8 +4438,22 @@ static lua_pushstring_fn orig_lua_pushstring = nullptr;
 typedef void (__cdecl *luaC_step_fn)(int L);
 static luaC_step_fn orig_luaC_step = nullptr;
 
+static ULONGLONG g_lastGcTime = 0;
+static int g_postponedGcCount = 0;
+
 static void __cdecl hooked_luaC_step(int L) {
     ClearLuaPushStringCache();
+
+    #if !TEST_DISABLE_LUA_GC_COALESCE
+    ULONGLONG now = GetTickCount64();
+    if (now - g_lastGcTime < 4 && g_postponedGcCount < 100) {
+        g_postponedGcCount++;
+        return;
+    }
+    g_lastGcTime = now;
+    g_postponedGcCount = 0;
+    #endif
+
     orig_luaC_step(L);
 }
 
@@ -6108,6 +6122,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("SourceOpt");
     CrashDumper::RegisterFeature("TlsObjectCache");
     Log("[CrashDumper] Registered %d features for tracking", MAX_TRACKED_FEATURES);
+
+    Log("--- DXVK Vulkan Integration ---");
+    Log("[VulkanDXVK] Config option: %s", Config::g_settings.VulkanDXVK ? "ENABLED (d3d9.dll proxy required in game directory)" : "DISABLED");
 
     Log("--- Frame Pacing ---");
     bool sleepOk = InstallSleepHook();

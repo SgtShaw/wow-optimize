@@ -27,6 +27,7 @@ namespace Config {
             WritePrivateProfileStringA("Optimizations", "MemoryPressure", "1", iniPath.c_str());
             WritePrivateProfileStringA("Optimizations", "HeapCompactor", "1", iniPath.c_str());
             WritePrivateProfileStringA("Optimizations", "UIFrameBatch", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Optimizations", "VulkanDXVK", "0", iniPath.c_str());
         }
 
         g_settings.SavedVarsSerializer = GetPrivateProfileIntA("Optimizations", "SavedVarsSerializer", 0, iniPath.c_str()) != 0;
@@ -36,5 +37,6 @@ namespace Config {
         g_settings.MemoryPressure      = GetPrivateProfileIntA("Optimizations", "MemoryPressure", 1, iniPath.c_str()) != 0;
         g_settings.HeapCompactor       = GetPrivateProfileIntA("Optimizations", "HeapCompactor", 1, iniPath.c_str()) != 0;
         g_settings.UIFrameBatch        = GetPrivateProfileIntA("Optimizations", "UIFrameBatch", 1, iniPath.c_str()) != 0;
+        g_settings.VulkanDXVK          = GetPrivateProfileIntA("Optimizations", "VulkanDXVK", 0, iniPath.c_str()) != 0;
     }
 }

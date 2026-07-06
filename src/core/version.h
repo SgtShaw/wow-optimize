@@ -522,6 +522,9 @@
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUA_GC_COALESCE           0  // enabled: incremental Lua GC coalescing
+#define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
+#define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing

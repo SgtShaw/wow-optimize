@@ -27,9 +27,20 @@ static volatile LONG64 g_total_calls  = 0;
 static volatile LONG64 g_recovered    = 0;
 static volatile long   g_logged       = 0;
 
+static ULONGLONG g_lastSoundUpdateTime = 0;
+
 static int __cdecl Safe_sub_508320(int a1, int a2)
 {
     ++g_total_calls;
+
+    #if !TEST_DISABLE_SOUND_MIXER_OPT
+    ULONGLONG now = GetTickCount64();
+    if (now - g_lastSoundUpdateTime < 20) {
+        return 0;
+    }
+    g_lastSoundUpdateTime = now;
+    #endif
+
     __try {
         return g_orig_sub_508320(a1, a2);
     } __except (EXCEPTION_EXECUTE_HANDLER) {

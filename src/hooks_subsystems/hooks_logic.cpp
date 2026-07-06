@@ -17,6 +17,48 @@
 extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
+// Coalesced layout recalculation
+typedef int (__fastcall *LayoutRecalc_fn)(void* ecx, int edx, int a2);
+static LayoutRecalc_fn orig_LayoutRecalc = nullptr;
+
+static void* g_dirtyLayoutFrames[2048] = {};
+static int g_dirtyLayoutFramesCount = 0;
+static bool g_coalescingLayouts = true;
+
+int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
+    #if !TEST_DISABLE_FRAMEXML_COALESCE
+    if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
+        bool found = false;
+        for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
+            if (g_dirtyLayoutFrames[i] == ecx) {
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            g_dirtyLayoutFrames[g_dirtyLayoutFramesCount++] = ecx;
+        }
+        return 0;
+    }
+    #endif
+    return orig_LayoutRecalc(ecx, 0, a2);
+}
+
+void FlushLayoutUpdates() {
+    #if !TEST_DISABLE_FRAMEXML_COALESCE
+    if (g_dirtyLayoutFramesCount > 0) {
+        g_coalescingLayouts = false; // suspend coalescing
+        for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
+            __try {
+                orig_LayoutRecalc(g_dirtyLayoutFrames[i], 0, 1);
+            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        }
+        g_dirtyLayoutFramesCount = 0;
+        g_coalescingLayouts = true; // resume coalescing
+    }
+    #endif
+}
+
 // Memory validation
 // ================================================================
 static bool IsReadable(uintptr_t addr) {
@@ -626,6 +668,15 @@ bool InstallLogicHooks(void) {
         }
     }
 
+    #if !TEST_DISABLE_FRAMEXML_COALESCE
+    if (WineSafe_CreateHook((void*)0x00489DE0, (void*)Hooked_LayoutRecalc, (void**)&orig_LayoutRecalc) == MH_OK) {
+        if (WO_EnableHook((void*)0x00489DE0) == MH_OK) {
+            installed++;
+            Log("[LogicHooks] Hooked LayoutRecalc at 0x00489DE0");
+        }
+    }
+    #endif
+
     Log("[LogicHooks] Initialized — combat text batching, UI layout cache, "
         "network heartbeat filter, invariant script cache (%d hooks active)", installed);
 
@@ -657,10 +708,15 @@ void ShutdownLogicHooks(void) {
             100.0 * g_uiScriptHits / (g_uiScriptHits + g_uiScriptMisses) : 0.0);
 }
 
+// (empty - moved to top)
+
 void OnFrameLogicHooks(DWORD mainThreadId) {
     if (GetCurrentThreadId() != mainThreadId) return;
 
     DWORD frameIdx = InterlockedIncrement((LONG*)&g_logicFrameIndex);
+
+    // Flush any pending coalesced layout updates
+    FlushLayoutUpdates();
 
     // Flush combat text batch every frame
     FlushCombatTextBatch();

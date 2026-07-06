@@ -121,31 +121,36 @@ static void InitializeZoneFileMap() {
     g_zoneFileMap[4812] = {
         "World\\Maps\\IcecrownCitadel\\IcecrownCitadel.wdt",
         "World\\Maps\\IcecrownCitadel\\IcecrownCitadel_tex0.adt",
-        "World\\Wmo\\Northrend\\IcecrownRaid\\icecrown_raid.wmo"
+        "World\\Wmo\\Northrend\\IcecrownRaid\\icecrown_raid.wmo",
+        "Creature\\LichKing\\LichKing.m2",
+        "Creature\\Sindragosa\\Sindragosa.m2"
     };
 
     // Dalaran (zone 4395)
     g_zoneFileMap[4395] = {
         "World\\Maps\\Northrend\\Dalaran.wdt",
         "World\\Maps\\Northrend\\Dalaran_tex0.adt",
-        "World\\Wmo\\Northrend\\Dalaran\\dalaran.wmo"
+        "World\\Wmo\\Northrend\\Dalaran\\dalaran.wmo",
+        "Creature\\DalaranGuard\\DalaranGuard.m2"
     };
 
     // Orgrimmar (zone 1637)
     g_zoneFileMap[1637] = {
         "World\\Maps\\Kalimdor\\Kalimdor.wdt",
         "World\\Maps\\Kalimdor\\Kalimdor_30_47.adt",
-        "World\\Wmo\\Kalimdor\\Orgrimmar\\orgrimmar.wmo"
+        "World\\Wmo\\Kalimdor\\Orgrimmar\\orgrimmar.wmo",
+        "Creature\\OrcM\\OrcM.m2"
     };
 
     // Stormwind (zone 1519)
     g_zoneFileMap[1519] = {
         "World\\Maps\\Azeroth\\Azeroth.wdt",
         "World\\Maps\\Azeroth\\Azeroth_32_49.adt",
-        "World\\Wmo\\Azeroth\\Stormwind\\stormwind.wmo"
+        "World\\Wmo\\Azeroth\\Stormwind\\stormwind.wmo",
+        "Creature\\HumanM\\HumanM.m2"
     };
 
-    Log("[MPQPrefetch] Initialized zone file map with %d zones", (int)g_zoneFileMap.size());
+    Log("[MPQPrefetch] Initialized zone file map with %d zones (including M2/WMO files)", (int)g_zoneFileMap.size());
 }
 
 // ================================================================

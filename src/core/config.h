@@ -11,6 +11,7 @@ namespace Config {
         bool MemoryPressure = true;       // default true
         bool HeapCompactor = true;        // default true
         bool UIFrameBatch = true;         // default true
+        bool VulkanDXVK = false;          // default false
     };
 
     extern Settings g_settings;
