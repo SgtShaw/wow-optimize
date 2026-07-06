@@ -158,7 +158,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -168,23 +168,23 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         0
+#define TEST_DISABLE_LUA_OPCACHE         1
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
-#define TEST_DISABLE_TABLE_SORT_FASTPATH    0
+#define TEST_DISABLE_TABLE_SORT_FASTPATH    1
 
 // string.gsub fast path - Lua string corruption (0x851E01 AV)
-#define TEST_DISABLE_STRING_GSUB_FASTPATH   0
+#define TEST_DISABLE_STRING_GSUB_FASTPATH   1
 
 // GetSystemMetrics cache - 0% real-session hit rate,
 // removed for cleanup
@@ -549,7 +549,7 @@
 #define TEST_DISABLE_D3D9_VB_CACHE              0  // enabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
 #define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     0  // enabled: D3D9 VS Constant Cache
-#define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader
+#define TEST_DISABLE_SAVED_VARS_PRETOKEN        1  // enabled: SavedVariables Preloader
 #define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          0  // enabled: Dynamic Mipmap Bias Governor
 #define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
