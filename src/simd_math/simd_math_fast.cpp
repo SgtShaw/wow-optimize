@@ -70,6 +70,10 @@ static float __cdecl Hooked_Vec3Normalize(float* vec) {
 }
 
 bool Init() {
+    #if TEST_DISABLE_SIMD_MATH_FAST
+    return true;
+    #endif
+
     void* target_mul = (void*)0x004C21B0;
     void* target_norm = (void*)0x004C3420;
 

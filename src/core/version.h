@@ -289,7 +289,7 @@
 #define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2         0
+#define TEST_DISABLE_MATRIX_EXT_SSE2         1
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -298,13 +298,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         0
+#define TEST_DISABLE_MATRIX_MISC_SSE2         1
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -312,12 +312,12 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        0
+#define TEST_DISABLE_FRUSTUM_CULL        1
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
@@ -339,7 +339,7 @@
 // → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
 // rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
 // transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         0
+#define TEST_DISABLE_QUAT_NORMALIZE         1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
@@ -522,14 +522,14 @@
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
-#define TEST_DISABLE_LUA_GC_COALESCE           0  // enabled: incremental Lua GC coalescing
+#define TEST_DISABLE_LUA_GC_COALESCE           1  // enabled: incremental Lua GC coalescing
 #define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
 
 // ================================================================
 // 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
 // ================================================================
 #define TEST_DISABLE_M2_SIMD_MT                 0
-#define TEST_DISABLE_GUID_MAP_LF                0
+#define TEST_DISABLE_GUID_MAP_LF                1
 #define TEST_DISABLE_SIMD_MATH_FAST             1
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                1
@@ -543,7 +543,7 @@
 #define TEST_DISABLE_NET_PACKET_COALESCE       1  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
-#define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
+#define TEST_DISABLE_LUA_GC_GOVERNOR            1  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // enabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // enabled: D3D9 VB Shadow Cache
