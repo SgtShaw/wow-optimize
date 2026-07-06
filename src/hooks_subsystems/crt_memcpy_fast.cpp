@@ -80,7 +80,7 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
         return g_orig_memcpy(dest, src, Size);
     }
 
-    // 16-255B non-overlapping: SSE2 copy via inline assembly (prevents recursive compiler-inserted memcpy calls)
+    // 16-255B non-overlapping: SSE2 copy via compiler intrinsics (no inline asm to prevent register corruption)
     g_total_calls++;
     g_sse2_path++;
 
@@ -88,27 +88,12 @@ static void* __cdecl Hooked_memcpy(void* dest, const void* src, size_t Size)
     const unsigned char* ps = (const unsigned char*)src;
     size_t len = Size;
 
-    __asm {
-        mov edi, pd
-        mov esi, ps
-        mov ecx, len
-        
-    copy_loop:
-        cmp ecx, 16
-        jl copy_tail
-        movdqu xmm0, [esi]
-        movdqu [edi], xmm0
-        add esi, 16
-        add edi, 16
-        sub ecx, 16
-        jmp copy_loop
-
-    copy_tail:
-        test ecx, ecx
-        jz copy_done
-        rep movsb
-
-    copy_done:
+    size_t i = 0;
+    for (; i + 16 <= len; i += 16) {
+        _mm_storeu_si128((__m128i*)(pd + i), _mm_loadu_si128((const __m128i*)(ps + i)));
+    }
+    if (i < len) {
+        __movsb(pd + i, ps + i, len - i);
     }
 
     return dest;
