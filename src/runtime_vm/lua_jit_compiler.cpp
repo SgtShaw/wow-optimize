@@ -151,7 +151,7 @@ bool Init() {
         Log("[LuaJitCompiler] Failed to hook luaD_precall");
         return false;
     }
-    if (MH_EnableHook(target) != MH_OK) {
+    if (WO_EnableHook(target) != MH_OK) {
         Log("[LuaJitCompiler] Failed to enable luaD_precall hook");
         return false;
     }
