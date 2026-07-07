@@ -175,7 +175,7 @@
 #define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
-#define TEST_DISABLE_LUA_OPCACHE         1
+#define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
 #define TEST_DISABLE_ASYNC_MPQ_IO       0
