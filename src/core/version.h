@@ -531,7 +531,7 @@
 #define TEST_DISABLE_M2_SIMD_MT                 0
 #define TEST_DISABLE_GUID_MAP_LF                1
 #define TEST_DISABLE_SIMD_MATH_FAST             1
-#define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
+#define TEST_DISABLE_COMBATLOG_INCREMENTAL      1
 #define TEST_DISABLE_LUA_POOL_LF                1
 #define TEST_DISABLE_D3D_STATE_CACHE            1
 #define TEST_DISABLE_DBC_LOOKUP_CACHE           0
