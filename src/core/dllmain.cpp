@@ -549,14 +549,15 @@ static constexpr int FIELD_QUEUE_SIZE = 4096;
 static constexpr int FIELD_QUEUE_MASK = FIELD_QUEUE_SIZE - 1;
 
 struct FieldTask {
-    void* volatile unit;  // volatile for correct atomic access semantics
+    void* unit;
     int   fieldId;
     int   value;
 };
 
 static FieldTask g_fieldQueue[FIELD_QUEUE_SIZE] = {};
-static volatile LONG g_fieldHead = 0;
-static volatile LONG g_fieldTail = 0;
+static LONG g_fieldHead = 0;
+static LONG g_fieldTail = 0;
+static SRWLOCK g_fieldQueueLock = SRWLOCK_INIT;
 
 typedef void (__thiscall *OnFieldUpdate_fn)(void*, int, int);
 static OnFieldUpdate_fn orig_OnFieldUpdate = nullptr;
@@ -608,21 +609,19 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
             return orig_OnFieldUpdate(This, fieldId, value);
         }
 
+        AcquireSRWLockExclusive(&g_fieldQueueLock);
         LONG tail = g_fieldTail;
         LONG nextTail = (tail + 1) & FIELD_QUEUE_MASK;
         if (nextTail == g_fieldHead) {
+            ReleaseSRWLockExclusive(&g_fieldQueueLock);
             return orig_OnFieldUpdate(This, fieldId, value); // Queue full
         }
 
-        // IMPORTANT: Write data fields BEFORE updating tail.
-        // Consumer reads tail first, then reads data. If we wrote
-        // tail first, consumer could read uninitialized data.
         g_fieldQueue[tail].fieldId = fieldId;
         g_fieldQueue[tail].value = value;
-        // Atomic store of unit pointer (pairs with ExchangePointer in flush)
-        InterlockedExchangePointer((volatile PVOID*)&g_fieldQueue[tail].unit, This);
-        // Now advance tail - consumer can now see this entry
-        InterlockedExchange(&g_fieldTail, nextTail);
+        g_fieldQueue[tail].unit = This;
+        g_fieldTail = nextTail;
+        ReleaseSRWLockExclusive(&g_fieldQueueLock);
         return;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return orig_OnFieldUpdate(This, fieldId, value);
@@ -633,17 +632,16 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
 extern "C" void InvalidateDeferredFieldUpdatesFor(void* unit) {
 #if !TEST_DISABLE_DEFERRED_FIELD_UPDATES
     if (!unit) return;
-    // Scan entire queue and nullify any entries referencing this unit.
-    // Uses atomic CAS so it doesn't race with flush's ExchangePointer.
-    // Only one of (CAS here, Exchange in flush) will succeed per slot.
+    AcquireSRWLockExclusive(&g_fieldQueueLock);
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
     while (head != tail) {
-        InterlockedCompareExchangePointer(
-            (volatile PVOID*)&g_fieldQueue[head].unit,
-            nullptr, unit);
+        if (g_fieldQueue[head].unit == unit) {
+            g_fieldQueue[head].unit = nullptr;
+        }
         head = (head + 1) & FIELD_QUEUE_MASK;
     }
+    ReleaseSRWLockExclusive(&g_fieldQueueLock);
 #endif
 }
 
@@ -652,17 +650,18 @@ static void FlushFieldUpdates() {
     // Thread safety: Flush must only run on the main thread
     if (g_mainThreadId != 0 && GetCurrentThreadId() != g_mainThreadId) return;
 
+    AcquireSRWLockExclusive(&g_fieldQueueLock);
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
-    if (head == tail) return;
+    if (head == tail) {
+        ReleaseSRWLockExclusive(&g_fieldQueueLock);
+        return;
+    }
 
     while (head != tail) {
         FieldTask& task = g_fieldQueue[head];
-
-        // Atomically claim ownership of this task's unit pointer.
-        // If invalidate already nulled it, we get nullptr and skip.
-        // If we get non-null, invalidate can no longer touch this slot.
-        void* unit = InterlockedExchangePointer((volatile PVOID*)&task.unit, nullptr);
+        void* unit = task.unit;
+        task.unit = nullptr;
 
         if (unit != nullptr) {
             __try {
@@ -677,7 +676,8 @@ static void FlushFieldUpdates() {
         }
         head = (head + 1) & FIELD_QUEUE_MASK;
     }
-    InterlockedExchange(&g_fieldHead, head);
+    g_fieldHead = head;
+    ReleaseSRWLockExclusive(&g_fieldQueueLock);
 #endif
 }
 
