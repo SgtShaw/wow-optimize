@@ -321,6 +321,7 @@ void ClearCombatLogCache();
 #include "d3d9_tss_cache.h"
 #include "lua_string_pool_fast.h"
 #include "async_sound_loader.h"
+#include "lua_jit_compiler.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -7403,6 +7404,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     AsyncSoundLoader::Init();
 
     Log("");
+    Log("--- Lua VM Bytecode JIT Compiler ---");
+    LuaJitCompiler::Init();
+
+    Log("");
     Log("--- M2 LOD Bias Control ---");
     M2LodBias::Init();
 
@@ -9323,6 +9328,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             D3D9TssCache::Shutdown();
             LuaStringPoolFast::Shutdown();
             AsyncSoundLoader::Shutdown();
+            LuaJitCompiler::Shutdown();
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();

@@ -143,6 +143,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/d3d9_tss_cache.h
     src/runtime_vm/lua_string_pool_fast.cpp
     src/runtime_vm/lua_string_pool_fast.h
+    src/runtime_vm/lua_jit_compiler.cpp
+    src/runtime_vm/lua_jit_compiler.h
     src/hooks_subsystems/async_sound_loader.cpp
     src/hooks_subsystems/async_sound_loader.h
     src/simd_math/m2_lod_bias.cpp
