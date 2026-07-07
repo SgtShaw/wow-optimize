@@ -1055,10 +1055,52 @@ static void ReadAddonStateFromLua(lua_State* L) {
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+static SIZE_T GetLargestFreeBlock() {
+    MEMORY_BASIC_INFORMATION mbi;
+    SIZE_T largestFree = 0;
+    SIZE_T currentFree = 0;
+    uintptr_t addr = 0;
+    
+    while (VirtualQuery((LPCVOID)addr, &mbi, sizeof(mbi))) {
+        if (mbi.State == MEM_FREE) {
+            currentFree += mbi.RegionSize;
+        } else {
+            if (currentFree > largestFree) {
+                largestFree = currentFree;
+            }
+            currentFree = 0;
+        }
+        addr = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+        if (addr < (uintptr_t)mbi.BaseAddress) break; // Overflow
+    }
+    
+    if (currentFree > largestFree) {
+        largestFree = currentFree;
+    }
+    
+    return largestFree;
+}
+
+static DWORD g_lastMemoryQueryTick = 0;
+static double g_cachedWorkingSetMB = 0.0;
+static double g_cachedCommitMB = 0.0;
+static double g_cachedLargestFreeMB = 0.0;
+
 static void UpdateLuaStats(lua_State* L) {
     if (!Api.lua_pushnumber || !Api.lua_setfield) return;
 
     __try {
+        DWORD now = GetTickCount();
+        if (now - g_lastMemoryQueryTick >= 1000 || g_lastMemoryQueryTick == 0) {
+            g_lastMemoryQueryTick = now;
+            PROCESS_MEMORY_COUNTERS pmc;
+            if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+                g_cachedWorkingSetMB = (double)pmc.WorkingSetSize / (1024.0 * 1024.0);
+                g_cachedCommitMB = (double)pmc.PagefileUsage / (1024.0 * 1024.0);
+            }
+            g_cachedLargestFreeMB = (double)GetLargestFreeBlock() / (1024.0 * 1024.0);
+        }
+
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_KB",      State.luaMemoryKB);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_STEPS",   (double)State.gcStepsTotal);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_FULLS",   (double)State.fullCollects);
@@ -1072,6 +1114,10 @@ static void UpdateLuaStats(lua_State* L) {
         WriteLuaGlobal_Bool(L,   "LUABOOST_DLL_LUA_ALLOC",   g_luaAllocReplaced);
         WriteLuaGlobal_String(L, "LUABOOST_DLL_GC_MODE",     GetGCModeName());
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_GC_MS",       g_smoothedGcMs);
+
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_WORKING_SET_MB", g_cachedWorkingSetMB);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_COMMIT_MB",      g_cachedCommitMB);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_LARGEST_FREE_MB", g_cachedLargestFreeMB);
 
         UICache::Stats uiStats = UICache::GetStats();
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_UICACHE_SKIPPED", (double)uiStats.skipped);
