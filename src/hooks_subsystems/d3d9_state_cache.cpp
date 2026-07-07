@@ -42,6 +42,9 @@ static SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
 typedef HRESULT (WINAPI *SetSamplerState_fn)(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value);
 static SetSamplerState_fn orig_SetSamplerState = nullptr;
 
+typedef HRESULT (WINAPI *SetTextureStageState_fn)(IDirect3DDevice9* device, DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value);
+static SetTextureStageState_fn orig_SetTextureStageState = nullptr;
+
 static bool g_vbHooksInstalled = false;
 
 
@@ -283,6 +286,15 @@ static HRESULT WINAPI Hooked_SetVertexShaderConstantF(IDirect3DDevice9* device, 
 }
 
 static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value) {
+    if (Sampler < 16 && (DWORD)Type < 32) {
+        if (g_samplerStateValid[Sampler][Type] && g_samplerStateCache[Sampler][Type] == Value) {
+            g_samplerSkips.fetch_add(1, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        g_samplerStateCache[Sampler][Type] = Value;
+        g_samplerStateValid[Sampler][Type] = true;
+    }
+
     #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
     if (Type == 10 /* D3DSAMP_MIPMAPLODBIAS */) {
         float bias = MipBiasGovernor::GetCurrentBias();
@@ -294,6 +306,18 @@ static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD Sam
     }
     #endif
     return orig_SetSamplerState(device, Sampler, Type, Value);
+}
+
+static HRESULT WINAPI Hooked_SetTextureStageState(IDirect3DDevice9* device, DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value) {
+    if (Stage < 8 && (DWORD)Type < 64) {
+        if (g_textureStageStateValid[Stage][Type] && g_textureStageStateCache[Stage][Type] == Value) {
+            g_stageStateSkips.fetch_add(1, std::memory_order_relaxed);
+            return D3D_OK;
+        }
+        g_textureStageStateCache[Stage][Type] = Value;
+        g_textureStageStateValid[Stage][Type] = true;
+    }
+    return orig_SetTextureStageState(device, Stage, Type, Value);
 }
 
 
@@ -412,6 +436,7 @@ bool Init() {
     void* target_CreateVertexBuffer = (void*)vtable[26];
     void* target_SetVertexShaderConstantF = (void*)vtable[94];
     void* target_SetSamplerState = (void*)vtable[69];
+    void* target_SetTextureStageState = (void*)vtable[64];
 
     // Install hooks
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
@@ -421,7 +446,8 @@ bool Init() {
         MH_CreateHook(target_SetViewport, (void*)Hooked_SetViewport, (void**)&orig_SetViewport) != MH_OK ||
         MH_CreateHook(target_CreateVertexBuffer, (void*)Hooked_CreateVertexBuffer, (void**)&orig_CreateVertexBuffer) != MH_OK ||
         MH_CreateHook(target_SetVertexShaderConstantF, (void*)Hooked_SetVertexShaderConstantF, (void**)&orig_SetVertexShaderConstantF) != MH_OK ||
-        MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK) 
+        MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK ||
+        MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK) 
     {
         device->Release();
         DestroyWindow(hwnd);
@@ -438,6 +464,7 @@ bool Init() {
     MH_EnableHook(target_CreateVertexBuffer);
     MH_EnableHook(target_SetVertexShaderConstantF);
     MH_EnableHook(target_SetSamplerState);
+    MH_EnableHook(target_SetTextureStageState);
 
     // Release dummy objects
     device->Release();
