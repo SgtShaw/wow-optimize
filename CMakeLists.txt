@@ -66,6 +66,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/obj_vis_cache.h
     src/hooks_subsystems/rcu_obj_mgr.cpp
     src/hooks_subsystems/rcu_obj_mgr.h
+    src/hooks_subsystems/async_terrain_loader.cpp
+    src/hooks_subsystems/async_terrain_loader.h
     src/hooks_subsystems/nameplate_batch.cpp
     src/hooks_subsystems/nameplate_batch.h
     src/hooks_subsystems/ui_cache.cpp

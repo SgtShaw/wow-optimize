@@ -16,6 +16,9 @@ void Shutdown();
 // Notify the module about changes in the game's loading screen state
 void NotifyLoadingState(bool isLoading);
 
+// Check if the loading screen is currently active
+bool IsLoadingActive();
+
 // Call every frame from the main thread (e.g. to update zone text)
 void OnFrame();
 

@@ -323,6 +323,7 @@ void ClearCombatLogCache();
 #include "async_sound_loader.h"
 #include "lua_jit_compiler.h"
 #include "rcu_obj_mgr.h"
+#include "async_terrain_loader.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -7416,6 +7417,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     RcuObjMgr::Init();
 
     Log("");
+    Log("--- Asynchronous Terrain Mesh Loader ---");
+    AsyncTerrainLoader::Init();
+
+    Log("");
     Log("--- M2 LOD Bias Control ---");
     M2LodBias::Init();
 
@@ -9338,6 +9343,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             AsyncSoundLoader::Shutdown();
             LuaJitCompiler::Shutdown();
             RcuObjMgr::Shutdown();
+            AsyncTerrainLoader::Shutdown();
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();

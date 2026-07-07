@@ -241,6 +241,10 @@ void NotifyLoadingState(bool isLoading) {
     }
 }
 
+bool IsLoadingActive() {
+    return g_loadingActive.load(std::memory_order_relaxed);
+}
+
 // Helper to check if string matches GetStackTopFast / SetStackTopFast definitions
 static inline uintptr_t GetStackTopFast(uintptr_t L) {
     return *(uintptr_t*)(L + 0x0C);
