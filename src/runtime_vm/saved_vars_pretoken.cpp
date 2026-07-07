@@ -93,12 +93,9 @@ static void WorkerProc() {
         
         DWORD size = GetFileSize(h, NULL);
         if (size > 0 && size < 64 * 1024 * 1024) {
-            std::string content(size, '\0');
+            std::vector<uint8_t> data(size);
             DWORD read = 0;
-            if (ReadFile(h, &content[0], size, &read, NULL) && read == size) {
-                std::string minified = MinifyLua(content);
-                std::vector<uint8_t> data(minified.begin(), minified.end());
-                
+            if (ReadFile(h, data.data(), size, &read, NULL) && read == size) {
                 AcquireSRWLockExclusive(&g_cacheLock);
                 g_cache[path] = std::move(data);
                 ReleaseSRWLockExclusive(&g_cacheLock);
