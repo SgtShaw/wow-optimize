@@ -1,4 +1,5 @@
 #include "lua_jit_compiler.h"
+#include "MinHook.h"
 #include "version.h"
 #include <windows.h>
 #include <unordered_map>
@@ -71,6 +72,30 @@ void* CompileFunction(void* proto) {
     return execMem;
 }
 
+// Detour target for Lua call dispatch profiling
+typedef int (__cdecl* luaD_precall_fn)(void* L, void* func, int nresults, __int64 start_time, __int64* end_time);
+static luaD_precall_fn g_orig_luaD_precall = nullptr;
+
+static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults, __int64 start_time, __int64* end_time) {
+    if (func) {
+        uintptr_t tv = (uintptr_t)func;
+        // Verify we are pointing to a valid function object (type = 6)
+        if (*(int*)(tv + 8) == 6) {
+            uintptr_t cl = *(uintptr_t*)(tv + 0);
+            if (cl >= 0x10000) {
+                uint8_t isC = *(uint8_t*)(cl + 10);
+                if (isC == 0) { // Lua closure (exclude C functions)
+                    uintptr_t proto = *(uintptr_t*)(cl + 24);
+                    if (proto >= 0x10000) {
+                        ShouldCompile((void*)proto);
+                    }
+                }
+            }
+        }
+    }
+    return g_orig_luaD_precall(L, func, nresults, start_time, end_time);
+}
+
 bool ShouldCompile(void* proto) {
     std::lock_guard<std::mutex> lock(g_jitMutex);
     g_invocations++;
@@ -90,11 +115,24 @@ bool ShouldCompile(void* proto) {
 }
 
 bool Init() {
-    Log("[LuaJitCompiler] Active - Lua native compile engine initialized");
+    void* target = (void*)0x00856550;
+    if (WineSafe_CreateHook(target, (void*)Hooked_luaD_precall, (void**)&g_orig_luaD_precall) != MH_OK) {
+        Log("[LuaJitCompiler] Failed to hook luaD_precall");
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("[LuaJitCompiler] Failed to enable luaD_precall hook");
+        return false;
+    }
+    Log("[LuaJitCompiler] Active - Lua native compile engine hooked at 0x856550");
     return true;
 }
 
 void Shutdown() {
+    void* target = (void*)0x00856550;
+    MH_DisableHook(target);
+    MH_RemoveHook(target);
+
     std::lock_guard<std::mutex> lock(g_jitMutex);
     for (auto& pair : g_compiledBlocks) {
         if (pair.second.execMem) {
