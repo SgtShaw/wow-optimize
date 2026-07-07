@@ -99,6 +99,10 @@ static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults, __int6
 bool ShouldCompile(void* proto) {
     std::lock_guard<std::mutex> lock(g_jitMutex);
     g_invocations++;
+
+    if (g_invocations % 10000 == 0) {
+        Log("[LuaJitCompiler] Profiled %lld total invocations", g_invocations);
+    }
     
     g_invocationCount[proto]++;
     if (g_invocationCount[proto] >= 1000) { // Compile if invoked 1000+ times
@@ -107,6 +111,7 @@ bool ShouldCompile(void* proto) {
             if (compiledCode) {
                 g_compiledBlocks[proto] = { compiledCode, 32 };
                 g_compiledCount++;
+                Log("[LuaJitCompiler] Compiled function prototype 0x%p (Total compiled: %lld)", proto, g_compiledCount);
                 return true;
             }
         }
