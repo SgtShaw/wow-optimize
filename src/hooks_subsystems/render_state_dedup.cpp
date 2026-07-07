@@ -20,6 +20,12 @@ extern "C" void Log(const char* fmt, ...);
 static volatile LONG64 g_rs_calls   = 0;    // SetRenderState calls
 static volatile LONG64 g_rs_skipped = 0;    // redundant calls skipped
 
+static volatile LONG64 g_tss_calls   = 0;   // SetTextureStageState calls
+static volatile LONG64 g_tss_skipped = 0;   // redundant calls skipped
+
+static volatile LONG64 g_sampler_calls   = 0; // SetSamplerState calls
+static volatile LONG64 g_sampler_skipped = 0; // redundant calls skipped
+
 // ---- render state cache ------------------------------------------
 // D3DRENDERSTATETYPE values fit in 0..255. Most WoW usage stays
 // under 210 (D3DRS_BLENDOP is 171 in d3d9types.h).
@@ -27,12 +33,32 @@ static constexpr DWORD RS_CACHE_SIZE = 256;
 static DWORD g_rsCache[RS_CACHE_SIZE];
 static bool  g_rsValid[RS_CACHE_SIZE];
 
+// ---- texture stage state cache -----------------------------------
+// 8 stages, 33 types (up to D3DTSS_CONSTANT=32)
+static constexpr DWORD TSS_STAGES = 8;
+static constexpr DWORD TSS_TYPES  = 33;
+static DWORD g_tssCache[TSS_STAGES][TSS_TYPES];
+static bool  g_tssValid[TSS_STAGES][TSS_TYPES];
+
+// ---- sampler state cache -----------------------------------------
+// 16 samplers, 14 types (up to D3DSAMP_DMAPOFFSET=13)
+static constexpr DWORD SAMPLER_COUNT = 16;
+static constexpr DWORD SAMPLER_TYPES = 14;
+static DWORD g_samplerCache[SAMPLER_COUNT][SAMPLER_TYPES];
+static bool  g_samplerValid[SAMPLER_COUNT][SAMPLER_TYPES];
+
 // ---- hook state --------------------------------------------------
 static bool g_deviceHooksInstalled = false;
 
 // ---- original function pointers ----------------------------------
 typedef HRESULT (STDMETHODCALLTYPE *SetRenderState_t)(IDirect3DDevice9*, D3DRENDERSTATETYPE, DWORD);
 static SetRenderState_t g_orig_SetRenderState = nullptr;
+
+typedef HRESULT (STDMETHODCALLTYPE *SetTextureStageState_t)(IDirect3DDevice9*, DWORD, D3DTEXTURESTAGESTATETYPE, DWORD);
+static SetTextureStageState_t g_orig_SetTextureStageState = nullptr;
+
+typedef HRESULT (STDMETHODCALLTYPE *SetSamplerState_t)(IDirect3DDevice9*, DWORD, D3DSAMPLERSTATETYPE, DWORD);
+static SetSamplerState_t g_orig_SetSamplerState = nullptr;
 
 typedef HRESULT (STDMETHODCALLTYPE *Reset_t)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
 static Reset_t g_orig_Reset = nullptr;
@@ -62,6 +88,56 @@ static HRESULT STDMETHODCALLTYPE Hooked_SetRenderState(
 }
 
 // ================================================================
+// SetTextureStageState — compare-before-set dedup
+// ================================================================
+static HRESULT STDMETHODCALLTYPE Hooked_SetTextureStageState(
+    IDirect3DDevice9* device, DWORD stage, D3DTEXTURESTAGESTATETYPE type, DWORD value)
+{
+    g_tss_calls++;
+
+    DWORD s = (DWORD)stage;
+    DWORD t = (DWORD)type;
+    if (s < TSS_STAGES && t < TSS_TYPES) {
+        if (g_tssValid[s][t] && g_tssCache[s][t] == value) {
+            g_tss_skipped++;
+            return S_OK;
+        }
+    }
+
+    HRESULT hr = g_orig_SetTextureStageState(device, stage, type, value);
+    if (SUCCEEDED(hr) && s < TSS_STAGES && t < TSS_TYPES) {
+        g_tssCache[s][t] = value;
+        g_tssValid[s][t] = true;
+    }
+    return hr;
+}
+
+// ================================================================
+// SetSamplerState — compare-before-set dedup
+// ================================================================
+static HRESULT STDMETHODCALLTYPE Hooked_SetSamplerState(
+    IDirect3DDevice9* device, DWORD sampler, D3DSAMPLERSTATETYPE type, DWORD value)
+{
+    g_sampler_calls++;
+
+    DWORD s = (DWORD)sampler;
+    DWORD t = (DWORD)type;
+    if (s < SAMPLER_COUNT && t < SAMPLER_TYPES) {
+        if (g_samplerValid[s][t] && g_samplerCache[s][t] == value) {
+            g_sampler_skipped++;
+            return S_OK;
+        }
+    }
+
+    HRESULT hr = g_orig_SetSamplerState(device, sampler, type, value);
+    if (SUCCEEDED(hr) && s < SAMPLER_COUNT && t < SAMPLER_TYPES) {
+        g_samplerCache[s][t] = value;
+        g_samplerValid[s][t] = true;
+    }
+    return hr;
+}
+
+// ================================================================
 // Reset — clear cache on device reset to prevent stale states
 // ================================================================
 static HRESULT STDMETHODCALLTYPE Hooked_Reset(
@@ -70,6 +146,12 @@ static HRESULT STDMETHODCALLTYPE Hooked_Reset(
     // Clear caches: D3D device reset restores default render states on the GPU
     memset(g_rsCache, 0, sizeof(g_rsCache));
     memset(g_rsValid, 0, sizeof(g_rsValid));
+
+    memset(g_tssCache, 0, sizeof(g_tssCache));
+    memset(g_tssValid, 0, sizeof(g_tssValid));
+
+    memset(g_samplerCache, 0, sizeof(g_samplerCache));
+    memset(g_samplerValid, 0, sizeof(g_samplerValid));
 
     if (g_orig_Reset) {
         return g_orig_Reset(device, pParams);
@@ -98,6 +180,12 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
         // Clear caches on new device creation to start clean
         memset(g_rsCache, 0, sizeof(g_rsCache));
         memset(g_rsValid, 0, sizeof(g_rsValid));
+
+        memset(g_tssCache, 0, sizeof(g_tssCache));
+        memset(g_tssValid, 0, sizeof(g_tssValid));
+
+        memset(g_samplerCache, 0, sizeof(g_samplerCache));
+        memset(g_samplerValid, 0, sizeof(g_samplerValid));
 
         if (!g_deviceHooksInstalled) {
             __try {
@@ -137,6 +225,42 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
                 }
                 g_orig_SetRenderState = origRS;
 
+                // Hook SetTextureStageState (vtable index 67)
+                uintptr_t setTSS = vtable[67];
+                if (setTSS && setTSS >= 0x10000 && setTSS <= 0xFFE00000) {
+                    SetTextureStageState_t origTSS = nullptr;
+                    st = MH_CreateHook(
+                        (void*)setTSS,
+                        (void*)Hooked_SetTextureStageState,
+                        (void**)&origTSS);
+                    if (st == MH_OK) {
+                        st = MH_EnableHook((void*)setTSS);
+                        if (st == MH_OK) {
+                            g_orig_SetTextureStageState = origTSS;
+                        } else {
+                            MH_RemoveHook((void*)setTSS);
+                        }
+                    }
+                }
+
+                // Hook SetSamplerState (vtable index 69)
+                uintptr_t setSS = vtable[69];
+                if (setSS && setSS >= 0x10000 && setSS <= 0xFFE00000) {
+                    SetSamplerState_t origSS = nullptr;
+                    st = MH_CreateHook(
+                        (void*)setSS,
+                        (void*)Hooked_SetSamplerState,
+                        (void**)&origSS);
+                    if (st == MH_OK) {
+                        st = MH_EnableHook((void*)setSS);
+                        if (st == MH_OK) {
+                            g_orig_SetSamplerState = origSS;
+                        } else {
+                            MH_RemoveHook((void*)setSS);
+                        }
+                    }
+                }
+
                 // Hook Reset (vtable index 16)
                 uintptr_t reset = vtable[16];
                 if (reset && reset >= 0x10000 && reset <= 0xFFE00000) {
@@ -156,7 +280,7 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
                 }
 
                 g_deviceHooksInstalled = true;
-                Log("[RenderDedup] Hooks installed on device (SetRenderState + Reset)");
+                Log("[RenderDedup] Hooks installed on device (SetRenderState + Reset + SetTextureStageState + SetSamplerState)");
             } __except(EXCEPTION_EXECUTE_HANDLER) {
                 Log("[RenderDedup] Exception reading device vtable — wrapper device, "
                     "skipping hook");
@@ -222,6 +346,12 @@ bool InstallRenderStateDedup(void)
     memset(g_rsCache, 0, sizeof(g_rsCache));
     memset(g_rsValid, 0, sizeof(g_rsValid));
 
+    memset(g_tssCache, 0, sizeof(g_tssCache));
+    memset(g_tssValid, 0, sizeof(g_tssValid));
+
+    memset(g_samplerCache, 0, sizeof(g_samplerCache));
+    memset(g_samplerValid, 0, sizeof(g_samplerValid));
+
     // Load d3d9.dll if not already loaded
     HMODULE hD3D9 = GetModuleHandleA("d3d9.dll");
     if (!hD3D9) {
@@ -267,14 +397,37 @@ void ShutdownRenderStateDedup(void)
         Log("[RenderDedup] Stats: %lld SetRenderState calls, %lld skipped "
             "(%.1f%% dedup)",
             calls, skipped,
-            calls > 0 ? 100.0 * (double)skipped / (double)calls : 0.0);
+            100.0 * (double)skipped / (double)calls);
     } else {
-        Log("[RenderDedup] No SetRenderState calls recorded (device may not "
-            "have been created)");
+        Log("[RenderDedup] No SetRenderState calls recorded");
+    }
+
+    LONG64 tss_calls   = g_tss_calls;
+    LONG64 tss_skipped = g_tss_skipped;
+    if (tss_calls > 0) {
+        Log("[RenderDedup] Stats: %lld SetTextureStageState calls, %lld skipped "
+            "(%.1f%% dedup)",
+            tss_calls, tss_skipped,
+            100.0 * (double)tss_skipped / (double)tss_calls);
+    } else {
+        Log("[RenderDedup] No SetTextureStageState calls recorded");
+    }
+
+    LONG64 sampler_calls   = g_sampler_calls;
+    LONG64 sampler_skipped = g_sampler_skipped;
+    if (sampler_calls > 0) {
+        Log("[RenderDedup] Stats: %lld SetSamplerState calls, %lld skipped "
+            "(%.1f%% dedup)",
+            sampler_calls, sampler_skipped,
+            100.0 * (double)sampler_skipped / (double)sampler_calls);
+    } else {
+        Log("[RenderDedup] No SetSamplerState calls recorded");
     }
 }
 
 void RenderStateDedup_ClearCache(void)
 {
     memset(g_rsValid, 0, sizeof(g_rsValid));
+    memset(g_tssValid, 0, sizeof(g_tssValid));
+    memset(g_samplerValid, 0, sizeof(g_samplerValid));
 }
