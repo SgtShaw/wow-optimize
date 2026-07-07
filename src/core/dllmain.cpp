@@ -322,6 +322,7 @@ void ClearCombatLogCache();
 #include "lua_string_pool_fast.h"
 #include "async_sound_loader.h"
 #include "lua_jit_compiler.h"
+#include "rcu_obj_mgr.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -581,7 +582,9 @@ static void* __fastcall Hooked_UnlinkNode(void* This, void* unused) {
             GuidLookupCache::Invalidate(guid);
         } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
-    return orig_UnlinkNode(This);
+    void* result = orig_UnlinkNode(This);
+    RcuObjMgr::UpdateActiveRcuArray();
+    return result;
 }
 
 static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldId, int value) {
@@ -1237,6 +1240,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_OBJ_VIS_CACHE
             ObjVisCache::OnFrame();
 #endif
+            RcuObjMgr::OnFrame();
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::OnFrame(g_mainThreadId);
 #endif
@@ -7408,6 +7412,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     LuaJitCompiler::Init();
 
     Log("");
+    Log("--- RCU Object Manager Traverser ---");
+    RcuObjMgr::Init();
+
+    Log("");
     Log("--- M2 LOD Bias Control ---");
     M2LodBias::Init();
 
@@ -9329,6 +9337,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LuaStringPoolFast::Shutdown();
             AsyncSoundLoader::Shutdown();
             LuaJitCompiler::Shutdown();
+            RcuObjMgr::Shutdown();
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();
