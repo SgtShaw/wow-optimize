@@ -77,6 +77,32 @@ typedef int (__cdecl* luaD_precall_fn)(void* L, void* func, int nresults, __int6
 static luaD_precall_fn g_orig_luaD_precall = nullptr;
 
 static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults, __int64 start_time, __int64* end_time) {
+    static volatile long local_calls = 0;
+    long current_call = InterlockedIncrement(&local_calls);
+    
+    if (current_call <= 50) {
+        int tt = -999;
+        uintptr_t cl = 0;
+        uint8_t isC = 255;
+        uintptr_t proto = 0;
+        
+        if (func) {
+            uintptr_t tv = (uintptr_t)func;
+            tt = *(int*)(tv + 8);
+            if (tt == 6) {
+                cl = *(uintptr_t*)(tv + 0);
+                if (cl >= 0x10000) {
+                    isC = *(uint8_t*)(cl + 10);
+                    if (isC == 0) {
+                        proto = *(uintptr_t*)(cl + 24);
+                    }
+                }
+            }
+        }
+        Log("[LuaJitCompiler] Hooked_luaD_precall #%ld: L=%p, func=%p, tt=%d, cl=%p, isC=%d, proto=%p", 
+            current_call, L, func, tt, (void*)cl, isC, (void*)proto);
+    }
+
     if (func) {
         uintptr_t tv = (uintptr_t)func;
         // Verify we are pointing to a valid function object (type = 6)
