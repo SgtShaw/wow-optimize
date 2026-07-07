@@ -80,7 +80,7 @@ static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults) {
     static volatile long local_calls = 0;
     long current_call = InterlockedIncrement(&local_calls);
     
-    if (current_call <= 50) {
+    if (current_call <= 5) {
         int tt = -999;
         uintptr_t cl = 0;
         uint8_t isC = 255;

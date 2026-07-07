@@ -20,6 +20,9 @@ static sub_7C3700_fn orig_sub_7C3700 = nullptr;
 typedef int (__cdecl *sub_7C1660_fn)(float* pos, float* out_height, void** out_chunk);
 static sub_7C1660_fn orig_sub_7C1660 = nullptr;
 
+typedef void* (__thiscall *sub_7D6BF0_fn)(void* This, int a2, void* a3);
+static sub_7D6BF0_fn orig_sub_7D6BF0 = nullptr;
+
 static std::unordered_set<void*> g_loadingGrids;
 static std::mutex g_loadingGridsMutex;
 static std::atomic<int> g_asyncLoadCount{0};
@@ -101,6 +104,13 @@ int __cdecl Hooked_GetGroundElevation(float* pos, float* out_height, void** out_
     return result;
 }
 
+void* __fastcall Hooked_CMapGrid_Update(void* This, void* unused, int a2, void* a3) {
+    if (This && IsGridLoading(This)) {
+        return a3; // Skip updating sub-chunks while ADT is still loading in background
+    }
+    return orig_sub_7D6BF0(This, a2, a3);
+}
+
 bool Init() {
     Log("--- Asynchronous Terrain Mesh Loader & Collision Decoupler ---");
 
@@ -116,10 +126,15 @@ bool Init() {
         Log("[AsyncTerrainLoader] Failed to hook GetGroundElevation (0x7C1660)");
         return false;
     }
+    if (MH_CreateHook((LPVOID)0x007D6BF0, (LPVOID)Hooked_CMapGrid_Update, (LPVOID*)&orig_sub_7D6BF0) != MH_OK) {
+        Log("[AsyncTerrainLoader] Failed to hook CMapGrid::Update (0x7D6BF0)");
+        return false;
+    }
 
     if (MH_EnableHook((LPVOID)0x007D9A20) != MH_OK ||
         MH_EnableHook((LPVOID)0x007C3700) != MH_OK ||
-        MH_EnableHook((LPVOID)0x007C1660) != MH_OK) {
+        MH_EnableHook((LPVOID)0x007C1660) != MH_OK ||
+        MH_EnableHook((LPVOID)0x007D6BF0) != MH_OK) {
         Log("[AsyncTerrainLoader] Failed to enable hooks");
         return false;
     }
@@ -132,6 +147,7 @@ void Shutdown() {
     MH_DisableHook((LPVOID)0x007D9A20);
     MH_DisableHook((LPVOID)0x007C3700);
     MH_DisableHook((LPVOID)0x007C1660);
+    MH_DisableHook((LPVOID)0x007D6BF0);
 
     // Wait for all background loads to finish
     while (g_asyncLoadCount.load(std::memory_order_relaxed) > 0) {
