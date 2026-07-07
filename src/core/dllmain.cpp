@@ -1242,6 +1242,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             ObjVisCache::OnFrame();
 #endif
             RcuObjMgr::OnFrame();
+#if !TEST_DISABLE_TEXTURE_DECODE_MT
+            AsyncTexLoader::OnFrame();
+#endif
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::OnFrame(g_mainThreadId);
 #endif

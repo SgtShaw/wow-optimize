@@ -4,4 +4,5 @@
 namespace AsyncTexLoader {
     bool Init();
     void Shutdown();
+    void OnFrame();
 }
