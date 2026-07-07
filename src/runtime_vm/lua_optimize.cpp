@@ -1356,7 +1356,6 @@ static void __cdecl Hooked_FrameScript_Execute(const char* code, const char* sou
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_LOADED");
                 Api.lua_pushboolean(currentL, 1);
                 Api.lua_setfield(currentL, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_ACTIVE");
-                
                 if (Api.FrameScript_Execute) {
                     Api.FrameScript_Execute(
                         "local f=CreateFrame'Frame' "

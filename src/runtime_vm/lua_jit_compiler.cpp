@@ -11,14 +11,15 @@ extern "C" void Log(const char* fmt, ...);
 
 namespace LuaJitCompiler {
 
-struct JitBlock {
-    void* execMem;
-    size_t size;
+struct ProtoCacheEntry {
+    void* proto;
+    uint32_t count;
+    void* compiledCode;
 };
 
-// Thread-safe map of compiled blocks and invocation frequency counters
-static std::unordered_map<void*, int> g_invocationCount;
-static std::unordered_map<void*, JitBlock> g_compiledBlocks;
+// Thread-safe lock-free direct-mapped cache of compiled blocks
+static ProtoCacheEntry g_protoCache[4096] = {0};
+static std::vector<void*> g_allocatedPages;
 static std::mutex g_jitMutex;
 static uint64_t g_compiledCount = 0;
 static uint64_t g_invocations = 0;
@@ -68,6 +69,13 @@ void* CompileFunction(void* proto) {
 
     // Flush CPU instruction cache
     FlushInstructionCache(GetCurrentProcess(), execMem, buf.code.size());
+
+    // Keep track of allocated pages for clean shutdown
+    {
+        std::lock_guard<std::mutex> lock(g_jitMutex);
+        g_allocatedPages.push_back(execMem);
+        g_compiledCount++;
+    }
 
     return execMem;
 }
@@ -123,29 +131,40 @@ static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults) {
 }
 
 bool ShouldCompile(void* proto) {
-    std::lock_guard<std::mutex> lock(g_jitMutex);
     g_invocations++;
 
     if (g_invocations % 10000 == 0) {
         Log("[LuaJitCompiler] Profiled %lld total invocations", g_invocations);
     }
     
-    g_invocationCount[proto]++;
-    if (g_invocationCount[proto] >= 1000) { // Compile if invoked 1000+ times
-        if (g_compiledBlocks.find(proto) == g_compiledBlocks.end()) {
+    uintptr_t hash = ((uintptr_t)proto >> 4) % 4096;
+    if (g_protoCache[hash].proto == proto) {
+        if (g_protoCache[hash].compiledCode) {
+            return true;
+        }
+        g_protoCache[hash].count++;
+        if (g_protoCache[hash].count >= 1000) {
             void* compiledCode = CompileFunction(proto);
             if (compiledCode) {
-                g_compiledBlocks[proto] = { compiledCode, 32 };
-                g_compiledCount++;
+                g_protoCache[hash].compiledCode = compiledCode;
                 Log("[LuaJitCompiler] Compiled function prototype 0x%p (Total compiled: %lld)", proto, g_compiledCount);
                 return true;
             }
         }
+    } else {
+        // Cache miss or collision: overwrite entry
+        g_protoCache[hash].proto = proto;
+        g_protoCache[hash].count = 1;
+        g_protoCache[hash].compiledCode = nullptr;
     }
     return false;
 }
 
 bool Init() {
+#if defined(TEST_DISABLE_LUA_JIT) && TEST_DISABLE_LUA_JIT == 1
+    Log("[LuaJitCompiler] Disabled via TEST_DISABLE_LUA_JIT");
+    return true;
+#endif
     void* target = (void*)0x00856370;
     if (WineSafe_CreateHook(target, (void*)Hooked_luaD_precall, (void**)&g_orig_luaD_precall) != MH_OK) {
         Log("[LuaJitCompiler] Failed to hook luaD_precall");
@@ -160,18 +179,19 @@ bool Init() {
 }
 
 void Shutdown() {
+#if defined(TEST_DISABLE_LUA_JIT) && TEST_DISABLE_LUA_JIT == 1
+    return;
+#endif
     void* target = (void*)0x00856370;
     MH_DisableHook(target);
     MH_RemoveHook(target);
 
     std::lock_guard<std::mutex> lock(g_jitMutex);
-    for (auto& pair : g_compiledBlocks) {
-        if (pair.second.execMem) {
-            VirtualFree(pair.second.execMem, 0, MEM_RELEASE);
-        }
+    for (void* page : g_allocatedPages) {
+        VirtualFree(page, 0, MEM_RELEASE);
     }
-    g_compiledBlocks.clear();
-    g_invocationCount.clear();
+    g_allocatedPages.clear();
+    memset(g_protoCache, 0, sizeof(g_protoCache));
     Log("[LuaJitCompiler] Stats: %lld functions natively compiled, %lld total invocations", g_compiledCount, g_invocations);
 }
 

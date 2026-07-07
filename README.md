@@ -11,23 +11,42 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in v3.13.0
+## Table of Contents
+* [What's New in the Upcoming Update (v3.14.0)](#whats-new-in-the-upcoming-update-v3140)
+* [Reviews & Acknowledgments](#reviews)
+* [Current Feature Set](#current-feature-set)
+* [Installation](#installation)
+* [Compatibility & Setup](#compatibility--setup)
+* [Multi-client Support](#multi-client-support)
+* [macOS / Apple Silicon (WoWSilicon)](#macos--apple-silicon-wowsilicon)
+* [Building](#building)
+* [Core Architecture](#core-architecture)
+* [Troubleshooting & Diagnostics](#troubleshooting)
 
-This release marks a colossal milestone, bringing together massive performance restorations, stability updates, and runtime enhancements developed since **v3.11.0**. Over 32 optimization features have been verified, stabilized, and activated, resulting in a significantly smoother and stutter-free experience.
+---
 
-### Core Performance & Allocator Updates (Since v3.11.0)
+## What's New in the Upcoming Update (v3.14.0)
+
+This release marks a significant milestone, bringing together substantial performance restorations, stability updates, and runtime enhancements. Over 38 optimization features have been verified, stabilized, and activated, resulting in a smoother and stutter-free experience.
+
+### Core Performance & Allocator Updates (v3.14.0)
+- **Asynchronous Terrain Mesh Loader & Collision Decoupler** — Offloads ADT map grid loading and physical geometry parsing to background worker threads during gameplay. Hooks ground elevation query `sub_7C1660` to return player's current Z coordinate as height fallback during active loads, preventing falling through the world.
+- **Asynchronous Texture Hot-Swapping & Storm VFS** — Intercepts `0x004B8910` (`TexCreateBLP`) via assembly detour. Instantly returns placeholder white texture and background loads real BLP into an in-memory Virtual File System (VFS). On frame boundary (`OnFrame`), the real texture wrapper is built from the VFS and hot-swapped into place without stutters.
+- **RCU Client Object Manager Traverser** — Hooks `sub_6DED60` (`TSExplicitList::LinkNode`), `sub_4D4C20` (`UnlinkNode`), and `sub_4D4B30` (`ClntObjMgrEnum`) to replace linear linked-list entity traversals with an atomic pointer flat mirror array, removing list search and lock contention on the main thread in raids.
+- **Deferred Heap Compactor** — Defers memory compaction during loading screens to run once upon screen closure, preventing character login freezes.
+- **Lua VM Bytecode JIT Redirection & Cache** — Redirects Lua VM detours to target the standard call preparation function `sub_856370` instead of telemetry-only routines, enabling JIT stubs under normal play conditions. Upgraded with a thread-safe, lock-free, direct-mapped cache (`g_protoCache`) replacing the slow `std::unordered_map` lookups on the hot path to eliminate mutex contention during profiling.
 - **mimalloc Allocator Redirect** — Replaced WoW's statically-linked CRT memory allocator (`malloc`, `free`, `realloc`, `calloc`, `_msize`, and `_recalloc`) with Microsoft's high-performance `mimalloc` engine. This utilizes a custom transition guard and atomic activation to combat 32-bit virtual-address (VA) fragmentation during long play sessions, character swapping, or teleporting.
 - **Adaptive Purge & VA-Pressure Governor** — The memory manager dynamically tunes allocator purge delay based on OS virtual memory pressure (aggressive cleanup when largest free block is low, gentle otherwise to avoid recommit page-fault storms).
 - **Wow-Internal strlen/memcpy/memset SSE2 Replacements** — Inlined hand-written assembly replacements for critical CRT string and memory operations to avoid scalar bottlenecking in asset loading. Includes non-temporal streaming stores for copies $\ge$ 256 KB.
 - **Free-Wrapper Fast Path** — Directs deallocations to bypass redundant heap-walk overheads on one of the hottest paths in the binary.
 - **Hook Enable Batching** — Startup times have been improved by over 1.7 seconds by batching MinHook hooks during startup initialization via single-snapshot batch activation.
 
-### Lua VM & C-API Inlines (Since v3.11.0)
+### Lua VM & C-API Inlines (v3.14.0)
 - **Safe Inline Caches & Stack Operations** — Restored and verified the optimized inline paths for `luaH_getstr` (16384 entries with prefetch), `lua_rawgeti` (8192-entry array direct & hash cache), `lua_toboolean`, and `lua_objlen` matching engine byte layouts exactly.
 - **Lua VM Inline Fast-Path Groups** — Over 30 inline helpers (Safe Groups 1, 2, and 3) have been stabilized and activated (e.g. `string.gsub` plain-literal matching, `math.fmod`, `math.modf`, `string.char`, `select`, `rawequal`, `strjoin`, `strsplit`, etc.).
 - **Adaptive GC Pacing** — Lua garbage collection intervals scale dynamically depending on frametime limits and VA-pressure triggers.
 
-### SIMD Geometry, Math & Physics (Since v3.11.0)
+### SIMD Geometry, Math & Physics (v3.14.0)
 - **Double-Precision Quaternion Normalization (`CQuaternion::Normalize`)** — Fully stabilized and re-enabled the custom SSE2 quaternion normalization hook (`0x00979110`). By moving from 32-bit float to 64-bit double precision, it matches original FPU outputs exactly, preventing floating-point precision drift and completely resolving the camera jiggling bug when steering.
 - **Thread-Safe SIMD Statistics Counters** — Hardened all physics, culling, and rotation statistics counters using atomic 32-bit `InterlockedIncrement` operations to prevent data races between render and async engine worker threads.
 - **Vectorized Frustum Culling & Geometry Math** — Bypassed legacy x87 FPU stack calculations with SSE2 vectorized operators for matrix multiplies (`CMatrix::operator*` at `0x004C1F00`), matrix-vector transformations (3D/4D transforms at `0x004C21B0` and `0x004C2270`), rigid inversions, and `CFrustum` culling.
@@ -78,6 +97,9 @@ This release marks a colossal milestone, bringing together massive performance r
 
 ## Reviews
 
+<details>
+<summary><b>Click to expand community reviews and stability testers list</b></summary>
+
 See what other players say: [Reviews and Testimonials](https://github.com/suprepupre/wow-optimize/discussions/10)
 
 ### Stability Testing Team
@@ -85,12 +107,17 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
 
-Massive thanks to:
+Special thanks to:
 Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus
+
+</details>
 
 ---
 
 ## Current Feature Set
+
+<details>
+<summary><b>Click to expand full optimized feature list (Memory, Lua VM, Math, Network, Async, I/O)</b></summary>
 
 ### Memory and allocator
 - **mimalloc redirect of WoW's static CRT allocator** *(enabled)* — `malloc`/`free`/`realloc`/`calloc`/`_msize`/`_recalloc` routed to mimalloc as a closed set with a transition guard, to defragment 32-bit VA over long sessions (see *New optimizations*). `GlobalAlloc(GMEM_FIXED)` is also serviced from mimalloc.
@@ -99,7 +126,7 @@ Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_
 - WoW `free`-wrapper fast path (calls WoW's own `free`, skips a redundant `_msize` heap-walk)
 - Lua string table pre-sizing to reduce hash resize spikes
 - Low Fragmentation Heap (LFH) enabled for process heap and new heaps
-- background heap compactor (deferred VA scans to loading screens)
+- **Deferred Heap Compactor** — defers process heap compaction during loading screens to run once upon screen closure, preventing character login freezes.
 
 ### Lua runtime
 - adaptive manual Lua GC
@@ -111,6 +138,7 @@ Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_
 - GC step sync with !LuaBoost
 - safe Lua stats export to addon
 - Lua reload detection and clean reinitialization
+- **Lua VM Bytecode JIT Redirection & Cache** — detours standard Lua VM preparation function `sub_856370` to run JIT stubs under normal play conditions, utilizing a lock-free direct-mapped cache (`g_protoCache`) to avoid profiling lock contention.
 
 ### WoW API result cache
 - `GetItemInfo` - 8192-slot cache, Direct Memory Access *(disabled - breaks Aux / WCollections / ElvUI)*
@@ -207,7 +235,9 @@ Features that use worker threads and lock-free queues. Status reflects the curre
 - **Async quest/achievement loading** - async quest log and achievement data loading, worker thread with lock-free queue (512 entries) *(disabled — placeholder worker with no producers)*
 - **Multithreaded nameplate renderer** - offloads nameplate rendering to worker threads, reduces main thread CPU in 25-man raids, priority system (Target > Focus > Nearby > Distant) *(disabled - unsynchronized writes to WoW game state)*
 - **Model/M2 caching** - synchronous LRU cache (1024 entries) for loaded models, eliminates redundant model loading *(enabled)*
-- **Async texture loading** - worker thread pool (2 threads) with lock-free queue (8192 entries) and LRU cache (2048 entries) *(disabled — placeholder worker with no producers)*
+- **Asynchronous Texture Hot-Swapping & Storm VFS** *(enabled)* — detours TexCreateBLP to immediately return a placeholder white texture, background loads the real BLP data, and hot-swaps the underlying Direct3D 9 texture pointer and properties during frame boundaries (OnFrame) without visual stutters.
+- **Asynchronous Terrain Mesh Loader & Collision Decoupler** *(enabled)* — offloads ADT terrain file loading and geometry compiling to background threads, decoupling collision checks via player Z height fallback, and detouring CMapGrid::Update to prevent character-select crashes.
+- **RCU Client Object Manager Traverser** *(enabled)* — replaces linear linked-list entity traversals with lock-free atomic pointer flat mirror arrays updated on link/unlink events.
 - **Addon dispatcher** - lightweight event-driven addon update dispatch *(enabled)*
 
 ### Other runtime optimizations
@@ -269,6 +299,8 @@ Batch 31-38: `GetCurrentProcess`, `GetCurrentThread`, `GetCPInfo` and related ke
 - span tracking for correct multi-page allocation/deallocation
 - proper `MEM_DECOMMIT` / `MEM_RELEASE` behavior
 - reduces 32-bit address space fragmentation from large WoW allocations
+
+</details>
 
 ---
 
@@ -441,9 +473,14 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 
 ## Core Architecture
 
+<details>
+<summary><b>Click to expand full modules listing</b></summary>
+
 ### Main modules
 - `dllmain.cpp` - Win32 hooks, allocator, timers, file I/O, networking, threading, VA Arena
 - `lua_optimize.cpp` - Lua VM allocator, adaptive GC (with frame-time scaling and VA-pressure override), Lua globals bridge
+- `async_terrain_loader.cpp` / `async_terrain_loader.h` - Asynchronous ADT terrain loader, CMapGrid update safety, Z-coordinate collision fallback query.
+- `rcu_obj_mgr.cpp` / `rcu_obj_mgr.h` - RCU client object manager traverser for lock-free entity enumeration.
 - `lua_fastpath.cpp` - `string.format` and runtime-discovered Phase 2 hooks (24/27 functions)
 - `lua_vm_engine.cpp` - Direct-threaded Lua VM interpreter with inline cache
 - `lua_getstr_inline.cpp` - Safe bucket-index cache for luaH_getstr (16384 entries)
@@ -477,6 +514,8 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 - `version_proxy.cpp` - proxy loader
 - `wow_loader.cpp` - standalone loader executable
 
+</details>
+
 ---
 
 ## Troubleshooting
@@ -496,6 +535,9 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 | `Large pages: no permission` | Informational only — **not** a crash cause. Large pages are an optional TLB optimization (mimalloc 2&nbsp;MB OS pages); the DLL runs fine on normal 4&nbsp;KB pages without them. To enable them, see [Fixing `Large pages: no permission`](#fixing-large-pages-no-permission) below. |
 
 ### Fixing `Large pages: no permission`
+
+<details>
+<summary><b>Click to expand step-by-step setup guide</b></summary>
 
 This log line means your Windows account does not hold the **Lock pages in memory**
 privilege. The DLL can only *use* the privilege if the account already has it — it
@@ -525,6 +567,8 @@ instead of a specific account:
 After a restart the log should read `Large pages: ENABLED for mimalloc`. If you would
 rather not change the policy at all, the line is harmless and can be ignored — or set
 `TEST_ENABLE_LARGE_PAGES 0` in `src/version.h` to silence the attempt entirely.
+
+</details>
 
 ---
 
