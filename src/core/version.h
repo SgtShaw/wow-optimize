@@ -433,7 +433,7 @@
 #define TEST_DISABLE_ASYNC_CULLING      1
 
 // D3D9 Render State Redundancy Cache
-#define TEST_DISABLE_D3D9_STATE_CACHE   1
+#define TEST_DISABLE_D3D9_STATE_CACHE   0
 
 // Conflicting duplicate Render State Dedup hook
 #define TEST_DISABLE_RENDER_STATE_DEDUP 0

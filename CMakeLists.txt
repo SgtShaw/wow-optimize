@@ -125,6 +125,26 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/unit_aura_coalesce.h
     src/hooks_subsystems/adaptive_farclip.cpp
     src/hooks_subsystems/adaptive_farclip.h
+    src/simd_math/m2_bone_simd.cpp
+    src/simd_math/m2_bone_simd.h
+    src/hooks_subsystems/font_glyph_cache.cpp
+    src/hooks_subsystems/font_glyph_cache.h
+    src/runtime_vm/saved_vars_preload_async.cpp
+    src/runtime_vm/saved_vars_preload_async.h
+    src/hooks_subsystems/combat_text_coalescer.cpp
+    src/hooks_subsystems/combat_text_coalescer.h
+    src/hooks_subsystems/minimap_throttle.cpp
+    src/hooks_subsystems/minimap_throttle.h
+    src/hooks_subsystems/dbc_lookup_cache_fast.cpp
+    src/hooks_subsystems/dbc_lookup_cache_fast.h
+    src/simd_math/world_to_screen_sse.cpp
+    src/simd_math/world_to_screen_sse.h
+    src/hooks_subsystems/d3d9_tss_cache.cpp
+    src/hooks_subsystems/d3d9_tss_cache.h
+    src/runtime_vm/lua_string_pool_fast.cpp
+    src/runtime_vm/lua_string_pool_fast.h
+    src/hooks_subsystems/async_sound_loader.cpp
+    src/hooks_subsystems/async_sound_loader.h
     src/simd_math/m2_lod_bias.cpp
     src/simd_math/m2_lod_bias.h
     src/runtime_vm/saved_vars_pretoken.cpp

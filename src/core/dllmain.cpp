@@ -311,6 +311,16 @@ void ClearCombatLogCache();
 #include "spatial_culling.h"
 #include "perf_diagnostics.h"
 #include "adaptive_farclip.h"
+#include "m2_bone_simd.h"
+#include "font_glyph_cache.h"
+#include "saved_vars_preload_async.h"
+#include "combat_text_coalescer.h"
+#include "minimap_throttle.h"
+#include "dbc_lookup_cache_fast.h"
+#include "world_to_screen_sse.h"
+#include "d3d9_tss_cache.h"
+#include "lua_string_pool_fast.h"
+#include "async_sound_loader.h"
 
 #include "d3d9_state_manager.h"
 #include "hooks_render.h"
@@ -7353,6 +7363,46 @@ static DWORD WINAPI MainThread(LPVOID param) {
     AdaptiveFarclip::Init();
 
     Log("");
+    Log("--- M2 Bone SIMD Acceleration ---");
+    M2BoneSimd::Init();
+
+    Log("");
+    Log("--- Font Glyph Cache ---");
+    FontGlyphCache::Init();
+
+    Log("");
+    Log("--- Async SavedVariables Preloader ---");
+    SavedVarsPreloadAsync::Init();
+
+    Log("");
+    Log("--- Combat Text Coalescer ---");
+    CombatTextCoalescer::Init();
+
+    Log("");
+    Log("--- Minimap Throttle ---");
+    MinimapThrottle::Init();
+
+    Log("");
+    Log("--- Fast DBC Lookup Cache ---");
+    DbcLookupCacheFast::Init();
+
+    Log("");
+    Log("--- World-to-Screen SSE Math ---");
+    WorldToScreenSse::Init();
+
+    Log("");
+    Log("--- D3D9 Texture Stage State Cache ---");
+    D3D9TssCache::Init();
+
+    Log("");
+    Log("--- Lua String Symbol Pool ---");
+    LuaStringPoolFast::Init();
+
+    Log("");
+    Log("--- Async Sound FX Loader ---");
+    AsyncSoundLoader::Init();
+
+    Log("");
     Log("--- M2 LOD Bias Control ---");
     M2LodBias::Init();
 
@@ -9263,6 +9313,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SoundMixerOpt::Shutdown();
             LuaGCGovernor::Shutdown();
             AdaptiveFarclip::Shutdown();
+            M2BoneSimd::Shutdown();
+            FontGlyphCache::Shutdown();
+            SavedVarsPreloadAsync::Shutdown();
+            CombatTextCoalescer::Shutdown();
+            MinimapThrottle::Shutdown();
+            DbcLookupCacheFast::Shutdown();
+            WorldToScreenSse::Shutdown();
+            D3D9TssCache::Shutdown();
+            LuaStringPoolFast::Shutdown();
+            AsyncSoundLoader::Shutdown();
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();
