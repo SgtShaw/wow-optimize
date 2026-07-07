@@ -72,11 +72,11 @@ void* CompileFunction(void* proto) {
     return execMem;
 }
 
-// Detour target for Lua call dispatch profiling
-typedef int (__cdecl* luaD_precall_fn)(void* L, void* func, int nresults, __int64 start_time, __int64* end_time);
+// Detour target for standard Lua call dispatch profiling
+typedef int (__cdecl* luaD_precall_fn)(void* L, void* func, int nresults);
 static luaD_precall_fn g_orig_luaD_precall = nullptr;
 
-static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults, __int64 start_time, __int64* end_time) {
+static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults) {
     static volatile long local_calls = 0;
     long current_call = InterlockedIncrement(&local_calls);
     
@@ -119,7 +119,7 @@ static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults, __int6
             }
         }
     }
-    return g_orig_luaD_precall(L, func, nresults, start_time, end_time);
+    return g_orig_luaD_precall(L, func, nresults);
 }
 
 bool ShouldCompile(void* proto) {
@@ -146,7 +146,7 @@ bool ShouldCompile(void* proto) {
 }
 
 bool Init() {
-    void* target = (void*)0x00856550;
+    void* target = (void*)0x00856370;
     if (WineSafe_CreateHook(target, (void*)Hooked_luaD_precall, (void**)&g_orig_luaD_precall) != MH_OK) {
         Log("[LuaJitCompiler] Failed to hook luaD_precall");
         return false;
@@ -155,12 +155,12 @@ bool Init() {
         Log("[LuaJitCompiler] Failed to enable luaD_precall hook");
         return false;
     }
-    Log("[LuaJitCompiler] Active - Lua native compile engine hooked at 0x856550");
+    Log("[LuaJitCompiler] Active - Lua native compile engine hooked at 0x856370");
     return true;
 }
 
 void Shutdown() {
-    void* target = (void*)0x00856550;
+    void* target = (void*)0x00856370;
     MH_DisableHook(target);
     MH_RemoveHook(target);
 
