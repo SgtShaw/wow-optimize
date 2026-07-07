@@ -233,19 +233,23 @@ bool Init() {
     return true;
     #endif
     
-    char exePath[MAX_PATH];
-    GetModuleFileNameA(NULL, exePath, MAX_PATH);
-    char* lastSep = strrchr(exePath, '\\');
-    if (lastSep) *lastSep = 0;
-    
-    std::string wtfDir = std::string(exePath) + "\\WTF";
-    ScanSavedVarsDir(wtfDir, 0);
-    
-    Log("[SavedVarsPretoken] Found %d SavedVariables files to preload & minify.", (int)g_fileList.size());
-    if (g_fileList.empty()) return true;
-    
     g_shutdown = false;
-    g_workerThread = std::thread(WorkerProc);
+    g_workerThread = std::thread([]() {
+        char exePath[MAX_PATH];
+        GetModuleFileNameA(NULL, exePath, MAX_PATH);
+        char* lastSep = strrchr(exePath, '\\');
+        if (lastSep) *lastSep = 0;
+        
+        std::string wtfDir = std::string(exePath) + "\\WTF";
+        ScanSavedVarsDir(wtfDir, 0);
+        
+        Log("[SavedVarsPretoken] Found %d SavedVariables files to preload & minify.", (int)g_fileList.size());
+        if (g_fileList.empty()) {
+            g_ready.store(true);
+            return;
+        }
+        WorkerProc();
+    });
     return true;
 }
 
