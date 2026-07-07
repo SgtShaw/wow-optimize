@@ -346,7 +346,7 @@
 
 // SavedVariables Asynchronous Writer - ENABLED.
 // Background writes are stabilized via handle duplication.
-#define TEST_DISABLE_SAVED_VARS_ASYNC   1
+#define TEST_DISABLE_SAVED_VARS_ASYNC   0
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)

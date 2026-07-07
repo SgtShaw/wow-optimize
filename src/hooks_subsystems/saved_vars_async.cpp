@@ -38,7 +38,7 @@ typedef BOOL (WINAPI* CloseHandle_fn)(HANDLE);
 static CloseHandle_fn orig_CloseHandle = nullptr;
 
 // Track which handles are SV files
-static HANDLE s_svHandles[32] = {};
+static HANDLE s_svHandles[256] = {};
 static int s_svHandleCount = 0;
 static SRWLOCK s_svHandleLock = SRWLOCK_INIT;
 
@@ -56,7 +56,7 @@ static bool IsSVHandle(HANDLE h) {
 
 void TrackSVHandle(HANDLE h) {
     AcquireSRWLockExclusive(&s_svHandleLock);
-    if (s_svHandleCount < 32) {
+    if (s_svHandleCount < 256) {
         // Check not already tracked
         for (int i = 0; i < s_svHandleCount; i++) {
             if (s_svHandles[i] == h) {
@@ -77,7 +77,7 @@ struct BufferedWrite {
     size_t capacity;
 };
 
-static constexpr int MAX_ACTIVE_BUFFERS = 16;
+static constexpr int MAX_ACTIVE_BUFFERS = 128;
 static BufferedWrite s_activeBuffers[MAX_ACTIVE_BUFFERS] = {};
 static SRWLOCK s_bufferLock = SRWLOCK_INIT;
 
