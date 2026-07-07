@@ -553,7 +553,7 @@
 #define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        1  // enabled: Net Addon Message Coalescer
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // enabled: Dynamic Mipmap Bias Governor
-#define TEST_DISABLE_SPATIAL_CULLING            1  // enabled: Spatial Culling Grid
+#define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
