@@ -41,6 +41,9 @@ static int __fastcall Hooked_GetLodLevel(void* This, void* unused_edx, float dis
 }
 
 bool Init() {
+#if TEST_DISABLE_M2_LOD_BIAS
+    return true;
+#endif
     void* target = (void*)0x007CD3F0;
     
     unsigned char prologue[3];
@@ -67,7 +70,9 @@ bool Init() {
 }
 
 void Shutdown() {
+#if !TEST_DISABLE_M2_LOD_BIAS
     MH_DisableHook((void*)0x007CD3F0);
+#endif
 }
 
 } // namespace M2LodBias
