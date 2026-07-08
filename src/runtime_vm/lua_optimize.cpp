@@ -1900,7 +1900,16 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             _fpreset();
             #endif
         }
-        Api.lua_settop(Api.L, topBefore);
+        int topAfter = Api.lua_gettop(Api.L);
+        if (topAfter > 0) {
+            static DWORD lastLeakLogTick = 0;
+            DWORD nowTick = GetTickCount();
+            if ((LONG)(nowTick - lastLeakLogTick) >= 5000) {
+                lastLeakLogTick = nowTick;
+                Log("[LuaOpt] WARNING: Stack leak detected (top=%d) - forcing stack reset to prevent ERROR 134 crash", topAfter);
+            }
+            Api.lua_settop(Api.L, 0);
+        }
     }
 
     if (!slowFrame && g_luaAllocReplaced) {
