@@ -33,6 +33,7 @@ struct PacketTask {
 
 // Lock-free queue for background processing (SPMC)
 static constexpr int QUEUE_SIZE = 1024;
+static PacketTask g_tasks[QUEUE_SIZE];
 static PacketTask* g_queue[QUEUE_SIZE] = {nullptr};
 static std::atomic<int> g_head{0};
 static std::atomic<int> g_tail{0};
@@ -61,20 +62,20 @@ static bool PerformDecompress(const std::vector<uint8_t>& src, std::vector<uint8
 static void WorkerProc(int threadId) {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
         int currentHead = g_head.load(std::memory_order_relaxed);
-        int currentTail = g_tail.load(std::memory_order_relaxed);
+        int currentTail = g_tail.load(std::memory_order_acquire);
 
         if (currentHead == currentTail) {
             // Queue is empty, wait
             std::unique_lock<std::mutex> lock(g_cvMutex);
             g_cv.wait_for(lock, std::chrono::milliseconds(10), [] {
-                return g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_relaxed) || g_shutdown.load();
+                return g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_acquire) || g_shutdown.load();
             });
             continue;
         }
 
         // Try to pop a task lock-free
         int nextHead = (currentHead + 1) % QUEUE_SIZE;
-        if (g_head.compare_exchange_weak(currentHead, nextHead, std::memory_order_acquire)) {
+        if (g_head.compare_exchange_weak(currentHead, nextHead, std::memory_order_acq_rel)) {
             PacketTask* task = g_queue[currentHead];
             if (task) {
                 // Perform heavy decompression task off-thread
@@ -138,30 +139,22 @@ static int __cdecl Hooked_ProcessMessage(int a1, int a2, int a3, int a4, int a5,
 
     // SMSG_COMPRESSED_UPDATE_OBJECT (0x1F6) is the heaviest packet in WoW
     if (opcode == 0x1F6) {
-        PacketTask task;
-        task.opcode = opcode;
-        // In a production hook, we read payload from a9/a10 (CDataStore pointer)
-        task.compressedData.resize(256); // Mock payload size
-
         // Enqueue to worker threads
         int tail = g_tail.load(std::memory_order_relaxed);
         int nextTail = (tail + 1) % QUEUE_SIZE;
-        if (nextTail != g_head.load(std::memory_order_relaxed)) {
+        if (nextTail != g_head.load(std::memory_order_acquire)) {
+            PacketTask& task = g_tasks[tail];
+            task.opcode = opcode;
+            task.isDone.store(false, std::memory_order_relaxed);
+            task.compressedData.resize(256); // Mock payload size
+
             g_queue[tail] = &task;
             g_tail.store(nextTail, std::memory_order_release);
             g_cv.notify_one();
 
-            // Perform a strict read-only fallback: wait for background worker,
-            // or if it takes too long, run it synchronously on main thread
-            int spin = 0;
-            while (!task.isDone.load(std::memory_order_acquire) && spin < 1000) {
+            // Wait indefinitely for background worker (prevents stack escape & data races)
+            while (!task.isDone.load(std::memory_order_acquire)) {
                 _mm_pause();
-                spin++;
-            }
-
-            if (!task.isDone.load(std::memory_order_relaxed)) {
-                // Background worker was too slow or stalled - perform fallback synchronously
-                PerformDecompress(task.compressedData, task.decompressedData);
             }
         }
     }
