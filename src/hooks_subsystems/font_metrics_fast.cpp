@@ -284,3 +284,8 @@ void ShutdownFontMetricsFast() {
         g_getstringwidth_calls, g_getstringheight_calls);
     #endif
 }
+
+extern "C" void FontMetrics_GetStats(long* widthCalls, long* heightCalls) {
+    if (widthCalls) *widthCalls = g_getstringwidth_calls;
+    if (heightCalls) *heightCalls = g_getstringheight_calls;
+}

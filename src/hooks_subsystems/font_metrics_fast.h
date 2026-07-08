@@ -29,3 +29,4 @@
 
 bool InstallFontMetricsFast();
 void ShutdownFontMetricsFast();
+extern "C" void FontMetrics_GetStats(long* widthCalls, long* heightCalls);

@@ -1086,6 +1086,8 @@ static double g_cachedWorkingSetMB = 0.0;
 static double g_cachedCommitMB = 0.0;
 static double g_cachedLargestFreeMB = 0.0;
 
+extern "C" void FontMetrics_GetStats(long* widthCalls, long* heightCalls);
+
 static void UpdateLuaStats(lua_State* L) {
     if (!Api.lua_pushnumber || !Api.lua_setfield) return;
 
@@ -1118,6 +1120,11 @@ static void UpdateLuaStats(lua_State* L) {
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_WORKING_SET_MB", g_cachedWorkingSetMB);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_COMMIT_MB",      g_cachedCommitMB);
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_MEM_LARGEST_FREE_MB", g_cachedLargestFreeMB);
+
+        long fmWidth = 0, fmHeight = 0;
+        FontMetrics_GetStats(&fmWidth, &fmHeight);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_FONTMETRICS_WIDTH_CALLS", (double)fmWidth);
+        WriteLuaGlobal_Number(L, "LUABOOST_DLL_FONTMETRICS_HEIGHT_CALLS", (double)fmHeight);
 
         UICache::Stats uiStats = UICache::GetStats();
         WriteLuaGlobal_Number(L, "LUABOOST_DLL_UICACHE_SKIPPED", (double)uiStats.skipped);
