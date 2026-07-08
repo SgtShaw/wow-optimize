@@ -133,9 +133,11 @@ static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults) {
 bool ShouldCompile(void* proto) {
     g_invocations++;
 
+    /*
     if (g_invocations % 10000 == 0) {
         Log("[LuaJitCompiler] Profiled %lld total invocations", g_invocations);
     }
+    */
     
     uintptr_t hash = ((uintptr_t)proto >> 4) % 4096;
     if (g_protoCache[hash].proto == proto) {
@@ -147,7 +149,7 @@ bool ShouldCompile(void* proto) {
             void* compiledCode = CompileFunction(proto);
             if (compiledCode) {
                 g_protoCache[hash].compiledCode = compiledCode;
-                Log("[LuaJitCompiler] Compiled function prototype 0x%p (Total compiled: %lld)", proto, g_compiledCount);
+                // Log("[LuaJitCompiler] Compiled function prototype 0x%p (Total compiled: %lld)", proto, g_compiledCount);
                 return true;
             }
         }

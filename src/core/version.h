@@ -529,7 +529,7 @@
 // 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
 // ================================================================
 #define TEST_DISABLE_M2_SIMD_MT                 0
-#define TEST_DISABLE_GUID_MAP_LF                0
+#define TEST_DISABLE_GUID_MAP_LF                1
 #define TEST_DISABLE_SIMD_MATH_FAST             0
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                0
