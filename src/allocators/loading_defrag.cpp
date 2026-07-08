@@ -312,8 +312,8 @@ static void UpdateZoneHistory(const char* zoneName) {
 }
 
 void OnFrame() {
-    DWORD now = GetTickCount();
     #if !TEST_DISABLE_DEFRAG_LF
+    DWORD now = GetTickCount();
     static DWORD lastCollect = 0;
     if (g_loadingActive.load(std::memory_order_relaxed)) {
         if (now - lastCollect >= 500) {
@@ -328,21 +328,6 @@ void OnFrame() {
         }
     }
     #endif
-
-    // Only query zone text on the main thread when we are not actively in loading screen
-    if (g_loadingActive.load(std::memory_order_relaxed)) return;
-    
-    static DWORD lastQueryTick = 0;
-    if (now - lastQueryTick < 1000) return; // Limit to 1 query per second
-    lastQueryTick = now;
-    
-    uintptr_t L = *(uintptr_t*)0x00D3F78C;
-    if (L < 0x10000 || L > 0xFFE00000) return;
-
-    char tempZone[128] = {0};
-    if (TryGetZoneName(L, tempZone, sizeof(tempZone))) {
-        UpdateZoneHistory(tempZone);
-    }
 }
 
 } // namespace LoadingDefrag
