@@ -54,15 +54,15 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
 // this one is flipped to 1 for an isolation test). Set to 1 to disable the
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
-// MUST be 0 for any build that wants the VA defrag benefits of mimalloc.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
+// MUST be 1 to disable VA allocator redirect completely.
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
@@ -257,19 +257,19 @@
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
 // Set to 1 if any rendering/transform artifact is observed.
-#define TEST_DISABLE_MATRIX_MULTIPLY         0
+#define TEST_DISABLE_MATRIX_MULTIPLY         1
 
 // SSE2 Matrix-Vector Transformations (sub_4C21B0 / sub_4C2270).
 // Vectorized 3D point and 4D vector matrix transformations using SSE2.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_MATRIX_VECTOR_SSE2  0
+#define TEST_DISABLE_MATRIX_VECTOR_SSE2  1
 
 // SSE2 C3Vector::Normalize (sub_4C3420 unguarded / sub_4C3600 with the engine's
 // mag^2 > 2^-22 guard). Replaces x87 fsqrt+fdiv with full-precision sqrtss+divss
 // (NOT rsqrt approximation -- that NaN-poisoned the quaternion path), and
 // replicates each function's guard exactly. Pointer-validated + SEH-guarded with
 // fallback to the original. Set to 1 to revert to the FPU scalar implementation.
-#define TEST_DISABLE_VEC_NORMALIZE_SSE2  0
+#define TEST_DISABLE_VEC_NORMALIZE_SSE2  1
 
 // SSE2 CMatrix transpose (sub_4C23D0, _MM_TRANSPOSE4_PS, bit-identical) and the
 // in-place 3D point * 4x4 transform (sub_4C2300, ~65 callers; same math as the
@@ -290,7 +290,7 @@
 #define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
-#define TEST_DISABLE_MATRIX_EXT_SSE2         0
+#define TEST_DISABLE_MATRIX_EXT_SSE2         1
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -299,13 +299,13 @@
 // (sub_4C51B0) is bypassed since it only re-packs those same elements. Same
 // products + summation order as the FPU original (sub-ULP delta only). Pointer-
 // validated + SEH-guarded with fallback. Dedicated flag for in-game isolation.
-#define TEST_DISABLE_MATRIX_INVERT_SSE2         0
+#define TEST_DISABLE_MATRIX_INVERT_SSE2         1
 
 // SSE2 misc transform ops: sub_4C2120 (scalar * 4x4, 16 fmul -> 4 mul_ps) and
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         0
+#define TEST_DISABLE_MATRIX_MISC_SSE2         1
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -313,12 +313,12 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        0
+#define TEST_DISABLE_FRUSTUM_CULL        1
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
@@ -529,9 +529,9 @@
 // ================================================================
 // 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
 // ================================================================
-#define TEST_DISABLE_M2_SIMD_MT                 0
+#define TEST_DISABLE_M2_SIMD_MT                 1
 #define TEST_DISABLE_GUID_MAP_LF                1
-#define TEST_DISABLE_SIMD_MATH_FAST             0
+#define TEST_DISABLE_SIMD_MATH_FAST             1
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                0
 #define TEST_DISABLE_D3D_STATE_CACHE            1
