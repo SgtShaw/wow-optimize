@@ -18,6 +18,7 @@ typedef void* (__cdecl *LuaAlloc_fn)(void* ud, void* ptr, size_t osize, size_t n
 static LuaAlloc_fn orig_LuaAlloc = nullptr;
 
 struct ThreadCache {
+    void* allocator_ud;
     void* free_lists[6]; // Linked lists (first 4 bytes store next pointer)
     int   counts[6];
 };
@@ -61,6 +62,15 @@ static void* __cdecl Hooked_LuaAlloc(void* ud, void* ptr, size_t osize, size_t n
     ThreadCache* tc = GetThreadCache();
     if (!tc) {
         return orig_LuaAlloc(ud, ptr, osize, nsize);
+    }
+
+    if (tc->allocator_ud != ud) {
+        // Discard stale cached blocks from the previous Lua state/allocator
+        for (int b = 0; b < 6; b++) {
+            tc->free_lists[b] = nullptr;
+            tc->counts[b] = 0;
+        }
+        tc->allocator_ud = ud;
     }
 
     // CASE 1: Free
