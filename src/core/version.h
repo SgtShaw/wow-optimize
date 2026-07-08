@@ -433,7 +433,7 @@
 #define TEST_DISABLE_ASYNC_CULLING      1
 
 // D3D9 Render State Redundancy Cache
-#define TEST_DISABLE_D3D9_STATE_CACHE   0
+#define TEST_DISABLE_D3D9_STATE_CACHE   1
 
 // Conflicting duplicate Render State Dedup hook
 #define TEST_DISABLE_RENDER_STATE_DEDUP 0
@@ -533,11 +533,11 @@
 #define TEST_DISABLE_SIMD_MATH_FAST             0
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                0
-#define TEST_DISABLE_D3D_STATE_CACHE            0
+#define TEST_DISABLE_D3D_STATE_CACHE            1
 #define TEST_DISABLE_DBC_LOOKUP_CACHE           0
 #define TEST_DISABLE_SAVEDVARS_ASYNC            0
 #define TEST_DISABLE_WORLD_STATE_COALESCE       0
-#define TEST_DISABLE_HW_SKINNING                0
+#define TEST_DISABLE_HW_SKINNING                1
 #define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
 #define TEST_DISABLE_FONT_METRICS_LOCK_FREE    0  // enabled: lock-free font metrics cache
 #define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch
@@ -546,14 +546,14 @@
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // enabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
-#define TEST_DISABLE_D3D9_VB_CACHE              0  // enabled: D3D9 VB Shadow Cache
+#define TEST_DISABLE_D3D9_VB_CACHE              1  // enabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
-#define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     0  // enabled: D3D9 VS Constant Cache
+#define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     1  // enabled: D3D9 VS Constant Cache
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader
 #define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
-#define TEST_DISABLE_MIP_BIAS_GOVERNOR          0  // enabled: Dynamic Mipmap Bias Governor
-#define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
+#define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // enabled: Dynamic Mipmap Bias Governor
+#define TEST_DISABLE_SPATIAL_CULLING            1  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).

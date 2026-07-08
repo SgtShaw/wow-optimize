@@ -70,6 +70,9 @@ static void __fastcall Hooked_SkinVertices_HW(void* mesh, void* dummyEDX, M2Vert
 }
 
 bool Init() {
+#if TEST_DISABLE_HW_SKINNING
+    return true;
+#endif
     void* target = (void*)0x00703B80;
     
     unsigned char prologue[3];
@@ -99,8 +102,10 @@ bool Init() {
 }
 
 void Shutdown() {
+#if !TEST_DISABLE_HW_SKINNING
     void* target = (void*)0x00703B80;
     MH_DisableHook(target);
+#endif
 }
 
 } // namespace HwVertexSkinning
