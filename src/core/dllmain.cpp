@@ -5012,17 +5012,29 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
     }
 
 #if CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE
-    return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+    int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+    if (fieldCount > 0) {
+        CombatLogParser_ProcessEvent((void*)luaState, fieldCount);
+    }
+    return fieldCount;
 #else
     __try {
         int this_ptr = (int)This;
         if (this_ptr < 0x10000 || this_ptr > 0xFFE00000) {
             g_combatLogCacheMisses++;
-            return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+            int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+            if (fieldCount > 0) {
+                CombatLogParser_ProcessEvent((void*)luaState, fieldCount);
+            }
+            return fieldCount;
         }
         if (luaState < 0x10000 || luaState > 0xFFE00000) {
             g_combatLogCacheMisses++;
-            return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+            int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+            if (fieldCount > 0) {
+                CombatLogParser_ProcessEvent((void*)luaState, fieldCount);
+            }
+            return fieldCount;
         }
 
         // Compute fingerprint from event structure
@@ -5054,6 +5066,7 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
             }
             entry->lruStamp = ++g_combatLogCacheLRU;
             g_combatLogCacheHits++;
+            CombatLogParser_ProcessEvent((void*)luaState, entry->fieldCount);
             return entry->fieldCount;
         }
 
@@ -5106,11 +5119,18 @@ static int __fastcall hooked_CombatLogEvent(void* This, void* unused_edx, int lu
         }
 
         g_combatLogCacheMisses++;
+        if (fieldCount > 0) {
+            CombatLogParser_ProcessEvent((void*)luaState, fieldCount);
+        }
         return fieldCount;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         g_combatLogCacheMisses++;
-        return ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+        int fieldCount = ((int (__thiscall*)(void*, int))orig_CombatLogEvent)(This, luaState);
+        if (fieldCount > 0) {
+            CombatLogParser_ProcessEvent((void*)luaState, fieldCount);
+        }
+        return fieldCount;
     }
 #endif
 }

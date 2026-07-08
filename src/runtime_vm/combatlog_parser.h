@@ -1,26 +1,19 @@
 #pragma once
 // ============================================================================
 // Module: combatlog_parser.h
-// Description: C-level combat log event pre-parser API
+// Description: C-level combat log event pre-parser and aggregator API
 // ============================================================================
 
-#include <cstdint>
+struct lua_State;
 
-// Parse a combat log event at C level before Lua string formatting.
-// Returns true if event was classified and stored, false if unknown type.
-bool CombatLogParser_ParseEvent(const char* eventType, uint64_t srcGUID,
-                                 uint64_t dstGUID, uint32_t spellId,
-                                 int32_t amount, uint32_t flags);
+// Process and aggregate combat log event from the Lua stack
+void CombatLogParser_ProcessEvent(void* L, int fieldCount);
 
-// Read next pre-parsed event from ring buffer. Returns false if empty.
-// out must point to a 40-byte buffer (ParsedCombatEvent struct).
-bool CombatLogParser_ReadNext(void* out);
+// Periodically check and service Lua side requests (get stats / reset stats)
+void CombatLogParser_Update(void* L);
 
-// Get cumulative stats.
-void CombatLogParser_GetStats(long* parsed, long* skipped);
-
-// Install/initialize the parser.
+// Install/initialize the parser
 bool InstallCombatLogParser();
 
-// Shutdown and reset.
+// Shutdown and reset
 void ShutdownCombatLogParser();

@@ -8,6 +8,7 @@
 #include "combatlog_optimize.h"
 #include "ui_cache.h"
 #include "api_cache.h"
+#include "combatlog_parser.h"
 #include "lua_fastpath.h"
 #include "lua_vm_cache.h"
 #include "lua_bytecode_cache.h"
@@ -1840,6 +1841,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
         ProcessGCRequests(Api.L);
         ProcessLuaErrors(Api.L);
+        CombatLogParser_Update(Api.L);
     }
 
     if (!verySlowFrame) {

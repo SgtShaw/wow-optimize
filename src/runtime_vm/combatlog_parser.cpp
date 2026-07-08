@@ -1,147 +1,375 @@
 // ============================================================================
 // Module: combatlog_parser.cpp
-// Description: C-level combat log event parser that pre-parses events before
-//              Lua string formatting, reducing GC pressure from temporary
-//              string allocations during raids.
-// Safety & Threading: Main thread only. Integrates with existing CombatLogOpt.
+// Description: C-level combat log event parser and aggregator
 // ============================================================================
 
+#include "combatlog_parser.h"
+#include "version.h"
 #include <windows.h>
 #include <cstdint>
 #include <cstring>
-#include "MinHook.h"
-#include "version.h"
-#include "crash_dumper.h"
+#include <unordered_map>
+#include <string>
+#include <vector>
 
 extern "C" void Log(const char* fmt, ...);
 
 #if !TEST_DISABLE_COMBATLOG_PARSER
 
-// Pre-parsed combat log event types (subset of WoW's COMBAT_LOG_EVENT types)
-enum CombatEventType : uint32_t {
-    CLE_SWING_DAMAGE       = 0x01,
-    CLE_SPELL_DAMAGE       = 0x02,
-    CLE_SPELL_HEAL         = 0x03,
-    CLE_SPELL_AURA_APPLIED = 0x04,
-    CLE_SPELL_AURA_REMOVED = 0x05,
-    CLE_UNIT_DIED          = 0x06,
-    CLE_UNKNOWN            = 0xFF
+// Basic Lua definitions
+#define LUA_GLOBALSINDEX (-10002)
+#define LUA_TNIL     0
+#define LUA_TBOOLEAN 1
+#define LUA_TNUMBER  3
+#define LUA_TSTRING  4
+
+union RawValue {
+    void*     gc;
+    uintptr_t ptr;
+    double    n;
 };
 
-// Pre-parsed event structure (avoids repeated string parsing in Lua)
-struct ParsedCombatEvent {
-    CombatEventType type;
-    uint64_t        sourceGUID;
-    uint64_t        destGUID;
-    uint32_t        spellId;
-    int32_t         amount;
-    uint32_t        flags;
-    bool            valid;
+struct RawTValue {
+    RawValue  value;
+    int       tt;
+    uint32_t  taint;
 };
 
-// Ring buffer for pre-parsed events
-static constexpr int CLE_BUFFER_SIZE = 1024;
-static constexpr int CLE_BUFFER_MASK = CLE_BUFFER_SIZE - 1;
+static inline const char* ReadTStringDirect(RawTValue* tv, size_t* out_len) {
+    if (tv->tt != LUA_TSTRING) return nullptr;
 
-static ParsedCombatEvent g_cleBuffer[CLE_BUFFER_SIZE] = {};
-static volatile LONG g_cleWritePos = 0;
-static volatile LONG g_cleReadPos = 0;
-static volatile LONG g_cleParsed = 0;
-static volatile LONG g_cleSkipped = 0;
+    void* ts_ptr = tv->value.gc;
+    if ((uintptr_t)ts_ptr < 0x10000 || (uintptr_t)ts_ptr >= 0xFFFFF000) return nullptr;
 
-// Classify event type from WoW's event string prefix
-static CombatEventType ClassifyEventType(const char* eventType) {
-    if (!eventType) return CLE_UNKNOWN;
+    int len = *(int*)((char*)ts_ptr + 16);
+    if (len < 0 || len > 1024) return nullptr;
 
-    // Fast prefix matching (WoW event names are well-known)
-    if (strncmp(eventType, "SWING_DAMAGE", 12) == 0) return CLE_SWING_DAMAGE;
-    if (strncmp(eventType, "SPELL_DAMAGE", 12) == 0) return CLE_SPELL_DAMAGE;
-    if (strncmp(eventType, "SPELL_HEAL", 10) == 0)   return CLE_SPELL_HEAL;
-    if (strncmp(eventType, "SPELL_AURA_APPLIED", 18) == 0) return CLE_SPELL_AURA_APPLIED;
-    if (strncmp(eventType, "SPELL_AURA_REMOVED", 18) == 0) return CLE_SPELL_AURA_REMOVED;
-    if (strncmp(eventType, "UNIT_DIED", 9) == 0)      return CLE_UNIT_DIED;
-
-    return CLE_UNKNOWN;
+    char* str = (char*)ts_ptr + 20;
+    if (out_len) *out_len = (size_t)len;
+    return str;
 }
 
-// Parse a combat log event at C level before Lua sees it
-bool CombatLogParser_ParseEvent(const char* eventType, uint64_t srcGUID,
-                                 uint64_t dstGUID, uint32_t spellId,
-                                 int32_t amount, uint32_t flags) {
-    CombatEventType type = ClassifyEventType(eventType);
-    if (type == CLE_UNKNOWN) {
-        InterlockedIncrement(&g_cleSkipped);
-        return false;
+static inline double ReadTNumberDirect(RawTValue* tv) {
+    if (tv->tt != LUA_TNUMBER) return 0.0;
+    double d;
+    memcpy(&d, &tv->value.n, sizeof(double));
+    return d;
+}
+
+// Stats structures
+struct SpellStats {
+    uint32_t    spellId;
+    std::string spellName;
+    uint64_t    damage;
+    uint64_t    healing;
+    uint64_t    overheal;
+    uint64_t    hits;
+    uint64_t    crits;
+};
+
+struct PlayerStats {
+    std::string guid;
+    std::string name;
+    uint64_t    totalDamage;
+    uint64_t    totalHealing;
+    uint64_t    totalOverheal;
+    std::unordered_map<uint32_t, SpellStats> spells;
+};
+
+static std::unordered_map<std::string, PlayerStats> g_combatStats;
+static SRWLOCK g_statsLock = SRWLOCK_INIT;
+
+// Lua C API bindings for getting and resetting stats
+typedef void (__cdecl *fn_lua_createtable)(void* L, int narr, int nrec);
+static const fn_lua_createtable lua_createtable_ = (fn_lua_createtable)0x0084E850;
+
+typedef void (__cdecl *fn_lua_settable)(void* L, int idx);
+static const fn_lua_settable lua_settable_ = (fn_lua_settable)0x0084E8D0;
+
+typedef void (__cdecl *fn_lua_pushnumber)(void* L, double n);
+static const fn_lua_pushnumber lua_pushnumber_ = (fn_lua_pushnumber)0x0084E2A0;
+
+typedef void (__cdecl *fn_lua_pushstring)(void* L, const char* s);
+static const fn_lua_pushstring lua_pushstring_ = (fn_lua_pushstring)0x0084E350;
+
+typedef void (__cdecl *fn_lua_pushboolean)(void* L, int b);
+static const fn_lua_pushboolean lua_pushboolean_ = (fn_lua_pushboolean)0x0084E4D0;
+
+typedef void (__cdecl *fn_lua_pushnil)(void* L);
+static const fn_lua_pushnil lua_pushnil_ = (fn_lua_pushnil)0x0084E280;
+
+typedef void (__cdecl *fn_lua_setfield)(void* L, int idx, const char* name);
+static const fn_lua_setfield lua_setfield_ = (fn_lua_setfield)0x0084E900;
+
+typedef int (__cdecl *fn_lua_getfield)(void* L, int idx, const char* name);
+static const fn_lua_getfield lua_getfield_ = (fn_lua_getfield)0x0084E590;
+
+typedef void (__cdecl *fn_lua_settop)(void* L, int idx);
+static const fn_lua_settop lua_settop_ = (fn_lua_settop)0x0084DBF0;
+
+typedef int (__cdecl *fn_lua_type)(void* L, int idx);
+static const fn_lua_type lua_type_ = (fn_lua_type)0x0084DEB0;
+
+static void UpdateStats(const char* guid, const char* name, uint32_t spellId, const char* spellName,
+                         double damage, double healing, double overheal, bool critical, bool isDamage) {
+    if (!guid || !name) return;
+
+    AcquireSRWLockExclusive(&g_statsLock);
+
+    auto& player = g_combatStats[guid];
+    if (player.guid.empty()) {
+        player.guid = guid;
+        player.name = name;
+        player.totalDamage = 0;
+        player.totalHealing = 0;
+        player.totalOverheal = 0;
     }
 
-    LONG pos = InterlockedIncrement(&g_cleWritePos) - 1;
-    int idx = pos & CLE_BUFFER_MASK;
+    if (isDamage) {
+        player.totalDamage += (uint64_t)damage;
+    } else {
+        player.totalHealing += (uint64_t)healing;
+        player.totalOverheal += (uint64_t)overheal;
+    }
 
-    g_cleBuffer[idx].type      = type;
-    g_cleBuffer[idx].sourceGUID = srcGUID;
-    g_cleBuffer[idx].destGUID   = dstGUID;
-    g_cleBuffer[idx].spellId    = spellId;
-    g_cleBuffer[idx].amount     = amount;
-    g_cleBuffer[idx].flags      = flags;
-    g_cleBuffer[idx].valid      = true;
+    auto& spell = player.spells[spellId];
+    if (spell.spellName.empty()) {
+        spell.spellId = spellId;
+        spell.spellName = spellName;
+        spell.damage = 0;
+        spell.healing = 0;
+        spell.overheal = 0;
+        spell.hits = 0;
+        spell.crits = 0;
+    }
 
-    InterlockedIncrement(&g_cleParsed);
-    return true;
+    if (isDamage) {
+        spell.damage += (uint64_t)damage;
+    } else {
+        spell.healing += (uint64_t)healing;
+        spell.overheal += (uint64_t)overheal;
+    }
+
+    spell.hits++;
+    if (critical) {
+        spell.crits++;
+    }
+
+    ReleaseSRWLockExclusive(&g_statsLock);
 }
 
-// Read next parsed event (returns false if buffer empty)
-bool CombatLogParser_ReadNext(ParsedCombatEvent* out) {
-    if (!out) return false;
+void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
+    if (fieldCount < 11) return;
 
-    LONG readPos = g_cleReadPos;
-    if (readPos >= g_cleWritePos) return false; // Empty
+    // L->top is at L + 0x0C
+    uintptr_t* topPtr = *(uintptr_t**)((uintptr_t)L + 0x0C);
+    RawTValue* base = (RawTValue*)topPtr - fieldCount;
 
-    int idx = readPos & CLE_BUFFER_MASK;
-    if (!g_cleBuffer[idx].valid) return false;
+    // Read eventType
+    size_t eventTypeLen = 0;
+    const char* eventType = ReadTStringDirect(&base[1], &eventTypeLen);
+    if (!eventType) return;
 
-    *out = g_cleBuffer[idx];
-    g_cleBuffer[idx].valid = false;
-    InterlockedIncrement(&g_cleReadPos);
-    return true;
+    // Read sourceGUID and sourceName
+    size_t sourceGUIDLen = 0;
+    const char* sourceGUID = ReadTStringDirect(&base[3], &sourceGUIDLen);
+    size_t sourceNameLen = 0;
+    const char* sourceName = ReadTStringDirect(&base[4], &sourceNameLen);
+
+    if (!sourceGUID || !sourceName) return;
+
+    if (strcmp(eventType, "SWING_DAMAGE") == 0) {
+        double amount = ReadTNumberDirect(&base[11]);
+        bool critical = false;
+        if (fieldCount >= 18 && base[17].tt == LUA_TBOOLEAN) {
+            critical = (base[17].value.gc != nullptr);
+        }
+        UpdateStats(sourceGUID, sourceName, 0, "Melee", amount, 0, 0, critical, true);
+    }
+    else if (strcmp(eventType, "SPELL_DAMAGE") == 0 || 
+             strcmp(eventType, "SPELL_PERIODIC_DAMAGE") == 0 ||
+             strcmp(eventType, "RANGE_DAMAGE") == 0) {
+        if (fieldCount < 15) return;
+        double spellId = ReadTNumberDirect(&base[11]);
+        size_t spellNameLen = 0;
+        const char* spellName = ReadTStringDirect(&base[12], &spellNameLen);
+        double amount = ReadTNumberDirect(&base[14]);
+        bool critical = false;
+        if (fieldCount >= 21 && base[20].tt == LUA_TBOOLEAN) {
+            critical = (base[20].value.gc != nullptr);
+        }
+        UpdateStats(sourceGUID, sourceName, (uint32_t)spellId, spellName ? spellName : "Unknown", amount, 0, 0, critical, true);
+    }
+    else if (strcmp(eventType, "SPELL_HEAL") == 0 || 
+             strcmp(eventType, "SPELL_PERIODIC_HEAL") == 0) {
+        if (fieldCount < 15) return;
+        double spellId = ReadTNumberDirect(&base[11]);
+        size_t spellNameLen = 0;
+        const char* spellName = ReadTStringDirect(&base[12], &spellNameLen);
+        double amount = ReadTNumberDirect(&base[14]);
+        double overhealing = 0;
+        if (fieldCount >= 17) {
+            overhealing = ReadTNumberDirect(&base[15]);
+        }
+        bool critical = false;
+        if (fieldCount >= 19 && base[18].tt == LUA_TBOOLEAN) {
+            critical = (base[18].value.gc != nullptr);
+        }
+        UpdateStats(sourceGUID, sourceName, (uint32_t)spellId, spellName ? spellName : "Unknown", 0, amount, overhealing, critical, false);
+    }
 }
 
-// Get stats
-void CombatLogParser_GetStats(LONG* parsed, LONG* skipped) {
-    if (parsed)  *parsed  = g_cleParsed;
-    if (skipped) *skipped = g_cleSkipped;
+int LUABOOST_GetCombatStats(void* L) {
+    // Create the outer table: { ["playerGUID"] = playerTable, ... }
+    lua_createtable_(L, 0, 0);
+    
+    AcquireSRWLockShared(&g_statsLock);
+    
+    for (const auto& pair : g_combatStats) {
+        const auto& player = pair.second;
+        
+        // Push player table key (GUID string)
+        lua_pushstring_(L, player.guid.c_str());
+        
+        // Create player table
+        lua_createtable_(L, 0, 6);
+        
+        lua_pushstring_(L, "guid");
+        lua_pushstring_(L, player.guid.c_str());
+        lua_settable_(L, -3);
+        
+        lua_pushstring_(L, "name");
+        lua_pushstring_(L, player.name.c_str());
+        lua_settable_(L, -3);
+        
+        lua_pushstring_(L, "damage");
+        lua_pushnumber_(L, (double)player.totalDamage);
+        lua_settable_(L, -3);
+        
+        lua_pushstring_(L, "healing");
+        lua_pushnumber_(L, (double)player.totalHealing);
+        lua_settable_(L, -3);
+        
+        lua_pushstring_(L, "overheal");
+        lua_pushnumber_(L, (double)player.totalOverheal);
+        lua_settable_(L, -3);
+        
+        // Create spells table
+        lua_pushstring_(L, "spells");
+        lua_createtable_(L, 0, 0);
+        
+        for (const auto& spellPair : player.spells) {
+            const auto& spell = spellPair.second;
+            
+            // Push spell table key (spellId number)
+            lua_pushnumber_(L, (double)spell.spellId);
+            
+            // Create spell table
+            lua_createtable_(L, 0, 6);
+            
+            lua_pushstring_(L, "name");
+            lua_pushstring_(L, spell.spellName.c_str());
+            lua_settable_(L, -3);
+            
+            lua_pushstring_(L, "damage");
+            lua_pushnumber_(L, (double)spell.damage);
+            lua_settable_(L, -3);
+            
+            lua_pushstring_(L, "healing");
+            lua_pushnumber_(L, (double)spell.healing);
+            lua_settable_(L, -3);
+            
+            lua_pushstring_(L, "overheal");
+            lua_pushnumber_(L, (double)spell.overheal);
+            lua_settable_(L, -3);
+            
+            lua_pushstring_(L, "hits");
+            lua_pushnumber_(L, (double)spell.hits);
+            lua_settable_(L, -3);
+            
+            lua_pushstring_(L, "crits");
+            lua_pushnumber_(L, (double)spell.crits);
+            lua_settable_(L, -3);
+            
+            // Set spellTable in spells table: spells[spellId] = spellTable
+            lua_settable_(L, -3);
+        }
+        
+        // Set spells table in player table: playerTable.spells = spellsTable
+        lua_settable_(L, -3);
+        
+        // Set playerTable in outer table: outer[guid] = playerTable
+        lua_settable_(L, -3);
+    }
+    
+    ReleaseSRWLockShared(&g_statsLock);
+    
+    return 1;
+}
+
+int LUABOOST_ResetCombatStats(void* L) {
+    AcquireSRWLockExclusive(&g_statsLock);
+    g_combatStats.clear();
+    ReleaseSRWLockExclusive(&g_statsLock);
+    return 0;
+}
+
+void CombatLogParser_Update(void* L) {
+    if (!L) return;
+
+    // 1. Check for reset request
+    lua_getfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
+    if (lua_type_(L, -1) == LUA_TBOOLEAN) {
+        // We evaluate value by reading the boolean value at stack top.
+        // Boolean value is stored at top - 1.
+        uintptr_t* topPtr = *(uintptr_t**)((uintptr_t)L + 0x0C);
+        RawTValue* val = (RawTValue*)topPtr - 1;
+        if (val->value.gc != nullptr) {
+            LUABOOST_ResetCombatStats(L);
+            
+            // Reset flag
+            lua_pushnil_(L);
+            lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
+        }
+    }
+    lua_settop_(L, -2); // Pop event
+
+    // 2. Check for stats data request
+    lua_getfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
+    if (lua_type_(L, -1) == LUA_TBOOLEAN) {
+        uintptr_t* topPtr = *(uintptr_t**)((uintptr_t)L + 0x0C);
+        RawTValue* val = (RawTValue*)topPtr - 1;
+        if (val->value.gc != nullptr) {
+            LUABOOST_GetCombatStats(L);
+            lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS");
+
+            // Reset request flag
+            lua_pushnil_(L);
+            lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
+        }
+    }
+    lua_settop_(L, -2);
 }
 
 bool InstallCombatLogParser() {
-    memset(g_cleBuffer, 0, sizeof(g_cleBuffer));
-    g_cleWritePos = 0;
-    g_cleReadPos = 0;
-    g_cleParsed = 0;
-    g_cleSkipped = 0;
-
-    Log("[CombatLogParser] ACTIVE (%d-slot ring buffer, C-level pre-parse)", CLE_BUFFER_SIZE);
-    CrashDumper::RegisterFeature("CombatLogParser");
-    CrashDumper::FeatureSetActive("CombatLogParser", true);
+    AcquireSRWLockExclusive(&g_statsLock);
+    g_combatStats.clear();
+    ReleaseSRWLockExclusive(&g_statsLock);
+    Log("[CombatLogParser] ACTIVE (C++ Aggregator & Lua Interop enabled)");
     return true;
 }
 
 void ShutdownCombatLogParser() {
-    LONG parsed, skipped;
-    CombatLogParser_GetStats(&parsed, &skipped);
-    Log("[CombatLogParser] Shutdown: %ld parsed, %ld skipped", parsed, skipped);
-    memset(g_cleBuffer, 0, sizeof(g_cleBuffer));
+    AcquireSRWLockExclusive(&g_statsLock);
+    g_combatStats.clear();
+    ReleaseSRWLockExclusive(&g_statsLock);
 }
 
-#else // TEST_DISABLE_COMBATLOG_PARSER
+#else
 
-bool CombatLogParser_ParseEvent(const char*, uint64_t, uint64_t, uint32_t, int32_t, uint32_t) { return false; }
-bool CombatLogParser_ReadNext(void*) { return false; }
-void CombatLogParser_GetStats(LONG* p, LONG* s) { if (p) *p = 0; if (s) *s = 0; }
-bool InstallCombatLogParser() {
-    Log("[CombatLogParser] DISABLED (test toggle)");
-    CrashDumper::RegisterFeature("CombatLogParser");
-    CrashDumper::FeatureSetActive("CombatLogParser", false);
-    return false;
-}
+void CombatLogParser_ProcessEvent(void*, int) {}
+void CombatLogParser_Update(void*) {}
+bool InstallCombatLogParser() { return false; }
 void ShutdownCombatLogParser() {}
 
 #endif
