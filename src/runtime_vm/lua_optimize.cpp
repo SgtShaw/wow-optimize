@@ -1860,35 +1860,47 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
 
     if (!State.gcOptimized) return;
 
-    // Read addon state more aggressively on slow/high-memory frames so
-    // loading-mode protections engage before zone-transition allocations spike.
     bool slowFrame = (frameMs > 33.0);
     bool verySlowFrame = (frameMs > 50.0);
-    int addonPollMask = (slowFrame || Config.isLoading || State.luaMemoryKB > 256 * 1024) ? 3 : 15;
 
-    if ((++g_addonReadCounter & addonPollMask) == 0) {
-        ReadAddonStateFromLua(Api.L);
-    }
+    if (Api.lua_gettop && Api.lua_settop) {
+        int topBefore = Api.lua_gettop(Api.L);
+        __try {
+            // Read addon state more aggressively on slow/high-memory frames so
+            // loading-mode protections engage before zone-transition allocations spike.
+            int addonPollMask = (slowFrame || Config.isLoading || State.luaMemoryKB > 256 * 1024) ? 3 : 15;
 
-    // Check Lua interface every 2 frames (~33ms at 60fps)
-    // Detects /reload even when mimalloc reuses the same lua_State* pointer
-    // Cost is 2 lua_getfield + 2 lua_type + 2 lua_settop = negligible
-    if ((++g_luaInterfaceCheckCounter & 1) == 0) {
-        CheckAndRestoreLuaInterface(Api.L);
-    }
+            if ((++g_addonReadCounter & addonPollMask) == 0) {
+                ReadAddonStateFromLua(Api.L);
+            }
 
-    if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
-        ProcessGCRequests(Api.L);
-        ProcessLuaErrors(Api.L);
-        CombatLogParser_Update(Api.L);
-    }
+            // Check Lua interface every 2 frames (~33ms at 60fps)
+            // Detects /reload even when mimalloc reuses the same lua_State* pointer
+            // Cost is 2 lua_getfield + 2 lua_type + 2 lua_settop = negligible
+            if ((++g_luaInterfaceCheckCounter & 1) == 0) {
+                CheckAndRestoreLuaInterface(Api.L);
+            }
 
-    if (!verySlowFrame) {
-        StepGC(Api.L, frameMs);
-    }
+            if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
+                ProcessGCRequests(Api.L);
+                ProcessLuaErrors(Api.L);
+                CombatLogParser_Update(Api.L);
+            }
 
-    if (!slowFrame && (State.statsUpdateCounter & 63) == 0) {
-        UpdateLuaStats(Api.L);
+            if (!verySlowFrame) {
+                StepGC(Api.L, frameMs);
+            }
+
+            if (!slowFrame && (State.statsUpdateCounter & 63) == 0) {
+                UpdateLuaStats(Api.L);
+            }
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER) {
+            #ifdef _MSC_VER
+            _fpreset();
+            #endif
+        }
+        Api.lua_settop(Api.L, topBefore);
     }
 
     if (!slowFrame && g_luaAllocReplaced) {
