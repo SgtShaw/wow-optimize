@@ -1648,6 +1648,45 @@ bool PrepareFromWorkerThread() {
     return true;
 }
 
+extern "C" int LUABOOST_GetCombatStats(void* L);
+extern "C" int LUABOOST_ResetCombatStats(void* L);
+
+static void CombatLogParser_Update(lua_State* L) {
+    if (!L || !Api.lua_getfield || !Api.lua_toboolean || !Api.lua_pushnil || !Api.lua_setfield || !Api.lua_settop || !Api.lua_gettop) {
+        return;
+    }
+
+    int topBefore = Api.lua_gettop(L);
+    __try {
+        // 1. Check for reset request
+        Api.lua_getfield(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
+        if (Api.lua_toboolean(L, -1)) {
+            LUABOOST_ResetCombatStats(L);
+            
+            // Reset flag
+            Api.lua_pushnil(L);
+            Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
+        }
+
+        // 2. Check for stats data request
+        Api.lua_getfield(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
+        if (Api.lua_toboolean(L, -1)) {
+            LUABOOST_GetCombatStats(L);
+            Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS");
+
+            // Reset request flag
+            Api.lua_pushnil(L);
+            Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        #ifdef _MSC_VER
+        _fpreset();
+        #endif
+    }
+    Api.lua_settop(L, topBefore);
+}
+
 void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     if (GetCurrentThreadId() != mainThreadId) return;
 

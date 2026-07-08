@@ -237,8 +237,7 @@ void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
         #endif
     }
 }
-
-int LUABOOST_GetCombatStats(void* L) {
+extern "C" int LUABOOST_GetCombatStats(void* L) {
     __try {
         // Create the outer table: { ["playerGUID"] = playerTable, ... }
         lua_createtable_(L, 0, 0);
@@ -332,57 +331,11 @@ int LUABOOST_GetCombatStats(void* L) {
     return 1;
 }
 
-int LUABOOST_ResetCombatStats(void* L) {
+extern "C" int LUABOOST_ResetCombatStats(void* L) {
     AcquireSRWLockExclusive(&g_statsLock);
     g_combatStats.clear();
     ReleaseSRWLockExclusive(&g_statsLock);
     return 0;
-}
-
-void CombatLogParser_Update(void* L) {
-    if (!L) return;
-
-    __try {
-        // 1. Check for reset request
-        lua_getfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
-        if (lua_type_(L, -1) == LUA_TBOOLEAN) {
-            uintptr_t* topPtr = *(uintptr_t**)((uintptr_t)L + 0x0C);
-            if (topPtr && IsValidPtr((uintptr_t)topPtr)) {
-                RawTValue* val = (RawTValue*)topPtr - 1;
-                if (IsValidPtr((uintptr_t)val) && val->value.gc != nullptr) {
-                    LUABOOST_ResetCombatStats(L);
-                    
-                    // Reset flag
-                    lua_pushnil_(L);
-                    lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_RESET");
-                }
-            }
-        }
-        lua_settop_(L, -2); // Pop event
-
-        // 2. Check for stats data request
-        lua_getfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
-        if (lua_type_(L, -1) == LUA_TBOOLEAN) {
-            uintptr_t* topPtr = *(uintptr_t**)((uintptr_t)L + 0x0C);
-            if (topPtr && IsValidPtr((uintptr_t)topPtr)) {
-                RawTValue* val = (RawTValue*)topPtr - 1;
-                if (IsValidPtr((uintptr_t)val) && val->value.gc != nullptr) {
-                    LUABOOST_GetCombatStats(L);
-                    lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS");
-
-                    // Reset request flag
-                    lua_pushnil_(L);
-                    lua_setfield_(L, LUA_GLOBALSINDEX, "LUABOOST_COMBAT_STATS_REQUEST");
-                }
-            }
-        }
-        lua_settop_(L, -2);
-    }
-    __except (EXCEPTION_EXECUTE_HANDLER) {
-        #ifdef _MSC_VER
-        _fpreset();
-        #endif
-    }
 }
 
 bool InstallCombatLogParser() {
