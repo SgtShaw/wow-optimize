@@ -1243,6 +1243,7 @@ static void RegisterLuaFunction(lua_State* L, const char* name, void* fn) {
 }
 
 static void SetupLuaInterface(lua_State* L) {
+    ApiCache::ClearCache();
     // Use BOTH Lua C API and FrameScript_Execute to set globals.
     // WoW 3.3.5a may use a different internal lua_State for addon execution
     // than the one at 0x00D3F78C. FrameScript_Execute writes to WoW's actual

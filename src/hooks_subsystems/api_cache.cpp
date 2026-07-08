@@ -425,7 +425,7 @@ static lua_State* g_cacheLuaState = nullptr;
 static int __cdecl Hooked_GetItemInfo(lua_State* L) {
     if (L != g_cacheLuaState) {
         g_cacheLuaState = L;
-        ClearCache();
+        ApiCache::ClearCache();
     }
 
     int nargs = lua_gettop_(L);
@@ -494,7 +494,7 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
 static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     if (L != g_cacheLuaState) {
         g_cacheLuaState = L;
-        ClearCache();
+        ApiCache::ClearCache();
     }
 
     int nargs = lua_gettop_(L);
@@ -508,6 +508,12 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     uint32_t keyHash = ComputeSpellHash(L, base, nargs, keyType1, keyNum1, keyStr1, keyType2, keyNum2, keyStr2);
     if (keyType1 == LUA_TNIL) return orig_GetSpellInfo(L);
 
+    // Bypass caching for spellbook slot queries (slot number, book type)
+    if (keyType1 == LUA_TNUMBER && nargs >= 2) {
+        InterlockedIncrement(&g_spellMisses);
+        return orig_GetSpellInfo(L);
+    }
+
     int slot = keyHash & CACHE_MASK;
     SpellCacheEntry* e = &g_spellCache[slot];
 
@@ -515,7 +521,7 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     bool found = false;
 
     AcquireSRWLockShared(&g_spellCacheLock);
-    if (e->valid && e->keyHash == keyHash && e->frameGen == g_spellFrameGen &&
+    if (e->valid && e->keyHash == keyHash &&
         e->keyType1 == keyType1 && e->keyType2 == keyType2) {
         
         bool match = true;
@@ -593,7 +599,7 @@ bool Init() {
     g_active = true;
 
     int hooked = 0;
-#if !TEST_DISABLE_ALL_APICACHE
+#if !TEST_DISABLE_GETITEMINFO_CACHE
     if (HookFunc("GetItemInfo", ADDR_GetItemInfo, (void*)Hooked_GetItemInfo, (void**)&orig_GetItemInfo))
         hooked++;
 #endif

@@ -37,8 +37,9 @@
 // ================================================================
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
+#define TEST_DISABLE_GETITEMINFO_CACHE  1
 // GetSpellInfo hook also disabled below.
-#define TEST_DISABLE_ALL_APICACHE       1
+#define TEST_DISABLE_ALL_APICACHE       0
 
 // Phase 2 Lua fast paths
 #define TEST_DISABLE_ALL_PHASE2         0
@@ -98,7 +99,7 @@
 #define TEST_DISABLE_PHASE2_NEW_DMA     0
 
 // GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 1
+#define TEST_DISABLE_GETSPELLINFO_CACHE 0
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES
