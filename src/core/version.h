@@ -291,6 +291,7 @@
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
 #define TEST_DISABLE_MATRIX_EXT_SSE2         1
+#define TEST_DISABLE_MATRIX_COPY             1
 
 // SSE2 rigid-transform inverse builder (sub_4C2FC0, ~34 callers across render +
 // world code). out_R = transpose(R); out[12..14] = -(R_row_i . t); homogeneous
@@ -410,7 +411,7 @@
 // event-wait) but NOTHING ever submits work to them (no external caller feeds the
 // decode/inflate/bone queues). On a 32-bit VA-constrained client each thread also
 // reserves ~1MB of stack address space. Disabled until a real producer wires them.
-#define TEST_DISABLE_TEXTURE_DECODE_MT  0   // 2 workers, BLP decode path wired and hot-swapped
+#define TEST_DISABLE_TEXTURE_DECODE_MT  1   // 2 workers, BLP decode path wired and hot-swapped
 #define TEST_DISABLE_MPQ_DECOMPRESS_MT  1   // 3 workers, inflate path never wired
 #define TEST_DISABLE_ANIM_MT            1   // 2 workers, M2 bone path never wired
 

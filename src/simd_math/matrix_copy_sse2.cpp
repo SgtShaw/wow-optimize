@@ -668,6 +668,7 @@ static float* __fastcall Hooked_MatTranslateLocal(float* self, void* edx, float*
 // Install hooks
 // ================================================================
 bool InstallMatrixCopySSE2() {
+#if !TEST_DISABLE_MATRIX_COPY
     struct HookDef {
         void*       addr;
         void*       hook;
@@ -684,16 +685,19 @@ bool InstallMatrixCopySSE2() {
     int installed = 0;
     for (auto& h : hooks) {
         if (WineSafe_CreateHook(h.addr, h.hook, h.orig) == MH_OK) {
-            if (WO_EnableHook(h.addr) == MH_OK) {
-                installed++;
-                Log("[MatrixSSE2] Hooked %s at 0x%08X (%d xrefs)", h.name, (DWORD)(uintptr_t)h.addr, h.xrefs);
-            }
+             if (WO_EnableHook(h.addr) == MH_OK) {
+                 installed++;
+                 Log("[MatrixSSE2] Hooked %s at 0x%08X (%d xrefs)", h.name, (DWORD)(uintptr_t)h.addr, h.xrefs);
+             }
         }
     }
 
     Log("[MatrixSSE2] Installed %d/%d hooks (total %d xrefs)",
         installed, (int)(sizeof(hooks) / sizeof(hooks[0])),
         247 + 53);
+#else
+    Log("[MatrixSSE2] Matrix copy/identity hooks DISABLED via feature flag");
+#endif
 
 #if !TEST_DISABLE_MATRIX_MULTIPLY
     if (WineSafe_CreateHook((void*)0x004C1F00, (void*)HookMatrixMultiply,
@@ -827,7 +831,11 @@ bool InstallMatrixCopySSE2() {
     Log("[MatrixSSE2] CMatrix::TranslateLocal DISABLED via feature flag");
 #endif
 
+#if !TEST_DISABLE_MATRIX_COPY
     return installed == (int)(sizeof(hooks) / sizeof(hooks[0]));
+#else
+    return true;
+#endif
 }
 
 // ================================================================
