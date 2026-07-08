@@ -95,6 +95,32 @@ bool RegisterShedCallback(ShedCallback cb, void* ctx) {
     return true;
 }
 
+static SIZE_T GetLargestFreeBlock() {
+    MEMORY_BASIC_INFORMATION mbi;
+    SIZE_T largestFree = 0;
+    SIZE_T currentFree = 0;
+    uintptr_t addr = 0;
+    
+    while (VirtualQuery((LPCVOID)addr, &mbi, sizeof(mbi))) {
+        if (mbi.State == MEM_FREE) {
+            currentFree += mbi.RegionSize;
+        } else {
+            if (currentFree > largestFree) {
+                largestFree = currentFree;
+            }
+            currentFree = 0;
+        }
+        addr = (uintptr_t)mbi.BaseAddress + mbi.RegionSize;
+        if (addr < (uintptr_t)mbi.BaseAddress) break; // Overflow
+    }
+    
+    if (currentFree > largestFree) {
+        largestFree = currentFree;
+    }
+    
+    return largestFree;
+}
+
 void OnFrame() {
     if (!g_active) return;
 
@@ -111,6 +137,9 @@ void OnFrame() {
     }
 
     SIZE_T freeBlock = HeapCompactor_GetCachedLargestBlock();
+    if (freeBlock == 0) {
+        freeBlock = GetLargestFreeBlock();
+    }
     if (freeBlock == 0) return;                     // monitor not sampled yet
 
     Level current = g_level.load();

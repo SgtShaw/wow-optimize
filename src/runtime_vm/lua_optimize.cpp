@@ -70,6 +70,7 @@ typedef void       (__cdecl *fn_lua_getfield)(lua_State* L, int index, const cha
 typedef int        (__cdecl *fn_lua_type)(lua_State* L, int index);
 typedef void       (__cdecl *fn_lua_pushcclosure)(lua_State* L, void* fn, int n);
 typedef void       (__cdecl *fn_luaS_resize)(lua_State* L, int newsize);
+typedef const char* (__cdecl *fn_lua_tolstring)(lua_State* L, int index, size_t* len);
 typedef void       (__cdecl *fn_FrameScript_Execute)(const char* code,
                                                        const char* source,
                                                        int unknown);
@@ -93,6 +94,7 @@ namespace Addr {
     static constexpr uintptr_t lua_toboolean       = 0x0084E0B0;
     static constexpr uintptr_t lua_type            = 0x0084DEB0;
     static constexpr uintptr_t lua_pushcclosure    = 0x0084E400;
+    static constexpr uintptr_t lua_tolstring       = 0x0084E0E0;
 }
 
 static struct {
@@ -112,6 +114,7 @@ static struct {
     fn_lua_type             lua_type = nullptr;
     fn_lua_pushcclosure     lua_pushcclosure = nullptr;
     fn_luaS_resize          luaS_resize = nullptr;
+    fn_lua_tolstring        lua_tolstring = nullptr;
     fn_FrameScript_Execute  FrameScript_Execute = nullptr;
 } Api;
 
@@ -240,6 +243,7 @@ static bool ResolveAddresses() {
     RESOLVE(lua_type,        Addr::lua_type,         fn_lua_type,        "lua_type");
     RESOLVE(lua_pushcclosure, Addr::lua_pushcclosure, fn_lua_pushcclosure, "lua_pushcclosure");
     RESOLVE(luaS_resize,     Addr::luaS_resize,     fn_luaS_resize,     "luaS_resize");
+    RESOLVE(lua_tolstring,   Addr::lua_tolstring,   fn_lua_tolstring,   "lua_tolstring");
 
     RESOLVE(FrameScript_Execute, Addr::FrameScript_Execute,
             fn_FrameScript_Execute, "FrameScript_Execute");
@@ -1359,6 +1363,49 @@ static void ProcessGCRequests(lua_State* L) {
     __except (EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+static void ProcessLuaErrors(lua_State* L) {
+    if (!L || !Api.lua_getfield || !Api.lua_type || !Api.lua_pushnil || !Api.lua_setfield || !Api.lua_settop || !Api.lua_tolstring || !Api.lua_gettop) {
+        return;
+    }
+
+    __try {
+        Api.lua_getfield(L, LUA_GLOBALSINDEX, "LUABOOST_LUA_ERROR_REPORT");
+        int t = Api.lua_type(L, -1);
+        if (t == 4) { // LUA_TSTRING
+            size_t len = 0;
+            const char* report = Api.lua_tolstring(L, -1, &len);
+            if (report && len > 0) {
+                LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "Lua Runtime Error Intercepted:\n%s", report);
+
+                // Walk C++ stack trace of the calling thread
+                void* stack[32];
+                USHORT frames = CaptureStackBackTrace(1, 32, stack, nullptr);
+                HMODULE hWow = GetModuleHandleA(nullptr);
+                HMODULE hDll = GetModuleHandleA("wow_optimize.dll");
+                LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "C++ Stack Backtrace (Offsets):");
+                for (USHORT i = 0; i < frames; i++) {
+                    uintptr_t addr = (uintptr_t)stack[i];
+                    if (addr >= (uintptr_t)hWow && addr < (uintptr_t)hWow + 0x1000000) {
+                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] wow.exe+0x%08X", i, addr - (uintptr_t)hWow);
+                    } else if (addr >= (uintptr_t)hDll && addr < (uintptr_t)hDll + 0x100000) {
+                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] wow_optimize.dll+0x%08X", i, addr - (uintptr_t)hDll);
+                    } else {
+                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] 0x%08X", i, addr);
+                    }
+                }
+            }
+
+            // Clear the report
+            Api.lua_settop(L, -2);
+            Api.lua_pushnil(L);
+            Api.lua_setfield(L, LUA_GLOBALSINDEX, "LUABOOST_LUA_ERROR_REPORT");
+        } else {
+            Api.lua_settop(L, -2);
+        }
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 // ================================================================
 // Timing Method Fix - Force QPC & block timingtesterror fallback
 // ================================================================
@@ -1790,6 +1837,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
 
     if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
         ProcessGCRequests(Api.L);
+        ProcessLuaErrors(Api.L);
     }
 
     if (!verySlowFrame) {

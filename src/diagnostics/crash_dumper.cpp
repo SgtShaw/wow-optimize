@@ -101,8 +101,18 @@ static void WriteStackWalk(HANDLE hFile, CONTEXT* ctx) {
     DWORD ebp = ctx->Ebp;
     DWORD eip = ctx->Eip;
 
+    HMODULE hWow = GetModuleHandleA(nullptr);
+    HMODULE hDll = GetModuleHandleA("wow_optimize.dll");
+
     for (int frame = 0; frame < 64; frame++) {
-        int len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=0x%08X  EBP=0x%08X\n", frame, eip, ebp);
+        int len = 0;
+        if (eip >= (uintptr_t)hWow && eip < (uintptr_t)hWow + 0x1000000) {
+            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=wow.exe+0x%08X  EBP=0x%08X\n", frame, eip - (uintptr_t)hWow, ebp);
+        } else if (eip >= (uintptr_t)hDll && eip < (uintptr_t)hDll + 0x100000) {
+            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=wow_optimize.dll+0x%08X  EBP=0x%08X\n", frame, eip - (uintptr_t)hDll, ebp);
+        } else {
+            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=0x%08X  EBP=0x%08X\n", frame, eip, ebp);
+        }
         if (len > 0) WriteFile(hFile, buf, (DWORD)len, &written, NULL);
 
         // Validate EBP before dereferencing
