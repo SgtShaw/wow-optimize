@@ -1380,15 +1380,16 @@ static void ProcessLuaErrors(lua_State* L) {
                 // Walk C++ stack trace of the calling thread
                 void* stack[32];
                 USHORT frames = CaptureStackBackTrace(1, 32, stack, nullptr);
-                HMODULE hWow = GetModuleHandleA(nullptr);
-                HMODULE hDll = GetModuleHandleA("wow_optimize.dll");
                 LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "C++ Stack Backtrace (Offsets):");
                 for (USHORT i = 0; i < frames; i++) {
                     uintptr_t addr = (uintptr_t)stack[i];
-                    if (addr >= (uintptr_t)hWow && addr < (uintptr_t)hWow + 0x1000000) {
-                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] wow.exe+0x%08X", i, addr - (uintptr_t)hWow);
-                    } else if (addr >= (uintptr_t)hDll && addr < (uintptr_t)hDll + 0x100000) {
-                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] wow_optimize.dll+0x%08X", i, addr - (uintptr_t)hDll);
+                    HMODULE hMod = nullptr;
+                    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)addr, &hMod) && hMod) {
+                        char modPath[MAX_PATH] = "";
+                        GetModuleFileNameA(hMod, modPath, sizeof(modPath));
+                        const char* lastSlash = strrchr(modPath, '\\');
+                        const char* filename = lastSlash ? (lastSlash + 1) : modPath;
+                        LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] %s+0x%08X", i, filename, addr - (uintptr_t)hMod);
                     } else {
                         LogEx(LOG_LEVEL_ERROR, "LUA_ERR", "  [%02d] 0x%08X", i, addr);
                     }

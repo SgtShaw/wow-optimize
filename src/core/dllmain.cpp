@@ -792,7 +792,7 @@ static constexpr int LOG_RING_SIZE = 2048;
 static constexpr int LOG_RING_MASK = LOG_RING_SIZE - 1;
 
 struct LogEntry {
-    char text[512];
+    char text[2048];
     volatile LONG ready;
 };
 
@@ -925,16 +925,16 @@ void LogFlushImmediate() {
         case LOG_LEVEL_CRITICAL: lvlStr = "CRITICAL"; break;
     }
 
-    int offset = _snprintf(g_logRing[slot].text, 96, "[%02u-%02u-%02u %02u:%02u:%02u.%03u] [TID: %u] [%s] [%s] ",
+    int offset = _snprintf(g_logRing[slot].text, 128, "[%02u-%02u-%02u %02u:%02u:%02u.%03u] [TID: %u] [%s] [%s] ",
         st.wYear % 100, st.wMonth, st.wDay,
         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
         GetCurrentThreadId(), lvlStr, context);
 
     va_list args;
     va_start(args, fmt);
-    int msgLen = _vsnprintf(g_logRing[slot].text + offset, 510 - offset, fmt, args);
+    int msgLen = _vsnprintf(g_logRing[slot].text + offset, 2046 - offset, fmt, args);
     va_end(args);
-    if (msgLen < 0) msgLen = 510 - offset;
+    if (msgLen < 0) msgLen = 2046 - offset;
     offset += msgLen;
 
     g_logRing[slot].text[offset] = '\n';
@@ -952,7 +952,7 @@ void LogFlushImmediate() {
 extern "C" void Log(const char* fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    char buf[512];
+    char buf[2048];
     _vsnprintf(buf, sizeof(buf), fmt, args);
     va_end(args);
     LogEx(LOG_LEVEL_INFO, "DLL", "%s", buf);

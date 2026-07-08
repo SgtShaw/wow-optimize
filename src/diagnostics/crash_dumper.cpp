@@ -101,15 +101,16 @@ static void WriteStackWalk(HANDLE hFile, CONTEXT* ctx) {
     DWORD ebp = ctx->Ebp;
     DWORD eip = ctx->Eip;
 
-    HMODULE hWow = GetModuleHandleA(nullptr);
-    HMODULE hDll = GetModuleHandleA("wow_optimize.dll");
-
     for (int frame = 0; frame < 64; frame++) {
         int len = 0;
-        if (eip >= (uintptr_t)hWow && eip < (uintptr_t)hWow + 0x1000000) {
-            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=wow.exe+0x%08X  EBP=0x%08X\n", frame, eip - (uintptr_t)hWow, ebp);
-        } else if (eip >= (uintptr_t)hDll && eip < (uintptr_t)hDll + 0x100000) {
-            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=wow_optimize.dll+0x%08X  EBP=0x%08X\n", frame, eip - (uintptr_t)hDll, ebp);
+        HMODULE hMod = nullptr;
+
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT, (LPCSTR)eip, &hMod) && hMod) {
+            char modPath[MAX_PATH] = "";
+            GetModuleFileNameA(hMod, modPath, sizeof(modPath));
+            const char* lastSlash = strrchr(modPath, '\\');
+            const char* filename = lastSlash ? (lastSlash + 1) : modPath;
+            len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=%s+0x%08X  EBP=0x%08X\n", frame, filename, eip - (uintptr_t)hMod, ebp);
         } else {
             len = sprintf_s(buf, sizeof(buf), "  [%02d] EIP=0x%08X  EBP=0x%08X\n", frame, eip, ebp);
         }
