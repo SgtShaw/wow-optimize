@@ -232,9 +232,6 @@ void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        #ifdef _MSC_VER
-        _fpreset();
-        #endif
     }
 }
 extern "C" int LUABOOST_GetCombatStats(void* L) {
@@ -324,9 +321,6 @@ extern "C" int LUABOOST_GetCombatStats(void* L) {
         ReleaseSRWLockShared(&g_statsLock);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        #ifdef _MSC_VER
-        _fpreset();
-        #endif
     }
     return 1;
 }
