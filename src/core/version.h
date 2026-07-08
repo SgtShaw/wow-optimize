@@ -179,7 +179,7 @@
 #define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
-#define TEST_DISABLE_ASYNC_MPQ_IO       0
+#define TEST_DISABLE_ASYNC_MPQ_IO       1
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
 #define TEST_DISABLE_TABLE_SORT_FASTPATH    1
@@ -196,7 +196,7 @@
 // CDataStore buffer fast paths (sub_47B3C0/47B0A0/47B340/47AFE0/47B100/47B400)
 // TLS-cached buffer pointer eliminates repeated base arithmetic
 // Total: ~4179 xrefs across network packet processing hot paths
-#define TEST_DISABLE_DATASTORE_FASTPATH 0
+#define TEST_DISABLE_DATASTORE_FASTPATH 1
 
 // String & Memory Ops Fast Path (sub_76E780/76F420)
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
@@ -287,7 +287,7 @@
 #define TEST_DISABLE_NETWORK_GUID_SSE2         0
 
 // StreamBuffer read/write fast-path (sub_47B3C0/sub_47B0A0)
-#define TEST_DISABLE_STREAM_FASTPATH         0
+#define TEST_DISABLE_STREAM_FASTPATH         1
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
 #define TEST_DISABLE_MATRIX_EXT_SSE2         1
@@ -394,7 +394,7 @@
 // Tracks zone transitions, predicts next zone, prefetches common files
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
-#define TEST_DISABLE_MPQ_PREFETCH       0
+#define TEST_DISABLE_MPQ_PREFETCH       1
 
 // Async Sound/Audio Prefetching - DISABLED.
 // Placeholder: the worker loads nothing (TODOs only), so it just spins 2 idle
@@ -450,7 +450,7 @@
 #define TEST_DISABLE_NET_PACKET_OFFLOAD 0
 
 // Velocity-Based Predictive Asset Prefetcher
-#define TEST_DISABLE_PREDICTIVE_PREFETCH 0
+#define TEST_DISABLE_PREDICTIVE_PREFETCH 1
 
 // Low-Latency GPU Sync (Max Frame Latency = 1)
 #define TEST_DISABLE_LOW_LATENCY_SYNC    0
