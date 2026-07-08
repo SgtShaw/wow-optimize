@@ -67,7 +67,7 @@ static void* __cdecl Hooked_LuaAlloc(void* ud, void* ptr, size_t osize, size_t n
     if (nsize == 0) {
         if (ptr) {
             int bucket = GetBucket(osize);
-            if (bucket >= 0 && tc->counts[bucket] < MAX_BLOCKS_PER_LIST) {
+            if (bucket >= 0 && osize == GetBucketSize(bucket) && tc->counts[bucket] < MAX_BLOCKS_PER_LIST) {
                 // Add to thread-local free list
                 *(void**)ptr = tc->free_lists[bucket];
                 tc->free_lists[bucket] = ptr;
@@ -101,7 +101,7 @@ static void* __cdecl Hooked_LuaAlloc(void* ud, void* ptr, size_t osize, size_t n
     int oldBucket = GetBucket(osize);
     int newBucket = GetBucket(nsize);
 
-    if (oldBucket >= 0 && newBucket >= 0 && oldBucket == newBucket) {
+    if (oldBucket >= 0 && newBucket >= 0 && oldBucket == newBucket && osize == GetBucketSize(oldBucket)) {
         // Size remains in the same bucket - no action needed
         return ptr;
     }
