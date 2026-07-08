@@ -1007,8 +1007,9 @@ static void TryTrimForLoadingScreen(lua_State* L) {
 //
 // ================================================================
 static void ReadAddonStateFromLua(lua_State* L) {
-    if (!Api.lua_getfield || !Api.lua_toboolean || !Api.lua_settop) return;
+    if (!Api.lua_getfield || !Api.lua_toboolean || !Api.lua_settop || !Api.lua_gettop) return;
 
+    int topBefore = Api.lua_gettop(L);
     __try {
         bool wasCombat = Config.inCombat;
         Config.inCombat  = (ReadLuaGlobal_Bool(L, "LUABOOST_ADDON_COMBAT")  != 0);
@@ -1058,6 +1059,7 @@ static void ReadAddonStateFromLua(lua_State* L) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
+    Api.lua_settop(L, topBefore);
 }
 
 static SIZE_T GetLargestFreeBlock() {
@@ -1094,8 +1096,9 @@ static double g_cachedLargestFreeMB = 0.0;
 extern "C" void FontMetrics_GetStats(long* widthCalls, long* heightCalls);
 
 static void UpdateLuaStats(lua_State* L) {
-    if (!Api.lua_pushnumber || !Api.lua_setfield) return;
+    if (!Api.lua_pushnumber || !Api.lua_setfield || !Api.lua_gettop || !Api.lua_settop) return;
 
+    int topBefore = Api.lua_gettop(L);
     __try {
         DWORD now = GetTickCount();
         if (now - g_lastMemoryQueryTick >= 1000 || g_lastMemoryQueryTick == 0) {
@@ -1150,6 +1153,7 @@ static void UpdateLuaStats(lua_State* L) {
  
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
+    Api.lua_settop(L, topBefore);
 }
 
 // C callback stubs for LuaBoost functions (used when FrameScript_Execute fails)
@@ -1310,10 +1314,11 @@ static void SetupLuaInterface(lua_State* L) {
 
 static void ProcessGCRequests(lua_State* L) {
     if (!Api.lua_getfield || !Api.lua_type || !Api.lua_tonumber ||
-        !Api.lua_pushnil || !Api.lua_setfield || !Api.lua_settop || !Api.lua_gc) {
+        !Api.lua_pushnil || !Api.lua_setfield || !Api.lua_settop || !Api.lua_gc || !Api.lua_gettop) {
         return;
     }
 
+    int topBefore = Api.lua_gettop(L);
     __try {
         Api.lua_getfield(L, LUA_GLOBALSINDEX, "LUABOOST_DLL_GC_REQUEST");
 
@@ -1333,6 +1338,7 @@ static void ProcessGCRequests(lua_State* L) {
                 DWORD nowTick = GetTickCount();
                 if ((LONG)(nowTick - lastFullGCTick) < 5000) {
                     // Rate limited - skip silently
+                    Api.lua_settop(L, topBefore);
                     return;
                 }
                 lastFullGCTick = nowTick;
@@ -1352,6 +1358,7 @@ static void ProcessGCRequests(lua_State* L) {
                 }
                 if (stepGCCount >= 10) {
                     // Rate limited - skip silently
+                    Api.lua_settop(L, topBefore);
                     return;
                 }
                 stepGCCount++;
@@ -1363,6 +1370,7 @@ static void ProcessGCRequests(lua_State* L) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
+    Api.lua_settop(L, topBefore);
 }
 
 static void ProcessLuaErrors(lua_State* L) {
@@ -1370,6 +1378,7 @@ static void ProcessLuaErrors(lua_State* L) {
         return;
     }
 
+    int topBefore = Api.lua_gettop(L);
     __try {
         Api.lua_getfield(L, LUA_GLOBALSINDEX, "LUABOOST_LUA_ERROR_REPORT");
         int t = Api.lua_type(L, -1);
@@ -1407,6 +1416,7 @@ static void ProcessLuaErrors(lua_State* L) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {}
+    Api.lua_settop(L, topBefore);
 }
 
 // ================================================================
@@ -1680,9 +1690,6 @@ static void CombatLogParser_Update(lua_State* L) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        #ifdef _MSC_VER
-        _fpreset();
-        #endif
     }
     Api.lua_settop(L, topBefore);
 }
@@ -1863,53 +1870,33 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     bool slowFrame = (frameMs > 33.0);
     bool verySlowFrame = (frameMs > 50.0);
 
-    if (Api.lua_gettop && Api.lua_settop) {
-        int topBefore = Api.lua_gettop(Api.L);
-        __try {
-            // Read addon state more aggressively on slow/high-memory frames so
-            // loading-mode protections engage before zone-transition allocations spike.
-            int addonPollMask = (slowFrame || Config.isLoading || State.luaMemoryKB > 256 * 1024) ? 3 : 15;
+    // Read addon state more aggressively on slow/high-memory frames so
+    // loading-mode protections engage before zone-transition allocations spike.
+    int addonPollMask = (slowFrame || Config.isLoading || State.luaMemoryKB > 256 * 1024) ? 3 : 15;
 
-            if ((++g_addonReadCounter & addonPollMask) == 0) {
-                ReadAddonStateFromLua(Api.L);
-            }
+    if ((++g_addonReadCounter & addonPollMask) == 0) {
+        ReadAddonStateFromLua(Api.L);
+    }
 
-            // Check Lua interface every 2 frames (~33ms at 60fps)
-            // Detects /reload even when mimalloc reuses the same lua_State* pointer
-            // Cost is 2 lua_getfield + 2 lua_type + 2 lua_settop = negligible
-            if ((++g_luaInterfaceCheckCounter & 1) == 0) {
-                CheckAndRestoreLuaInterface(Api.L);
-            }
+    // Check Lua interface every 2 frames (~33ms at 60fps)
+    // Detects /reload even when mimalloc reuses the same lua_State* pointer
+    // Cost is 2 lua_getfield + 2 lua_type + 2 lua_settop = negligible
+    if ((++g_luaInterfaceCheckCounter & 1) == 0) {
+        CheckAndRestoreLuaInterface(Api.L);
+    }
 
-            if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
-                ProcessGCRequests(Api.L);
-                ProcessLuaErrors(Api.L);
-                CombatLogParser_Update(Api.L);
-            }
+    if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
+        ProcessGCRequests(Api.L);
+        ProcessLuaErrors(Api.L);
+        CombatLogParser_Update(Api.L);
+    }
 
-            if (!verySlowFrame) {
-                StepGC(Api.L, frameMs);
-            }
+    if (!verySlowFrame) {
+        StepGC(Api.L, frameMs);
+    }
 
-            if (!slowFrame && (State.statsUpdateCounter & 63) == 0) {
-                UpdateLuaStats(Api.L);
-            }
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            #ifdef _MSC_VER
-            _fpreset();
-            #endif
-        }
-        int topAfter = Api.lua_gettop(Api.L);
-        if (topAfter > 0) {
-            static DWORD lastLeakLogTick = 0;
-            DWORD nowTick = GetTickCount();
-            if ((LONG)(nowTick - lastLeakLogTick) >= 5000) {
-                lastLeakLogTick = nowTick;
-                Log("[LuaOpt] WARNING: Stack leak detected (top=%d) - forcing stack reset to prevent ERROR 134 crash", topAfter);
-            }
-            Api.lua_settop(Api.L, 0);
-        }
+    if (!slowFrame && (State.statsUpdateCounter & 63) == 0) {
+        UpdateLuaStats(Api.L);
     }
 
     if (!slowFrame && g_luaAllocReplaced) {
