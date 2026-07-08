@@ -1,5 +1,6 @@
 #include "async_terrain_loader.h"
 #include "../allocators/loading_defrag.h"
+#include "../core/version.h"
 #include <windows.h>
 #include <mutex>
 #include <unordered_set>
@@ -112,6 +113,10 @@ void* __fastcall Hooked_CMapGrid_Update(void* This, void* unused, int a2, void* 
 }
 
 bool Init() {
+#if defined(TEST_DISABLE_ASYNC_TERRAIN) && TEST_DISABLE_ASYNC_TERRAIN == 1
+    Log("[AsyncTerrainLoader] Disabled via TEST_DISABLE_ASYNC_TERRAIN");
+    return true;
+#endif
     Log("--- Asynchronous Terrain Mesh Loader & Collision Decoupler ---");
 
     if (MH_CreateHook((LPVOID)0x007D9A20, (LPVOID)Hooked_LoadAdt, (LPVOID*)&orig_sub_7D9A20) != MH_OK) {
@@ -144,6 +149,9 @@ bool Init() {
 }
 
 void Shutdown() {
+#if defined(TEST_DISABLE_ASYNC_TERRAIN) && TEST_DISABLE_ASYNC_TERRAIN == 1
+    return;
+#endif
     MH_DisableHook((LPVOID)0x007D9A20);
     MH_DisableHook((LPVOID)0x007C3700);
     MH_DisableHook((LPVOID)0x007C1660);
