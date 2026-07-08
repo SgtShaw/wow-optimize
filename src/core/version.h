@@ -508,7 +508,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. Disassembly-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST         0
+#define TEST_DISABLE_LUA_STACK_FAST         1
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
@@ -521,7 +521,7 @@
 // lua_State swap; nil method-name lookups on char-select). SEH-guarded; on any miss
 // or anomaly it defers to the original. Behaviour is now provably identical to the
 // engine on a hit. See CONTEXT lessons 3, 4.
-#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
+#define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
 #define TEST_DISABLE_LUA_GC_COALESCE           1  // enabled: incremental Lua GC coalescing
 #define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
 
@@ -569,7 +569,7 @@
 // These were mass-disabled in 8355c31 for crash bisection; the crash root causes
 // were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
 // (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
-#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       0
+#define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
 #define TEST_DISABLE_LUA_SAFE_G1         0  
 #define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
@@ -598,11 +598,11 @@
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  0
+#define TEST_DISABLE_RAWGETI_INLINE  1
 
 // lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    0
+#define TEST_DISABLE_RAWGET_INLINE    1
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
 #define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
@@ -612,7 +612,7 @@
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    0
+#define TEST_DISABLE_GETSTR_INLINE    1
 
 // lua_pushnumber direct stack write (sub_84E2A0).
 #define TEST_DISABLE_PUSHNUMBER_FAST         1
