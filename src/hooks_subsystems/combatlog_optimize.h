@@ -40,6 +40,7 @@ bool Init();
 void OnFrame(DWORD mainThreadId);
 void Shutdown();
 void SetCombat(bool active);
+void ProcessUnifiedFrameTicks(int luaState, DWORD mainThreadId);
 
 struct PoolStats {
     int  poolSize;

@@ -1227,13 +1227,11 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             PredictivePrefetch::OnFrame();
 #endif
             FlushFieldUpdates();
-            CombatLogIncremental::OnFrame((int)currentL);
+            CombatLogOpt::ProcessUnifiedFrameTicks((int)currentL, g_mainThreadId);
             WorldStateCoalesce::OnFrame();
 #if !TEST_DISABLE_HARDWARE_CURSOR
             InitHardwareCursor();
 #endif
-            CombatLogOpt::OnFrame(g_mainThreadId);
-            CombatLogBuffer::OnFrame(g_mainThreadId);
 #if !TEST_DISABLE_ADDON_DISPATCHER
             AddonDispatcher::OnFrame(g_mainThreadId);
 #endif

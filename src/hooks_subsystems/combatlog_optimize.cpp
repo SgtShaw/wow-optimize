@@ -5,6 +5,9 @@
 // ============================================================================
 
 #include "combatlog_optimize.h"
+#include "combatlog_incremental.h"
+#include "combatlog_buffer.h"
+#include "config.h"
 #include <cstdio>
 #include <cstring>
 #include <cstdint>
@@ -168,6 +171,16 @@ void Shutdown() {
 PoolStats GetPoolStats() {
     PoolStats s = { 0, 0, false };
     return s;
+}
+
+void ProcessUnifiedFrameTicks(int luaState, DWORD mainThreadId) {
+    if (Config::g_settings.OptCombatLogIncremental) {
+        CombatLogIncremental::OnFrame(luaState);
+    }
+    if (Config::g_settings.OptCombatLogParser) {
+        CombatLogOpt::OnFrame(mainThreadId);
+        CombatLogBuffer::OnFrame(mainThreadId);
+    }
 }
 
 } // namespace CombatLogOpt
