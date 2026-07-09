@@ -118,7 +118,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
 
 Special thanks to:
-Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus
+Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus, szopachink17
 
 </details>
 
