@@ -91,7 +91,7 @@ __declspec(naked) static int Hooked_FrameUpdateLoop() {
 // Installation
 // ================================================================
 bool InstallUIFrameBatching() {
-    if (!Config::g_settings.UIFrameBatch) {
+    if (!Config::g_settings.OptUIFrameBatch) {
         Log("[UIFrameBatch] DISABLED via configuration (wow_opt.ini)");
         return false;
     }

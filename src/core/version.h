@@ -11,11 +11,11 @@
 
 
 #define WOW_OPTIMIZE_VERSION_MAJOR  3
-#define WOW_OPTIMIZE_VERSION_MINOR  13
+#define WOW_OPTIMIZE_VERSION_MINOR  15
 #define WOW_OPTIMIZE_VERSION_PATCH  0
 #define WOW_OPTIMIZE_VERSION_BUILD  0
 
-#define WOW_OPTIMIZE_VERSION_STR    "3.13.0"
+#define WOW_OPTIMIZE_VERSION_STR    "3.15.0"
 #define WOW_OPTIMIZE_AUTHOR         "SUPREMATIST"
 
 #ifndef CRASH_TEST_DISABLE_PHASE2
@@ -159,7 +159,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -173,7 +173,7 @@
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
-#define TEST_DISABLE_HARDWARE_CURSOR    0
+#define TEST_DISABLE_HARDWARE_CURSOR    1
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE         0

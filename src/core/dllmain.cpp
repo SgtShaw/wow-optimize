@@ -1151,7 +1151,7 @@ static void RunPeriodicMaintenanceOnMainThread() {
     TexCacheTuning_Tick();
 
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
-    if (Config::g_settings.MemoryPressure) {
+    if (Config::g_settings.OptMemoryPressure) {
         PressureGovernor::OnFrame();
     }
 #endif
@@ -1199,7 +1199,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             msSinceLastTick = (double)(now.QuadPart - lastFrameTickTime.QuadPart) / g_sleepFreq;
         }
 
-        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= (double)Config::g_settings.SleepPrecision) {
+        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= (double)Config::g_settings.OptSleepPrecision) {
             lastFrameTickTime = now;
 
             RunPeriodicMaintenanceOnMainThread();
@@ -6230,14 +6230,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[CrashDumper] Registered %d features for tracking", MAX_TRACKED_FEATURES);
 
     Log("--- DXVK Vulkan Integration ---");
-    Log("[VulkanDXVK] Config option: %s", Config::g_settings.VulkanDXVK ? "ENABLED (d3d9.dll proxy required in game directory)" : "DISABLED");
+    Log("[VulkanDXVK] Config option: %s", Config::g_settings.OptVulkanDXVK ? "ENABLED (d3d9.dll proxy required in game directory)" : "DISABLED");
 
     Log("--- Frame Pacing ---");
-    bool sleepOk = InstallSleepHook();
+    bool sleepOk = Config::g_settings.OptSleepPrecision && InstallSleepHook();
 #if !CRASH_TEST_DISABLE_TICK_COUNT
     Log("--- Timer Precision ---");
-    bool tickOk = InstallGetTickCountHook();
-    bool tgtOk  = InstallTimeGetTimeHook();
+    bool tickOk = Config::g_settings.OptTimingFix && InstallGetTickCountHook();
+    bool tgtOk  = Config::g_settings.OptTimingFix && InstallTimeGetTimeHook();
 #else
     bool tickOk = false;
     bool tgtOk  = false;
@@ -6245,10 +6245,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[TimerPrecision] GetTickCount/timeGetTime hooks: DISABLED");
 #endif
     Log("--- Heap Optimization ---");
-    bool heapOk = InstallHeapOptimization();
+    bool heapOk = Config::g_settings.OptAllocators && InstallHeapOptimization();
 #if !TEST_DISABLE_HEAP_REDIRECT
     Log("--- Process Heap Redirect ---");
-    bool heapRedirectOk = InstallHeapRedirectToMimalloc();
+    bool heapRedirectOk = Config::g_settings.OptAllocators && InstallHeapRedirectToMimalloc();
     if (!heapRedirectOk) Log("[HeapRedirect] install failed -- process heap stays stock");
 #else
     Log("[HeapRedirect] DISABLED via TEST_DISABLE_HEAP_REDIRECT");
@@ -6258,49 +6258,49 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Texture Cache Budget ---");
     InitTexCacheTuning();  // self-logs; single-client only
     Log("--- Thread ID Cache ---");
-    bool tidOk = InstallThreadIdCacheHook();
+    bool tidOk = Config::g_settings.OptAllocators && InstallThreadIdCacheHook();
     Log("--- QPC Cache ---");
 #if !CRASH_TEST_DISABLE_QPC_CACHE
-    bool qpcOk = InstallQPCHook();
+    bool qpcOk = Config::g_settings.OptTimingFix && InstallQPCHook();
 #else
     bool qpcOk = false;
     Log("QPC hook: DISABLED (crash isolation)");
 #endif     
     Log("--- Bad Pointer Checks ---");
-    bool bpOk  = InstallBadPtrHooks();    
+    bool bpOk  = Config::g_settings.OptCvarNullGuard && InstallBadPtrHooks();    
     Log("--- String Comparison ---");
-    bool cmpOk = InstallCompareStringHook();
+    bool cmpOk = Config::g_settings.OptStrStrSse2 && InstallCompareStringHook();
     Log("--- Debug Strings ---");
-    bool debugOk = InstallOutputDebugStringHook();
+    bool debugOk = Config::g_settings.OptCvarNullGuard && InstallOutputDebugStringHook();
     Log("--- Critical Sections ---");
-    bool csOk = InstallCriticalSectionHook();
+    bool csOk = Config::g_settings.OptDefragLf && InstallCriticalSectionHook();
     Log("--- Network ---");
 #if !TEST_DISABLE_NETWORK_HOOKS
-    bool netOk = InstallNetworkHooks();
+    bool netOk = Config::g_settings.OptPacketOffload && InstallNetworkHooks();
 #else
     bool netOk = false;
 #endif
     Log("--- File I/O ---");
-    bool fileOk  = InstallFileHooks();
+    bool fileOk  = Config::g_settings.OptDbcLookupCache && InstallFileHooks();
 #if !CRASH_TEST_DISABLE_READFILE
-    bool readOk  = InstallReadFileHook();
+    bool readOk  = Config::g_settings.OptDbcLookupCache && InstallReadFileHook();
 #else
     bool readOk  = false;
     Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
 #endif
-    bool closeOk = InstallCloseHandleHook();
-    bool flushOk = InstallFlushFileBuffersHook();
+    bool closeOk = Config::g_settings.OptDbcLookupCache && InstallCloseHandleHook();
+    bool flushOk = Config::g_settings.OptDbcLookupCache && InstallFlushFileBuffersHook();
     Log("--- Async MPQ I/O ---");
     // Worker started after init completes to avoid race with hook setup
     bool asyncIoOk = true;
     Log("--- MPQ Scan ---");
     ScanExistingMpqHandles();
     Log("--- File Attributes ---");
-    bool faOk = InstallGetFileAttributesHook();
+    bool faOk = Config::g_settings.OptDbcLookupCache && InstallGetFileAttributesHook();
     Log("--- File Pointer ---");
-    bool sfpOk = InstallSetFilePointerHook();
+    bool sfpOk = Config::g_settings.OptDbcLookupCache && InstallSetFilePointerHook();
     Log("--- Global Alloc ---");
-    bool gaOk  = InstallGlobalAllocHooks();    
+    bool gaOk  = Config::g_settings.OptAllocators && InstallGlobalAllocHooks();    
     Log("--- Multi-Client ---");
     DetectMultiClient();
     AdjustMimallocForMultiClient();    
@@ -6330,58 +6330,58 @@ static DWORD WINAPI MainThread(LPVOID param) {
     TryRemoveFPSCap();
 
     Log("--- File Size Cache ---");
-    bool fsizeOk = InstallGetFileSizeCache();
+    bool fsizeOk = Config::g_settings.OptDbcLookupCache && InstallGetFileSizeCache();
     Log("--- WaitForSingleObject Spin ---");
-    bool wfsOk = InstallWaitForSingleObjectHook();
+    bool wfsOk = Config::g_settings.OptDefragLf && InstallWaitForSingleObjectHook();
     Log("--- Module Handle Cache ---");
-    bool modOk = InstallGetModuleHandleCache();
+    bool modOk = Config::g_settings.OptLuaFileCache && InstallGetModuleHandleCache();
     Log("--- String Compare (lstrcmp) ---");
-    bool lstrOk = InstallLstrcmpHook();
+    bool lstrOk = Config::g_settings.OptStrStrSse2 && InstallLstrcmpHook();
     Log("--- String Length (lstrlen) ---");
-    bool lstrlenOk = InstallLStrLenHooks();
-    bool strlen76Ok = InstallWowStrlenHook();
+    bool lstrlenOk = Config::g_settings.OptStrStrSse2 && InstallLStrLenHooks();
+    bool strlen76Ok = Config::g_settings.OptStrStrSse2 && InstallWowStrlenHook();
     if (strlen76Ok) Log("WoW-internal strlen hook: ACTIVE (SSE2 replacement for sub_76EE30)");
 
     // CRT strstr SSE2 - algorithmic replacement for byte-by-byte search
 #if !TEST_DISABLE_STRSTR_SSE2
-    bool strstrOk = InstallStrstrSSE2();
+    bool strstrOk = Config::g_settings.OptStrStrSse2 && InstallStrstrSSE2();
 #else
     bool strstrOk = false;
 #endif
 
     // CRT memchr + strchr SSE2 - 16-byte SIMD byte scan
 #if !TEST_DISABLE_CRT_CHAR_SSE2
-    bool chrOk = InstallCrtCharSSE2();
+    bool chrOk = Config::g_settings.OptStrStrSse2 && InstallCrtCharSSE2();
 #else
     bool chrOk = false;
 #endif
 
-    bool wcharOk = InstallCrtWcharSSE2();
+    bool wcharOk = Config::g_settings.OptStrStrSse2 && InstallCrtWcharSSE2();
 
     // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
-    bool tlsCacheOk = InstallTlsCache();
+    bool tlsCacheOk = Config::g_settings.OptAllocators && InstallTlsCache();
 
     // Stream Reader/Writer Cache - eliminate bounds checks
-    bool streamCacheOk = InstallStreamCache();
+    bool streamCacheOk = Config::g_settings.OptSavedVarsPretoken && InstallStreamCache();
 
     // Lua "this" Object Lookup Cache - cache method dispatcher results
-    bool luaThisCacheOk = InstallLuaThisCache();
+    bool luaThisCacheOk = Config::g_settings.OptUIFrameAccessorFast && InstallLuaThisCache();
 
     // I/O Dispatcher Cache - 4050 callers
-    bool ioCacheOk = InstallIOCache();
+    bool ioCacheOk = Config::g_settings.OptDbcLookupCache && InstallIOCache();
 
     // Lua Global Lookup Cache
-    bool luaGlobalCacheOk = InstallLuaGlobalCache();
+    bool luaGlobalCacheOk = Config::g_settings.OptLuaOpcache && InstallLuaGlobalCache();
 
     // memset hook - 1108 callers
-    bool hotFuncOk = InstallHotFunctionOptimizations();
+    bool hotFuncOk = Config::g_settings.OptStrStrSse2 && InstallHotFunctionOptimizations();
 
     // SSE2 memcpy hook - 719 callers, 16-255B non-overlapping range
-    bool memcpyFastOk = InstallMemcpyFast();
+    bool memcpyFastOk = Config::g_settings.OptStrStrSse2 && InstallMemcpyFast();
 
     // FrameScript hash dispatch - 18 handlers, O(1) vs O(n)
 #if !TEST_DISABLE_FRAME_SCRIPT_DISPATCH
-    bool fsDispatchOk = InstallFrameScriptDispatch();
+    bool fsDispatchOk = Config::g_settings.OptFrameScriptDispatch && InstallFrameScriptDispatch();
 #else
     bool fsDispatchOk = false;
     Log("[FrameScriptDispatch] DISABLED via feature flag");
@@ -6389,16 +6389,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Fast String Compare (strncmp) - 1013 callers
 #if !TEST_DISABLE_STRING_OPS_FAST
-    bool fastStrncmpOk = InstallFastStrncmp();
+    bool fastStrncmpOk = Config::g_settings.OptStrStrSse2 && InstallFastStrncmp();
 #else
     bool fastStrncmpOk = false;
 #endif
 
     // CRT Free Hook - 2901 callers (#2 most called)
-    bool crtFreeOk = InstallCrtFreeHook();
+    bool crtFreeOk = Config::g_settings.OptAllocators && InstallCrtFreeHook();
 
     // Aligned Allocator Cache - 1764 callers (thread-local pool for small allocations)
-    bool alignedAllocOk = InstallAlignedAllocCache();
+    bool alignedAllocOk = Config::g_settings.OptAllocators && InstallAlignedAllocCache();
 
     // NOTE: free_cache, strnicmp_fast, tick_counter_cache are DUPLICATES of existing hooks:
     //   crt_free_hook.cpp   already hooks 0x76E5A0 (2901 callers)
@@ -6408,11 +6408,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // CDataStore Fast Path - 4179 xrefs (network packet serialization/deserialization)
     Log("--- CDataStore Fast Path ---");
-    bool datastoreOk = InitDataStoreFastPath();
+    bool datastoreOk = Config::g_settings.OptSavedVarsPretoken && InitDataStoreFastPath();
 
     // String & Memory Ops Fast Path - 3900+ xrefs (free wrapper, strnicmp, Jenkins hash)
     Log("--- String & Memory Ops Fast Path ---");
-    bool stringOpsOk = InitStringOpsFast();
+    bool stringOpsOk = Config::g_settings.OptStrStrSse2 && InitStringOpsFast();
 
     // DISABLED: sub_84D9C0 (get_tvalue helper) uses usercall convention (ECX=L, EAX=idx)
     // Cannot be called as __cdecl - causes ACCESS_VIOLATION at 0x0084D9C4
@@ -6427,44 +6427,44 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaPushStringOk = false;    // InstallLuaPushStringCache();
 
     Log("--- MBT/WCT ASCII Fast Path ---");
-    bool mbwcOk = InstallMBWCHooks();
+    bool mbwcOk = Config::g_settings.OptStrStrSse2 && InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
-    bool crtOk = InstallCrtMemFastPaths();
-    bool sysInfoOk = InstallSysInfoCache();
-    bool regCacheOk = InstallRegCache();
+    bool crtOk = Config::g_settings.OptAllocators && InstallCrtMemFastPaths();
+    bool sysInfoOk = Config::g_settings.OptTimingFix && InstallSysInfoCache();
+    bool regCacheOk = Config::g_settings.OptTimingFix && InstallRegCache();
 #if !TEST_DISABLE_SYSTEM_METRICS_CACHE
-    bool smCacheOk = InstallSysMetricsCache();
+    bool smCacheOk = Config::g_settings.OptTimingFix && InstallSysMetricsCache();
 #else
     bool smCacheOk = false;
 #endif
-    bool noDebugOk = InstallNoDebuggerPresent();
-    bool verCacheOk = InstallVerCache();
-    bool batch10Ok = InstallBatchOpt10();
-    bool batch20Ok = InstallBatchOpt20();
-    bool batch30Ok = InstallBatchOpt30();
-    bool batch35Ok = InstallBatchOpt35();
+    bool noDebugOk = Config::g_settings.OptCvarNullGuard && InstallNoDebuggerPresent();
+    bool verCacheOk = Config::g_settings.OptTimingFix && InstallVerCache();
+    bool batch10Ok = Config::g_settings.OptStrStrSse2 && InstallBatchOpt10();
+    bool batch20Ok = Config::g_settings.OptStrStrSse2 && InstallBatchOpt20();
+    bool batch30Ok = Config::g_settings.OptStrStrSse2 && InstallBatchOpt30();
+    bool batch35Ok = Config::g_settings.OptStrStrSse2 && InstallBatchOpt35();
     bool batch38Ok = false;
     Log("--- GetProcAddress Cache ---");
-    bool gpaOk = InstallGetProcAddressCache();
+    bool gpaOk = Config::g_settings.OptTimingFix && InstallGetProcAddressCache();
     Log("--- GetModuleFileName Cache ---");
-    bool gmfOk = InstallGetModuleFileNameCache();
+    bool gmfOk = Config::g_settings.OptTimingFix && InstallGetModuleFileNameCache();
     Log("--- Environment Variable Cache ---");
-    bool envOk = InstallEnvironmentVariableCache();
+    bool envOk = Config::g_settings.OptTimingFix && InstallEnvironmentVariableCache();
     Log("--- Profile String Cache ---");
-    bool profOk = InstallGetPrivateProfileCache();
+    bool profOk = Config::g_settings.OptTimingFix && InstallGetPrivateProfileCache();
 
     Log("--- Message Pump ---");
-    bool msgPumpOk = InstallMsgPumpHook();
+    bool msgPumpOk = Config::g_settings.OptUIFrameBatch && InstallMsgPumpHook();
 
     Log("--- Swap/Present ---");
-    bool swapOk = InstallSwapPresentHook();
+    bool swapOk = Config::g_settings.OptVulkanDXVK && InstallSwapPresentHook();
 
     Log("--- Lua Table Rehash ---");
-    bool tableReshapeOk = InstallLuaHResizeHook();
+    bool tableReshapeOk = Config::g_settings.OptLuaOpcache && InstallLuaHResizeHook();
     bool assetPathOk = false; // Disabled - breaks logout/teardown
 
     Log("--- Lua Table Lookup ---");
-    bool luaHGetStrOk = InstallLuaHGetStrCache();
+    bool luaHGetStrOk = Config::g_settings.OptLuaOpcache && InstallLuaHGetStrCache();
 
     Log("--- UnitAura Fast Path ---");
 #if !TEST_DISABLE_UNIT_AURA_FAST
@@ -6492,13 +6492,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Deferred Field Updates ---");
     bool fieldOk = InstallFieldUpdateHook();
-    if (Config::g_settings.HeapCompactor) {
+    if (Config::g_settings.OptHeapCompactor) {
         HeapCompactor_Init();
     } else {
         Log("[HeapCompactor] DISABLED via configuration (wow_opt.ini)");
     }
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
-    if (Config::g_settings.MemoryPressure) {
+    if (Config::g_settings.OptMemoryPressure) {
         PressureGovernor::Init();
     } else {
         Log("[PressureGovernor] DISABLED via configuration (wow_opt.ini)");
@@ -6507,17 +6507,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
     VersionChecker_Init();
 
     Log("--- Lua tonumber Fast Path ---");
-    bool luaToNumberFastOk = InstallLuaToNumberFast();
+    bool luaToNumberFastOk = Config::g_settings.OptLuaNumConvFast && InstallLuaToNumberFast();
 
     Log("--- Lua pushnumber Fast Path ---");
-    bool luaPushNumberFastOk = InstallLuaPushNumberFast();
+    bool luaPushNumberFastOk = Config::g_settings.OptLuaNumConvFast && InstallLuaPushNumberFast();
 
     Log("--- GetTime() Frame-Cached Fast Path ---");
-    bool getTimeFastOk = InstallGetTimeFast();
+    bool getTimeFastOk = Config::g_settings.OptTimingFix && InstallGetTimeFast();
 
     Log("--- lua_pushvalue Direct Stack Copy ---");
 #if !TEST_DISABLE_PUSHVALUE_FAST
-    bool pushValueFastOk = InstallLuaPushValueFast();
+    bool pushValueFastOk = Config::g_settings.OptLuaNumConvFast && InstallLuaPushValueFast();
 #else
     bool pushValueFastOk = false;
     Log("[PushValueFast] DISABLED via TEST_DISABLE_PUSHVALUE_FAST");
@@ -6525,7 +6525,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Lua Stack Push/Query Fast Paths (8 hooks) ---");
 #if !TEST_DISABLE_LUA_STACK_FAST
-    bool luaStackFastOk = InstallLuaStackFast();
+    bool luaStackFastOk = Config::g_settings.OptLuaNumConvFast && InstallLuaStackFast();
 #else
     bool luaStackFastOk = false;
     Log("[LuaStackFast] DISABLED via TEST_DISABLE_LUA_STACK_FAST");
@@ -6533,7 +6533,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- UI Accessor Fast Paths ---");
 #if !TEST_DISABLE_UI_ACCESSOR_FAST
-    bool uiAccessorOk = InstallUIAccessorFast();
+    bool uiAccessorOk = Config::g_settings.OptUIFrameAccessorFast && InstallUIAccessorFast();
     CrashDumper::RegisterFeature("UIAccessorFast");
     CrashDumper::FeatureSetActive("UIAccessorFast", uiAccessorOk);
     // SIMD and UI Frame XML accessors (commit 670012c)
@@ -6549,7 +6549,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Font Metrics Fast Paths ---");
 #if !TEST_DISABLE_FONT_METRICS_FAST
-    bool fontMetricsOk = InstallFontMetricsFast();
+    bool fontMetricsOk = Config::g_settings.OptFontMetricsFast && InstallFontMetricsFast();
     CrashDumper::RegisterFeature("FontMetricsFast");
     CrashDumper::FeatureSetActive("FontMetricsFast", fontMetricsOk);
 #else
@@ -6559,17 +6559,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Render State Deduplication ---");
 #if !TEST_DISABLE_RENDER_STATE_DEDUP
-    bool renderDedupOk = InstallRenderStateDedup();
+    bool renderDedupOk = Config::g_settings.OptVulkanDXVK && InstallRenderStateDedup();
 #else
     Log("[RenderDedup] DISABLED via TEST_DISABLE_RENDER_STATE_DEDUP");
     bool renderDedupOk = false;
 #endif
 
     Log("--- Lua SetTable Cache ---");
-    bool setTableCacheOk = InstallLuaSetTableCache();
+    bool setTableCacheOk = Config::g_settings.OptLuaOpcache && InstallLuaSetTableCache();
 
     Log("--- Regex Pattern Cache ---");
-    bool regexCacheOk = InstallRegexCache();
+    bool regexCacheOk = Config::g_settings.OptLuaOpcache && InstallRegexCache();
 
     Log("--- SSE2 Trig LUT ---");
     InitTrigLUT();
@@ -6581,19 +6581,19 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool computeCachesOk = InitComputeCaches();
 
     Log("--- Event Name Hash Cache ---");
-    bool eventHashOk = InstallEventNameHash();
+    bool eventHashOk = Config::g_settings.OptEventCoalescer && InstallEventNameHash();
 
     Log("--- CDataStore Batch Read ---");
-    bool cdataBatchOk = InstallCDataStoreBatch();
+    bool cdataBatchOk = Config::g_settings.OptSavedVarsPretoken && InstallCDataStoreBatch();
 
     Log("--- SSE2 Strcpy Optimization ---");
-    bool strcpyOk = InstallStrcatFast();
+    bool strcpyOk = Config::g_settings.OptStrCatFast && InstallStrcatFast();
 
     Log("--- Script Handler Cache ---");
-    bool scriptHandlerOk = InstallScriptHandlerCache();
+    bool scriptHandlerOk = Config::g_settings.OptUIFrameBatch && InstallScriptHandlerCache();
 
     Log("--- DBC Lookup Cache ---");
-    bool dbcLookupOk = InstallDbcLookupCache();
+    bool dbcLookupOk = Config::g_settings.OptDbcLookupCache && InstallDbcLookupCache();
 
     Log("--- Event Dispatch Cache ---");
 #if 0
@@ -6604,19 +6604,19 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- Event Name Cache ---");
-    bool eventNameOk = InstallEventNameCache();
+    bool eventNameOk = Config::g_settings.OptEventCoalescer && InstallEventNameCache();
 
     Log("--- luaH_getstr Inline Optimization ---");
 #if TEST_DISABLE_GETSTR_INLINE
     bool getStrInlineOk = false;
     Log("[GetStrInline] DISABLED (addon nil-field corruption: WeakAuras aura_env via __index)");
 #else
-    bool getStrInlineOk = InstallLuaGetStrInline();
+    bool getStrInlineOk = Config::g_settings.OptLuaOpcache && InstallLuaGetStrInline();
 #endif
 
     Log("--- lua_toboolean Inline Optimization ---");
 #if !TEST_DISABLE_TOBOOLEAN_INLINE
-    bool tobooleanOk = InstallLuaTobooleanInline();
+    bool tobooleanOk = Config::g_settings.OptLuaOpcache && InstallLuaTobooleanInline();
 #else
     bool tobooleanOk = false;
     Log("[LuaTBool] DISABLED via TEST_DISABLE_TOBOOLEAN_INLINE");
@@ -6626,7 +6626,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- lua_objlen Inline Optimization ---");
 #if !TEST_DISABLE_OBJLEN_INLINE
-    bool objlenOk = InstallLuaObjLenInline();
+    bool objlenOk = Config::g_settings.OptLuaOpcache && InstallLuaObjLenInline();
 #else
     bool objlenOk = false;
     Log("[LuaObjLen] DISABLED via TEST_DISABLE_OBJLEN_INLINE");
@@ -6704,13 +6704,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // --- Safe group 1: string/number validation ---
 #if !TEST_DISABLE_LUA_SAFE_G1
-    bool checknumOk = InstallLuaCheckNumberFast();
-    bool checkstrOk = InstallLuaCheckStringFast();
-    bool optnumOk = InstallLuaOptnumberFast();
-    bool optstrOk = InstallLuaOptstringFast();
-    bool tolstrOk = InstallLuaTolstringFast();
-    bool argchkOk = InstallLuaArgcheckFast();
-    bool tnameOk = InstallLuaTypeNameFast();
+    bool checknumOk = Config::g_settings.OptLuaOpcache && InstallLuaCheckNumberFast();
+    bool checkstrOk = Config::g_settings.OptLuaOpcache && InstallLuaCheckStringFast();
+    bool optnumOk = Config::g_settings.OptLuaOpcache && InstallLuaOptnumberFast();
+    bool optstrOk = Config::g_settings.OptLuaOpcache && InstallLuaOptstringFast();
+    bool tolstrOk = Config::g_settings.OptLuaOpcache && InstallLuaTolstringFast();
+    bool argchkOk = Config::g_settings.OptLuaOpcache && InstallLuaArgcheckFast();
+    bool tnameOk = Config::g_settings.OptLuaOpcache && InstallLuaTypeNameFast();
 #else
     bool checknumOk = false, checkstrOk = false, optnumOk = false, optstrOk = false;
     bool tolstrOk = false, argchkOk = false, tnameOk = false;
@@ -6720,18 +6720,18 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #if !TEST_DISABLE_LUA_SAFE_G2
 #if !TEST_DISABLE_LUA_SAFE_G2A
 #if !TEST_DISABLE_LUA_SAFE_G2AL
-    bool getlocalOk = InstallLuaGetLocalFast();
+    bool getlocalOk = Config::g_settings.OptLuaOpcache && InstallLuaGetLocalFast();
 #else
     bool getlocalOk = false;
 #endif
 #if !TEST_DISABLE_LUA_SETLOCAL_FAST
-    bool setlocalOk = InstallLuaSetLocalFast();
+    bool setlocalOk = Config::g_settings.OptLuaOpcache && InstallLuaSetLocalFast();
 #else
     bool setlocalOk = false;
     Log("[LuaInline] SetLocal DISABLED: confirmed ntdll heap corruption on login");
 #endif
 #if !TEST_DISABLE_LUA_SAFE_G2AI
-    bool getinfoOk = InstallLuaGetInfoFast();
+    bool getinfoOk = Config::g_settings.OptLuaOpcache && InstallLuaGetInfoFast();
 #else
     bool getinfoOk = false;
 #endif
@@ -6739,8 +6739,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool getlocalOk = false, setlocalOk = false, getinfoOk = false;
 #endif
 #if !TEST_DISABLE_LUA_SAFE_G2B
-    bool errorfastOk = InstallLuaErrorFast();
-    bool lessthanOk = InstallLuaLessThanFast();
+    bool errorfastOk = Config::g_settings.OptLuaOpcache && InstallLuaErrorFast();
+    bool lessthanOk = Config::g_settings.OptLuaOpcache && InstallLuaLessThanFast();
 #else
     bool errorfastOk = false, lessthanOk = false;
 #endif
@@ -6758,15 +6758,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // --- Safe group 3: metatable / type checks / buffers ---
 #if !TEST_DISABLE_LUA_SAFE_G3
-    bool metaFieldFastOk = InstallLuaGetMetaFieldFast();
-    bool whereFastOk = InstallLuaWhereFast();
-    bool luaCheckTypeFastOk = InstallLuaCheckTypeFast();
-    bool getUpvalueFastOk = InstallLuaGetUpvalueFast();
-    bool buffInitFastOk = InstallLuaBuffinitFast();
-    bool prepBufferFastOk = InstallLuaPrepbufferFast();
-    bool iscfuncFastOk = InstallLuaIsCFuncFast();
-    bool isnumFastOk = InstallLuaIsNumberFast();
-    bool raweqFastOk = InstallLuaRawEqualFast();
+    bool metaFieldFastOk = Config::g_settings.OptLuaOpcache && InstallLuaGetMetaFieldFast();
+    bool whereFastOk = Config::g_settings.OptLuaOpcache && InstallLuaWhereFast();
+    bool luaCheckTypeFastOk = Config::g_settings.OptLuaOpcache && InstallLuaCheckTypeFast();
+    bool getUpvalueFastOk = Config::g_settings.OptLuaOpcache && InstallLuaGetUpvalueFast();
+    bool buffInitFastOk = Config::g_settings.OptLuaOpcache && InstallLuaBuffinitFast();
+    bool prepBufferFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPrepbufferFast();
+    bool iscfuncFastOk = Config::g_settings.OptLuaOpcache && InstallLuaIsCFuncFast();
+    bool isnumFastOk = Config::g_settings.OptLuaOpcache && InstallLuaIsNumberFast();
+    bool raweqFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRawEqualFast();
 #else
     bool metaFieldFastOk = false, whereFastOk = false, luaCheckTypeFastOk = false;
     bool getUpvalueFastOk = false, buffInitFastOk = false, prepBufferFastOk = false;
@@ -6802,7 +6802,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- luaV_gettable Safety Patch (crash fix) ---");
 #if !TEST_DISABLE_LUA_GETTABLE_SAFETY
-    bool getTableSafetyOk = InstallLuaGetTableSafety();
+    bool getTableSafetyOk = Config::g_settings.OptCvarNullGuard && InstallLuaGetTableSafety();
 #else
     bool getTableSafetyOk = false;
     Log("[GetTableSafety] DISABLED via feature flag");
@@ -6838,16 +6838,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::FeatureSetActive("LuaVMPhase3", vmPhase3Ok);
 
     Log("--- Hardware Cursor ---");
-    bool cursorOk = InstallHardwareCursorHooks();
+    bool cursorOk = Config::g_settings.OptCvarNullGuard && InstallHardwareCursorHooks();
 
     Log("--- Frame Script Throttling ---");
-    bool frameThrottleOk = InstallFrameThrottling();
+    bool frameThrottleOk = Config::g_settings.OptUIFrameBatch && InstallFrameThrottling();
 
     Log("--- Tooltip String Caching ---");
-    bool tooltipCacheOk = TooltipCache::Install();
+    bool tooltipCacheOk = Config::g_settings.OptTooltipCache && TooltipCache::Install();
 
     Log("--- Spell Data Caching ---");
-    bool spellCacheOk = SpellCache::Init();
+    bool spellCacheOk = Config::g_settings.OptGetSpellInfoCache && SpellCache::Init();
 
     // UI Frame Batching - REMOVED due to calling convention issues
     // Caused MoveAnything addon to break even when disabled
@@ -6863,10 +6863,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool tableConcatOk = false;
 
     Log("--- Lua RawGetI ---");
-    bool luaRawGetIOk = InstallLuaRawGetICache();
+    bool luaRawGetIOk = Config::g_settings.OptLuaOpcache && InstallLuaRawGetICache();
 
     Log("--- CombatLog Full Cache ---");
-    bool combatLogFullCacheOk = InstallCombatLogFullCache();
+    bool combatLogFullCacheOk = Config::g_settings.OptCombatLogParser && InstallCombatLogFullCache();
 
     Log("--- Thread Affinity ---");
     if (IsWine()) {
@@ -6878,10 +6878,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
         // when any caller changes thread affinity.
         InstallWineSTIPNoop();
     }
-    g_threadAffOk = InstallThreadAffinity();
+    g_threadAffOk = Config::g_settings.OptDefragLf && InstallThreadAffinity();
 
     Log("--- VA Arena ---");
-    vaOk = InstallVAArena();
+    vaOk = Config::g_settings.OptAllocators && InstallVAArena();
 
     Log("--- RTTI Type Check Cache ---");
     // DISABLED: tls_cache.cpp hooks 0x4D4DB0 first (install order), making
@@ -6893,7 +6893,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool rttiCacheOk = false;
 
     Log("--- Stream Buffer Fast Path ---");
-    bool streamBufOk = InstallStreamBufferFastPath();
+    bool streamBufOk = Config::g_settings.OptSavedVarsPretoken && InstallStreamBufferFastPath();
 
     bool luaOk = false;
     Log("");
@@ -6906,11 +6906,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Combat Log ---");
-    bool combatLogOk = CombatLogOpt::Init();
+    bool combatLogOk = Config::g_settings.OptCombatLogParser && CombatLogOpt::Init();
 
     Log("");
     Log("--- Combat Log Buffer Governor ---");
-    bool combatLogBufOk = CombatLogBuffer::Init();
+    bool combatLogBufOk = Config::g_settings.OptCombatLogParser && CombatLogBuffer::Init();
 
     Log("");
     Log("--- Multithreaded Addon Update Dispatcher ---");
@@ -6997,7 +6997,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
         void* target = (void*)0x5E90D0;
         // Use WineSafe_CreateHook to avoid Rosetta JIT desync on macOS
-        if (WineSafe_CreateHook(target, (void*)NullGuard_5E90D0::Hooked, (void**)&orig_Sub5E90D0) == MH_OK) {
+        if (Config::g_settings.OptCvarNullGuard && WineSafe_CreateHook(target, (void*)NullGuard_5E90D0::Hooked, (void**)&orig_Sub5E90D0) == MH_OK) {
             // Crash guard: enable immediately (not batched) so it protects the
             // init window too.
             if (MH_EnableHook(target) == MH_OK) {
@@ -7093,7 +7093,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
         };
 
         void* target_6D4920 = (void*)0x006D4920;
-        if (WineSafe_CreateHook(target_6D4920, (void*)NullGuard_6D4920::Hooked, (void**)&orig_Sub6D4920) == MH_OK) {
+        if (Config::g_settings.OptCvarNullGuard && WineSafe_CreateHook(target_6D4920, (void*)NullGuard_6D4920::Hooked, (void**)&orig_Sub6D4920) == MH_OK) {
             if (MH_EnableHook(target_6D4920) == MH_OK) {
                 Log("[CrashFix] sub_6D4920 NULL/bounds guard: ACTIVE");
             } else {
@@ -7116,7 +7116,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- UI Cache ---");
-    bool uiCacheOk = UICache::Init();
+    bool uiCacheOk = Config::g_settings.OptUIFrameAccessorFast && UICache::Init();
 
     Log("");
     Log("--- API Cache ---");
@@ -7137,7 +7137,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[FastPath] DISABLED (baseline test)");
 #else
     __try {
-        fastPathOk = LuaFastPath::Init();
+        fastPathOk = Config::g_settings.OptLuaOpcache && LuaFastPath::Init();
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         Log("[FastPath] EXCEPTION 0x%08X - SKIPPED", GetExceptionCode());
     }
@@ -7152,7 +7152,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Lua bytecode cache (skips script parsing on reload)
 #if !TEST_DISABLE_LUA_BYTECODE_CACHE
-    bool bytecodeOk = LuaBytecodeCache::Init();
+    bool bytecodeOk = Config::g_settings.OptLuaFileCache && LuaBytecodeCache::Init();
 #else
     bool bytecodeOk = false;
 #endif
@@ -7164,7 +7164,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Lua VM table lookup cache (luaV_gettable hook)
     Log("--- Lua VM Table Cache ---");
-    bool vmCacheOk = InstallLuaVMCache();
+    bool vmCacheOk = Config::g_settings.OptLuaOpcache && InstallLuaVMCache();
 
     Log("--- luaV_gettable Cache ---");
     bool getTableCacheOk = false; // InstallLuaGetTableCache(); // DISABLED: completely broken cache that never invalidates on table mutations
@@ -7178,10 +7178,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- Lua File Cache ---");
-    bool luaFileCacheOk = InstallLuaFileCache();
+    bool luaFileCacheOk = Config::g_settings.OptLuaFileCache && InstallLuaFileCache();
 
     Log("--- Combat Log Parser ---");
-    bool combatLogParserOk = InstallCombatLogParser();
+    bool combatLogParserOk = Config::g_settings.OptCombatLogParser && InstallCombatLogParser();
 
     Log("--- Lua Bytecode Pre-Compiler ---");
 #if TEST_DISABLE_LUA_PRECOMPILE
@@ -7193,13 +7193,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
 
     Log("--- Hook Prefetch (9 hooks) ---");
-    bool hookPrefetchOk = HookPrefetch::InstallAll();
+    bool hookPrefetchOk = Config::g_settings.OptDbcLookupCache && HookPrefetch::InstallAll();
 
     Log("--- Hot Patch (20 features) ---");
-    bool hotPatchOk = HotPatch::InstallAll();
+    bool hotPatchOk = Config::g_settings.OptDbcLookupCache && HotPatch::InstallAll();
 
     Log("--- Infra API (50 features) ---");
-    bool infraPatchOk = InfraPatch::InstallAll();
+    bool infraPatchOk = Config::g_settings.OptDbcLookupCache && InfraPatch::InstallAll();
 
     // ALL WoW.exe internal hooks DISABLED for crash isolation.
     // Crash at 0x009E4F24 shows ASCII strings executed as code = corrupted vtable/fnptr.
@@ -7226,13 +7226,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // caused ACCESS_VIOLATION at 0x009E4F24 (write to .data section from worker thread)
     bool memoryOptAsync = false; // WowMemoryOpt::InitAsyncWorkerPool();
     Log("[MemOpt] Async worker pool DISABLED: unsynchronized writes to WoW game state");
-    bool memoryOptMem = WowMemoryOpt::ApplyMemoryOptimizations();
+    bool memoryOptMem = Config::g_settings.OptAllocators && WowMemoryOpt::ApplyMemoryOptimizations();
 
     Log("--- Source-Level Optimizations ---");
-    bool sourceOptOk = WowSourceOpt::InstallAll();
+    bool sourceOptOk = Config::g_settings.OptAllocators && WowSourceOpt::InstallAll();
 
     Log("--- TLS Object Cache ---");
-    bool tlsObjCacheOk = TlsObjectCache::Install();
+    bool tlsObjCacheOk = Config::g_settings.OptAllocators && TlsObjectCache::Install();
 
     Log("");
     Log("--- D3D9 State Manager (15 hooks) ---");
@@ -7241,16 +7241,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Render Hooks (anim throttle, backbuffer) ---");
-    bool renderHooksOk = InstallRenderHooks(); // BISECT
+    bool renderHooksOk = Config::g_settings.OptDefragLf && InstallRenderHooks(); // BISECT
 
     Log("");
     Log("--- SIMD Hooks (SSE2 matrix, frustum, color) ---");
-    bool simdHooksOk = InstallSimdHooks(); // BISECT
+    bool simdHooksOk = Config::g_settings.OptStrStrSse2 && InstallSimdHooks(); // BISECT
 
     Log("");
     Log("--- Logic Hooks (combat text, UI cache, heartbeat) ---");
 #if !TEST_DISABLE_UNIT_API_FASTPATH
-    bool logicHooksOk = InstallLogicHooks();
+    bool logicHooksOk = Config::g_settings.OptUIFrameBatch && InstallLogicHooks();
 #else
     bool logicHooksOk = false;
     Log("[LogicHooks] DISABLED via TEST_DISABLE_UNIT_API_FASTPATH");
@@ -7258,16 +7258,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Memory Hooks (aligned slabs, GUID hash) ---");
-    bool memHooksOk = InstallMemoryHooks(); // BISECT
+    bool memHooksOk = Config::g_settings.OptAllocators && InstallMemoryHooks(); // BISECT
 
     Log("");
     Log("--- Async Hooks (worker pool, particle, prefetch) ---");
-    bool asyncHooksOk = InstallAsyncHooks(); // BISECT
+    bool asyncHooksOk = Config::g_settings.OptDefragLf && InstallAsyncHooks(); // BISECT
 
     Log("");
     Log("--- Loading Defragmenter & Pre-committer ---");
 #if !TEST_DISABLE_LOADING_DEFRAG
-    bool loadingDefragOk = LoadingDefrag::Init();
+    bool loadingDefragOk = Config::g_settings.OptDefragLf && LoadingDefrag::Init();
 #else
     bool loadingDefragOk = false;
     Log("[LoadingDefrag] DISABLED via TEST_DISABLE_LOADING_DEFRAG");
@@ -7276,7 +7276,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Visual Frustum Culling Cache ---");
 #if !TEST_DISABLE_ASYNC_CULLING
-    bool asyncCullingOk = AsyncCulling::Init();
+    bool asyncCullingOk = Config::g_settings.OptDbcLookupCache && AsyncCulling::Init();
 #else
     bool asyncCullingOk = false;
     Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
@@ -7285,7 +7285,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- D3D9 Render State Cache ---");
 #if !TEST_DISABLE_D3D9_STATE_CACHE
-    bool d3d9StateCacheOk = D3D9StateCache::Init();
+    bool d3d9StateCacheOk = Config::g_settings.OptVulkanDXVK && D3D9StateCache::Init();
 #else
     bool d3d9StateCacheOk = false;
     Log("[D3D9StateCache] DISABLED via TEST_DISABLE_D3D9_STATE_CACHE");
@@ -7295,7 +7295,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- High-Precision Hybrid Frame Limiter ---");
 #if !TEST_DISABLE_FRAME_LIMITER
     bool frameLimiterOk = false;
-    if (Config::g_settings.FrameLimiter) {
+    if (Config::g_settings.OptFrameLimiter) {
         frameLimiterOk = FrameLimiter::Init();
     } else {
         Log("[FrameLimiter] DISABLED via configuration (wow_opt.ini)");
@@ -7309,7 +7309,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lock-Free SavedVariables Serializer ---");
 #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
     bool savedVarsSerializerOk = false;
-    if (Config::g_settings.SavedVarsSerializer) {
+    if (Config::g_settings.OptSavedVarsSerializer) {
         savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
     } else {
         Log("[SavedVarsSerializer] DISABLED via configuration (wow_opt.ini)");
@@ -7322,7 +7322,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- SIMD AVX2 Mesh Skinning Accelerator ---");
 #if !TEST_DISABLE_SIMD_SKINNING
-    bool simdSkinningOk = SimdSkinning::Init();
+    bool simdSkinningOk = Config::g_settings.OptStrStrSse2 && SimdSkinning::Init();
 #else
     bool simdSkinningOk = false;
     Log("[SimdSkinning] DISABLED via TEST_DISABLE_SIMD_SKINNING");
@@ -7332,7 +7332,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Parallel Network Packet Offloader ---");
 #if !TEST_DISABLE_NET_PACKET_OFFLOAD
     bool netPacketOffloadOk = false;
-    if (Config::g_settings.PacketOffload) {
+    if (Config::g_settings.OptPacketOffload) {
         netPacketOffloadOk = NetPacketOffload::Init();
     } else {
         Log("[NetPacketOffload] DISABLED via configuration (wow_opt.ini)");
@@ -7345,7 +7345,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Velocity-Based Predictive Asset Prefetcher ---");
 #if !TEST_DISABLE_PREDICTIVE_PREFETCH
-    bool predictivePrefetchOk = PredictivePrefetch::Init();
+    bool predictivePrefetchOk = Config::g_settings.OptDbcLookupCache && PredictivePrefetch::Init();
 #else
     bool predictivePrefetchOk = false;
     Log("[PredictivePrefetch] DISABLED via TEST_DISABLE_PREDICTIVE_PREFETCH");
@@ -7353,31 +7353,31 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Parallel M2 Geometry SIMD Skinning ---");
-    bool parallelM2Ok = ParallelM2Skinning::Init();
+    bool parallelM2Ok = Config::g_settings.OptStrStrSse2 && ParallelM2Skinning::Init();
 
     Log("");
     Log("--- Lock-Free Object GUID Lookup Cache ---");
-    bool guidCacheOk = GuidLookupCache::Init();
+    bool guidCacheOk = Config::g_settings.OptAllocators && GuidLookupCache::Init();
 
     Log("");
     Log("--- SSE2 Math Fast Paths ---");
-    bool simdMathOk = SimdMathFast::Init();
+    bool simdMathOk = Config::g_settings.OptStrStrSse2 && SimdMathFast::Init();
 
     Log("");
     Log("--- Incremental Combat Log Parsing ---");
-    bool combatLogIncOk = CombatLogIncremental::Init();
+    bool combatLogIncOk = Config::g_settings.OptCombatLogIncremental && CombatLogIncremental::Init();
 
     Log("");
     Log("--- Thread-Local Lua Allocator Pool ---");
-    bool luaPoolOk = LuaAllocPool::Init();
+    bool luaPoolOk = Config::g_settings.OptAllocators && LuaAllocPool::Init();
 
     Log("");
     Log("--- Coalesced World State Updates ---");
-    bool worldStateCoalesceOk = WorldStateCoalesce::Init();
+    bool worldStateCoalesceOk = Config::g_settings.OptWorldStateCoalesce && WorldStateCoalesce::Init();
 
     Log("");
     Log("--- Hardware-Accelerated Vertex Skinning ---");
-    bool hwSkinningOk = HwVertexSkinning::Init();
+    bool hwSkinningOk = Config::g_settings.OptStrStrSse2 && HwVertexSkinning::Init();
 
     Log("");
     Log("--- FMOD Sound Mixer Optimizer ---");

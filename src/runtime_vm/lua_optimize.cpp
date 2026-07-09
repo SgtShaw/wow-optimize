@@ -1658,6 +1658,7 @@ bool PrepareFromWorkerThread() {
     return true;
 }
 
+#if !TEST_DISABLE_COMBATLOG_PARSER
 extern "C" int LUABOOST_GetCombatStats(void* L);
 extern "C" int LUABOOST_ResetCombatStats(void* L);
 
@@ -1693,6 +1694,7 @@ static void CombatLogParser_Update(lua_State* L) {
     }
     Api.lua_settop(L, topBefore);
 }
+#endif
 
 void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     if (GetCurrentThreadId() != mainThreadId) return;
@@ -1888,7 +1890,9 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
     if (!verySlowFrame && (++g_gcRequestCounter & 3) == 0) {
         ProcessGCRequests(Api.L);
         ProcessLuaErrors(Api.L);
+#if !TEST_DISABLE_COMBATLOG_PARSER
         CombatLogParser_Update(Api.L);
+#endif
     }
 
     if (!verySlowFrame) {
