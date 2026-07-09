@@ -128,82 +128,19 @@ static bool LoadPlaceholderTextureBytes() {
     return false;
 }
 
-// Storm API Hook detours
-BOOL APIENTRY Hooked_SFileOpenFileEx(HANDLE hArchive, const char* szFileName, DWORD dwSearchScope, HANDLE* phFile) {
-    if (GetCurrentThreadId() == g_workerThreadId) {
-        return orig_SFileOpenFileEx(hArchive, szFileName, dwSearchScope, phFile);
+bool GetCachedTextureData(const std::string& path, std::vector<uint8_t>& outData) {
+    std::string normPath = path;
+    for (char& c : normPath) {
+        if (c == '/') c = '\\';
+        else c = tolower(c);
     }
-
-    if (szFileName) {
-        std::string path(szFileName);
-
-        std::lock_guard<std::mutex> lock(g_fileCacheMutex);
-        if (g_fileMemoryCache.count(path)) {
-            VirtualFile* vf = new VirtualFile();
-            vf->path = path;
-            vf->data = g_fileMemoryCache[path];
-            vf->offset = 0;
-
-            std::lock_guard<std::mutex> hLock(g_virtualHandlesMutex);
-            HANDLE hVirtual = g_nextVirtualHandle;
-            g_nextVirtualHandle = (HANDLE)((uintptr_t)g_nextVirtualHandle + 1);
-            g_virtualHandles[hVirtual] = vf;
-
-            if (phFile) {
-                *phFile = hVirtual;
-            }
-            return TRUE;
-        }
+    std::lock_guard<std::mutex> lock(g_fileCacheMutex);
+    auto it = g_fileMemoryCache.find(normPath);
+    if (it != g_fileMemoryCache.end()) {
+        outData.assign(it->second.begin(), it->second.end());
+        return true;
     }
-
-    return orig_SFileOpenFileEx(hArchive, szFileName, dwSearchScope, phFile);
-}
-
-BOOL APIENTRY Hooked_SFileReadFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped) {
-    if (GetCurrentThreadId() == g_workerThreadId) {
-        return orig_SFileReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-    }
-
-    {
-        std::lock_guard<std::mutex> hLock(g_virtualHandlesMutex);
-        if (g_virtualHandles.count(hFile)) {
-            VirtualFile* vf = g_virtualHandles[hFile];
-            if (!vf) return FALSE;
-
-            size_t available = vf->data.size() - vf->offset;
-            size_t toCopy = (nNumberOfBytesToRead < available) ? nNumberOfBytesToRead : available;
-
-            if (toCopy > 0) {
-                memcpy(lpBuffer, vf->data.data() + vf->offset, toCopy);
-                vf->offset += toCopy;
-            }
-
-            if (lpNumberOfBytesRead) {
-                *lpNumberOfBytesRead = (DWORD)toCopy;
-            }
-            return TRUE;
-        }
-    }
-
-    return orig_SFileReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
-}
-
-BOOL APIENTRY Hooked_SFileCloseFile(HANDLE hFile) {
-    if (GetCurrentThreadId() == g_workerThreadId) {
-        return orig_SFileCloseFile(hFile);
-    }
-
-    {
-        std::lock_guard<std::mutex> hLock(g_virtualHandlesMutex);
-        if (g_virtualHandles.count(hFile)) {
-            VirtualFile* vf = g_virtualHandles[hFile];
-            delete vf;
-            g_virtualHandles.erase(hFile);
-            return TRUE;
-        }
-    }
-
-    return orig_SFileCloseFile(hFile);
+    return false;
 }
 
 static void WorkerProc() {
@@ -438,29 +375,14 @@ bool Init() {
     g_shutdown = false;
     g_workerThread = std::thread(WorkerProc);
 
-    HMODULE hStorm = GetModuleHandleA("storm.dll");
-    void* pOpenFile = (void*)GetProcAddress(hStorm, "SFileOpenFileEx");
-    void* pReadFile = (void*)GetProcAddress(hStorm, "SFileReadFile");
-    void* pCloseFile = (void*)GetProcAddress(hStorm, "SFileCloseFile");
-
-    if (MH_CreateHook(pOpenFile, (void*)Hooked_SFileOpenFileEx, (void**)&orig_SFileOpenFileEx) != MH_OK ||
-        MH_CreateHook(pReadFile, (void*)Hooked_SFileReadFile, (void**)&orig_SFileReadFile) != MH_OK ||
-        MH_CreateHook(pCloseFile, (void*)Hooked_SFileCloseFile, (void**)&orig_SFileCloseFile) != MH_OK) {
-        Log("[AsyncTexLoader] Failed to create Storm hooks.");
-        return false;
-    }
-
     void* target = (void*)0x004B8910;
     if (MH_CreateHook(target, (void*)Hooked_TexCreateBLP_Naked, (void**)&orig_TexCreateBLP) != MH_OK) {
         Log("[AsyncTexLoader] Failed to create TexCreateBLP hook.");
         return false;
     }
 
-    if (MH_EnableHook(pOpenFile) != MH_OK ||
-        MH_EnableHook(pReadFile) != MH_OK ||
-        MH_EnableHook(pCloseFile) != MH_OK ||
-        MH_EnableHook(target) != MH_OK) {
-        Log("[AsyncTexLoader] Failed to enable hooks.");
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("[AsyncTexLoader] Failed to enable TexCreateBLP hook.");
         return false;
     }
 
@@ -479,16 +401,9 @@ void Shutdown() {
         g_workerThread.join();
     }
 
-    HMODULE hStorm = GetModuleHandleA("storm.dll");
-    void* pOpenFile = (void*)GetProcAddress(hStorm, "SFileOpenFileEx");
-    void* pReadFile = (void*)GetProcAddress(hStorm, "SFileReadFile");
-    void* pCloseFile = (void*)GetProcAddress(hStorm, "SFileCloseFile");
     void* target = (void*)0x004B8910;
-
-    MH_DisableHook(pOpenFile);
-    MH_DisableHook(pReadFile);
-    MH_DisableHook(pCloseFile);
     MH_DisableHook(target);
+    MH_RemoveHook(target);
 
     for (HANDLE hArchive : g_privateArchives) {
         pSFileCloseArchive(hArchive);

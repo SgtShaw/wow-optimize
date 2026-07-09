@@ -76,6 +76,7 @@ namespace WowOptimizeLauncher {
                 { "High-Precision Timing Fix", new SettingItem("General", "TimingFix", false, null, "Overrides GetTickCount and timeGetTime to use QPC, preventing micro-stutters and timer drift.") },
                 { "Null Pointer CVar Safeguard", new SettingItem("General", "CvarNullGuard", true, null, "Critical safety hooks to prevent client crashes caused by uninitialized global variables and CVars.") },
                 { "Frame Rate Limiter Override", new SettingItem("General", "FrameLimiter", false, null, "Overrides WoW's built-in frame limiter with a high-precision spin-wait sleep loop.") },
+                { "Memory-Mapped MPQ VFS", new SettingItem("General", "MpqMmapVfs", false, null, "Maps all main MPQ files to memory using map views to speed up asset load times and parallelize decompression.") },
                 { "Lock-Free Object Manager", new SettingItem("General", "RcuObjMgr", false, null, "Replaces linear linked-list entity loops with atomic pointer mirror arrays to remove object manager locks in raids.") },
 
                 // UI & Lua

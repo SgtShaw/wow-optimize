@@ -29,10 +29,10 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in the Upcoming Update (v3.15.0)
 
-This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 49 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
+This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 50 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
 
 ### Modular Configurator Launcher (v3.15.0)
-- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 49 optimization features via a C# WPF UI (no DLL recompiles required).
+- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 50 optimization features via a C# WPF UI (no DLL recompiles required).
 - **Save & Load Profiles** — Supports exporting/importing customized configurations as `.ini` profiles.
 - **Preset Sharing** — Features a "Share with Developer" button to copy active settings to the clipboard for submitting safe profile recommendations.
 - **Update Checker** — Checks for new versions on startup and displays a link when an update is available on GitHub.

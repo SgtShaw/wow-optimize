@@ -62,6 +62,8 @@ add_library(wow_optimize SHARED
     src/threading/addon_dispatcher.h
     src/hooks_subsystems/mpq_prefetch.cpp
     src/hooks_subsystems/mpq_prefetch.h
+    src/hooks_subsystems/mpq_mmap_vfs.cpp
+    src/hooks_subsystems/mpq_mmap_vfs.h
     src/hooks_subsystems/obj_vis_cache.cpp
     src/hooks_subsystems/obj_vis_cache.h
     src/hooks_subsystems/rcu_obj_mgr.cpp

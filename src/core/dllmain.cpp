@@ -178,6 +178,7 @@ static void StopFreezeWatchdog() {
 #include "combatlog_buffer.h"
 #include "addon_dispatcher.h"
 #include "mpq_prefetch.h"
+#include "mpq_mmap_vfs.h"
 #include "obj_vis_cache.h"
 #include "nameplate_batch.h"
 #include "addon_preload.h"
@@ -1238,6 +1239,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::OnFrame(g_mainThreadId);
 #endif
+            if (Config::g_settings.OptMpqMmapVfs) {
+                MpqMmapVfs::OnFrame();
+            }
 #if !TEST_DISABLE_OBJ_VIS_CACHE
             ObjVisCache::OnFrame();
 #endif
@@ -6180,6 +6184,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("ObjVisCache");
     CrashDumper::RegisterFeature("AddonDispatcher");
     CrashDumper::RegisterFeature("MPQPrefetch");
+    CrashDumper::RegisterFeature("MpqMmapVfs");
     CrashDumper::RegisterFeature("NameplateMT");
     CrashDumper::RegisterFeature("NetworkGUID");
     CrashDumper::RegisterFeature("UICache");
@@ -6955,6 +6960,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[MPQPrefetch] DISABLED via TEST_DISABLE_MPQ_PREFETCH");
     bool mpqPrefetchOk = false;
 #endif
+
+    Log("");
+    Log("--- Memory-Mapped MPQ VFS & Parallel Decompressor ---");
+    bool mpqMmapVfsOk = Config::g_settings.OptMpqMmapVfs && MpqMmapVfs::Init();
 
     Log("");
     Log("--- Object Visibility Cache ---");
@@ -9320,6 +9329,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::Shutdown();
 #endif
+            if (Config::g_settings.OptMpqMmapVfs) {
+                MpqMmapVfs::Shutdown();
+            }
 #if !TEST_DISABLE_OBJ_VIS_CACHE
             ObjVisCache::Shutdown();
 #endif
