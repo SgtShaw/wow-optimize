@@ -707,12 +707,41 @@ namespace WowOptimizeLauncher {
             // 1. Save Settings
             SaveSettings();
 
-            // 2. Launch wow.exe
+            // 2. Locate target executable
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
             string wowPath = System.IO.Path.Combine(exeDir, "wow.exe");
 
             if (!File.Exists(wowPath)) {
-                MessageBox.Show("Could not find wow.exe in current directory: " + wowPath + "\n\nPlease place the launcher in your World of Warcraft directory.", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Check common private server names
+                string[] alternateNames = { "Ascension.exe", "run.exe", "WoWCircle.exe", "wow-64.exe" };
+                foreach (string altName in alternateNames) {
+                    string altPath = System.IO.Path.Combine(exeDir, altName);
+                    if (File.Exists(altPath)) {
+                        wowPath = altPath;
+                        break;
+                    }
+                }
+            }
+
+            // Fallback: search for any .exe containing "wow" or "ascension" that isn't the launcher/loader itself
+            if (!File.Exists(wowPath)) {
+                try {
+                    string[] files = Directory.GetFiles(exeDir, "*.exe");
+                    foreach (string file in files) {
+                        string name = System.IO.Path.GetFileName(file).ToLower();
+                        if (name != "wow_optimize_launcher.exe" && name != "wow_loader.exe" && 
+                            (name.Contains("wow") || name.Contains("ascension") || name.Contains("circle"))) {
+                            wowPath = file;
+                            break;
+                        }
+                    }
+                } catch {
+                    // Ignore directory read errors
+                }
+            }
+
+            if (!File.Exists(wowPath)) {
+                MessageBox.Show("Could not find wow.exe, Ascension.exe, or another valid game executable in the current directory: " + exeDir + "\n\nPlease place the launcher in your World of Warcraft directory.", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
 
@@ -726,7 +755,7 @@ namespace WowOptimizeLauncher {
                 // Exit launcher on launch
                 Close();
             } catch (Exception ex) {
-                MessageBox.Show("Failed to launch wow.exe: " + ex.Message, "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Failed to launch " + System.IO.Path.GetFileName(wowPath) + ": " + ex.Message, "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

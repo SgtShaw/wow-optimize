@@ -382,6 +382,14 @@ Then inject after WoW starts.
 
 ## Compatibility & Setup
 
+### Supported Clients & Private Servers
+The optimization suite is compatible with any standard or customized WotLK 3.3.5a client (build 12340), including private servers using custom executables:
+* **Warmane** (Icecrown, Lordaeron, Onyxia)
+* **Project Ascension** (supporting custom `Ascension.exe` launches)
+* **WoW Circle** (supporting `WoWCircle.exe` launches)
+* **EZ WoW**
+* **UWow** / **Firestorm** (supporting `run.exe` launches)
+
 1. Install the `!LuaBoost` addon into `Interface\AddOns\`.
 2. **Disable conflicting addons:** Remove or disable any third-party GC optimizers (`GarbageProtector`, `GarbageCollector`, `SmartGC`, etc.) and combat log fixes (`CombatLogFix`, etc.). The DLL handles these natively; running both causes duplicate hooks, memory corruption, or crashes.
 3. **Adjust damage meter settings:** Disable built-in garbage collection / memory optimization in your meter addons to prevent double-stepping the Lua GC.
