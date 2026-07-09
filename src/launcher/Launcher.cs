@@ -713,7 +713,7 @@ namespace WowOptimizeLauncher {
 
             if (!File.Exists(wowPath)) {
                 // Check common private server names
-                string[] alternateNames = { "Ascension.exe", "run.exe", "WoWCircle.exe", "wow-64.exe" };
+                string[] alternateNames = { "Ascension.exe", "run.exe", "WoWCircle.exe", "wow-64.exe", "Sirus.exe" };
                 foreach (string altName in alternateNames) {
                     string altPath = System.IO.Path.Combine(exeDir, altName);
                     if (File.Exists(altPath)) {
@@ -730,7 +730,7 @@ namespace WowOptimizeLauncher {
                     foreach (string file in files) {
                         string name = System.IO.Path.GetFileName(file).ToLower();
                         if (name != "wow_optimize_launcher.exe" && name != "wow_loader.exe" && 
-                            (name.Contains("wow") || name.Contains("ascension") || name.Contains("circle"))) {
+                            (name.Contains("wow") || name.Contains("ascension") || name.Contains("circle") || name.Contains("sirus"))) {
                             wowPath = file;
                             break;
                         }

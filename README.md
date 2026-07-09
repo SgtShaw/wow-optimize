@@ -388,6 +388,7 @@ The optimization suite is compatible with any standard or customized WotLK 3.3.5
 * **Project Ascension** (supporting custom `Ascension.exe` launches)
 * **WoW Circle** (supporting `WoWCircle.exe` launches)
 * **EZ WoW**
+* **WoW Sirus** (supporting `Sirus.exe` or custom `run.exe` launches)
 * **UWow** / **Firestorm** (supporting `run.exe` launches)
 
 1. Install the `!LuaBoost` addon into `Interface\AddOns\`.
