@@ -789,6 +789,7 @@ static void   DumpPeriodicStats();
 //
 // ================================================================
 static FILE* g_log = nullptr;
+static FILE* g_sessionLog = nullptr;
 
 static constexpr int LOG_RING_SIZE = 2048;
 static constexpr int LOG_RING_MASK = LOG_RING_SIZE - 1;
@@ -808,54 +809,66 @@ static volatile bool g_logShutdown = false;
 static DWORD WINAPI LogThreadProc(LPVOID) {
     while (!g_logShutdown) {
         WaitForSingleObject(g_logEvent, 100);
-        if (!g_log) continue;
+        if (!g_log && !g_sessionLog) continue;
 
         int flushed = 0;
         while (g_logRing[g_logReadPos & LOG_RING_MASK].ready) {
             int slot = g_logReadPos & LOG_RING_MASK;
-            fputs(g_logRing[slot].text, g_log);
+            if (g_log) fputs(g_logRing[slot].text, g_log);
+            if (g_sessionLog) fputs(g_logRing[slot].text, g_sessionLog);
             InterlockedExchange(&g_logRing[slot].ready, 0);
             g_logReadPos++;
             flushed++;
         }
-        if (flushed > 0) fflush(g_log);
+        if (flushed > 0) {
+            if (g_log) fflush(g_log);
+            if (g_sessionLog) fflush(g_sessionLog);
+        }
     }
 
     while (g_logRing[g_logReadPos & LOG_RING_MASK].ready) {
         int slot = g_logReadPos & LOG_RING_MASK;
         if (g_log) fputs(g_logRing[slot].text, g_log);
+        if (g_sessionLog) fputs(g_logRing[slot].text, g_sessionLog);
         InterlockedExchange(&g_logRing[slot].ready, 0);
         g_logReadPos++;
     }
     if (g_log) fflush(g_log);
+    if (g_sessionLog) fflush(g_sessionLog);
     return 0;
 }
 
 static void LogOpen() {
     CreateDirectoryA("Logs", NULL);
     
-    // Try shared access first (allows multiple WoW clients or other processes to access the file)
+    // 1. Standard log (wow_optimize.log) always overwritten to keep latest easy to access
     g_log = _fsopen("Logs\\wow_optimize.log", "w", _SH_DENYNO);
-    
-    // Fallback: if main log fails, try PID-specific log
-    if (!g_log) {
-        char fallbackPath[64];
-        _snprintf(fallbackPath, sizeof(fallbackPath), "Logs\\wow_optimize_%lu.log", GetCurrentProcessId());
-        fallbackPath[sizeof(fallbackPath) - 1] = '\0';
-        g_log = _fsopen(fallbackPath, "w", _SH_DENYNO);
-    }
-    
-    // Final fallback: use CRT fopen if _fsopen failed
     if (!g_log) {
         g_log = fopen("Logs\\wow_optimize.log", "w");
     }
     
-    if (g_log) {
-        // Write UTF-8 BOM so editors interpret em-dashes and other UTF-8 correctly
-        static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
-        fwrite(bom, 1, 3, g_log);
-        fflush(g_log);  // Ensure BOM is written immediately
+    // 2. Session log with timestamp (wow_optimize_YYYY-MM-DD_HH-MM-SS.log) to preserve history
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    char sessionPath[MAX_PATH];
+    _snprintf(sessionPath, sizeof(sessionPath), "Logs\\wow_optimize_%04d-%02d-%02d_%02d-%02d-%02d.log",
+              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+    sessionPath[sizeof(sessionPath) - 1] = '\0';
+    g_sessionLog = _fsopen(sessionPath, "w", _SH_DENYNO);
+    if (!g_sessionLog) {
+        g_sessionLog = fopen(sessionPath, "w");
     }
+    
+    static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
+    if (g_log) {
+        fwrite(bom, 1, 3, g_log);
+        fflush(g_log);
+    }
+    if (g_sessionLog) {
+        fwrite(bom, 1, 3, g_sessionLog);
+        fflush(g_sessionLog);
+    }
+
     g_logShutdown = false;
     g_logEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
     g_logThread = CreateThread(NULL, 0, LogThreadProc, NULL, 0, NULL);
@@ -871,39 +884,47 @@ static void LogClose() {
     }
     if (g_logEvent) { CloseHandle(g_logEvent); g_logEvent = NULL; }
     if (g_log) { fclose(g_log); g_log = nullptr; }
+    if (g_sessionLog) { fclose(g_sessionLog); g_sessionLog = nullptr; }
 }
 
-// ================================================================
-// LogFlushImmediate - Synchronous flush for crash context
-// Called from unhandled exception filter BEFORE writing crash dump.
-// Bypasses the background thread and writes directly to file.
-// Must be async-signal-safe: no locks, no allocations, no CRT.
-// ================================================================
 void LogFlushImmediate() {
-    if (!g_log) return;
+    if (!g_log && !g_sessionLog) return;
 
-    // Drain all pending ring buffer entries synchronously
-    // Use InterlockedCompareExchange to avoid racing with LogThreadProc
-    int maxDrain = LOG_RING_SIZE;  // Safety limit
+    int maxDrain = LOG_RING_SIZE;
     while (maxDrain-- > 0) {
         int slot = g_logReadPos & LOG_RING_MASK;
         LONG ready = InterlockedCompareExchange(&g_logRing[slot].ready, 0, 1);
-        if (ready != 1) break;  // No more pending entries
+        if (ready != 1) break;
 
-        // Write directly using Win32 API (avoid CRT in crash context)
-        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
-        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-            DWORD len = (DWORD)strlen(g_logRing[slot].text);
-            DWORD written = 0;
-            WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
+        DWORD len = (DWORD)strlen(g_logRing[slot].text);
+        DWORD written = 0;
+
+        if (g_log) {
+            HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
+            if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+                WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
+            }
+        }
+        if (g_sessionLog) {
+            HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_sessionLog));
+            if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+                WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
+            }
         }
         g_logReadPos++;
     }
 
-    // Force OS-level flush
-    HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
-    if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-        FlushFileBuffers(hFile);
+    if (g_log) {
+        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
+        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+            FlushFileBuffers(hFile);
+        }
+    }
+    if (g_sessionLog) {
+        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_sessionLog));
+        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
+            FlushFileBuffers(hFile);
+        }
     }
 }
 
