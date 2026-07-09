@@ -7453,27 +7453,27 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Unit Aura Update Coalescing ---");
-    UnitAuraCoalesce::Init();
+    if (Config::g_settings.OptUnitAuraCoalesce) UnitAuraCoalesce::Init();
 
     Log("");
     Log("--- Adaptive Addon Tick Governor ---");
-    AddonTickGovernor::Init();
+    if (Config::g_settings.OptAddonTickGovernor) AddonTickGovernor::Init();
 
     Log("");
     Log("--- SavedVariables Pretoken Caching ---");
-    SavedVarsPretoken::Init();
+    if (Config::g_settings.OptSavedVarsPretoken) SavedVarsPretoken::Init();
 
     Log("");
     Log("--- Net Addon message Coalescer ---");
-    NetAddonCoalescer::Init();
+    if (Config::g_settings.OptNetAddonCoalescer) NetAddonCoalescer::Init();
 
     Log("");
     Log("--- Mipmap Bias Governor ---");
-    MipBiasGovernor::Init();
+    if (Config::g_settings.OptMipBiasGovernor) MipBiasGovernor::Init();
 
     Log("");
     Log("--- Spatial Culling Grid ---");
-    SpatialCulling::Init();
+    if (Config::g_settings.OptSpatialCulling) SpatialCulling::Init();
 
     Log("");
     Log("--- Performance Diagnostics Monitor ---");

@@ -1,4 +1,5 @@
 #include "mip_bias_governor.h"
+#include "core/config.h"
 #include "version.h"
 #include <atomic>
 
@@ -7,6 +8,7 @@ namespace MipBiasGovernor {
 static std::atomic<float> g_currentMipBias{0.0f};
 
 void UpdateMipBias(double frameMs) {
+    if (!Config::g_settings.OptMipBiasGovernor) return;
     #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
     if (frameMs <= 0.0) return;
     
@@ -31,11 +33,15 @@ float GetCurrentBias() {
 }
 
 bool Init() {
+    if (!Config::g_settings.OptMipBiasGovernor) {
+        return true;
+    }
     g_currentMipBias.store(0.0f);
     return true;
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptMipBiasGovernor) return;
 }
 
 } // namespace MipBiasGovernor

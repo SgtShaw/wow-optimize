@@ -1,4 +1,5 @@
 #include "rcu_obj_mgr.h"
+#include "core/config.h"
 #include "MinHook.h"
 #include "version.h"
 #include <windows.h>
@@ -113,6 +114,10 @@ static int __cdecl Hooked_ClntObjMgrEnum(int (__cdecl *callback)(uint32_t, uint3
 }
 
 bool Init() {
+    if (!Config::g_settings.OptRcuObjMgr) {
+        Log("[RcuObjMgr] DISABLED via configuration");
+        return true;
+    }
     Log("[RcuObjMgr] Init");
 
     for (int i = 0; i < 16; i++) {
@@ -157,6 +162,7 @@ bool Init() {
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptRcuObjMgr) return;
     void* linkTarget = (void*)0x006DED60;
     void* enumTarget = (void*)0x004D4B30;
 
@@ -176,6 +182,7 @@ void Shutdown() {
 }
 
 void OnFrame() {
+    if (!Config::g_settings.OptRcuObjMgr) return;
     for (int i = 0; i < 16; i++) {
         RcuObjectArray* old = g_oldArrays[i].exchange(nullptr);
         if (old) {
@@ -185,6 +192,7 @@ void OnFrame() {
 }
 
 void UpdateActiveRcuArray() {
+    if (!Config::g_settings.OptRcuObjMgr) return;
     void* activeMgr = GetActiveObjMgr();
     if (activeMgr) {
         UpdateRcuArray(activeMgr);

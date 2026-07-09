@@ -1,4 +1,5 @@
 #include "m2_lod_bias.h"
+#include "core/config.h"
 #include "MinHook.h"
 #include "version.h"
 #include "spatial_culling.h"
@@ -14,6 +15,7 @@ static GetLodLevel_fn orig_GetLodLevel = nullptr;
 static std::atomic<float> g_lodBias{1.0f};
 
 void UpdateLodBias(double frameMs) {
+    if (!Config::g_settings.OptM2LodBias) return;
     if (frameMs <= 0.0) return;
     
     float targetBias = 1.0f;
@@ -41,6 +43,10 @@ static int __fastcall Hooked_GetLodLevel(void* This, void* unused_edx, float dis
 }
 
 bool Init() {
+    if (!Config::g_settings.OptM2LodBias) {
+        Log("[M2LodBias] DISABLED via configuration");
+        return true;
+    }
 #if TEST_DISABLE_M2_LOD_BIAS
     return true;
 #endif
@@ -70,6 +76,7 @@ bool Init() {
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptM2LodBias) return;
 #if !TEST_DISABLE_M2_LOD_BIAS
     MH_DisableHook((void*)0x007CD3F0);
 #endif

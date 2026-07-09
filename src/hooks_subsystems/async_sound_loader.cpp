@@ -1,4 +1,5 @@
 #include <windows.h>
+#include "core/config.h"
 #include <string>
 #include <vector>
 #include <thread>
@@ -38,6 +39,7 @@ void SoundLoadWorker(std::string filePath) {
 }
 
 void PreloadSound(const std::string& filePath) {
+    if (!Config::g_settings.OptAudioDecodeMt) return;
     std::lock_guard<std::mutex> lock(g_soundMutex);
     if (g_soundCache.find(filePath) != g_soundCache.end()) return;
     g_soundCache[filePath] = { {}, false };
@@ -47,12 +49,17 @@ void PreloadSound(const std::string& filePath) {
 }
 
 bool Init() {
+    if (!Config::g_settings.OptAudioDecodeMt) {
+        Log("[AsyncSoundLoader] DISABLED via configuration");
+        return true;
+    }
     g_active = true;
     Log("[AsyncSoundLoader] Active - Asynchronous Sound FX Loader Initialized");
     return true;
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptAudioDecodeMt) return;
     g_active = false;
     for (auto& t : g_workerThreads) {
         if (t.joinable()) t.join();

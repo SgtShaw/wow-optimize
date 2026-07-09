@@ -1,4 +1,5 @@
 #include "spatial_culling.h"
+#include "core/config.h"
 #include "version.h"
 #include <atomic>
 #include <cstring>
@@ -17,6 +18,7 @@ static float* const g_playerX = (float*)0x00BE1F30;
 static float* const g_playerY = (float*)0x00BE1F34;
 
 void OnFrame() {
+    if (!Config::g_settings.OptSpatialCulling) return;
     #if !TEST_DISABLE_SPATIAL_CULLING
     for (int x = 0; x < GRID_SIZE; x++) {
         for (int y = 0; y < GRID_SIZE; y++) {
@@ -62,10 +64,14 @@ float GetSpatialCullBias(void* model, float distance) {
 }
 
 bool Init() {
+    if (!Config::g_settings.OptSpatialCulling) {
+        return true;
+    }
     return true;
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptSpatialCulling) return;
 }
 
 } // namespace SpatialCulling

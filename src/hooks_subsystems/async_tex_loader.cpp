@@ -1,4 +1,5 @@
 #include "async_tex_loader.h"
+#include "core/config.h"
 #include "../allocators/loading_defrag.h"
 #include "../../build/_deps/minhook-src/include/MinHook.h"
 #include <windows.h>
@@ -358,6 +359,7 @@ __declspec(naked) void Hooked_TexCreateBLP_Naked() {
 }
 
 void OnFrame() {
+    if (!Config::g_settings.OptAsyncTexLoader) return;
 #if TEST_DISABLE_TEXTURE_DECODE_MT
     return;
 #endif
@@ -417,6 +419,10 @@ void OnFrame() {
 }
 
 bool Init() {
+    if (!Config::g_settings.OptAsyncTexLoader) {
+        Log("[AsyncTexLoader] DISABLED via configuration");
+        return true;
+    }
 #if TEST_DISABLE_TEXTURE_DECODE_MT
     Log("[AsyncTexLoader] Disabled via TEST_DISABLE_TEXTURE_DECODE_MT");
     return true;
@@ -463,6 +469,7 @@ bool Init() {
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptAsyncTexLoader) return;
 #if TEST_DISABLE_TEXTURE_DECODE_MT
     return;
 #endif

@@ -1,4 +1,5 @@
 #include "async_terrain_loader.h"
+#include "core/config.h"
 #include "../allocators/loading_defrag.h"
 #include "../core/version.h"
 #include <windows.h>
@@ -113,6 +114,10 @@ void* __fastcall Hooked_CMapGrid_Update(void* This, void* unused, int a2, void* 
 }
 
 bool Init() {
+    if (!Config::g_settings.OptAsyncTerrainLoader) {
+        Log("[AsyncTerrainLoader] DISABLED via configuration");
+        return true;
+    }
 #if defined(TEST_DISABLE_ASYNC_TERRAIN) && TEST_DISABLE_ASYNC_TERRAIN == 1
     Log("[AsyncTerrainLoader] Disabled via TEST_DISABLE_ASYNC_TERRAIN");
     return true;
@@ -149,6 +154,7 @@ bool Init() {
 }
 
 void Shutdown() {
+    if (!Config::g_settings.OptAsyncTerrainLoader) return;
 #if defined(TEST_DISABLE_ASYNC_TERRAIN) && TEST_DISABLE_ASYNC_TERRAIN == 1
     return;
 #endif

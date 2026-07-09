@@ -31,6 +31,12 @@ namespace Config {
         bool OptLuaOpcache = false;
         bool OptLuaGcCoalesce = false;
         bool OptLuaJIT = false;
+        bool OptAsyncTexLoader = false;
+        bool OptAsyncTerrainLoader = false;
+        bool OptRcuObjMgr = false;
+        bool OptM2LodBias = false;
+        bool OptMipBiasGovernor = false;
+        bool OptSpatialCulling = false;
         
         // Combat & Network
         bool OptCombatLogParser = false;
