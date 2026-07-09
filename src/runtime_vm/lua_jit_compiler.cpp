@@ -1,6 +1,7 @@
 #include "lua_jit_compiler.h"
 #include "MinHook.h"
 #include "version.h"
+#include "core/config.h"
 #include <windows.h>
 #include <unordered_map>
 #include <vector>
@@ -163,10 +164,10 @@ bool ShouldCompile(void* proto) {
 }
 
 bool Init() {
-#if defined(TEST_DISABLE_LUA_JIT) && TEST_DISABLE_LUA_JIT == 1
-    Log("[LuaJitCompiler] Disabled via TEST_DISABLE_LUA_JIT");
-    return true;
-#endif
+    if (!Config::g_settings.OptLuaJIT) {
+        Log("[LuaJitCompiler] DISABLED via configuration (wow_opt.ini)");
+        return true;
+    }
     void* target = (void*)0x00856370;
     if (WineSafe_CreateHook(target, (void*)Hooked_luaD_precall, (void**)&g_orig_luaD_precall) != MH_OK) {
         Log("[LuaJitCompiler] Failed to hook luaD_precall");
@@ -181,9 +182,9 @@ bool Init() {
 }
 
 void Shutdown() {
-#if defined(TEST_DISABLE_LUA_JIT) && TEST_DISABLE_LUA_JIT == 1
-    return;
-#endif
+    if (!Config::g_settings.OptLuaJIT) {
+        return;
+    }
     void* target = (void*)0x00856370;
     MH_DisableHook(target);
     MH_RemoveHook(target);

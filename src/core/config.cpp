@@ -46,6 +46,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
 
             // Combat & Network
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
@@ -99,6 +100,7 @@ namespace Config {
         g_settings.OptLuaNumConvFast      = GetPrivateProfileIntA("UI_Lua", "LuaNumConvFast", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaOpcache          = GetPrivateProfileIntA("UI_Lua", "LuaOpcache", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaGcCoalesce       = GetPrivateProfileIntA("UI_Lua", "LuaGcCoalesce", 0, iniPath.c_str()) != 0;
+        g_settings.OptLuaJIT              = GetPrivateProfileIntA("UI_Lua", "LuaJIT", 0, iniPath.c_str()) != 0;
 
         // Combat & Network
         g_settings.OptCombatLogParser     = GetPrivateProfileIntA("Combat_Net", "CombatLogParser", 0, iniPath.c_str()) != 0;

@@ -90,6 +90,7 @@ namespace WowOptimizeLauncher {
                 { "Lua Number Conversion Fast Path", new SettingItem("UI_Lua", "LuaNumConvFast", false, null, "Inlines common Lua stack value queries (tonumber, gettop, settop) to bypass stack checking overhead.") },
                 { "Lua VM Table Get/Set Cache", new SettingItem("UI_Lua", "LuaOpcache", false, null, "Provides a fast lookup cache for VM table indexing, bypassing the full interpreter loop.") },
                 { "Coalesced Lua Garbage Collection", new SettingItem("UI_Lua", "LuaGcCoalesce", false, null, "Bundles tiny incremental garbage collection steps to execute during empty frame budgets.") },
+                { "Lua VM Bytecode JIT Compiler", new SettingItem("UI_Lua", "LuaJIT", false, null, "Hooks standard call preparation to redirect and execute compiled Lua bytecode JIT stubs.") },
 
                 // Combat & Net
                 { "Aggregated Combat Log Parser", new SettingItem("Combat_Net", "CombatLogParser", false, null, "C++ level combat log aggregator that intercepts and summarizes events, bypassing slow Lua parsers.") },

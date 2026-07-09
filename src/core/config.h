@@ -30,6 +30,7 @@ namespace Config {
         bool OptLuaNumConvFast = false;
         bool OptLuaOpcache = false;
         bool OptLuaGcCoalesce = false;
+        bool OptLuaJIT = false;
         
         // Combat & Network
         bool OptCombatLogParser = false;
