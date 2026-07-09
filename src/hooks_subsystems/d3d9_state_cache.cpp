@@ -410,69 +410,53 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, 
     return orig_Present(device, src, dest, window, dirty);
 }
 
-// Resolve virtual table offsets by creating a temporary dummy device
 bool Init() {
 #if TEST_DISABLE_D3D_STATE_CACHE
     Log("[D3D9StateCache] DISABLED via TEST_DISABLE_D3D_STATE_CACHE.");
     return false;
 #endif
 
+
     InvalidateCache();
+    Log("[D3D9StateCache] Initialized (waiting for device hooks)");
+    return true;
+}
 
-    HMODULE d3d9 = LoadLibraryA("d3d9.dll");
-    if (!d3d9) {
-        Log("[D3D9StateCache] Failed to load d3d9.dll");
-        return false;
-    }
+void OnCreateDevice(IDirect3DDevice9* device) {
+    if (!device) return;
 
-    typedef IDirect3D9* (WINAPI *D3DCreate9_fn)(UINT);
-    D3DCreate9_fn d3dCreate9 = (D3DCreate9_fn)GetProcAddress(d3d9, "Direct3DCreate9");
-    if (!d3dCreate9) {
-        Log("[D3D9StateCache] Failed to find Direct3DCreate9");
-        return false;
-    }
-
-    IDirect3D9* d3d = d3dCreate9(D3D_SDK_VERSION);
-    if (!d3d) {
-        Log("[D3D9StateCache] Direct3DCreate9 failed");
-        return false;
-    }
-
-    // Create a dummy window
-    HWND hwnd = CreateWindowA("BUTTON", "dummy", WS_POPUP, 0, 0, 1, 1, NULL, NULL, NULL, NULL);
-    if (!hwnd) {
-        d3d->Release();
-        return false;
-    }
-
-    D3DPRESENT_PARAMETERS params = {};
-    params.Windowed = TRUE;
-    params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    params.hDeviceWindow = hwnd;
-
-    IDirect3DDevice9* device = nullptr;
-    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd,
-                                   D3DCREATE_SOFTWARE_VERTEXPROCESSING, &params, &device);
-    if (FAILED(hr)) {
-        DestroyWindow(hwnd);
-        d3d->Release();
-        Log("[D3D9StateCache] Failed to create dummy D3D9 device (hr=0x%08X)", hr);
-        return false;
-    }
-
-    // Retrieve VTable addresses
     uintptr_t* vtable = *(uintptr_t**)device;
-    void* target_Reset = (void*)vtable[16];
-    void* target_Present = (void*)vtable[17];
-    void* target_SetRenderState = (void*)vtable[57];
-    void* target_SetTransform = (void*)vtable[44];
-    void* target_SetViewport = (void*)vtable[47];
-    void* target_CreateVertexBuffer = (void*)vtable[26];
-    void* target_SetVertexShaderConstantF = (void*)vtable[94];
-    void* target_SetSamplerState = (void*)vtable[69];
-    void* target_SetTextureStageState = (void*)vtable[64];
+    if (!vtable) return;
 
-    // Install hooks
+    // Always resolve the original pointers to avoid null dereferences on D3D9RenderThread
+    orig_Reset = (Reset_fn)vtable[16];
+    orig_Present = (Present_fn)vtable[17];
+    orig_SetRenderState = (SetRenderState_fn)vtable[57];
+    orig_SetTransform = (SetTransform_fn)vtable[44];
+    orig_SetViewport = (SetViewport_fn)vtable[47];
+    orig_CreateVertexBuffer = (CreateVertexBuffer_fn)vtable[26];
+    orig_SetVertexShaderConstantF = (SetVertexShaderConstantF_fn)vtable[94];
+    orig_SetSamplerState = (SetSamplerState_fn)vtable[69];
+    orig_SetTextureStageState = (SetTextureStageState_fn)vtable[64];
+
+    // Only install state cache hooks if it is actually enabled by the user config
+    if (!Config::g_settings.OptVulkanDXVK && !Config::g_settings.OptD3d9RenderThread) {
+        return;
+    }
+
+    static bool hooksInstalled = false;
+    if (hooksInstalled) return;
+
+    void* target_Reset = (void*)orig_Reset;
+    void* target_Present = (void*)orig_Present;
+    void* target_SetRenderState = (void*)orig_SetRenderState;
+    void* target_SetTransform = (void*)orig_SetTransform;
+    void* target_SetViewport = (void*)orig_SetViewport;
+    void* target_CreateVertexBuffer = (void*)orig_CreateVertexBuffer;
+    void* target_SetVertexShaderConstantF = (void*)orig_SetVertexShaderConstantF;
+    void* target_SetSamplerState = (void*)orig_SetSamplerState;
+    void* target_SetTextureStageState = (void*)orig_SetTextureStageState;
+
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
         MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
         MH_CreateHook(target_SetRenderState, (void*)Hooked_SetRenderState, (void**)&orig_SetRenderState) != MH_OK ||
@@ -483,11 +467,8 @@ bool Init() {
         MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK ||
         MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK) 
     {
-        device->Release();
-        DestroyWindow(hwnd);
-        d3d->Release();
         Log("[D3D9StateCache] Failed to create MinHook detours");
-        return false;
+        return;
     }
 
     MH_EnableHook(target_Reset);
@@ -500,13 +481,8 @@ bool Init() {
     MH_EnableHook(target_SetSamplerState);
     MH_EnableHook(target_SetTextureStageState);
 
-    // Release dummy objects
-    device->Release();
-    DestroyWindow(hwnd);
-    d3d->Release();
-
-    Log("[D3D9StateCache] Active - Redundant render state filtering successfully hooked");
-    return true;
+    hooksInstalled = true;
+    Log("[D3D9StateCache] Active - Redundant render state filtering successfully hooked on main thread");
 }
 
 void Shutdown() {

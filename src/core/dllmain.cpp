@@ -3265,7 +3265,7 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
     if (result != INVALID_HANDLE_VALUE) {
         AddonPreload_OnCreateFile(result, lpFileName);
         #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
-        SavedVarsPretoken::OnCreateFile(result, lpFileName);
+        SavedVarsPretoken::OnCreateFile(result, lpFileName, dwAccess);
         #endif
         
         // Track SavedVariables files for async writing
@@ -3310,7 +3310,7 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         WideCharToMultiByte(CP_UTF8, 0, lpFileName, -1, buf, 512, NULL, NULL);
         AddonPreload_OnCreateFile(result, buf);
         #if !TEST_DISABLE_SAVED_VARS_PRETOKEN
-        SavedVarsPretoken::OnCreateFile(result, buf);
+        SavedVarsPretoken::OnCreateFile(result, buf, dwAccess);
         #endif
 
         // Track SavedVariables files for async writing
@@ -6134,7 +6134,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // Now let WoW finish loading. With mimalloc already owning the heap, every
     // allocation during this window stays in mimalloc's arena-managed VA — no
     // SBH fragmentation, no scattered HeapAlloc regions, clean from the start.
-    Sleep(5000);
+    Sleep(100);
+
 
     // Batch every hook enable installed during this synchronous init into one
     // thread-freeze (applied just before "Initialization complete" below).
@@ -6324,24 +6325,25 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool netOk = false;
 #endif
     Log("--- File I/O ---");
-    bool fileOk  = Config::g_settings.OptDbcLookupCache && InstallFileHooks();
+    bool fileOk  = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallFileHooks();
 #if !CRASH_TEST_DISABLE_READFILE
-    bool readOk  = Config::g_settings.OptDbcLookupCache && InstallReadFileHook();
+    bool readOk  = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallReadFileHook();
 #else
     bool readOk  = false;
     Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
 #endif
-    bool closeOk = Config::g_settings.OptDbcLookupCache && InstallCloseHandleHook();
-    bool flushOk = Config::g_settings.OptDbcLookupCache && InstallFlushFileBuffersHook();
+    bool closeOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallCloseHandleHook();
+    bool flushOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallFlushFileBuffersHook();
     Log("--- Async MPQ I/O ---");
     // Worker started after init completes to avoid race with hook setup
     bool asyncIoOk = true;
     Log("--- MPQ Scan ---");
     ScanExistingMpqHandles();
     Log("--- File Attributes ---");
-    bool faOk = Config::g_settings.OptDbcLookupCache && InstallGetFileAttributesHook();
+    bool faOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallGetFileAttributesHook();
     Log("--- File Pointer ---");
-    bool sfpOk = Config::g_settings.OptDbcLookupCache && InstallSetFilePointerHook();
+    bool sfpOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallSetFilePointerHook();
+
     Log("--- Global Alloc ---");
     bool gaOk  = Config::g_settings.OptAllocators && InstallGlobalAllocHooks();    
     Log("--- Multi-Client ---");
@@ -6373,7 +6375,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     TryRemoveFPSCap();
 
     Log("--- File Size Cache ---");
-    bool fsizeOk = Config::g_settings.OptDbcLookupCache && InstallGetFileSizeCache();
+    bool fsizeOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallGetFileSizeCache();
     Log("--- WaitForSingleObject Spin ---");
     bool wfsOk = Config::g_settings.OptDefragLf && InstallWaitForSingleObjectHook();
     Log("--- Module Handle Cache ---");

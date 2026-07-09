@@ -14,6 +14,8 @@
 #include "MinHook.h"
 #include "version.h"
 #include "config.h"
+#include "d3d9_state_cache.h"
+#include "d3d9_render_thread.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -182,6 +184,13 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
         hFocusWindow, flags, pParams, ppDevice);
 
     if (SUCCEEDED(hr) && ppDevice && *ppDevice) {
+        // Resolve state cache and install hooks
+        D3D9StateCache::OnCreateDevice(*ppDevice);
+
+        if (Config::g_settings.OptD3d9RenderThread) {
+            D3D9RenderThread::OnCreateDevice(*ppDevice);
+        }
+
         // Clear caches on new device creation to start clean
         memset(g_rsCache, 0, sizeof(g_rsCache));
         memset(g_rsValid, 0, sizeof(g_rsValid));

@@ -9,6 +9,7 @@ namespace D3D9RenderThread {
     void PipelineFlush();
     bool IsActive();
     DWORD GetRenderThreadId();
+    void OnCreateDevice(IDirect3DDevice9* device);
 
     // Queue APIs called from hooked wrappers
     void QueueSetRenderState(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value);

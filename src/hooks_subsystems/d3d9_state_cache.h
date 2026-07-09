@@ -3,6 +3,8 @@
 #ifndef D3D9_STATE_CACHE_H
 #define D3D9_STATE_CACHE_H
 
+struct IDirect3DDevice9;
+
 namespace D3D9StateCache {
 
 // Initialize the D3D9 state cache, hook SetTexture, SetRenderState, etc.
@@ -10,6 +12,9 @@ bool Init();
 
 // Shut down the hooks and release resources
 void Shutdown();
+
+// Handle device creation (resolve pointers and install hooks)
+void OnCreateDevice(struct IDirect3DDevice9* device);
 
 } // namespace D3D9StateCache
 

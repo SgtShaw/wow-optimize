@@ -130,12 +130,19 @@ static void ScanSavedVarsDir(const std::string& base, int depth) {
     FindClose(h);
 }
 
-void OnCreateFile(HANDLE hFile, const char* filename) {
+void OnCreateFile(HANDLE hFile, const char* filename, DWORD dwAccess) {
     if (!hFile || hFile == INVALID_HANDLE_VALUE || !filename) return;
     
     std::string normPath(filename);
     for (char& c : normPath) {
         if (c == '/') c = '\\';
+    }
+    
+    if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
+        AcquireSRWLockExclusive(&g_cacheLock);
+        g_cache.erase(normPath);
+        ReleaseSRWLockExclusive(&g_cacheLock);
+        return;
     }
     
     AcquireSRWLockShared(&g_cacheLock);

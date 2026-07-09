@@ -570,37 +570,29 @@ bool Init() {
         return true;
     }
 
-    HMODULE d3d9 = GetModuleHandleA("d3d9.dll");
-    if (!d3d9) return false;
-
-    typedef IDirect3D9* (WINAPI *D3DCreate9_fn)(UINT);
-    D3DCreate9_fn d3dCreate9 = (D3DCreate9_fn)GetProcAddress(d3d9, "Direct3DCreate9");
-    if (!d3dCreate9) return false;
-
-    IDirect3D9* d3d = d3dCreate9(D3D_SDK_VERSION);
-    if (!d3d) return false;
-
-    HWND hwnd = CreateWindowA("BUTTON", "dummy", WS_POPUP, 0, 0, 1, 1, NULL, NULL, NULL, NULL);
-    if (!hwnd) {
-        d3d->Release();
+    g_renderThreadShutdown = false;
+    g_renderThread = CreateThread(NULL, 0, RenderThreadProc, NULL, 0, NULL);
+    if (!g_renderThread) {
+        Log("[D3D9RenderThread] Failed to create background render thread!");
         return false;
     }
+    SetThreadPriority(g_renderThread, THREAD_PRIORITY_HIGHEST);
 
-    D3DPRESENT_PARAMETERS params = {};
-    params.Windowed = TRUE;
-    params.SwapEffect = D3DSWAPEFFECT_DISCARD;
-    params.hDeviceWindow = hwnd;
+    g_isActive = true;
+    Log("[D3D9RenderThread] Worker thread started (waiting for device hooks)");
+    return true;
+}
 
-    IDirect3DDevice9* device = nullptr;
-    HRESULT hr = d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, hwnd,
-                                   D3DCREATE_SOFTWARE_VERTEXPROCESSING, &params, &device);
-    if (FAILED(hr)) {
-        DestroyWindow(hwnd);
-        d3d->Release();
-        return false;
-    }
+
+void OnCreateDevice(IDirect3DDevice9* device) {
+    if (!device) return;
 
     uintptr_t* vtable = *(uintptr_t**)device;
+    if (!vtable) return;
+
+    static bool hooksInstalled = false;
+    if (hooksInstalled) return;
+
     void* target_DrawPrimitive = (void*)vtable[81];
     void* target_DrawIndexedPrimitive = (void*)vtable[82];
     void* target_SetTexture = (void*)vtable[67];
@@ -625,11 +617,8 @@ bool Init() {
         MH_CreateHook(target_EndScene, (void*)Hooked_EndScene, (void**)&orig_EndScene) != MH_OK ||
         MH_CreateHook(target_Clear, (void*)Hooked_Clear, (void**)&orig_Clear) != MH_OK) 
     {
-        device->Release();
-        DestroyWindow(hwnd);
-        d3d->Release();
         Log("[D3D9RenderThread] Failed to create MinHook detours");
-        return false;
+        return;
     }
 
     MH_EnableHook(target_DrawPrimitive);
@@ -644,22 +633,10 @@ bool Init() {
     MH_EnableHook(target_EndScene);
     MH_EnableHook(target_Clear);
 
-    device->Release();
-    DestroyWindow(hwnd);
-    d3d->Release();
-
-    g_renderThreadShutdown = false;
-    g_renderThread = CreateThread(NULL, 0, RenderThreadProc, NULL, 0, NULL);
-    if (!g_renderThread) {
-        Log("[D3D9RenderThread] Failed to create background render thread!");
-        return false;
-    }
-    SetThreadPriority(g_renderThread, THREAD_PRIORITY_HIGHEST);
-
-    g_isActive = true;
-    Log("[D3D9RenderThread] ACTIVE (Asynchronous rendering backend enabled)");
-    return true;
+    hooksInstalled = true;
+    Log("[D3D9RenderThread] Device hooks installed successfully on main thread");
 }
+
 
 void Shutdown() {
     if (!g_isActive.load(std::memory_order_relaxed)) return;
