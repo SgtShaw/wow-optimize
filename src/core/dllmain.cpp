@@ -6201,7 +6201,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #if !TEST_DISABLE_CVAR_NULL_GUARD
     InstallCvarNullGuard();
 #endif
-    InstallD3DEvictPatch();
+    if (Config::g_settings.OptVulkanDXVK) {
+        InstallD3DEvictPatch();
+    }
     bool strncmpGuardOk = InstallStrncmpNullGuard();
 
     // Extend the Lua C-function pointer validation range if needed,
@@ -6468,30 +6470,51 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- UnitAura Fast Path ---");
 #if !TEST_DISABLE_UNIT_AURA_FAST
-    InstallUnitAuraFastPath();
+    if (Config::g_settings.OptUnitAuraFast) {
+        InstallUnitAuraFastPath();
+    } else {
+        Log("[UnitAuraFastPath] DISABLED via configuration");
+    }
 #else
     Log("[UnitAuraFastPath] DISABLED via feature flag");
 #endif
 
     Log("--- Network GUID Fast Path ---");
 #if !TEST_DISABLE_NETWORK_GUID_SSE2
-    InstallNetworkGuidSSE2Hooks();
+    if (Config::g_settings.OptNetworkGuidSse2) {
+        InstallNetworkGuidSSE2Hooks();
+    } else {
+        Log("[NetworkGuid] DISABLED via configuration");
+    }
 #else
     Log("[NetworkGuid] DISABLED via feature flag");
 #endif
 
     Log("--- Matrix SSE2 Fast Path ---");
-    InstallMatrixCopySSE2();
+    if (Config::g_settings.OptStrStrSse2) {
+        InstallMatrixCopySSE2();
+    } else {
+        Log("[MatrixSSE2] DISABLED via configuration");
+    }
 
     Log("--- Lua Number Conversion Fast Path ---");
 #if !TEST_DISABLE_LUA_NUMCONV_FAST
-    InstallLuaNumConvFast();
+    if (Config::g_settings.OptLuaNumConvFast) {
+        InstallLuaNumConvFast();
+    } else {
+        Log("[LuaNumConvFast] DISABLED via configuration");
+    }
 #else
     Log("[LuaNumConvFast] DISABLED via TEST_DISABLE_LUA_NUMCONV_FAST");
 #endif
 
     Log("--- Deferred Field Updates ---");
-    bool fieldOk = InstallFieldUpdateHook();
+    bool fieldOk = false;
+    if (Config::g_settings.OptUIFrameBatch) {
+        fieldOk = InstallFieldUpdateHook();
+    } else {
+        Log("[FieldUpdates] DISABLED via configuration");
+    }
     if (Config::g_settings.OptHeapCompactor) {
         HeapCompactor_Init();
     } else {
@@ -6636,33 +6659,33 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #if !TEST_DISABLE_LUA_INLINE_BATCH
     // --- DG1: allocation / complex ---
 #if !TEST_DISABLE_LUA_BATCH_DG1
-    bool precallCacheOk = InstallLuaPrecallCache();
-    bool tableFastOk = InstallLuaTableFast();
-    bool hgetFastOk = InstallLuaHgetFast();
-    bool pushCClosureFastOk = InstallLuaPushCClosureFast();
-    bool createTableFastOk = InstallLuaCreateTableFast();
+    bool precallCacheOk = Config::g_settings.OptLuaOpcache && InstallLuaPrecallCache();
+    bool tableFastOk = Config::g_settings.OptLuaOpcache && InstallLuaTableFast();
+    bool hgetFastOk = Config::g_settings.OptLuaOpcache && InstallLuaHgetFast();
+    bool pushCClosureFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPushCClosureFast();
+    bool createTableFastOk = Config::g_settings.OptLuaOpcache && InstallLuaCreateTableFast();
 #else
     bool precallCacheOk = false, tableFastOk = false, hgetFastOk = false;
     bool pushCClosureFastOk = false, createTableFastOk = false;
 #endif
     // --- DG2: table writes ---
 #if !TEST_DISABLE_LUA_BATCH_DG2
-    bool pushStringFastOk = InstallLuaPushStringFast();
-    bool rawSetFastOk = InstallLuaRawSetFast();
-    bool rawSetIFastOk = InstallLuaRawSetIFast();
-    bool setTableFastOk = InstallLuaSetTableFast();
-    bool setFieldFastOk = InstallLuaSetFieldFast();
+    bool pushStringFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPushStringFast();
+    bool rawSetFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRawSetFast();
+    bool rawSetIFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRawSetIFast();
+    bool setTableFastOk = Config::g_settings.OptLuaOpcache && InstallLuaSetTableFast();
+    bool setFieldFastOk = Config::g_settings.OptLuaOpcache && InstallLuaSetFieldFast();
 #else
     bool pushStringFastOk = false, rawSetFastOk = false, rawSetIFastOk = false;
     bool setTableFastOk = false, setFieldFastOk = false;
 #endif
     // --- DG3: strings / refs / metamethods ---
 #if !TEST_DISABLE_LUA_BATCH_DG3
-    bool concatFastOk = InstallLuaConcatFast();
-    bool luaRegisterFastOk = InstallLuaRegisterFast();
-    bool luaRefFastOk = InstallLuaRefFast();
-    bool luaUnrefFastOk = InstallLuaUnrefFast();
-    bool luaCallMetaFastOk = InstallLuaCallMetaFast();
+    bool concatFastOk = Config::g_settings.OptLuaOpcache && InstallLuaConcatFast();
+    bool luaRegisterFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRegisterFast();
+    bool luaRefFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRefFast();
+    bool luaUnrefFastOk = Config::g_settings.OptLuaOpcache && InstallLuaUnrefFast();
+    bool luaCallMetaFastOk = Config::g_settings.OptLuaOpcache && InstallLuaCallMetaFast();
 #else
     bool concatFastOk = false, luaRegisterFastOk = false, luaRefFastOk = false;
     bool luaUnrefFastOk = false, luaCallMetaFastOk = false;
@@ -6670,18 +6693,18 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // --- DG4: misc / yield / load ---
 #if !TEST_DISABLE_LUA_BATCH_DG4
 #if !TEST_DISABLE_LUA_BATCH_DG4A
-    bool pushResultFastOk = InstallLuaPushresultFast();
-    bool addLStringFastOk = InstallLuaAddlstringFast();
-    bool pushfstrFastOk = InstallLuaPushfstringFast();
-    bool getTableFastOk = InstallLuaGetTableFast();
+    bool pushResultFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPushresultFast();
+    bool addLStringFastOk = Config::g_settings.OptLuaOpcache && InstallLuaAddlstringFast();
+    bool pushfstrFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPushfstringFast();
+    bool getTableFastOk = Config::g_settings.OptLuaOpcache && InstallLuaGetTableFast();
 #else
     bool pushResultFastOk = false, addLStringFastOk = false;
     bool pushfstrFastOk = false, getTableFastOk = false;
 #endif
 #if !TEST_DISABLE_LUA_BATCH_DG4B
-    bool loadstrFastOk = InstallLuaLoadStringFast();
-    bool yieldFastOk = InstallLuaYieldFast();
-    bool pushThreadFastOk = InstallLuaPushThreadFast();
+    bool loadstrFastOk = Config::g_settings.OptLuaOpcache && InstallLuaLoadStringFast();
+    bool yieldFastOk = Config::g_settings.OptLuaOpcache && InstallLuaYieldFast();
+    bool pushThreadFastOk = Config::g_settings.OptLuaOpcache && InstallLuaPushThreadFast();
 #else
     bool loadstrFastOk = false, yieldFastOk = false, pushThreadFastOk = false;
 #endif
