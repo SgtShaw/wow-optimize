@@ -30,14 +30,12 @@ The current public build is focused on real frametime stability, long-session sm
 This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 42 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
 
 ### Modular Configurator Launcher (v3.15.0)
-- **Runtime Optimization Dashboard (`wow_optimize_launcher.exe`)** — A lightweight, self-contained C# WPF desktop manager that allows players to dynamically toggle all 42 low-level optimization hooks on or off at runtime without rebuilding the C++ DLLs.
-- **WotLK 3.3.5a Artistic Backdrop** — Embedded with a custom Wrath of the Lich King inspired ice-frost theme background and a dark readability overlay to ensure a premium look.
-- **Export/Import Player Profiles** — Players can save their custom configurations into separate `.ini` profiles (e.g. `25man_raid.ini`, `pvp_combat.ini`) and load them back or share them.
-- **Developer Preset Submission** — Features a "Share with Developer" utility that copies the active profile to the clipboard so players can easily submit successful configurations to the developer (Suprematist) for safe-by-default inclusion.
-- **Automated Update Checking** — Background checks query the GitHub release repository to notify players when a new version is released.
-- **Flat Retro Layout** — Uses flat square corners for buttons, custom layouts, and zero gradients to ensure a clean, classic desktop style.
+- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 42 optimization features via a C# WPF UI (no DLL recompiles required).
+- **Save & Load Profiles** — Supports exporting/importing customized configurations as `.ini` profiles.
+- **Preset Sharing** — Features a "Share with Developer" button to copy active settings to the clipboard for submitting safe profile recommendations.
+- **Update Checker** — Checks for new versions on startup and displays a link when an update is available on GitHub.
 
-![wow_optimize Launcher Dashboard](images/launcher_screenshot.png)
+![wow_optimize Launcher Dashboard](images/launcher_screenshot.jpg)
 
 ### Core Performance & Allocator Updates (v3.15.0)
 - **Asynchronous Terrain Mesh Loader & Collision Decoupler** — Offloads ADT map grid loading and physical geometry parsing to background worker threads during gameplay. Hooks ground elevation query `sub_7C1660` to return player's current Z coordinate as height fallback during active loads, preventing falling through the world.
@@ -452,6 +450,8 @@ Output:
 - `build\Release\wow_optimize.dll`
 - `build\Release\version.dll`
 - `build\Release\wow_loader.exe`
+- `build\Release\wow_optimize_launcher.exe`
+- `build\Release\wotlk_background.jpg`
 
 ### macOS (cross-compile to Win32)
 
@@ -592,6 +592,7 @@ wow-optimize/
 │   ├── core/                 # DLL entry, proxy loader, features config (version.h)
 │   ├── diagnostics/          # EIP sampling profiler, crash reporter, CVar watchdog
 │   ├── hooks_subsystems/     # D3D9 state manager, CRT string fast-paths, event/data caches
+│   ├── launcher/             # C# WPF configurator & launcher dashboard
 │   ├── runtime_vm/           # Lua C-API detour hooks, stack query inline paths, VM engine
 │   ├── simd_math/            # SSE2 4x4 matrix, frustum point culling, raycast overrides
 │   └── threading/            # Multi-threaded work pool dispatcher
