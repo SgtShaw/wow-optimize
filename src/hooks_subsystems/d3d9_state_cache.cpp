@@ -9,9 +9,12 @@
 #include "version.h"
 #include "mip_bias_governor.h"
 #include <d3d9.h>
+#include "d3d9_render_thread.h"
+#include "config.h"
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
+extern DWORD g_mainThreadId;
 
 namespace D3D9StateCache {
 
@@ -19,13 +22,13 @@ namespace D3D9StateCache {
 
 
 typedef HRESULT (WINAPI *SetRenderState_fn)(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value);
-static SetRenderState_fn orig_SetRenderState = nullptr;
+SetRenderState_fn orig_SetRenderState = nullptr;
 
 typedef HRESULT (WINAPI *SetTransform_fn)(IDirect3DDevice9* device, D3DTRANSFORMSTATETYPE state, const D3DMATRIX* matrix);
-static SetTransform_fn orig_SetTransform = nullptr;
+SetTransform_fn orig_SetTransform = nullptr;
 
 typedef HRESULT (WINAPI *SetViewport_fn)(IDirect3DDevice9* device, const D3DVIEWPORT9* viewport);
-static SetViewport_fn orig_SetViewport = nullptr;
+SetViewport_fn orig_SetViewport = nullptr;
 
 typedef HRESULT (WINAPI *CreateVertexBuffer_fn)(IDirect3DDevice9* device, UINT Length, DWORD Usage, DWORD FVF, D3DPOOL Pool, IDirect3DVertexBuffer9** ppVertexBuffer, HANDLE* pSharedHandle);
 static CreateVertexBuffer_fn orig_CreateVertexBuffer = nullptr;
@@ -37,23 +40,23 @@ typedef HRESULT (WINAPI *VB_Unlock_fn)(IDirect3DVertexBuffer9* vb);
 static VB_Unlock_fn orig_VB_Unlock = nullptr;
 
 typedef HRESULT (WINAPI *SetVertexShaderConstantF_fn)(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
-static SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
+SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
 
 typedef HRESULT (WINAPI *SetSamplerState_fn)(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value);
-static SetSamplerState_fn orig_SetSamplerState = nullptr;
+SetSamplerState_fn orig_SetSamplerState = nullptr;
 
 typedef HRESULT (WINAPI *SetTextureStageState_fn)(IDirect3DDevice9* device, DWORD Stage, D3DTEXTURESTAGESTATETYPE Type, DWORD Value);
-static SetTextureStageState_fn orig_SetTextureStageState = nullptr;
+SetTextureStageState_fn orig_SetTextureStageState = nullptr;
 
 static bool g_vbHooksInstalled = false;
 
 
 
 typedef HRESULT (WINAPI *Reset_fn)(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params);
-static Reset_fn orig_Reset = nullptr;
+Reset_fn orig_Reset = nullptr;
 
 typedef HRESULT (WINAPI *Present_fn)(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty);
-static Present_fn orig_Present = nullptr;
+Present_fn orig_Present = nullptr;
 
 // Cache structures
 static IDirect3DBaseTexture9* g_textureCache[16] = { nullptr };
@@ -160,6 +163,10 @@ static HRESULT WINAPI Hooked_SetRenderState(IDirect3DDevice9* device, D3DRENDERS
         g_renderStateCache[state] = value;
         g_renderStateValid[state] = true;
     }
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetRenderState(device, state, value);
+        return D3D_OK;
+    }
     return orig_SetRenderState(device, state, value);
 }
 
@@ -171,6 +178,10 @@ static HRESULT WINAPI Hooked_SetTransform(IDirect3DDevice9* device, D3DTRANSFORM
         }
         memcpy(&g_transformCache[state].matrix, matrix, sizeof(D3DMATRIX));
         g_transformCache[state].valid = true;
+    }
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetTransform(device, state, matrix);
+        return D3D_OK;
     }
     return orig_SetTransform(device, state, matrix);
 }
@@ -184,10 +195,15 @@ static HRESULT WINAPI Hooked_SetViewport(IDirect3DDevice9* device, const D3DVIEW
         memcpy(&g_viewportCache, viewport, sizeof(D3DVIEWPORT9));
         g_viewportValid = true;
     }
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetViewport(device, viewport);
+        return D3D_OK;
+    }
     return orig_SetViewport(device, viewport);
 }
 
 static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags) {
+    D3D9RenderThread::PipelineFlush();
     #if !TEST_DISABLE_D3D9_VB_CACHE
     if (vb && ppbData && (Flags & D3DLOCK_DISCARD)) {
         unsigned int slot = HashVB(vb);
@@ -218,7 +234,9 @@ static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLo
     return orig_VB_Lock(vb, OffsetToLock, SizeToLock, ppbData, Flags);
 }
 
+
 static HRESULT WINAPI Hooked_VB_Unlock(IDirect3DVertexBuffer9* vb) {
+    D3D9RenderThread::PipelineFlush();
     #if !TEST_DISABLE_D3D9_VB_CACHE
     if (vb) {
         unsigned int slot = HashVB(vb);
@@ -282,6 +300,10 @@ static HRESULT WINAPI Hooked_SetVertexShaderConstantF(IDirect3DDevice9* device, 
         }
     }
     #endif
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetVertexShaderConstantF(device, StartRegister, pConstantData, Vector4fCount);
+        return D3D_OK;
+    }
     return orig_SetVertexShaderConstantF(device, StartRegister, pConstantData, Vector4fCount);
 }
 
@@ -305,6 +327,11 @@ static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD Sam
         }
     }
     #endif
+
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetSamplerState(device, Sampler, Type, Value);
+        return D3D_OK;
+    }
     return orig_SetSamplerState(device, Sampler, Type, Value);
 }
 
@@ -317,22 +344,31 @@ static HRESULT WINAPI Hooked_SetTextureStageState(IDirect3DDevice9* device, DWOR
         g_textureStageStateCache[Stage][Type] = Value;
         g_textureStageStateValid[Stage][Type] = true;
     }
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueSetTextureStageState(device, Stage, Type, Value);
+        return D3D_OK;
+    }
     return orig_SetTextureStageState(device, Stage, Type, Value);
 }
 
-
-
-// Hooked Reset
 static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
     InvalidateCache();
     InvalidateLatencyQueries();
     Log("[D3D9StateCache] Device reset detected - cache and latency queries invalidated");
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueueReset(device, params);
+        return D3D_OK;
+    }
     return orig_Reset(device, params);
 }
 
-// Hooked Present
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty) {
     InvalidateCache();
+
+    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
+        D3D9RenderThread::QueuePresent(device, src, dest, window, dirty);
+        return D3D_OK;
+    }
 
 #if !TEST_DISABLE_LOW_LATENCY_SYNC
     if (device) {
@@ -356,13 +392,11 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, 
         if (g_latencyInitialized) {
             IDirect3DQuery9* q = g_latencyQueries[g_latencyQueryIndex];
             if (q) {
-                // Wait for the GPU to finish rendering the frame from LATENCY_QUEUE_SIZE frames ago
                 while (q->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
                     SwitchToThread();
                 }
             }
 
-            // Issue query for the current frame
             IDirect3DQuery9* current_q = g_latencyQueries[g_latencyQueryIndex];
             if (current_q) {
                 current_q->Issue(D3DISSUE_END);

@@ -54,6 +54,7 @@
 #include "loading_defrag.h"
 #include "async_culling.h"
 #include "d3d9_state_cache.h"
+#include "d3d9_render_thread.h"
 #include "frame_limiter.h"
 #include "saved_vars_async_serializer.h"
 #include "simd_skinning.h"
@@ -82,7 +83,7 @@ __declspec(thread) bool g_inCrtHook = false;
 static volatile DWORD g_lastMainThreadTick = 0;
 static volatile bool  g_freezeWatchdogActive = false;
 static HANDLE         g_freezeWatchdogThread = NULL;
-static DWORD          g_mainThreadId = 0;
+DWORD          g_mainThreadId = 0;
 
 // Forward-declared here because the watchdog (below) is defined before
 // lua_optimize.h is included; definitions match that header.
@@ -7330,13 +7331,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
-    Log("--- D3D9 Render State Cache ---");
+    Log("--- D3D9 Render State Cache & Render Thread ---");
 #if !TEST_DISABLE_D3D9_STATE_CACHE
-    bool d3d9StateCacheOk = Config::g_settings.OptVulkanDXVK && D3D9StateCache::Init();
+    bool d3d9StateCacheOk = (Config::g_settings.OptVulkanDXVK || Config::g_settings.OptD3d9RenderThread) && D3D9StateCache::Init();
 #else
     bool d3d9StateCacheOk = false;
     Log("[D3D9StateCache] DISABLED via TEST_DISABLE_D3D9_STATE_CACHE");
 #endif
+
+    if (Config::g_settings.OptD3d9RenderThread) {
+        D3D9RenderThread::Init();
+    }
 
     Log("");
     Log("--- High-Precision Hybrid Frame Limiter ---");
@@ -9390,6 +9395,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             VersionChecker_Shutdown();
             LoadingDefrag::Shutdown();
             AsyncCulling::Shutdown();
+            D3D9RenderThread::Shutdown();
             D3D9StateCache::Shutdown();
             FrameLimiter::Shutdown();
             SavedVarsAsyncSerializer::Shutdown();

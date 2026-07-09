@@ -62,6 +62,7 @@ namespace Config {
         bool OptAudioDecodeMt = false;
         bool OptDbcLookupCache = false;
         bool OptWorldStateCoalesce = false;
+        bool OptD3d9RenderThread = false;
     };
 
     extern Settings g_settings;

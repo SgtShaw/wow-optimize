@@ -78,6 +78,7 @@ namespace Config {
             WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
         }
 
         // Read all settings
@@ -139,5 +140,6 @@ namespace Config {
         g_settings.OptAudioDecodeMt       = GetPrivateProfileIntA("Graphics_Sound", "AudioDecodeMt", 0, iniPath.c_str()) != 0;
         g_settings.OptDbcLookupCache      = GetPrivateProfileIntA("Graphics_Sound", "DbcLookupCache", 0, iniPath.c_str()) != 0;
         g_settings.OptWorldStateCoalesce  = GetPrivateProfileIntA("Graphics_Sound", "WorldStateCoalesce", 0, iniPath.c_str()) != 0;
+        g_settings.OptD3d9RenderThread    = GetPrivateProfileIntA("Graphics_Sound", "D3d9RenderThread", 0, iniPath.c_str()) != 0;
     }
 }
