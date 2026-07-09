@@ -1146,9 +1146,9 @@ static void RunPeriodicMaintenanceOnMainThread() {
         g_nextStatsDumpTick = nowTick + 300000;
     }
 
-    // Re-assert the raised texture-cache budget; WoW resets it to the stock 64MB on
-    // device/settings resets, and this runs on the main thread where the cache lives.
-    TexCacheTuning_Tick();
+    if (Config::g_settings.OptMemoryPressure) {
+        TexCacheTuning_Tick();
+    }
 
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
     if (Config::g_settings.OptMemoryPressure) {
@@ -6255,10 +6255,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #else
     Log("[HeapRedirect] DISABLED via TEST_DISABLE_HEAP_REDIRECT");
 #endif
-    Log("--- Lock Contention Tuning ---");
-    InstallLockTuning();   // self-logs; spin counts are best-effort
+    if (Config::g_settings.OptAllocators) {
+        InstallLockTuning();   // self-logs; spin counts are best-effort
+    }
     Log("--- Texture Cache Budget ---");
-    InitTexCacheTuning();  // self-logs; single-client only
+    if (Config::g_settings.OptMemoryPressure) {
+        InitTexCacheTuning();  // self-logs; single-client only
+    }
     Log("--- Thread ID Cache ---");
     bool tidOk = Config::g_settings.OptAllocators && InstallThreadIdCacheHook();
     Log("--- QPC Cache ---");
@@ -7404,59 +7407,59 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- FMOD Sound Mixer Optimizer ---");
-    SoundMixerOpt::Init();
+    if (Config::g_settings.OptSoundMixerOpt) SoundMixerOpt::Init();
 
     Log("");
     Log("--- Adaptive Lua GC Governor ---");
-    LuaGCGovernor::Init();
+    if (Config::g_settings.OptLuaGcCoalesce) LuaGCGovernor::Init();
 
     Log("");
     Log("--- Adaptive Farclip Controller ---");
-    AdaptiveFarclip::Init();
+    if (Config::g_settings.OptMemoryPressure) AdaptiveFarclip::Init();
 
     Log("");
     Log("--- M2 Bone SIMD Acceleration ---");
-    M2BoneSimd::Init();
+    if (Config::g_settings.OptStrStrSse2) M2BoneSimd::Init();
 
     Log("");
     Log("--- Font Glyph Cache ---");
-    FontGlyphCache::Init();
+    if (Config::g_settings.OptFontMetricsFast) FontGlyphCache::Init();
 
     Log("");
     Log("--- Async SavedVariables Preloader ---");
-    SavedVarsPreloadAsync::Init();
+    if (Config::g_settings.OptSavedVarsAsync) SavedVarsPreloadAsync::Init();
 
     Log("");
     Log("--- Combat Text Coalescer ---");
-    CombatTextCoalescer::Init();
+    if (Config::g_settings.OptEventCoalescer) CombatTextCoalescer::Init();
 
     Log("");
     Log("--- Minimap Throttle ---");
-    MinimapThrottle::Init();
+    if (Config::g_settings.OptEventCoalescer) MinimapThrottle::Init();
 
     Log("");
     Log("--- Fast DBC Lookup Cache ---");
-    DbcLookupCacheFast::Init();
+    if (Config::g_settings.OptDbcLookupCache) DbcLookupCacheFast::Init();
 
     Log("");
     Log("--- World-to-Screen SSE Math ---");
-    WorldToScreenSse::Init();
+    if (Config::g_settings.OptStrStrSse2) WorldToScreenSse::Init();
 
     Log("");
     Log("--- D3D9 Texture Stage State Cache ---");
-    D3D9TssCache::Init();
+    if (Config::g_settings.OptVulkanDXVK) D3D9TssCache::Init();
 
     Log("");
     Log("--- Lua String Symbol Pool ---");
-    LuaStringPoolFast::Init();
+    if (Config::g_settings.OptLuaOpcache) LuaStringPoolFast::Init();
 
     Log("");
     Log("--- Async Sound FX Loader ---");
-    AsyncSoundLoader::Init();
+    if (Config::g_settings.OptAudioDecodeMt) AsyncSoundLoader::Init();
 
     Log("");
     Log("--- Lua VM Bytecode JIT Compiler ---");
-    LuaJitCompiler::Init();
+    if (Config::g_settings.OptLuaJIT) LuaJitCompiler::Init();
 
     Log("");
     Log("--- RCU Object Manager Traverser ---");
