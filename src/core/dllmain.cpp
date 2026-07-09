@@ -1200,7 +1200,8 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             msSinceLastTick = (double)(now.QuadPart - lastFrameTickTime.QuadPart) / g_sleepFreq;
         }
 
-        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= (double)Config::g_settings.OptSleepPrecision) {
+        double targetPrecision = (double)(Config::g_settings.SleepPrecisionValue > 0 ? Config::g_settings.SleepPrecisionValue : 8);
+        if (lastFrameTickTime.QuadPart == 0 || msSinceLastTick >= targetPrecision) {
             lastFrameTickTime = now;
 
             RunPeriodicMaintenanceOnMainThread();
