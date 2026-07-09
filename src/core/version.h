@@ -169,7 +169,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -435,7 +435,7 @@
 #define TEST_DISABLE_ASYNC_CULLING      1
 
 // D3D9 Render State Redundancy Cache
-#define TEST_DISABLE_D3D9_STATE_CACHE   1
+#define TEST_DISABLE_D3D9_STATE_CACHE   0
 
 // Conflicting duplicate Render State Dedup hook
 #define TEST_DISABLE_RENDER_STATE_DEDUP 0
@@ -535,7 +535,7 @@
 #define TEST_DISABLE_SIMD_MATH_FAST             1
 #define TEST_DISABLE_COMBATLOG_INCREMENTAL      0
 #define TEST_DISABLE_LUA_POOL_LF                0
-#define TEST_DISABLE_D3D_STATE_CACHE            1
+#define TEST_DISABLE_D3D_STATE_CACHE            0
 #define TEST_DISABLE_DBC_LOOKUP_CACHE           0
 #define TEST_DISABLE_SAVEDVARS_ASYNC            0
 #define TEST_DISABLE_WORLD_STATE_COALESCE       0

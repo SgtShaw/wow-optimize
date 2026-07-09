@@ -13,6 +13,7 @@
 #include <cstring>
 #include "MinHook.h"
 #include "version.h"
+#include "config.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -173,8 +174,12 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
     HWND hFocusWindow, DWORD BehaviorFlags,
     D3DPRESENT_PARAMETERS* pParams, IDirect3DDevice9** ppDevice)
 {
+    DWORD flags = BehaviorFlags;
+    if (Config::g_settings.OptD3d9RenderThread) {
+        flags |= D3DCREATE_MULTITHREADED;
+    }
     HRESULT hr = g_orig_CreateDevice(self, Adapter, DeviceType,
-        hFocusWindow, BehaviorFlags, pParams, ppDevice);
+        hFocusWindow, flags, pParams, ppDevice);
 
     if (SUCCEEDED(hr) && ppDevice && *ppDevice) {
         // Clear caches on new device creation to start clean

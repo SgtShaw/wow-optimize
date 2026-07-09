@@ -1981,6 +1981,7 @@ bool LuaOpt::IsLoadingMode() {
 bool IsReloading() { return g_isReloading.load(std::memory_order_acquire); }
 bool IsSwapping()  { return g_isSwapping.load(std::memory_order_acquire); }
 DWORD GetLastSwapTick() { return g_lastLuaSwapTick; }
+bool IsInitialized() { return State.initialized; }
 
 void RestoreAllocator() {
     if (g_luaAllocReplaced) {

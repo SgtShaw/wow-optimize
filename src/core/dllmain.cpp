@@ -87,7 +87,7 @@ DWORD          g_mainThreadId = 0;
 
 // Forward-declared here because the watchdog (below) is defined before
 // lua_optimize.h is included; definitions match that header.
-namespace LuaOpt { bool IsLoadingMode(); bool IsReloading(); bool IsSwapping(); DWORD GetLastSwapTick(); }
+namespace LuaOpt { bool IsLoadingMode(); bool IsReloading(); bool IsSwapping(); DWORD GetLastSwapTick(); bool IsInitialized(); }
 
 static void UpdateMainThreadActivity() {
     g_lastMainThreadTick = GetTickCount();
@@ -1318,6 +1318,10 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         }
 
         if (Config::g_settings.OptSleepPrecision && ms <= 3) {
+            if (!LuaOpt::IsInitialized() || LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+                orig_Sleep(ms);
+                return;
+            }
             PreciseSleep((double)ms);
             return;
         }
@@ -6619,7 +6623,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Render State Deduplication ---");
 #if !TEST_DISABLE_RENDER_STATE_DEDUP
-    bool renderDedupOk = Config::g_settings.OptVulkanDXVK && InstallRenderStateDedup();
+    bool renderDedupOk = (Config::g_settings.OptVulkanDXVK || Config::g_settings.OptD3d9RenderThread) && InstallRenderStateDedup();
 #else
     Log("[RenderDedup] DISABLED via TEST_DISABLE_RENDER_STATE_DEDUP");
     bool renderDedupOk = false;
