@@ -3,6 +3,8 @@
 Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
 
+**[Download Latest Pre-compiled Release](https://github.com/suprepupre/wow-optimize/releases/latest)**
+
 wow_optimize improves WoW 3.3.5a at the engine and runtime level: memory allocation, Lua VM behavior, Lua library fast paths, timers, file I/O, networking, heap fragmentation, lock contention, the 16-year combat log bug fix, and other low-level bottlenecks.
 
 The current public build is focused on real frametime stability, long-session smoothness, addon-heavy gameplay, and lower Lua/runtime overhead while keeping historically unsafe features disabled.
