@@ -528,7 +528,7 @@
 #define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
 
 // ================================================================
-// 10 COLOSSAL PERFORMANCE OPTIMIZATION FEATURES
+// 10 Extended Performance Optimization Features
 // ================================================================
 #define TEST_DISABLE_M2_SIMD_MT                 1
 #define TEST_DISABLE_GUID_MAP_LF                1
@@ -657,7 +657,7 @@
 #define TEST_DISABLE_SOUND_UPDATE_GUARD    0
 
 // ================================================================
-// NEW COLOSSAL HOOKS (commit 670012c) — disassembly-verified + gated
+// New Extended Hooks (commit 670012c) — disassembly-verified + gated
 // ================================================================
 //
 // SIMD geometry hooks (hooks_simd.cpp):

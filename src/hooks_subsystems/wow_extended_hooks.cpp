@@ -17,7 +17,6 @@ extern "C" void Log(const char* fmt, ...);
 
 // ================================================================
 // 40 EXTENDED WoW.exe Performance Hooks
-// Targeting massive xref functions for maximum impact.
 // ================================================================
 
 static volatile LONG g_c[40] = {};   // call counters

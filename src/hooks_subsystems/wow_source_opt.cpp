@@ -201,7 +201,6 @@ static __int64 __cdecl Hooked_TlsGetter() {
 // ================================================================
 // S4: sub_708C20 - Item Validation (Item_C.cpp, 1997 bytes)
 //
-// Massive item validation function called during loot/trade/equip.
 // Has 51 callees and 121 constants. Performs spell charge checks,
 // item level validation, and inventory slot matching.
 //
@@ -354,7 +353,6 @@ static void __fastcall Hooked_RenderUpdate(int This, void* unused) {
 // ================================================================
 // S8: sub_6A8BD0 - Graphics State Switch (1944 bytes, 91 blocks)
 //
-// Massive switch statement (84+ cases) for render state changes.
 // Called via vtable dispatch for every graphics state transition.
 //
 // Optimization: Cache last state to skip redundant transitions.

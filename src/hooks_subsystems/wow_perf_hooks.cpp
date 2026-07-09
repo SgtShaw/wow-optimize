@@ -212,7 +212,7 @@ static int __stdcall Hooked_ObjDestroyChain(void* Block) {
 
 // ================================================================
 // P7: sub_4C6A40 - Sound play dispatcher (98 xrefs, 55 callers)
-// Massive 1.8KB function. Skip redundant CVAR checks when sound
+// Large 1.8KB function. Skip redundant CVAR checks when sound
 // system state hasn't changed since last call.
 // ================================================================
 typedef int (__cdecl *SoundPlayDispatch_fn)(int, int, int, void*, int, void*, int, int);
