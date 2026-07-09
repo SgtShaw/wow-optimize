@@ -1317,7 +1317,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
         }
 
-        if (ms <= 3) {
+        if (Config::g_settings.OptSleepPrecision && ms <= 3) {
             PreciseSleep((double)ms);
             return;
         }
@@ -1351,7 +1351,7 @@ static bool InstallSleepHook() {
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_Sleep, (void**)&orig_Sleep) != MH_OK) return false;
     if (WO_EnableHook(p) != MH_OK) return false;
-    Log("Sleep hook: ACTIVE (PreciseSleep RDTSC %.1f MHz + Lua GC + combat log)", g_rdtscFreqMhz);
+    Log("Sleep hook: ACTIVE (PreciseSleep: %s, RDTSC %.1f MHz + Lua GC + combat log)", Config::g_settings.OptSleepPrecision ? "ENABLED" : "DISABLED", g_rdtscFreqMhz);
     return true;
 }
 
@@ -6269,7 +6269,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[VulkanDXVK] Config option: %s", Config::g_settings.OptVulkanDXVK ? "ENABLED (d3d9.dll proxy required in game directory)" : "DISABLED");
 
     Log("--- Frame Pacing ---");
-    bool sleepOk = Config::g_settings.OptSleepPrecision && InstallSleepHook();
+    bool sleepOk = InstallSleepHook();
 #if !CRASH_TEST_DISABLE_TICK_COUNT
     Log("--- Timer Precision ---");
     bool tickOk = Config::g_settings.OptTimingFix && InstallGetTickCountHook();
