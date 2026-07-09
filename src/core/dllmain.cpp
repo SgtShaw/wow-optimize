@@ -1221,8 +1221,14 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             LuaOpt::OnMainThreadSleep(g_mainThreadId, elapsedMs);
             LuaVMEngine_FrameTick();
             ApiCache::OnNewFrame();
-            LoadingDefrag::OnFrame();
-            AsyncCulling::OnFrameStart();
+            if (Config::g_settings.OptDefragLf) {
+                LoadingDefrag::OnFrame();
+            }
+#if !TEST_DISABLE_ASYNC_CULLING
+            if (Config::g_settings.OptDbcLookupCache) {
+                AsyncCulling::OnFrameStart();
+            }
+#endif
 #if !TEST_DISABLE_PREDICTIVE_PREFETCH
             PredictivePrefetch::OnFrame();
 #endif
@@ -1233,7 +1239,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             InitHardwareCursor();
 #endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
-            AddonDispatcher::OnFrame(g_mainThreadId);
+            if (Config::g_settings.OptAddonDispatcher) {
+                AddonDispatcher::OnFrame(g_mainThreadId);
+            }
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::OnFrame(g_mainThreadId);
@@ -6948,7 +6956,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[AddonDispatcher] DISABLED (test toggle)");
     bool addonDispatcherOk = false;
 #else
-    bool addonDispatcherOk = AddonDispatcher::Init();
+    bool addonDispatcherOk = false;
+    if (Config::g_settings.OptAddonDispatcher) {
+        addonDispatcherOk = AddonDispatcher::Init();
+    } else {
+        Log("[AddonDispatcher] DISABLED via configuration");
+    }
 #endif
 
     Log("");
@@ -9323,7 +9336,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             CombatLogOpt::Shutdown();
             CombatLogBuffer::Shutdown();
 #if !TEST_DISABLE_ADDON_DISPATCHER
-            AddonDispatcher::Shutdown();
+            if (Config::g_settings.OptAddonDispatcher) {
+                AddonDispatcher::Shutdown();
+            }
 #endif
 #if !TEST_DISABLE_MPQ_PREFETCH
             MPQPrefetch::Shutdown();
