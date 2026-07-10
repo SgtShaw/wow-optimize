@@ -3,7 +3,6 @@
 #include "MinHook.h"
 #include "version.h"
 #include "config.h"
-#include "loading_screen_opt.h"
 #include <atomic>
 #include <thread>
 #include <windows.h>
@@ -421,8 +420,10 @@ void QueuePresent(IDirect3DDevice9* device, const RECT* src, const RECT* dest, H
     QueueCommand(cmd);
 }
 
+#include "loading_screen_opt.h"
+
 static HRESULT WINAPI Hooked_DrawPrimitive(IDirect3DDevice9* device, D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) {
-    if (::LoadingScreenOpt::IsLoadingActive() && PrimitiveCount > 20) {
+    if (LoadingScreenOpt::IsLoadingActive() && PrimitiveCount > 20) {
         return D3D_OK;
     }
     if (g_isActive.load(std::memory_order_relaxed) && GetCurrentThreadId() == g_mainThreadId) {
@@ -439,7 +440,7 @@ static HRESULT WINAPI Hooked_DrawPrimitive(IDirect3DDevice9* device, D3DPRIMITIV
 }
 
 static HRESULT WINAPI Hooked_DrawIndexedPrimitive(IDirect3DDevice9* device, D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT primCount) {
-    if (::LoadingScreenOpt::IsLoadingActive() && primCount > 20) {
+    if (LoadingScreenOpt::IsLoadingActive() && primCount > 20) {
         return D3D_OK;
     }
     if (g_isActive.load(std::memory_order_relaxed) && GetCurrentThreadId() == g_mainThreadId) {
@@ -604,58 +605,10 @@ bool Init() {
 
 
 void OnCreateDevice(IDirect3DDevice9* device) {
-    if (!device) return;
-
-    if (!Config::g_settings.OptD3d9RenderThread) {
-        return;
-    }
-
-    uintptr_t* vtable = *(uintptr_t**)device;
-    if (!vtable) return;
-
-    orig_DrawPrimitive = (DrawPrimitive_fn)vtable[81];
-    orig_DrawIndexedPrimitive = (DrawIndexedPrimitive_fn)vtable[82];
-    orig_SetTexture = (SetTexture_fn)vtable[65];
-    orig_SetStreamSource = (SetStreamSource_fn)vtable[100];
-    orig_SetIndices = (SetIndices_fn)vtable[104];
-    orig_SetVertexDeclaration = (SetVertexDeclaration_fn)vtable[87];
-    orig_SetVertexShader = (SetVertexShader_fn)vtable[92];
-    orig_SetPixelShader = (SetPixelShader_fn)vtable[107];
-    orig_BeginScene = (BeginScene_fn)vtable[41];
-    orig_EndScene = (EndScene_fn)vtable[42];
-    orig_Clear = (Clear_fn)vtable[43];
-
-    static bool renderHooksInstalled = false;
-    if (renderHooksInstalled) return;
-
-    if (MH_CreateHook((void*)orig_DrawPrimitive, (void*)Hooked_DrawPrimitive, (void**)&orig_DrawPrimitive) == MH_OK &&
-        MH_CreateHook((void*)orig_DrawIndexedPrimitive, (void*)Hooked_DrawIndexedPrimitive, (void**)&orig_DrawIndexedPrimitive) == MH_OK &&
-        MH_CreateHook((void*)orig_SetTexture, (void*)Hooked_SetTexture, (void**)&orig_SetTexture) == MH_OK &&
-        MH_CreateHook((void*)orig_SetStreamSource, (void*)Hooked_SetStreamSource, (void**)&orig_SetStreamSource) == MH_OK &&
-        MH_CreateHook((void*)orig_SetIndices, (void*)Hooked_SetIndices, (void**)&orig_SetIndices) == MH_OK &&
-        MH_CreateHook((void*)orig_SetVertexDeclaration, (void*)Hooked_SetVertexDeclaration, (void**)&orig_SetVertexDeclaration) == MH_OK &&
-        MH_CreateHook((void*)orig_SetVertexShader, (void*)Hooked_SetVertexShader, (void**)&orig_SetVertexShader) == MH_OK &&
-        MH_CreateHook((void*)orig_SetPixelShader, (void*)Hooked_SetPixelShader, (void**)&orig_SetPixelShader) == MH_OK &&
-        MH_CreateHook((void*)orig_BeginScene, (void*)Hooked_BeginScene, (void**)&orig_BeginScene) == MH_OK &&
-        MH_CreateHook((void*)orig_EndScene, (void*)Hooked_EndScene, (void**)&orig_EndScene) == MH_OK &&
-        MH_CreateHook((void*)orig_Clear, (void*)Hooked_Clear, (void**)&orig_Clear) == MH_OK) 
-    {
-        MH_EnableHook((void*)vtable[81]);
-        MH_EnableHook((void*)vtable[82]);
-        MH_EnableHook((void*)vtable[65]);
-        MH_EnableHook((void*)vtable[100]);
-        MH_EnableHook((void*)vtable[104]);
-        MH_EnableHook((void*)vtable[87]);
-        MH_EnableHook((void*)vtable[92]);
-        MH_EnableHook((void*)vtable[107]);
-        MH_EnableHook((void*)vtable[41]);
-        MH_EnableHook((void*)vtable[42]);
-        MH_EnableHook((void*)vtable[43]);
-
-        renderHooksInstalled = true;
-        Log("[D3D9RenderThread] Active - Multi-threaded command queue pipeline successfully hooked!");
-    } else {
-        Log("[D3D9RenderThread] Failed to hook multi-threaded command queue vtable methods!");
+    static bool loggedBypass = false;
+    if (!loggedBypass) {
+        Log("[D3D9RenderThread] Bypass: hooks disabled to maintain rendering integrity and prevent state desynchronization.");
+        loggedBypass = true;
     }
 }
 
