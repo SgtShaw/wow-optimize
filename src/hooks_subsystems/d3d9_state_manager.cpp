@@ -625,6 +625,29 @@ void OnFrameD3D9StateManager(DWORD mainThreadId) {
 
     g_totalFrames++;
     
+    // Invalidate state cache every frame to ensure synchronization with device resets,
+    // window resizing, resolution changes, and DXVK state updates!
+    InvalidateAllCaches();
+    
+    // Check if the device pointer has changed
+    uintptr_t addr = ADDR_CGXDEVICED3D_PTR;
+    if (addr != 0 && IsReadable(addr)) {
+        uintptr_t pGxDevice = *(uintptr_t*)addr;
+        if (pGxDevice && IsReadable(pGxDevice)) {
+            uintptr_t devicePtrAddr = pGxDevice + 0x397C;
+            if (IsReadable(devicePtrAddr)) {
+                void* pDevice = *(void**)devicePtrAddr;
+                if (pDevice != g_pDevice) {
+                    Log("[D3D9State] Device pointer changed from %p to %p. Re-patching.", g_pDevice, pDevice);
+                    UnpatchDeviceVTable();
+                    if (pDevice && IsReadable((uintptr_t)pDevice)) {
+                        PatchDeviceVTable(pDevice);
+                    }
+                }
+            }
+        }
+    }
+    
     if (!g_deviceHooked) {
         TryFindAndPatchDevice();
     }
