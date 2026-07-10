@@ -1,11 +1,19 @@
-#include <windows.h>
+// ============================================================================
+// Module: async_sound_loader.cpp
+// Description: Preloads and caches FMOD sound files in memory to bypass disk I/O.
+// Safety & Threading: Thread-safe cache using mutex protection.
+// ============================================================================
+
+#include "async_sound_loader.h"
 #include "core/config.h"
+#include "MinHook.h"
+#include "version.h"
+#include <windows.h>
 #include <string>
 #include <vector>
 #include <thread>
 #include <mutex>
 #include <unordered_map>
-#include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -22,27 +30,94 @@ static std::vector<std::thread> g_workerThreads;
 static bool g_active = false;
 static uint64_t g_preloads = 0;
 
-void SoundLoadWorker(std::string filePath) {
-    HANDLE hFile = CreateFileA(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile == INVALID_HANDLE_VALUE) return;
+// Storm DLL types
+typedef BOOL (APIENTRY *SFileOpenFileEx_fn)(HANDLE hArchive, const char* szFileName, DWORD dwSearchScope, HANDLE* phFile);
+typedef BOOL (APIENTRY *SFileReadFile_fn)(HANDLE hFile, void* lpBuffer, DWORD nNumberOfBytesToRead, LPDWORD lpNumberOfBytesRead, LPOVERLAPPED lpOverlapped);
+typedef BOOL (APIENTRY *SFileCloseFile_fn)(HANDLE hFile);
 
-    DWORD size = GetFileSize(hFile, NULL);
-    if (size > 0 && size < 4 * 1024 * 1024) { // Preload sound files under 4MB
-        std::vector<uint8_t> buffer(size);
-        DWORD readBytes = 0;
-        if (ReadFile(hFile, buffer.data(), size, &readBytes, NULL)) {
-            std::lock_guard<std::mutex> lock(g_soundMutex);
-            g_soundCache[filePath] = { std::move(buffer), true };
+static SFileOpenFileEx_fn pSFileOpenFileEx = nullptr;
+static SFileReadFile_fn pSFileReadFile = nullptr;
+static SFileCloseFile_fn pSFileCloseFile = nullptr;
+
+// FMOD Hook Types
+typedef void* (APIENTRY *FSOUND_Sample_Load_fn)(int index, const void* name_or_data, unsigned int mode, int offset, int length);
+static FSOUND_Sample_Load_fn orig_FSOUND_Sample_Load = nullptr;
+
+typedef void* (APIENTRY *FSOUND_Stream_OpenFile_fn)(const char *filename, unsigned int mode, int memlength);
+static FSOUND_Stream_OpenFile_fn orig_FSOUND_Stream_OpenFile = nullptr;
+
+static void* APIENTRY Hooked_FSOUND_Sample_Load(int index, const void* name_or_data, unsigned int mode, int offset, int length) {
+    if (name_or_data && !(mode & 0x0800)) { // 0x0800 = FSOUND_LOADMEMORY
+        std::string filePath = (const char*)name_or_data;
+        std::string normPath = filePath;
+        for (char& c : normPath) {
+            if (c == '/') c = '\\';
+            else c = tolower(c);
+        }
+
+        std::lock_guard<std::mutex> lock(g_soundMutex);
+        auto it = g_soundCache.find(normPath);
+        if (it != g_soundCache.end() && it->second.ready) {
+            unsigned int newMode = mode | 0x0800; // Force load from memory
+            return orig_FSOUND_Sample_Load(index, it->second.data.data(), newMode, offset, it->second.data.size());
         }
     }
-    CloseHandle(hFile);
+    return orig_FSOUND_Sample_Load(index, name_or_data, mode, offset, length);
+}
+
+static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsigned int mode, int memlength) {
+    if (filename && !(mode & 0x0800)) {
+        std::string filePath = filename;
+        std::string normPath = filePath;
+        for (char& c : normPath) {
+            if (c == '/') c = '\\';
+            else c = tolower(c);
+        }
+
+        std::lock_guard<std::mutex> lock(g_soundMutex);
+        auto it = g_soundCache.find(normPath);
+        if (it != g_soundCache.end() && it->second.ready) {
+            unsigned int newMode = mode | 0x0800;
+            return orig_FSOUND_Stream_OpenFile((const char*)it->second.data.data(), newMode, it->second.data.size());
+        }
+    }
+    return orig_FSOUND_Stream_OpenFile(filename, mode, memlength);
+}
+
+void SoundLoadWorker(std::string filePath) {
+    if (!pSFileOpenFileEx || !pSFileReadFile || !pSFileCloseFile) return;
+
+    std::string normPath = filePath;
+    for (char& c : normPath) {
+        if (c == '/') c = '\\';
+        else c = tolower(c);
+    }
+
+    HANDLE hFile = nullptr;
+    if (pSFileOpenFileEx(nullptr, filePath.c_str(), 0, &hFile)) {
+        DWORD size = GetFileSize(hFile, NULL);
+        if (size > 0 && size < 2 * 1024 * 1024) { // Preload files under 2MB
+            std::vector<uint8_t> buffer(size);
+            DWORD readBytes = 0;
+            if (pSFileReadFile(hFile, buffer.data(), size, &readBytes, NULL) && readBytes == size) {
+                std::lock_guard<std::mutex> lock(g_soundMutex);
+                g_soundCache[normPath] = { std::move(buffer), true };
+            }
+        }
+        pSFileCloseFile(hFile);
+    }
 }
 
 void PreloadSound(const std::string& filePath) {
     if (!Config::g_settings.OptAudioDecodeMt) return;
     std::lock_guard<std::mutex> lock(g_soundMutex);
-    if (g_soundCache.find(filePath) != g_soundCache.end()) return;
-    g_soundCache[filePath] = { {}, false };
+    std::string normPath = filePath;
+    for (char& c : normPath) {
+        if (c == '/') c = '\\';
+        else c = tolower(c);
+    }
+    if (g_soundCache.find(normPath) != g_soundCache.end()) return;
+    g_soundCache[normPath] = { {}, false };
     
     g_preloads++;
     g_workerThreads.emplace_back(SoundLoadWorker, filePath);
@@ -53,8 +128,53 @@ bool Init() {
         Log("[AsyncSoundLoader] DISABLED via configuration");
         return true;
     }
+
+    HMODULE hStorm = GetModuleHandleA("storm.dll");
+    if (hStorm) {
+        pSFileOpenFileEx = (SFileOpenFileEx_fn)GetProcAddress(hStorm, "SFileOpenFileEx");
+        pSFileReadFile = (SFileReadFile_fn)GetProcAddress(hStorm, "SFileReadFile");
+        pSFileCloseFile = (SFileCloseFile_fn)GetProcAddress(hStorm, "SFileCloseFile");
+    }
+
+    HMODULE hFmod = GetModuleHandleA("fmod32.dll");
+    if (hFmod) {
+        void* pLoad = (void*)GetProcAddress(hFmod, "_FSOUND_Sample_Load@20");
+        if (!pLoad) pLoad = (void*)GetProcAddress(hFmod, "FSOUND_Sample_Load");
+
+        void* pStream = (void*)GetProcAddress(hFmod, "_FSOUND_Stream_OpenFile@16");
+        if (!pStream) pStream = (void*)GetProcAddress(hFmod, "FSOUND_Stream_OpenFile");
+
+        if (pLoad && pStream) {
+            if (MH_CreateHook(pLoad, (void*)Hooked_FSOUND_Sample_Load, (void**)&orig_FSOUND_Sample_Load) == MH_OK &&
+                MH_CreateHook(pStream, (void*)Hooked_FSOUND_Stream_OpenFile, (void**)&orig_FSOUND_Stream_OpenFile) == MH_OK) {
+                
+                MH_EnableHook(pLoad);
+                MH_EnableHook(pStream);
+                Log("[AsyncSoundLoader] Hooked FMOD Sample Load and Stream Open APIs successfully.");
+            }
+        }
+    }
+
     g_active = true;
-    Log("[AsyncSoundLoader] Active - Asynchronous Sound FX Loader Initialized");
+
+    // Preload critical combat sounds
+    const char* sounds[] = {
+        "Sound\\Spells\\Fireball.wav",
+        "Sound\\Spells\\Frostbolt.wav",
+        "Sound\\Spells\\ShadowBolt.wav",
+        "Sound\\Spells\\ChainLightning.wav",
+        "Sound\\Spells\\Heal.wav",
+        "Sound\\Spells\\FlashHeal.wav",
+        "Sound\\Spells\\Rejuvenation.wav",
+        "Sound\\Spells\\SpellCastFailure.wav",
+        "Sound\\Spells\\SpellCastStart.wav",
+        "Sound\\Spells\\Fizzle.wav"
+    };
+    for (const char* sound : sounds) {
+        PreloadSound(sound);
+    }
+
+    Log("[AsyncSoundLoader] Active - Asynchronous Sound FX Loader Initialized.");
     return true;
 }
 
@@ -67,7 +187,7 @@ void Shutdown() {
     g_workerThreads.clear();
     std::lock_guard<std::mutex> lock(g_soundMutex);
     g_soundCache.clear();
-    Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects", g_preloads);
+    Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects.", g_preloads);
 }
 
 } // namespace AsyncSoundLoader
