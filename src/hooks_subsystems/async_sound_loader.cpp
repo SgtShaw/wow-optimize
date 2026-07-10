@@ -43,7 +43,7 @@ static SFileCloseFile_fn pSFileCloseFile = nullptr;
 typedef void* (APIENTRY *FSOUND_Sample_Load_fn)(int index, const void* name_or_data, unsigned int mode, int offset, int length);
 static FSOUND_Sample_Load_fn orig_FSOUND_Sample_Load = nullptr;
 
-typedef void* (APIENTRY *FSOUND_Stream_OpenFile_fn)(const char *filename, unsigned int mode, int memlength);
+typedef void* (APIENTRY *FSOUND_Stream_OpenFile_fn)(const char *filename, unsigned int mode, int offset, int length);
 static FSOUND_Stream_OpenFile_fn orig_FSOUND_Stream_OpenFile = nullptr;
 
 static void* APIENTRY Hooked_FSOUND_Sample_Load(int index, const void* name_or_data, unsigned int mode, int offset, int length) {
@@ -65,7 +65,7 @@ static void* APIENTRY Hooked_FSOUND_Sample_Load(int index, const void* name_or_d
     return orig_FSOUND_Sample_Load(index, name_or_data, mode, offset, length);
 }
 
-static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsigned int mode, int memlength) {
+static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsigned int mode, int offset, int length) {
     if (filename && !(mode & 0x0800)) {
         std::string filePath = filename;
         std::string normPath = filePath;
@@ -78,10 +78,10 @@ static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsign
         auto it = g_soundCache.find(normPath);
         if (it != g_soundCache.end() && it->second.ready) {
             unsigned int newMode = mode | 0x0800;
-            return orig_FSOUND_Stream_OpenFile((const char*)it->second.data.data(), newMode, it->second.data.size());
+            return orig_FSOUND_Stream_OpenFile((const char*)it->second.data.data(), newMode, 0, it->second.data.size());
         }
     }
-    return orig_FSOUND_Stream_OpenFile(filename, mode, memlength);
+    return orig_FSOUND_Stream_OpenFile(filename, mode, offset, length);
 }
 
 void SoundLoadWorker(std::string filePath) {
