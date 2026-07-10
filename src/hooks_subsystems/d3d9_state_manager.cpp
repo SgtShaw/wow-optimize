@@ -2,7 +2,7 @@
 // Module: d3d9_state_manager.cpp
 // Description: Deduplicates D3D9 device state changes and batches draw calls
 //              using Hardware Geometry Instancing for massive CPU performance.
-// Safety & Threading: Main render thread only.
+// Safety & Threading: Main render thread only. Crash-guarded against NULL pointers.
 // ============================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -379,6 +379,11 @@ static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void*
     
     FlushBatch(dev);
 
+    if (!matrix) {
+        if (state < 32) g_xformValid[state] = false;
+        return g_orig_SetTransform(dev, state, matrix);
+    }
+
     DWORD idx = state;
     if (idx < 32) {
         uint64_t hash = QuickMatrixHash((const float*)matrix);
@@ -400,6 +405,11 @@ static HRESULT __stdcall Hooked_SetMaterial(void* dev, const void* material) {
     InterlockedIncrement64(&g_statCalls[5]);
     FlushBatch(dev);
 
+    if (!material) {
+        g_materialValid = false;
+        return g_orig_SetMaterial(dev, material);
+    }
+
     uint32_t hash = HashMaterial((const DWORD*)material);
     if (g_materialValid && g_materialHash == hash) {
         InterlockedIncrement64(&g_statSkipped[5]);
@@ -417,6 +427,10 @@ static HRESULT __stdcall Hooked_SetViewport(void* dev, const DWORD* vp) {
     InterlockedIncrement64(&g_statCalls[6]);
     FlushBatch(dev);
 
+    if (!vp) {
+        return g_orig_SetViewport(dev, vp);
+    }
+
     if (memcmp(g_viewportData, vp, sizeof(g_viewportData)) == 0) {
         InterlockedIncrement64(&g_statSkipped[6]);
         return 0;
@@ -431,6 +445,11 @@ static HRESULT __stdcall Hooked_SetViewport(void* dev, const DWORD* vp) {
 static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
     InterlockedIncrement64(&g_statCalls[7]);
     FlushBatch(dev);
+
+    if (!rect) {
+        g_scissorValid = false;
+        return g_orig_SetScissorRect(dev, rect);
+    }
 
     if (g_scissorValid
         && g_scissorData[0] == rect->left
