@@ -87,6 +87,38 @@
 #include "hooks_subsystems/saved_vars_backup.h"
 #include "hooks_subsystems/unit_max_power_cache.h"
 #include "hooks_subsystems/mouse_clip_release.h"
+#include "hooks_subsystems/loading_screen_opt.h"
+#include "hooks_subsystems/combat_log_filter.h"
+#include "hooks_subsystems/sound_volume_limit.h"
+#include "hooks_subsystems/ui_layout_throttle.h"
+#include "hooks_subsystems/terrain_height_cache.h"
+#include "hooks_subsystems/anim_blend_cache.h"
+#include "hooks_subsystems/saved_vars_opt.h"
+#include "hooks_subsystems/item_data_prefetch.h"
+#include "hooks_subsystems/movement_smoothing.h"
+#include "hooks_subsystems/font_alpha_fastpath.h"
+
+// 20 new colossal features (Features 31-50)
+#include "hooks_subsystems/packet_processing_throttle.h"
+#include "hooks_subsystems/nameplate_culling.h"
+#include "hooks_subsystems/texture_unload_delay.h"
+#include "hooks_subsystems/m2_matrix_simd.h"
+#include "hooks_subsystems/minimap_refresh_governor.h"
+#include "hooks_subsystems/spell_effect_culling.h"
+#include "hooks_subsystems/lua_string_compare_fast.h"
+#include "hooks_subsystems/dbc_row_caching.h"
+#include "hooks_subsystems/network_string_dedup.h"
+#include "hooks_subsystems/camera_collision_throttle.h"
+#include "hooks_subsystems/sound_freq_coalesce.h"
+#include "hooks_subsystems/aura_update_dedup.h"
+#include "hooks_subsystems/ui_texture_caching.h"
+#include "hooks_subsystems/wmo_culling_opt.h"
+#include "hooks_subsystems/fast_float_parse.h"
+#include "hooks_subsystems/heap_allocation_tracker.h"
+#include "hooks_subsystems/spell_cooldown_cache.h"
+#include "hooks_subsystems/guid_string_cache.h"
+#include "hooks_subsystems/frame_script_mem_opt.h"
+#include "hooks_subsystems/combat_event_limit.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -7550,6 +7582,40 @@ static DWORD WINAPI MainThread(LPVOID param) {
     UnitMaxPowerCache::Init();
     MouseClipRelease::Init();
 
+    Log("--- 10 More New Performance & Stability Features ---");
+    LoadingScreenOpt::Init();
+    CombatLogFilter::Init();
+    SoundVolumeLimit::Init();
+    UILayoutThrottle::Init();
+    TerrainHeightCache::Init();
+    AnimBlendCache::Init();
+    SavedVarsOpt::Init();
+    ItemDataPrefetch::Init();
+    MovementSmoothing::Init();
+    FontAlphaFastpath::Init();
+
+    Log("--- 20 New Colossal Optimization Features ---");
+    PacketProcessingThrottle::Init();
+    NameplateCulling::Init();
+    TextureUnloadDelay::Init();
+    M2MatrixSimd::Init();
+    MinimapRefreshGovernor::Init();
+    SpellEffectCulling::Init();
+    LuaStringCompareFast::Init();
+    DbcRowCaching::Init();
+    NetworkStringDedup::Init();
+    CameraCollisionThrottle::Init();
+    SoundFreqCoalesce::Init();
+    AuraUpdateDedup::Init();
+    UiTextureCaching::Init();
+    WmoCullingOpt::Init();
+    FastFloatParse::Init();
+    HeapAllocationTracker::Init();
+    SpellCooldownCache::Init();
+    GuidStringCache::Init();
+    FrameScriptMemOpt::Init();
+    CombatEventLimit::Init();
+
     Log("");
     Log("--- World-to-Screen SSE Math ---");
     if (Config::g_settings.OptStrStrSse2) WorldToScreenSse::Init();
@@ -9498,6 +9564,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             M2BoneSimd::Shutdown();
             FontGlyphCache::Shutdown();
             SavedVarsPreloadAsync::Shutdown();
+            LoadingScreenOpt::Shutdown();
+            CombatLogFilter::Shutdown();
+            SoundVolumeLimit::Shutdown();
+            UILayoutThrottle::Shutdown();
+            TerrainHeightCache::Shutdown();
+            AnimBlendCache::Shutdown();
+            SavedVarsOpt::Shutdown();
+            ItemDataPrefetch::Shutdown();
+            MovementSmoothing::Shutdown();
+            FontAlphaFastpath::Shutdown();
             CombatTextCoalescer::Shutdown();
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();

@@ -105,6 +105,22 @@ static BufferedWrite* GetOrCreateBuffer(HANDLE hFile) {
     return nullptr;
 }
 
+#include "saved_vars_opt.h"
+#include "saved_vars_backup.h"
+
+static void PerformSyncWrite(HANDLE hObject, void* data, size_t size) {
+    __try {
+        DWORD written = 0;
+        if (orig_WriteFile_SV) {
+            orig_WriteFile_SV(hObject, data, (DWORD)size, &written, NULL);
+        } else {
+            WriteFile(hObject, data, (DWORD)size, &written, NULL);
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        CrashDumper::FeatureError("SavedVarsAsync", "sync write exception");
+    }
+}
+
 // CloseHandle hook implementation - writes buffered data synchronously on close
 static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
     if (hObject != INVALID_HANDLE_VALUE && IsSVHandle(hObject)) {
@@ -122,15 +138,17 @@ static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
 
         if (b) {
             if (b->data && b->size > 0) {
-                __try {
-                    DWORD written = 0;
-                    if (orig_WriteFile_SV) {
-                        orig_WriteFile_SV(hObject, b->data, (DWORD)b->size, &written, NULL);
-                    } else {
-                        WriteFile(hObject, b->data, (DWORD)b->size, &written, NULL);
+                PerformSyncWrite(hObject, b->data, b->size);
+
+                // Optimize the SavedVariables and create backup
+                char filePath[MAX_PATH];
+                if (GetFinalPathNameByHandleA(hObject, filePath, MAX_PATH, 0) > 0) {
+                    const char* pathPtr = filePath;
+                    if (strncmp(filePath, "\\\\?\\", 4) == 0) {
+                        pathPtr += 4;
                     }
-                } __except(EXCEPTION_EXECUTE_HANDLER) {
-                    CrashDumper::FeatureError("SavedVarsAsync", "sync write exception");
+                    SavedVarsOpt::OptimizeSerialization(pathPtr);
+                    SavedVarsBackup::CreateBackup(pathPtr);
                 }
             }
             if (b->data) {

@@ -1,4 +1,5 @@
 #include "async_terrain_loader.h"
+#include "terrain_height_cache.h"
 #include "core/config.h"
 #include "../allocators/loading_defrag.h"
 #include "../core/version.h"
@@ -91,7 +92,14 @@ int __cdecl Hooked_UnloadGrid(void* grid) {
     return orig_sub_7C3700(grid);
 }
 
+
 int __cdecl Hooked_GetGroundElevation(float* pos, float* out_height, void** out_chunk) {
+    if (pos && out_height) {
+        if (::TerrainHeightCache::GetCachedHeight(pos[0], pos[1], *out_height)) {
+            if (out_chunk) *out_chunk = nullptr;
+            return 1;
+        }
+    }
     int result = orig_sub_7C1660(pos, out_height, out_chunk);
     if (!result) {
         // If query failed but an async load is active, supply current Z position as height fallback
@@ -101,6 +109,10 @@ int __cdecl Hooked_GetGroundElevation(float* pos, float* out_height, void** out_
                 if (out_chunk) *out_chunk = nullptr;
                 return 1;
             }
+        }
+    } else {
+        if (pos && out_height) {
+            ::TerrainHeightCache::AddToCache(pos[0], pos[1], *out_height);
         }
     }
     return result;

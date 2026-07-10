@@ -84,6 +84,40 @@ namespace Config {
             WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
+
+            // 10 new features defaults
+            WritePrivateProfileStringA("Graphics_Sound", "LoadingScreenOpt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "CombatLogFilter", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "AnimBlendCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "SavedVarsOpt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "ItemDataPrefetch", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "MovementSmoothing", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "1", iniPath.c_str());
+
+            // 20 new colossal features defaults
+            WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaStringCompareFast", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "DbcRowCaching", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NetworkStringDedup", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "CameraCollisionThrottle", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SoundFreqCoalesce", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "AuraUpdateDedup", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UiTextureCaching", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "WmoCullingOpt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FastFloatParse", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "HeapAllocationTracker", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "SpellCooldownCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "GuidStringCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FrameScriptMemOpt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "CombatEventLimit", "1", iniPath.c_str());
         }
 
         // Read all settings
@@ -151,5 +185,39 @@ namespace Config {
         g_settings.OptDbcLookupCache      = GetPrivateProfileIntA("Graphics_Sound", "DbcLookupCache", 0, iniPath.c_str()) != 0;
         g_settings.OptWorldStateCoalesce  = GetPrivateProfileIntA("Graphics_Sound", "WorldStateCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptD3d9RenderThread    = GetPrivateProfileIntA("Graphics_Sound", "D3d9RenderThread", 0, iniPath.c_str()) != 0;
+
+        // Parse Features 21-30
+        g_settings.OptLoadingScreenOpt   = GetPrivateProfileIntA("Graphics_Sound", "LoadingScreenOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptCombatLogFilter    = GetPrivateProfileIntA("Combat_Net", "CombatLogFilter", 1, iniPath.c_str()) != 0;
+        g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 1, iniPath.c_str()) != 0;
+        g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 1, iniPath.c_str()) != 0;
+        g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptAnimBlendCache     = GetPrivateProfileIntA("Graphics_Sound", "AnimBlendCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsOpt       = GetPrivateProfileIntA("General", "SavedVarsOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptItemDataPrefetch   = GetPrivateProfileIntA("Combat_Net", "ItemDataPrefetch", 1, iniPath.c_str()) != 0;
+        g_settings.OptMovementSmoothing  = GetPrivateProfileIntA("General", "MovementSmoothing", 1, iniPath.c_str()) != 0;
+        g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 1, iniPath.c_str()) != 0;
+
+        // Parse Features 31-50
+        g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 1, iniPath.c_str()) != 0;
+        g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 1, iniPath.c_str()) != 0;
+        g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 1, iniPath.c_str()) != 0;
+        g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 1, iniPath.c_str()) != 0;
+        g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 1, iniPath.c_str()) != 0;
+        g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 1, iniPath.c_str()) != 0;
+        g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 1, iniPath.c_str()) != 0;
+        g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 1, iniPath.c_str()) != 0;
+        g_settings.OptNetworkStringDedup = GetPrivateProfileIntA("Combat_Net", "NetworkStringDedup", 1, iniPath.c_str()) != 0;
+        g_settings.OptCameraCollisionThrottle = GetPrivateProfileIntA("General", "CameraCollisionThrottle", 1, iniPath.c_str()) != 0;
+        g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 1, iniPath.c_str()) != 0;
+        g_settings.OptAuraUpdateDedup = GetPrivateProfileIntA("Combat_Net", "AuraUpdateDedup", 1, iniPath.c_str()) != 0;
+        g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 1, iniPath.c_str()) != 0;
+        g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 1, iniPath.c_str()) != 0;
+        g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 1, iniPath.c_str()) != 0;
+        g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptCombatEventLimit = GetPrivateProfileIntA("Combat_Net", "CombatEventLimit", 1, iniPath.c_str()) != 0;
     }
 }

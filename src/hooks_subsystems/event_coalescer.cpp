@@ -107,8 +107,17 @@ static void DispatchSingle(const QueuedEvent* ev) {
 }
 
 // Called from the naked hook — parse format string and queue if coalescable
+#include "combat_log_filter.h"
+
 extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* vaStart) {
     if (g_isReplaying) return false;
+
+    const char* eventName = GetEventName(eventId);
+    if (eventName && strcmp(eventName, "COMBAT_LOG_EVENT_UNFILTERED") == 0) {
+        if (CombatLogFilter::ShouldFilterEvent(eventId, format, (va_list)vaStart)) {
+            return true; // Drop (filter) the event
+        }
+    }
 
     static bool s_coalesceCache[4096] = {};
     static bool s_coalesceChecked[4096] = {};

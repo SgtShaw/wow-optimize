@@ -1,4 +1,5 @@
 #include "d3d9_render_thread.h"
+#include "font_alpha_fastpath.h"
 #include "MinHook.h"
 #include "version.h"
 #include "config.h"
@@ -321,7 +322,18 @@ static DWORD WINAPI RenderThreadProc(LPVOID param) {
     return 0;
 }
 
+
+static DWORD g_lastTextureFactor = 0xFFFFFFFF;
+
 void QueueSetRenderState(IDirect3DDevice9* device, D3DRENDERSTATETYPE state, DWORD value) {
+    if (state == D3DRS_TEXTUREFACTOR) {
+        g_lastTextureFactor = value;
+    } else if (state == D3DRS_ALPHABLENDENABLE && value == TRUE) {
+        if (::FontAlphaFastpath::ShouldApplyFastpath(g_lastTextureFactor)) {
+            value = FALSE;
+        }
+    }
+
     RenderCommand cmd;
     cmd.type = CMD_SET_RENDER_STATE;
     cmd.device = device;
@@ -408,7 +420,12 @@ void QueuePresent(IDirect3DDevice9* device, const RECT* src, const RECT* dest, H
     QueueCommand(cmd);
 }
 
+#include "loading_screen_opt.h"
+
 static HRESULT WINAPI Hooked_DrawPrimitive(IDirect3DDevice9* device, D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) {
+    if (LoadingScreenOpt::IsLoadingActive() && PrimitiveCount > 20) {
+        return D3D_OK;
+    }
     if (g_isActive.load(std::memory_order_relaxed) && GetCurrentThreadId() == g_mainThreadId) {
         RenderCommand cmd;
         cmd.type = CMD_DRAW_PRIMITIVE;
@@ -423,6 +440,9 @@ static HRESULT WINAPI Hooked_DrawPrimitive(IDirect3DDevice9* device, D3DPRIMITIV
 }
 
 static HRESULT WINAPI Hooked_DrawIndexedPrimitive(IDirect3DDevice9* device, D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT primCount) {
+    if (LoadingScreenOpt::IsLoadingActive() && primCount > 20) {
+        return D3D_OK;
+    }
     if (g_isActive.load(std::memory_order_relaxed) && GetCurrentThreadId() == g_mainThreadId) {
         RenderCommand cmd;
         cmd.type = CMD_DRAW_INDEXED_PRIMITIVE;

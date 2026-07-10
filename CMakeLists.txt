@@ -489,6 +489,66 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/unit_max_power_cache.h
     src/hooks_subsystems/mouse_clip_release.cpp
     src/hooks_subsystems/mouse_clip_release.h
+    src/hooks_subsystems/loading_screen_opt.cpp
+    src/hooks_subsystems/loading_screen_opt.h
+    src/hooks_subsystems/combat_log_filter.cpp
+    src/hooks_subsystems/combat_log_filter.h
+    src/hooks_subsystems/sound_volume_limit.cpp
+    src/hooks_subsystems/sound_volume_limit.h
+    src/hooks_subsystems/ui_layout_throttle.cpp
+    src/hooks_subsystems/ui_layout_throttle.h
+    src/hooks_subsystems/terrain_height_cache.cpp
+    src/hooks_subsystems/terrain_height_cache.h
+    src/hooks_subsystems/anim_blend_cache.cpp
+    src/hooks_subsystems/anim_blend_cache.h
+    src/hooks_subsystems/saved_vars_opt.cpp
+    src/hooks_subsystems/saved_vars_opt.h
+    src/hooks_subsystems/item_data_prefetch.cpp
+    src/hooks_subsystems/item_data_prefetch.h
+    src/hooks_subsystems/movement_smoothing.cpp
+    src/hooks_subsystems/movement_smoothing.h
+    src/hooks_subsystems/font_alpha_fastpath.cpp
+    src/hooks_subsystems/font_alpha_fastpath.h
+    src/hooks_subsystems/packet_processing_throttle.cpp
+    src/hooks_subsystems/packet_processing_throttle.h
+    src/hooks_subsystems/nameplate_culling.cpp
+    src/hooks_subsystems/nameplate_culling.h
+    src/hooks_subsystems/texture_unload_delay.cpp
+    src/hooks_subsystems/texture_unload_delay.h
+    src/hooks_subsystems/m2_matrix_simd.cpp
+    src/hooks_subsystems/m2_matrix_simd.h
+    src/hooks_subsystems/minimap_refresh_governor.cpp
+    src/hooks_subsystems/minimap_refresh_governor.h
+    src/hooks_subsystems/spell_effect_culling.cpp
+    src/hooks_subsystems/spell_effect_culling.h
+    src/hooks_subsystems/lua_string_compare_fast.cpp
+    src/hooks_subsystems/lua_string_compare_fast.h
+    src/hooks_subsystems/dbc_row_caching.cpp
+    src/hooks_subsystems/dbc_row_caching.h
+    src/hooks_subsystems/network_string_dedup.cpp
+    src/hooks_subsystems/network_string_dedup.h
+    src/hooks_subsystems/camera_collision_throttle.cpp
+    src/hooks_subsystems/camera_collision_throttle.h
+    src/hooks_subsystems/sound_freq_coalesce.cpp
+    src/hooks_subsystems/sound_freq_coalesce.h
+    src/hooks_subsystems/aura_update_dedup.cpp
+    src/hooks_subsystems/aura_update_dedup.h
+    src/hooks_subsystems/ui_texture_caching.cpp
+    src/hooks_subsystems/ui_texture_caching.h
+    src/hooks_subsystems/wmo_culling_opt.cpp
+    src/hooks_subsystems/wmo_culling_opt.h
+    src/hooks_subsystems/fast_float_parse.cpp
+    src/hooks_subsystems/fast_float_parse.h
+    src/hooks_subsystems/heap_allocation_tracker.cpp
+    src/hooks_subsystems/heap_allocation_tracker.h
+    src/hooks_subsystems/spell_cooldown_cache.cpp
+    src/hooks_subsystems/spell_cooldown_cache.h
+    src/hooks_subsystems/guid_string_cache.cpp
+    src/hooks_subsystems/guid_string_cache.h
+    src/hooks_subsystems/frame_script_mem_opt.cpp
+    src/hooks_subsystems/frame_script_mem_opt.h
+    src/hooks_subsystems/combat_event_limit.cpp
+    src/hooks_subsystems/combat_event_limit.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

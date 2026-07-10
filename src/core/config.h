@@ -67,6 +67,40 @@ namespace Config {
         bool OptDbcLookupCache = false;
         bool OptWorldStateCoalesce = false;
         bool OptD3d9RenderThread = false;
+
+        // 10 new features
+        bool OptLoadingScreenOpt = true;
+        bool OptCombatLogFilter = true;
+        bool OptSoundVolumeLimit = true;
+        bool OptUILayoutThrottle = true;
+        bool OptTerrainHeightCache = true;
+        bool OptAnimBlendCache = true;
+        bool OptSavedVarsOpt = true;
+        bool OptItemDataPrefetch = true;
+        bool OptMovementSmoothing = true;
+        bool OptFontAlphaFastpath = true;
+
+        // 20 new colossal features (Features 31-50)
+        bool OptPacketProcessingThrottle = true;
+        bool OptNameplateCulling = true;
+        bool OptTextureUnloadDelay = true;
+        bool OptM2MatrixSimd = true;
+        bool OptMinimapRefreshGovernor = true;
+        bool OptSpellEffectCulling = true;
+        bool OptLuaStringCompareFast = true;
+        bool OptDbcRowCaching = true;
+        bool OptNetworkStringDedup = true;
+        bool OptCameraCollisionThrottle = true;
+        bool OptSoundFreqCoalesce = true;
+        bool OptAuraUpdateDedup = true;
+        bool OptUiTextureCaching = true;
+        bool OptWmoCullingOpt = true;
+        bool OptFastFloatParse = true;
+        bool OptHeapAllocationTracker = true;
+        bool OptSpellCooldownCache = true;
+        bool OptGuidStringCache = true;
+        bool OptFrameScriptMemOpt = true;
+        bool OptCombatEventLimit = true;
     };
 
     extern Settings g_settings;

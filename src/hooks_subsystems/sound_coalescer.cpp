@@ -1,4 +1,5 @@
 #include "sound_coalescer.h"
+#include "sound_volume_limit.h"
 #include "MinHook.h"
 #include "version.h"
 #include <unordered_map>
@@ -29,7 +30,11 @@ static int APIENTRY Hooked_FSOUND_PlaySound(int channel, void* sptr) {
         }
         g_playTimes[sptr] = now;
     }
-    return orig_FSOUND_PlaySound(channel, sptr);
+    int res = orig_FSOUND_PlaySound(channel, sptr);
+    if (res >= 0) {
+        ::SoundVolumeLimit::LimitChannelVolume(res, sptr);
+    }
+    return res;
 }
 
 static int APIENTRY Hooked_FSOUND_PlaySoundEx(int channel, void* sptr, void* dsp, signed char startpaused) {
@@ -43,7 +48,11 @@ static int APIENTRY Hooked_FSOUND_PlaySoundEx(int channel, void* sptr, void* dsp
         }
         g_playTimes[sptr] = now;
     }
-    return orig_FSOUND_PlaySoundEx(channel, sptr, dsp, startpaused);
+    int res = orig_FSOUND_PlaySoundEx(channel, sptr, dsp, startpaused);
+    if (res >= 0) {
+        ::SoundVolumeLimit::LimitChannelVolume(res, sptr);
+    }
+    return res;
 }
 
 bool Init() {

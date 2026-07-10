@@ -17,6 +17,8 @@
 extern "C" void Log(const char* fmt, ...);
 extern "C" void FlushCoalescedPackets();
 
+#include "ui_layout_throttle.h"
+
 static bool IsTeardownState();
 
 // ================================================================
@@ -42,6 +44,9 @@ static bool IsValidFramePtr(void* ptr) {
 
 int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
     #if !TEST_DISABLE_FRAMEXML_COALESCE
+    if (UILayoutThrottle::ShouldThrottle(ecx)) {
+        return 0;
+    }
     if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
         if (IsTeardownState()) {
             g_dirtyLayoutFramesCount = 0;
@@ -65,6 +70,7 @@ int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
 
 void FlushLayoutUpdates() {
     #if !TEST_DISABLE_FRAMEXML_COALESCE
+    UILayoutThrottle::ResetFrameCounter();
     if (g_dirtyLayoutFramesCount > 0) {
         g_coalescingLayouts = false; // suspend coalescing
         for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {

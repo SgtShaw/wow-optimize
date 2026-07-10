@@ -5,6 +5,7 @@
 // ============================================================================
 
 #include "api_cache.h"
+#include "item_data_prefetch.h"
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
@@ -464,6 +465,12 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
         ReplayItemCachedValues(L, &localEntry);
         InterlockedIncrement(&g_itemHits);
         return localEntry.retCount;
+    }
+
+    if (keyType1 == LUA_TNUMBER && keyNum1 > 0) {
+        unsigned int itemId = (unsigned int)keyNum1;
+        ItemDataPrefetch::PrefetchItem(itemId + 1);
+        ItemDataPrefetch::PrefetchItem(itemId + 2);
     }
 
     int topBefore = lua_gettop_(L);
