@@ -379,6 +379,47 @@ bool Init() {
 
     g_initialized = true;
     Log("[MpqMmapVfs] [ OK ] Memory-Mapped MPQ VFS & Parallel Decompressor active");
+
+    // 5. Preload critical DBC database files for instant RAM cache
+    if (Config::g_settings.OptDbcPreload) {
+        const char* dbcs[] = {
+            "DBFilesClient\\Spell.dbc",
+            "DBFilesClient\\Item.dbc",
+            "DBFilesClient\\ItemDisplayInfo.dbc",
+            "DBFilesClient\\Map.dbc",
+            "DBFilesClient\\AreaTable.dbc",
+            "DBFilesClient\\SoundEntries.dbc",
+            "DBFilesClient\\Light.dbc",
+            "DBFilesClient\\DungeonMap.dbc",
+            "DBFilesClient\\DungeonMapChunk.dbc",
+            "DBFilesClient\\Faction.dbc",
+            "DBFilesClient\\FactionTemplate.dbc",
+            "DBFilesClient\\ChrClasses.dbc",
+            "DBFilesClient\\ChrRaces.dbc",
+            "DBFilesClient\\CreatureModelData.dbc",
+            "DBFilesClient\\CreatureDisplayInfo.dbc",
+            "DBFilesClient\\EmotesText.dbc",
+            "DBFilesClient\\Achievement.dbc",
+            "DBFilesClient\\Achievement_Criteria.dbc",
+            "DBFilesClient\\SpellCastTimes.dbc",
+            "DBFilesClient\\SpellDuration.dbc",
+            "DBFilesClient\\SpellRange.dbc",
+            "DBFilesClient\\SpellRadius.dbc",
+            "DBFilesClient\\SpellIcon.dbc",
+            "DBFilesClient\\SpellCooldowns.dbc",
+            "DBFilesClient\\AnimationData.dbc",
+            "DBFilesClient\\Talent.dbc",
+            "DBFilesClient\\TalentTab.dbc",
+            "DBFilesClient\\GlueScreenTemplates.dbc",
+            "DBFilesClient\\WorldMapArea.dbc",
+            "DBFilesClient\\WorldMapOverlay.dbc"
+        };
+        for (const char* dbc : dbcs) {
+            QueueFilePreload(dbc);
+        }
+        Log("[MpqMmapVfs] Queued %d critical DBC database files for background RAM caching", (int)(sizeof(dbcs) / sizeof(dbcs[0])));
+    }
+
     return true;
 }
 

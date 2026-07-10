@@ -7003,7 +7003,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Memory-Mapped MPQ VFS & Parallel Decompressor ---");
-    bool mpqMmapVfsOk = Config::g_settings.OptMpqMmapVfs && MpqMmapVfs::Init();
+    bool mpqMmapVfsOk = (Config::g_settings.OptMpqMmapVfs || Config::g_settings.OptDbcPreload) && MpqMmapVfs::Init();
 
     Log("");
     Log("--- Object Visibility Cache ---");

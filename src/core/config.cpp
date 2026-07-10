@@ -34,6 +34,8 @@ namespace Config {
             WritePrivateProfileStringA("General", "MpqMmapVfs", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "ObjVisCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "DbcPreload", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "OomGovernor", "0", iniPath.c_str());
 
 
             // UI & Lua
@@ -99,6 +101,8 @@ namespace Config {
         g_settings.OptMpqMmapVfs          = GetPrivateProfileIntA("General", "MpqMmapVfs", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqPrefetch         = GetPrivateProfileIntA("General", "MpqPrefetch", 0, iniPath.c_str()) != 0;
         g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptDbcPreload          = GetPrivateProfileIntA("General", "DbcPreload", 0, iniPath.c_str()) != 0;
+        g_settings.OptOomGovernor         = GetPrivateProfileIntA("General", "OomGovernor", 0, iniPath.c_str()) != 0;
 
 
         // UI & Lua

@@ -18,6 +18,8 @@ namespace Config {
         bool OptMpqMmapVfs = false;
         bool OptMpqPrefetch = false;
         bool OptObjVisCache = false;
+        bool OptDbcPreload = false;
+        bool OptOomGovernor = false;
 
         // UI & Lua
         bool OptUIFrameBatch = false;
