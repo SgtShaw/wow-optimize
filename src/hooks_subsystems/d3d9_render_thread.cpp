@@ -605,6 +605,7 @@ bool Init() {
 
 
 void OnCreateDevice(IDirect3DDevice9* device) {
+    g_isActive = false;
     static bool loggedBypass = false;
     if (!loggedBypass) {
         Log("[D3D9RenderThread] Bypass: hooks disabled to maintain rendering integrity and prevent state desynchronization.");
