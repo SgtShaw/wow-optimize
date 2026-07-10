@@ -39,7 +39,7 @@ namespace Config {
 
 
             // UI & Lua
-            WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "1", iniPath.c_str());

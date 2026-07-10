@@ -349,6 +349,9 @@ static volatile LONG64     g_uiScriptMisses = 0;
 #ifndef ADDR_LUA_UNITMAXHEALTH
 #define ADDR_LUA_UNITMAXHEALTH 0x0060EC60  // UnitHealthMax
 #endif
+#ifndef ADDR_LUA_UNITPOWERMAX
+#define ADDR_LUA_UNITPOWERMAX  0x0060EF40  // UnitPowerMax
+#endif
 #ifndef ADDR_LUA_UNITLEVEL
 #define ADDR_LUA_UNITLEVEL     0x0060F9E0  // UnitLevel
 #endif
@@ -361,6 +364,7 @@ static bool IsInvariantLuaFunc(uintptr_t funcPtr) {
         || funcPtr == ADDR_LUA_UNITPOWER
         || funcPtr == ADDR_LUA_UNITCLASS
         || funcPtr == ADDR_LUA_UNITMAXHEALTH
+        || funcPtr == ADDR_LUA_UNITPOWERMAX
         || funcPtr == ADDR_LUA_UNITLEVEL
         || funcPtr == ADDR_LUA_GETINSTANCEINFO;
 }
@@ -432,6 +436,7 @@ typedef int (__cdecl* LuaFunc_t)(uintptr_t L);
 static LuaFunc_t orig_UnitHealth = nullptr;
 static LuaFunc_t orig_UnitPower = nullptr;
 static LuaFunc_t orig_UnitMaxHealth = nullptr;
+static LuaFunc_t orig_UnitPowerMax = nullptr;
 static LuaFunc_t orig_UnitLevel = nullptr;
 
 typedef const char* (__cdecl* lua_tolstring_t)(uintptr_t L, int idx, size_t* len);
@@ -446,6 +451,51 @@ static const lua_pushnumber_t lua_pushnumber_ = (lua_pushnumber_t)0x0084E2A0;
 typedef int (__cdecl* lua_gettop_t)(uintptr_t L);
 static const lua_gettop_t lua_gettop_ = (lua_gettop_t)0x0084DBD0;
 
+// DMA direct memory access variables and functions
+typedef void (__cdecl* fn_ParseUnitToken)(const char* str, int* out_token, int flags);
+typedef void* (__cdecl* fn_ResolveUnit)(int token_low, int token_high, int flags);
+static const fn_ParseUnitToken  p_ParseUnitToken  = (fn_ParseUnitToken)0x0060ABF0;
+static const fn_ResolveUnit     p_ResolveUnit     = (fn_ResolveUnit)0x004D4DB0;
+
+static constexpr uintptr_t CGUNIT_M_VALUES_OFFS = 0xD0;
+static constexpr int UNIT_FIELD_HEALTH      = 18;
+static constexpr int UNIT_FIELD_MAXHEALTH   = 26;
+static constexpr int UNIT_FIELD_POWER1      = 19;
+static constexpr int UNIT_FIELD_MAXPOWER1   = 27;
+
+static bool IsReadableMemory(uintptr_t addr) {
+    if (addr == 0) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
+    if (mbi.State != MEM_COMMIT) return false;
+    return !(mbi.Protect & PAGE_NOACCESS) && !(mbi.Protect & PAGE_GUARD);
+}
+
+static bool GetUnitDMAField(const char* unitStr, int fieldIndex, int& outValue) {
+    if (!unitStr) return false;
+    __try {
+        int token[2] = {0, 0};
+        p_ParseUnitToken(unitStr, token, 0);
+        void* unitObj = p_ResolveUnit(token[0], token[1], 8);
+        if (!unitObj) return false;
+        
+        uintptr_t ptr = (uintptr_t)unitObj;
+        if (ptr < 0x10000 || ptr > 0xFFE00000) return false;
+        if (!IsReadableMemory(ptr + CGUNIT_M_VALUES_OFFS)) return false;
+        
+        void* m_values = *(void**)(ptr + CGUNIT_M_VALUES_OFFS);
+        if (!m_values) return false;
+        
+        uintptr_t fieldAddress = (uintptr_t)m_values + fieldIndex * 4;
+        if (!IsReadableMemory(fieldAddress)) return false;
+        
+        outValue = *(int*)fieldAddress;
+        return true;
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 static int __cdecl Hooked_UnitHealth(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitHealth", (uintptr_t)L);
     __try {
@@ -453,6 +503,13 @@ static int __cdecl Hooked_UnitHealth(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
+                // Try DMA read first!
+                int dmaVal = 0;
+                if (GetUnitDMAField(unit, UNIT_FIELD_HEALTH, dmaVal)) {
+                    lua_pushnumber_(L, (double)dmaVal);
+                    return 1;
+                }
+
                 uint64_t guid = 0;
                 typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
                 if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
@@ -491,6 +548,21 @@ static int __cdecl Hooked_UnitPower(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
+                int powerType = 0;
+                int nargs = lua_gettop_(L);
+                if (nargs >= 2) {
+                    double typeVal = lua_tonumber_(L, 2);
+                    powerType = (int)typeVal;
+                }
+
+                if (powerType >= 0 && powerType <= 7) {
+                    int dmaVal = 0;
+                    if (GetUnitDMAField(unit, UNIT_FIELD_POWER1 + powerType, dmaVal)) {
+                        lua_pushnumber_(L, (double)dmaVal);
+                        return 1;
+                    }
+                }
+
                 uint64_t guid = 0;
                 typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
                 if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
@@ -542,6 +614,13 @@ static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
+                // Try DMA read first!
+                int dmaVal = 0;
+                if (GetUnitDMAField(unit, UNIT_FIELD_MAXHEALTH, dmaVal)) {
+                    lua_pushnumber_(L, (double)dmaVal);
+                    return 1;
+                }
+
                 uint64_t guid = 0;
                 typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
                 if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
@@ -611,6 +690,73 @@ static int __cdecl Hooked_UnitLevel(uintptr_t L) {
     return orig_UnitLevel(L);
 }
 
+static int __cdecl Hooked_UnitPowerMax(uintptr_t L) {
+    CrashDumper::RecordHookCall("UnitPowerMax", (uintptr_t)L);
+    __try {
+        if (L && !IsTeardownState()) {
+            size_t len = 0;
+            const char* unit = lua_tolstring_(L, 1, &len);
+            if (unit && len < 32) {
+                int powerType = 0;
+                int nargs = lua_gettop_(L);
+                if (nargs >= 2) {
+                    double typeVal = lua_tonumber_(L, 2);
+                    powerType = (int)typeVal;
+                }
+
+                if (powerType >= 0 && powerType <= 7) {
+                    int dmaVal = 0;
+                    if (GetUnitDMAField(unit, UNIT_FIELD_MAXPOWER1 + powerType, dmaVal)) {
+                        lua_pushnumber_(L, (double)dmaVal);
+                        return 1;
+                    }
+                }
+
+                uint64_t guid = 0;
+                typedef char (__cdecl *get_guid_fn)(const char*, uint64_t*, char);
+                if (((get_guid_fn)0x0060ABF0)(unit, &guid, 0) && guid != 0) {
+                    int top = lua_gettop_(L);
+                    uint32_t argHash = 2166136261u;
+                    argHash ^= (uint32_t)(guid & 0xFFFFFFFF);
+                    argHash *= 16777619u;
+                    argHash ^= (uint32_t)(guid >> 32);
+                    argHash *= 16777619u;
+
+                    if (top >= 2) {
+                        double typeVal = lua_tonumber_(L, 2);
+                        uint64_t typeBits = *reinterpret_cast<uint64_t*>(&typeVal);
+                        argHash ^= (uint32_t)(typeBits & 0xFFFFFFFF);
+                        argHash *= 16777619u;
+                        argHash ^= (uint32_t)(typeBits >> 32);
+                        argHash *= 16777619u;
+                    } else {
+                        argHash ^= 0xFFFFFFFF;
+                        argHash *= 16777619u;
+                    }
+
+                    double val = 0.0;
+                    if (LookupInvariantScript(ADDR_LUA_UNITPOWERMAX, argHash, &val)) {
+                        lua_pushnumber_(L, val);
+                        return 1;
+                    }
+
+                    int results = orig_UnitPowerMax(L);
+                    if (results == 1) {
+                        uintptr_t stack_top = *(uintptr_t*)(L + 0x0C);
+                        if (stack_top >= 0x10000 && *(int*)(stack_top - 8) == 3) {
+                            double actualVal = lua_tonumber_(L, -1);
+                            StoreInvariantScript(ADDR_LUA_UNITPOWERMAX, argHash, actualVal, 3, guid);
+                        }
+                    }
+                    return results;
+                }
+            }
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return orig_UnitPowerMax(L);
+}
+
+
 // ================================================================
 // Public API
 // ================================================================
@@ -668,6 +814,12 @@ bool InstallLogicHooks(void) {
             Log("[LogicHooks] Hooked UnitMaxHealth at 0x%08X", ADDR_LUA_UNITMAXHEALTH);
         }
     }
+    if (WineSafe_CreateHook((void*)ADDR_LUA_UNITPOWERMAX, (void*)Hooked_UnitPowerMax, (void**)&orig_UnitPowerMax) == MH_OK) {
+        if (WO_EnableHook((void*)ADDR_LUA_UNITPOWERMAX) == MH_OK) {
+            installed++;
+            Log("[LogicHooks] Hooked UnitPowerMax at 0x%08X", ADDR_LUA_UNITPOWERMAX);
+        }
+    }
 
     #if !TEST_DISABLE_FRAMEXML_COALESCE
     if (WineSafe_CreateHook((void*)0x00489DE0, (void*)Hooked_LayoutRecalc, (void**)&orig_LayoutRecalc) == MH_OK) {
@@ -692,6 +844,7 @@ void ShutdownLogicHooks(void) {
     MH_DisableHook((void*)ADDR_LUA_UNITHEALTH);
     MH_DisableHook((void*)ADDR_LUA_UNITPOWER);
     MH_DisableHook((void*)ADDR_LUA_UNITMAXHEALTH);
+    MH_DisableHook((void*)ADDR_LUA_UNITPOWERMAX);
 
     Log("[LogicHooks] Stats: Combat text — %lld batched, %lld flushed, %lld overflow",
         g_ctBatched, g_ctFlushed, g_ctOverflow);
