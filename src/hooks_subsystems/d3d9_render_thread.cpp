@@ -585,56 +585,11 @@ bool Init() {
 
 
 void OnCreateDevice(IDirect3DDevice9* device) {
-    if (!device) return;
-
-    uintptr_t* vtable = *(uintptr_t**)device;
-    if (!vtable) return;
-
-    static bool hooksInstalled = false;
-    if (hooksInstalled) return;
-
-    void* target_DrawPrimitive = (void*)vtable[81];
-    void* target_DrawIndexedPrimitive = (void*)vtable[82];
-    void* target_SetTexture = (void*)vtable[65];
-    void* target_SetStreamSource = (void*)vtable[36];
-    void* target_SetIndices = (void*)vtable[37];
-    void* target_SetVertexDeclaration = (void*)vtable[87];
-    void* target_SetVertexShader = (void*)vtable[91];
-    void* target_SetPixelShader = (void*)vtable[93];
-    void* target_BeginScene = (void*)vtable[41];
-    void* target_EndScene = (void*)vtable[42];
-    void* target_Clear = (void*)vtable[43];
-
-    if (MH_CreateHook(target_DrawPrimitive, (void*)Hooked_DrawPrimitive, (void**)&orig_DrawPrimitive) != MH_OK ||
-        MH_CreateHook(target_DrawIndexedPrimitive, (void*)Hooked_DrawIndexedPrimitive, (void**)&orig_DrawIndexedPrimitive) != MH_OK ||
-        MH_CreateHook(target_SetTexture, (void*)Hooked_SetTexture, (void**)&orig_SetTexture) != MH_OK ||
-        MH_CreateHook(target_SetStreamSource, (void*)Hooked_SetStreamSource, (void**)&orig_SetStreamSource) != MH_OK ||
-        MH_CreateHook(target_SetIndices, (void*)Hooked_SetIndices, (void**)&orig_SetIndices) != MH_OK ||
-        MH_CreateHook(target_SetVertexDeclaration, (void*)Hooked_SetVertexDeclaration, (void**)&orig_SetVertexDeclaration) != MH_OK ||
-        MH_CreateHook(target_SetVertexShader, (void*)Hooked_SetVertexShader, (void**)&orig_SetVertexShader) != MH_OK ||
-        MH_CreateHook(target_SetPixelShader, (void*)Hooked_SetPixelShader, (void**)&orig_SetPixelShader) != MH_OK ||
-        MH_CreateHook(target_BeginScene, (void*)Hooked_BeginScene, (void**)&orig_BeginScene) != MH_OK ||
-        MH_CreateHook(target_EndScene, (void*)Hooked_EndScene, (void**)&orig_EndScene) != MH_OK ||
-        MH_CreateHook(target_Clear, (void*)Hooked_Clear, (void**)&orig_Clear) != MH_OK) 
-    {
-        Log("[D3D9RenderThread] Failed to create MinHook detours");
-        return;
+    static bool loggedBypass = false;
+    if (!loggedBypass) {
+        Log("[D3D9RenderThread] Bypass: hooks disabled to maintain rendering integrity and prevent state desynchronization.");
+        loggedBypass = true;
     }
-
-    MH_EnableHook(target_DrawPrimitive);
-    MH_EnableHook(target_DrawIndexedPrimitive);
-    MH_EnableHook(target_SetTexture);
-    MH_EnableHook(target_SetStreamSource);
-    MH_EnableHook(target_SetIndices);
-    MH_EnableHook(target_SetVertexDeclaration);
-    MH_EnableHook(target_SetVertexShader);
-    MH_EnableHook(target_SetPixelShader);
-    MH_EnableHook(target_BeginScene);
-    MH_EnableHook(target_EndScene);
-    MH_EnableHook(target_Clear);
-
-    hooksInstalled = true;
-    Log("[D3D9RenderThread] Device hooks installed successfully on main thread");
 }
 
 

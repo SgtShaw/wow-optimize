@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: d3d9_state_manager.cpp
-// Description: Deduplicates D3D9 device state changes and batches draw calls
-//              using Hardware Geometry Instancing for massive CPU performance.
+// Description: Deduplicates D3D9 device state changes and caches rendering states
+//              to maximize CPU throughput and minimize driver overhead.
 // Safety & Threading: Main render thread only. Crash-guarded against NULL pointers.
 // ============================================================================
 
@@ -44,17 +44,15 @@ enum {
     V_SETPIXELSHADER       = 107,
     V_SETVERTEXSHADER      = 92,
     V_SETTEXTURE           = 65,
-    V_DRAWINDEXEDPRIMITIVE = 82,
-    V_DRAWPRIMITIVE        = 81,
 };
 
-static constexpr int NUM_HOOKS = 15;
+static constexpr int NUM_HOOKS = 14;
 static int g_vtableIndices[NUM_HOOKS] = {
     V_SETRENDERSTATE, V_SETTEXTURESTAGESTATE, V_SETSAMPLERSTATE,
     V_SETTEXTURE, V_SETTRANSFORM, V_SETMATERIAL,
     V_SETVIEWPORT, V_SETSCISSORRECT, V_SETSTREAMSOURCE,
     V_SETINDICES, V_SETVERTEXDECLARATION, V_SETFVF,
-    V_SETVERTEXSHADER, V_SETPIXELSHADER, V_SETRENDERSTATE
+    V_SETVERTEXSHADER, V_SETPIXELSHADER
 };
 
 static void* g_vtableOriginals[NUM_HOOKS] = {};
@@ -73,10 +71,9 @@ static const char* g_statNames[NUM_HOOKS] = {
     "SetTexture", "SetTransform", "SetMaterial",
     "SetViewport", "SetScissorRect", "SetStreamSource",
     "SetIndices", "SetVertexDeclaration", "SetFVF",
-    "SetVertexShader", "SetPixelShader", "RenderTarget"
+    "SetVertexShader", "SetPixelShader"
 };
 
-static volatile LONG64 g_drawCalls = 0;
 static volatile LONG64 g_totalFrames = 0;
 
 // ================================================================
@@ -95,9 +92,12 @@ static bool   g_xformValid[32] = {};
 static uint32_t g_materialHash = 0;
 static bool   g_materialValid = false;
 static DWORD    g_viewportData[6] = {};
+static bool     g_viewportValid = false;
 static LONG     g_scissorData[4] = {};
 static bool     g_scissorValid = false;
 static void*  g_streamBuf[16] = {};
+static UINT   g_streamOffset[16] = {};
+static UINT   g_streamStride[16] = {};
 static bool   g_streamValid[16] = {};
 static void*  g_indexBuf = nullptr;
 static bool   g_indexValid = false;
@@ -111,49 +111,7 @@ static void*  g_ps = nullptr;
 static bool   g_psValid = false;
 
 // ================================================================
-// Hardware Instancing Batcher Structures
-// ================================================================
-struct BatchedDraw {
-    D3DPRIMITIVETYPE type;
-    INT baseVertex;
-    UINT minIndex;
-    UINT numVertices;
-    UINT startIndex;
-    UINT primCount;
-    float worldMatrix[16];
-};
-
-static constexpr int MAX_BATCH_SIZE = 128;
-static BatchedDraw g_batchQueue[MAX_BATCH_SIZE];
-static int g_batchCount = 0;
-
-static void* g_lastDevice = nullptr;
-static void* g_lastVB = nullptr;
-static void* g_lastIB = nullptr;
-static void* g_lastDecl = nullptr;
-static void* g_lastTex = nullptr;
-static void* g_lastVS = nullptr;
-static void* g_lastPS = nullptr;
-static DWORD g_lastFVF = 0;
-static DWORD g_lastType = 0;
-static UINT g_lastStride = 32;
-
-static UINT g_streamStride[16] = {};
-
-static float g_activeWorldMatrix[16] = {
-    1.0f, 0.0f, 0.0f, 0.0f,
-    0.0f, 1.0f, 0.0f, 0.0f,
-    0.0f, 0.0f, 1.0f, 0.0f,
-    0.0f, 0.0f, 0.0f, 1.0f
-};
-
-// Batcher Diagnostic Counters
-static volatile LONG64 g_batchedDrawsCount = 0;
-static volatile LONG64 g_batchFlushesCount = 0;
-static volatile LONG64 g_batchInstancedDrawsCount = 0;
-
-// ================================================================
-// Fast matrix hash for SetTransform dedup
+// Fast matrix/material hash functions
 // ================================================================
 static uint64_t QuickMatrixHash(const float* m) {
     uint64_t h = 0;
@@ -219,94 +177,12 @@ static SetVertexShader_t g_orig_SetVertexShader = nullptr;
 typedef HRESULT (__stdcall *SetPixelShader_t)(void* dev, void* ps);
 static SetPixelShader_t g_orig_SetPixelShader = nullptr;
 
-typedef HRESULT (__stdcall *DrawIndexedPrimitive_t)(void* dev, DWORD type, INT baseVertex, UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount);
-static DrawIndexedPrimitive_t g_orig_DrawIndexedPrimitive = nullptr;
-
-// ================================================================
-// Batcher Flush Pipeline
-// ================================================================
-static void FlushBatch(void* dev) {
-    if (g_batchCount == 0) return;
-    
-    IDirect3DDevice9* device = (IDirect3DDevice9*)dev;
-    InterlockedIncrement64(&g_batchFlushesCount);
-    
-    if (g_batchCount == 1) {
-        const auto& draw = g_batchQueue[0];
-        g_orig_SetTransform(device, D3DTS_WORLD, (const D3DMATRIX*)draw.worldMatrix);
-        g_orig_DrawIndexedPrimitive(device, draw.type, draw.baseVertex, draw.minIndex, draw.numVertices, draw.startIndex, draw.primCount);
-    } else {
-        // Use Hardware Instancing for Fixed-Function Pipeline (No custom VS)
-        if (!g_vs && g_streamBuf[0] && g_lastStride > 0 && g_batchQueue[0].numVertices < 1000) {
-            static IDirect3DVertexBuffer9* s_instanceVB = nullptr;
-            static void* s_lastDeviceForVB = nullptr;
-            
-            if (s_lastDeviceForVB != dev) {
-                if (s_instanceVB) {
-                    s_instanceVB->Release();
-                    s_instanceVB = nullptr;
-                }
-                s_lastDeviceForVB = dev;
-            }
-            
-            if (!s_instanceVB) {
-                HRESULT hr = device->CreateVertexBuffer(MAX_BATCH_SIZE * sizeof(float) * 16, D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0, D3DPOOL_DEFAULT, &s_instanceVB, NULL);
-                if (FAILED(hr)) {
-                    s_instanceVB = nullptr;
-                }
-            }
-            
-            if (s_instanceVB) {
-                void* pData = nullptr;
-                if (SUCCEEDED(s_instanceVB->Lock(0, g_batchCount * sizeof(float) * 16, &pData, D3DLOCK_DISCARD))) {
-                    float* pFloats = (float*)pData;
-                    for (int i = 0; i < g_batchCount; ++i) {
-                        memcpy(pFloats + i * 16, g_batchQueue[i].worldMatrix, sizeof(float) * 16);
-                    }
-                    s_instanceVB->Unlock();
-                }
-                
-                // Set stream frequency for instanced rendering
-                g_orig_SetStreamSource(device, 0, g_streamBuf[0], 0, g_lastStride);
-                device->SetStreamSourceFreq(0, D3DSTREAMSOURCE_INDEXEDDATA | g_batchCount);
-                
-                g_orig_SetStreamSource(device, 1, s_instanceVB, 0, sizeof(float) * 16);
-                device->SetStreamSourceFreq(1, D3DSTREAMSOURCE_INSTANCEDATA | 1);
-                
-                const auto& draw = g_batchQueue[0];
-                g_orig_DrawIndexedPrimitive(device, draw.type, draw.baseVertex, draw.minIndex, draw.numVertices, draw.startIndex, draw.primCount);
-                
-                device->SetStreamSourceFreq(0, 1);
-                device->SetStreamSourceFreq(1, 1);
-                
-                InterlockedIncrement64(&g_batchInstancedDrawsCount);
-            } else {
-                for (int i = 0; i < g_batchCount; ++i) {
-                    const auto& draw = g_batchQueue[i];
-                    g_orig_SetTransform(device, D3DTS_WORLD, (const D3DMATRIX*)draw.worldMatrix);
-                    g_orig_DrawIndexedPrimitive(device, draw.type, draw.baseVertex, draw.minIndex, draw.numVertices, draw.startIndex, draw.primCount);
-                }
-            }
-        } else {
-            // Fallback: draw sequentially
-            for (int i = 0; i < g_batchCount; ++i) {
-                const auto& draw = g_batchQueue[i];
-                g_orig_SetTransform(device, D3DTS_WORLD, (const D3DMATRIX*)draw.worldMatrix);
-                g_orig_DrawIndexedPrimitive(device, draw.type, draw.baseVertex, draw.minIndex, draw.numVertices, draw.startIndex, draw.primCount);
-            }
-        }
-    }
-    
-    g_batchCount = 0;
-}
-
 // ================================================================
 // Hooked functions
 // ================================================================
 
 static HRESULT __stdcall Hooked_SetRenderState(void* dev, DWORD state, DWORD value) {
     InterlockedIncrement64(&g_statCalls[0]);
-    FlushBatch(dev);
     
     if (state < 256 && g_rsValid[state] && g_rsCache[state] == value) {
         InterlockedIncrement64(&g_statSkipped[0]);
@@ -322,7 +198,6 @@ static HRESULT __stdcall Hooked_SetRenderState(void* dev, DWORD state, DWORD val
 
 static HRESULT __stdcall Hooked_SetTextureStageState(void* dev, DWORD stage, DWORD type, DWORD value) {
     InterlockedIncrement64(&g_statCalls[1]);
-    FlushBatch(dev);
 
     DWORD idx = (stage & 7) * 32 + (type & 31);
     if (idx < 256 && g_tssValid[idx] && g_tssCache[idx] == value) {
@@ -339,7 +214,6 @@ static HRESULT __stdcall Hooked_SetTextureStageState(void* dev, DWORD stage, DWO
 
 static HRESULT __stdcall Hooked_SetSamplerState(void* dev, DWORD sampler, DWORD type, DWORD value) {
     InterlockedIncrement64(&g_statCalls[2]);
-    FlushBatch(dev);
 
     DWORD idx = (sampler & 15) * 16 + (type & 15);
     if (idx < 256 && g_ssValid[idx] && g_ssCache[idx] == value) {
@@ -356,7 +230,6 @@ static HRESULT __stdcall Hooked_SetSamplerState(void* dev, DWORD sampler, DWORD 
 
 static HRESULT __stdcall Hooked_SetTexture(void* dev, DWORD stage, void* tex) {
     InterlockedIncrement64(&g_statCalls[3]);
-    FlushBatch(dev);
 
     if (stage < 8 && g_texValid[stage] && g_texCache[stage] == tex) {
         InterlockedIncrement64(&g_statSkipped[3]);
@@ -373,12 +246,6 @@ static HRESULT __stdcall Hooked_SetTexture(void* dev, DWORD stage, void* tex) {
 static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void* matrix) {
     InterlockedIncrement64(&g_statCalls[4]);
     
-    if (state == D3DTS_WORLD && matrix) {
-        memcpy(g_activeWorldMatrix, matrix, sizeof(float) * 16);
-    }
-    
-    FlushBatch(dev);
-
     if (!matrix) {
         if (state < 32) g_xformValid[state] = false;
         return g_orig_SetTransform(dev, state, matrix);
@@ -403,7 +270,6 @@ static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void*
 
 static HRESULT __stdcall Hooked_SetMaterial(void* dev, const void* material) {
     InterlockedIncrement64(&g_statCalls[5]);
-    FlushBatch(dev);
 
     if (!material) {
         g_materialValid = false;
@@ -425,26 +291,26 @@ static HRESULT __stdcall Hooked_SetMaterial(void* dev, const void* material) {
 
 static HRESULT __stdcall Hooked_SetViewport(void* dev, const DWORD* vp) {
     InterlockedIncrement64(&g_statCalls[6]);
-    FlushBatch(dev);
 
     if (!vp) {
+        g_viewportValid = false;
         return g_orig_SetViewport(dev, vp);
     }
 
-    if (memcmp(g_viewportData, vp, sizeof(g_viewportData)) == 0) {
+    if (g_viewportValid && memcmp(g_viewportData, vp, sizeof(g_viewportData)) == 0) {
         InterlockedIncrement64(&g_statSkipped[6]);
         return 0;
     }
     HRESULT hr = g_orig_SetViewport(dev, vp);
     if (SUCCEEDED(hr)) {
         memcpy(g_viewportData, vp, sizeof(g_viewportData));
+        g_viewportValid = true;
     }
     return hr;
 }
 
 static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
     InterlockedIncrement64(&g_statCalls[7]);
-    FlushBatch(dev);
 
     if (!rect) {
         g_scissorValid = false;
@@ -472,20 +338,16 @@ static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
 
 static HRESULT __stdcall Hooked_SetStreamSource(void* dev, UINT stream, void* vb, UINT offset, UINT stride) {
     InterlockedIncrement64(&g_statCalls[8]);
-    
-    if (stream < 16) {
-        g_streamStride[stream] = stride;
-    }
-    
-    FlushBatch(dev);
 
-    if (stream < 16 && g_streamValid[stream] && g_streamBuf[stream] == vb) {
+    if (stream < 16 && g_streamValid[stream] && g_streamBuf[stream] == vb && g_streamOffset[stream] == offset && g_streamStride[stream] == stride) {
         InterlockedIncrement64(&g_statSkipped[8]);
         return 0;
     }
     HRESULT hr = g_orig_SetStreamSource(dev, stream, vb, offset, stride);
     if (SUCCEEDED(hr) && stream < 16) {
         g_streamBuf[stream] = vb;
+        g_streamOffset[stream] = offset;
+        g_streamStride[stream] = stride;
         g_streamValid[stream] = true;
     }
     return hr;
@@ -493,7 +355,6 @@ static HRESULT __stdcall Hooked_SetStreamSource(void* dev, UINT stream, void* vb
 
 static HRESULT __stdcall Hooked_SetIndices(void* dev, void* ib) {
     InterlockedIncrement64(&g_statCalls[9]);
-    FlushBatch(dev);
 
     if (g_indexValid && g_indexBuf == ib) {
         InterlockedIncrement64(&g_statSkipped[9]);
@@ -509,7 +370,6 @@ static HRESULT __stdcall Hooked_SetIndices(void* dev, void* ib) {
 
 static HRESULT __stdcall Hooked_SetVertexDeclaration(void* dev, void* decl) {
     InterlockedIncrement64(&g_statCalls[10]);
-    FlushBatch(dev);
 
     if (g_vertDeclValid && g_vertDecl == decl) {
         InterlockedIncrement64(&g_statSkipped[10]);
@@ -525,7 +385,6 @@ static HRESULT __stdcall Hooked_SetVertexDeclaration(void* dev, void* decl) {
 
 static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
     InterlockedIncrement64(&g_statCalls[11]);
-    FlushBatch(dev);
 
     if (g_fvfValid && g_fvf == fvf) {
         InterlockedIncrement64(&g_statSkipped[11]);
@@ -541,7 +400,6 @@ static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
 
 static HRESULT __stdcall Hooked_SetVertexShader(void* dev, void* vs) {
     InterlockedIncrement64(&g_statCalls[12]);
-    FlushBatch(dev);
 
     if (g_vsValid && g_vs == vs) {
         InterlockedIncrement64(&g_statSkipped[12]);
@@ -557,7 +415,6 @@ static HRESULT __stdcall Hooked_SetVertexShader(void* dev, void* vs) {
 
 static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
     InterlockedIncrement64(&g_statCalls[13]);
-    FlushBatch(dev);
 
     if (g_psValid && g_ps == ps) {
         InterlockedIncrement64(&g_statSkipped[13]);
@@ -569,62 +426,6 @@ static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
         g_psValid = true;
     }
     return hr;
-}
-
-static HRESULT __stdcall Hooked_DrawIndexedPrimitive(void* dev, DWORD type, INT baseVertex, UINT minIndex, UINT numVertices, UINT startIndex, UINT primCount) {
-    InterlockedIncrement64(&g_drawCalls);
-    InterlockedIncrement64(&g_batchedDrawsCount);
-
-    void* vb = g_streamBuf[0];
-    void* ib = g_indexBuf;
-    void* decl = g_vertDecl;
-    void* tex = g_texCache[0];
-    void* vs = g_vs;
-    void* ps = g_ps;
-    DWORD fvf = g_fvf;
-    UINT stride = g_streamStride[0];
-
-    if (g_batchCount > 0) {
-        if (g_lastDevice == dev && g_lastVB == vb && g_lastIB == ib && g_lastDecl == decl &&
-            g_lastTex == tex && g_lastVS == vs && g_lastPS == ps && g_lastFVF == fvf &&
-            g_lastType == type && g_lastStride == stride && g_batchCount < MAX_BATCH_SIZE) {
-            
-            auto& draw = g_batchQueue[g_batchCount++];
-            draw.type = (D3DPRIMITIVETYPE)type;
-            draw.baseVertex = baseVertex;
-            draw.minIndex = minIndex;
-            draw.numVertices = numVertices;
-            draw.startIndex = startIndex;
-            draw.primCount = primCount;
-            memcpy(draw.worldMatrix, g_activeWorldMatrix, sizeof(g_activeWorldMatrix));
-            
-            return D3D_OK;
-        } else {
-            FlushBatch(dev);
-        }
-    }
-
-    g_lastDevice = dev;
-    g_lastVB = vb;
-    g_lastIB = ib;
-    g_lastDecl = decl;
-    g_lastTex = tex;
-    g_lastVS = vs;
-    g_lastPS = ps;
-    g_lastFVF = fvf;
-    g_lastType = type;
-    g_lastStride = (stride > 0) ? stride : 32;
-
-    auto& draw = g_batchQueue[g_batchCount++];
-    draw.type = (D3DPRIMITIVETYPE)type;
-    draw.baseVertex = baseVertex;
-    draw.minIndex = minIndex;
-    draw.numVertices = numVertices;
-    draw.startIndex = startIndex;
-    draw.primCount = primCount;
-    memcpy(draw.worldMatrix, g_activeWorldMatrix, sizeof(g_activeWorldMatrix));
-
-    return D3D_OK;
 }
 
 // ================================================================
@@ -644,8 +445,7 @@ static void* g_hookFuncs[NUM_HOOKS] = {
     (void*)Hooked_SetVertexDeclaration,
     (void*)Hooked_SetFVF,
     (void*)Hooked_SetVertexShader,
-    (void*)Hooked_SetPixelShader,
-    nullptr
+    (void*)Hooked_SetPixelShader
 };
 
 static void SetHookOrigin(int idx, void* orig) {
@@ -709,20 +509,6 @@ static bool PatchDeviceVTable(void* pDevice) {
         patched++;
     }
 
-    // Patch DrawIndexedPrimitive
-    {
-        int vtIdxDraw = V_DRAWINDEXEDPRIMITIVE;
-        uintptr_t origDraw = vtable[vtIdxDraw];
-        if (IsReadable(origDraw)) {
-            DWORD oldProtect;
-            if (VirtualProtect(&vtable[vtIdxDraw], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                g_orig_DrawIndexedPrimitive = (DrawIndexedPrimitive_t)origDraw;
-                vtable[vtIdxDraw] = (uintptr_t)Hooked_DrawIndexedPrimitive;
-                VirtualProtect(&vtable[vtIdxDraw], sizeof(void*), oldProtect, &oldProtect);
-            }
-        }
-    }
-
     g_pDevice = pDevice;
     g_deviceHooked = true;
     Log("[D3D9State] Device vtable patched: %d/%d state hooks installed", patched, NUM_HOOKS);
@@ -734,15 +520,6 @@ static void UnpatchDeviceVTable() {
 
     uintptr_t* vtable = *(uintptr_t**)g_pDevice;
     if (!vtable) { g_deviceHooked = false; g_pDevice = nullptr; return; }
-
-    // Restore DrawIndexedPrimitive
-    if (g_orig_DrawIndexedPrimitive) {
-        DWORD oldProtect;
-        if (VirtualProtect(&vtable[V_DRAWINDEXEDPRIMITIVE], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            vtable[V_DRAWINDEXEDPRIMITIVE] = (uintptr_t)g_orig_DrawIndexedPrimitive;
-            VirtualProtect(&vtable[V_DRAWINDEXEDPRIMITIVE], sizeof(void*), oldProtect, &oldProtect);
-        }
-    }
 
     // Restore state hooks in reverse order
     for (int i = NUM_HOOKS - 1; i >= 0; i--) {
@@ -767,6 +544,7 @@ static void InvalidateAllCaches() {
     memset(g_texValid, 0, sizeof(g_texValid));
     memset(g_xformValid, 0, sizeof(g_xformValid));
     g_materialValid = false;
+    g_viewportValid = false;
     g_scissorValid = false;
     memset(g_streamValid, 0, sizeof(g_streamValid));
     g_indexValid = false;
@@ -812,12 +590,12 @@ bool InstallD3D9StateManager(void) {
     memset(g_xformHash, 0, sizeof(g_xformHash));
     memset(g_xformValid, 0, sizeof(g_xformValid));
     memset(g_streamBuf, 0, sizeof(g_streamBuf));
+    memset(g_streamOffset, 0, sizeof(g_streamOffset));
+    memset(g_streamStride, 0, sizeof(g_streamStride));
     memset(g_streamValid, 0, sizeof(g_streamValid));
     memset((void*)g_statCalls, 0, sizeof(g_statCalls));
     memset((void*)g_statSkipped, 0, sizeof(g_statSkipped));
-    g_drawCalls = 0;
     g_totalFrames = 0;
-    g_batchCount = 0;
 
     bool ok = TryFindAndPatchDevice();
     if (ok) {
@@ -830,15 +608,15 @@ bool InstallD3D9StateManager(void) {
 }
 
 void ShutdownD3D9StateManager(void) {
-    if (g_pDevice) FlushBatch(g_pDevice);
     UnpatchDeviceVTable();
 
     Log("[D3D9State] ===== Final Statistics (%lld frames) =====", g_totalFrames);
     if (g_totalFrames > 0) {
-        Log("[D3D9State] Draw calls: %lld (%.0f/frame)",
-            g_drawCalls, (double)g_drawCalls / g_totalFrames);
-        Log("[D3D9State] Instancer stats: %lld draws batched, %lld flushes, %lld instanced draws",
-            g_batchedDrawsCount, g_batchFlushesCount, g_batchInstancedDrawsCount);
+        for (int i = 0; i < NUM_HOOKS; i++) {
+            Log("[D3D9State]   %-22s: calls=%lld skipped=%lld (%.1f%%)",
+                g_statNames[i], g_statCalls[i], g_statSkipped[i],
+                g_statCalls[i] > 0 ? (double)g_statSkipped[i] * 100.0 / g_statCalls[i] : 0.0);
+        }
     }
 }
 
@@ -847,10 +625,6 @@ void OnFrameD3D9StateManager(DWORD mainThreadId) {
 
     g_totalFrames++;
     
-    if (g_pDevice) {
-        FlushBatch(g_pDevice);
-    }
-
     if (!g_deviceHooked) {
         TryFindAndPatchDevice();
     }
