@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <ctime>
 #include <cstring>
+#include "MinHook.h"
 #include "version.h"
 #include "crash_dumper.h"
 
@@ -386,6 +387,74 @@ static void WriteMemoryInfo(HANDLE hFile) {
 }
 
 // ================================================================
+// WoW Internal Assertion Handler Hook (sub_8889B0)
+// WoW's ERROR #134 "Fatal Condition" fires through sub_8889B0 →
+// sub_771800 → sub_772AA0 → sub_7729B0 → ExitProcess.
+// This path does NOT raise a Windows exception, so our SEH/UEF
+// never triggers. We hook the assertion entry point to log it.
+// ================================================================
+
+// sub_8889B0 signature: void __cdecl sub_8889B0(char msg, int arg1, int arg2)
+// It pushes msg onto stack, calls sub_771800(arg1, arg2) to set error context,
+// then calls sub_772AA0 which formats and fires ExitProcess(1).
+typedef void (__cdecl *WowAssert_fn)(const char* msg, int arg1, int arg2);
+static WowAssert_fn orig_WowAssert = nullptr;
+
+static void __cdecl Hooked_WowAssert(const char* msg, int arg1, int arg2) {
+    // Flush and log the assertion before WoW kills the process
+    LogFlushImmediate();
+
+    Log("!!! WOW ASSERTION (ERROR #134 Fatal Condition) !!!");
+    Log("!!!   Message: %s", msg ? msg : "(null)");
+    Log("!!!   arg1=0x%08X  arg2=0x%08X", (unsigned)arg1, (unsigned)arg2);
+    Log("!!!   TID=%lu", GetCurrentThreadId());
+
+    // Log active features
+    LONG fcount = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    int activeFeatures = 0;
+    for (int i = 0; i < fcount && i < MAX_TRACKED_FEATURES; i++) {
+        if (s_features[i].active) activeFeatures++;
+    }
+    Log("!!!   ACTIVE FEATURES: %d/%ld registered", activeFeatures, fcount);
+
+    // Log last hook calls
+    LONG hpos = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+    for (int i = 0; i < 10 && i < hpos; i++) {
+        int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
+        HookTraceEntry& e = s_hookTrace[idx];
+        if (e.hookName) {
+            Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+                i, e.hookName, (unsigned)e.addr, e.threadId,
+                GetTickCount() - e.tick);
+        }
+    }
+
+    Log("!!! END WOW ASSERTION !!!");
+    LogFlushImmediate();
+
+    // Chain to WoW's original assertion handler (will ExitProcess)
+    orig_WowAssert(msg, arg1, arg2);
+}
+
+// ================================================================
+// ExitProcess Hook (fallback for any abnormal exit)
+// ================================================================
+typedef void (WINAPI *ExitProcess_fn)(UINT uExitCode);
+static ExitProcess_fn orig_ExitProcess = nullptr;
+
+static void WINAPI Hooked_ExitProcess(UINT uExitCode) {
+    LogFlushImmediate();
+
+    if (uExitCode != 0) {
+        Log("!!! PROCESS EXIT (code=%u) — abnormal termination !!!", uExitCode);
+        Log("!!!   TID=%lu", GetCurrentThreadId());
+        LogFlushImmediate();
+    }
+
+    orig_ExitProcess(uExitCode);
+}
+
+// ================================================================
 // Top-level unhandled exception filter
 // ================================================================
 static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
@@ -487,6 +556,22 @@ bool Init() {
     InterlockedExchange(&s_hookTracePos, 0);
 
     s_prevFilter = SetUnhandledExceptionFilter(WowOpt_UnhandledExceptionFilter);
+
+    // Hook WoW's internal assertion handler (sub_8889B0)
+    // This fires on ERROR #134 "Fatal Condition" which bypasses Windows exceptions
+    void* assertTarget = (void*)0x008889B0;
+    if (WineSafe_CreateHook(assertTarget, (void*)Hooked_WowAssert, (void**)&orig_WowAssert) == MH_OK) {
+        MH_EnableHook(assertTarget);
+        Log("[CrashDumper] WoW assertion handler hook ACTIVE (sub_8889B0)");
+    }
+
+    // Hook ExitProcess as a fallback to flush logs on any abnormal exit
+    void* exitTarget = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "ExitProcess");
+    if (exitTarget && WineSafe_CreateHook(exitTarget, (void*)Hooked_ExitProcess, (void**)&orig_ExitProcess) == MH_OK) {
+        MH_EnableHook(exitTarget);
+        Log("[CrashDumper] ExitProcess hook ACTIVE (log flush on exit)");
+    }
+
     Log("[CrashDumper] Enhanced crash reporter active%s",
         IsWine() ? " (Wine: text reports)" : " (Windows: minidump)");
     Log("[CrashDumper] Feature tracking: %d slots, Hook trace: %d entries",

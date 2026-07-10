@@ -63,8 +63,8 @@ static void* __cdecl Hooked_GetObject(unsigned __int64 guid, int typemask) {
                 }
             }
         }
-        // If type check fails or object is invalid, return nullptr since GUID is unique
-        return nullptr;
+        // Type check failed or object pointer stale — invalidate and fall through
+        g_cache[slot].guid.store(0, std::memory_order_relaxed);
     }
 
     void* result = orig_GetObject(guid, typemask);
