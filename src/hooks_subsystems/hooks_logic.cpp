@@ -17,6 +17,8 @@
 extern "C" void Log(const char* fmt, ...);
 extern "C" void FlushCoalescedPackets();
 
+static bool IsTeardownState();
+
 // ================================================================
 // Coalesced layout recalculation
 typedef int (__fastcall *LayoutRecalc_fn)(void* ecx, int edx, int a2);
@@ -26,9 +28,25 @@ static void* g_dirtyLayoutFrames[2048] = {};
 static int g_dirtyLayoutFramesCount = 0;
 static bool g_coalescingLayouts = true;
 
+static bool IsValidFramePtr(void* ptr) {
+    uintptr_t addr = (uintptr_t)ptr;
+    if (addr < 0x10000 || addr > 0xFFE00000) return false;
+    __try {
+        uintptr_t vtable = *(uintptr_t*)addr;
+        if (vtable >= 0x00401000 && vtable < 0x009DF000) {
+            return true;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    return false;
+}
+
 int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
     #if !TEST_DISABLE_FRAMEXML_COALESCE
     if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
+        if (IsTeardownState()) {
+            g_dirtyLayoutFramesCount = 0;
+            return orig_LayoutRecalc(ecx, 0, a2);
+        }
         bool found = false;
         for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
             if (g_dirtyLayoutFrames[i] == ecx) {
@@ -50,9 +68,12 @@ void FlushLayoutUpdates() {
     if (g_dirtyLayoutFramesCount > 0) {
         g_coalescingLayouts = false; // suspend coalescing
         for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
-            __try {
-                orig_LayoutRecalc(g_dirtyLayoutFrames[i], 0, 1);
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            void* frame = g_dirtyLayoutFrames[i];
+            if (IsValidFramePtr(frame) && !IsTeardownState()) {
+                __try {
+                    orig_LayoutRecalc(frame, 0, 1);
+                } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            }
         }
         g_dirtyLayoutFramesCount = 0;
         g_coalescingLayouts = true; // resume coalescing
