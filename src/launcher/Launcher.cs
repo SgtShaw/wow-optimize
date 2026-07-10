@@ -87,7 +87,7 @@ namespace WowOptimizeLauncher {
                 { "UI Update Batching", new SettingItem("UI_Lua", "UIFrameBatch", false, null, "Aggregates frame ticks to batch multiple addon OnUpdate calls, lowering CPU usage in intensive UI scenes.") },
                 { "Addon Dispatcher Parallelization", new SettingItem("UI_Lua", "AddonDispatcher", false, null, "Dispatches addon script execution tasks to a background thread pool. Boosts frames in raid setups.") },
                 { "Fast UI Frame Accessors", new SettingItem("UI_Lua", "UIFrameAccessorFast", false, null, "Bypasses standard Lua stack queries to retrieve UI frame parameters (IsShown, GetAlpha) instantly.") },
-                { "Fast FontString Metrics", new SettingItem("UI_Lua", "FontMetricsFast", false, null, "Provides high-speed text width and height measurements, reducing layout calculation time.") },
+                { "Fast FontString Metrics & Glyph Cache", new SettingItem("UI_Lua", "FontMetricsFast", false, null, "Provides high-speed text measurements and caches rasterized font glyph textures to eliminate render-time layout freezes.") },
                 { "Lock-Free Font Metrics", new SettingItem("UI_Lua", "FontMetricsLockFree", false, null, "Uses a read-copy-update styled font metrics cache to eliminate font locks during rendering.") },
                 { "Coalesced FrameXML Updates", new SettingItem("UI_Lua", "FrameXmlCoalesce", false, null, "Deduplicates multiple layout recalculations in a single frame tick, stopping layout micro-freezes.") },
                 { "Addon Tick Governor", new SettingItem("UI_Lua", "AddonTickGovernor", false, null, "Caps excessive addon update execution rates to prevent CPU bottlenecks.") },
@@ -95,14 +95,14 @@ namespace WowOptimizeLauncher {
                 { "Lua File Reading Cache", new SettingItem("UI_Lua", "LuaFileCache", false, null, "Keeps parsed Lua scripts in memory, bypassing disk disk reads and string parsing on UI reloads.") },
                 { "FrameScript FNV-1a Dispatcher", new SettingItem("UI_Lua", "FrameScriptDispatch", false, null, "Uses an O(1) hash map lookup for script handlers instead of linear string matching.") },
                 { "Lua Number Conversion Fast Path", new SettingItem("UI_Lua", "LuaNumConvFast", false, null, "Inlines common Lua stack value queries (tonumber, gettop, settop) to bypass stack checking overhead.") },
-                { "Lua VM Table Get/Set Cache", new SettingItem("UI_Lua", "LuaOpcache", false, null, "Provides a fast lookup cache for VM table indexing, bypassing the full interpreter loop.") },
+                { "Lua VM Cache & Regex Cache", new SettingItem("UI_Lua", "LuaOpcache", false, null, "Provides a fast lookup cache for VM table indexing and caches compiled regex patterns to speed up string matching/gsub APIs.") },
                 { "Coalesced Lua Garbage Collection", new SettingItem("UI_Lua", "LuaGcCoalesce", false, null, "Bundles tiny incremental garbage collection steps to execute during empty frame budgets.") },
                 { "Lua VM Bytecode JIT Compiler", new SettingItem("UI_Lua", "LuaJIT", false, null, "Hooks standard call preparation to redirect and execute compiled Lua bytecode JIT stubs.") },
-
+                
                 // Combat & Net
                 { "Aggregated Combat Log Parser", new SettingItem("Combat_Net", "CombatLogParser", false, null, "C++ level combat log aggregator that intercepts and summarizes events, bypassing slow Lua parsers.") },
                 { "Incremental Combat Log parsing", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "Splits large combat updates into small steps, preventing massive spikes in large-scale combat.") },
-                { "Event Coalescing", new SettingItem("Combat_Net", "EventCoalescer", false, null, "Combines duplicate UI/combat event notifications within the same frame to prevent event spam.") },
+                { "Event Coalescing & Minimap Throttling", new SettingItem("Combat_Net", "EventCoalescer", false, null, "Combines duplicate UI/combat events and throttles minimap updates/rendering to 15Hz to reduce CPU overhead.") },
                 { "Coalesced Network Packets", new SettingItem("Combat_Net", "NetPacketCoalesce", false, null, "Groups incoming game packets before processing to reduce context switching and network thread latency.") },
                 { "Unit Aura Coalescing", new SettingItem("Combat_Net", "UnitAuraCoalesce", false, null, "Batches player/target buff updates to minimize frame lag when many auras refresh concurrently.") },
                 { "Addon Message Coalescing", new SettingItem("Combat_Net", "NetAddonCoalescer", false, null, "Groups chat/addon network communications to reduce the volume of individual messages.") },
