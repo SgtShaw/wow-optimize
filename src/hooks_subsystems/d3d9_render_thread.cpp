@@ -595,12 +595,12 @@ void OnCreateDevice(IDirect3DDevice9* device) {
 
     void* target_DrawPrimitive = (void*)vtable[81];
     void* target_DrawIndexedPrimitive = (void*)vtable[82];
-    void* target_SetTexture = (void*)vtable[67];
-    void* target_SetStreamSource = (void*)vtable[100];
-    void* target_SetIndices = (void*)vtable[104];
-    void* target_SetVertexDeclaration = (void*)vtable[85];
-    void* target_SetVertexShader = (void*)vtable[92];
-    void* target_SetPixelShader = (void*)vtable[107];
+    void* target_SetTexture = (void*)vtable[65];
+    void* target_SetStreamSource = (void*)vtable[36];
+    void* target_SetIndices = (void*)vtable[37];
+    void* target_SetVertexDeclaration = (void*)vtable[87];
+    void* target_SetVertexShader = (void*)vtable[91];
+    void* target_SetPixelShader = (void*)vtable[93];
     void* target_BeginScene = (void*)vtable[41];
     void* target_EndScene = (void*)vtable[42];
     void* target_Clear = (void*)vtable[43];
