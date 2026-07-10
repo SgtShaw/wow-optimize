@@ -1710,18 +1710,12 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
         return orig_str_gsub(L);
     }
 
-    static thread_local char* tls_out = nullptr;
-    static thread_local size_t tls_capacity = 0;
-
-    if (maxPossibleLen >= tls_capacity) {
-        size_t new_cap = (maxPossibleLen + 4095) & ~4095;
-        char* new_buf = (char*)realloc(tls_out, new_cap);
-        if (!new_buf) {
-            g_gsubFallbacks++;
-            return orig_str_gsub(L);
-        }
-        tls_out = new_buf;
-        tls_capacity = new_cap;
+    char stack_buf[2048];
+    std::vector<char> heap_buf;
+    char* out = stack_buf;
+    if (maxPossibleLen >= 2048) {
+        heap_buf.resize(maxPossibleLen);
+        out = heap_buf.data();
     }
 
     size_t outLen = 0;
@@ -1732,17 +1726,17 @@ static int __cdecl Hooked_StrGsub(lua_State* L) {
     while (i < sLen) {
         if (count < maxN && s[i] == first && i + pLen <= sLen &&
             (pLen == 1 || memcmp(s + i, p, pLen) == 0)) {
-            memcpy(tls_out + outLen, r, rLen);
+            memcpy(out + outLen, r, rLen);
             outLen += rLen;
             i += pLen;
             count++;
         } else {
-            tls_out[outLen++] = s[i++];
+            out[outLen++] = s[i++];
         }
     }
-    tls_out[outLen] = '\0';
+    out[outLen] = '\0';
 
-    lua_pushstring_(L, tls_out);
+    lua_pushstring_(L, out);
     lua_pushnumber_(L, (double)count);
     g_gsubHits++;
     return 2;
@@ -2933,6 +2927,14 @@ static int Hooked_TableSort_Internal(lua_State* L) {
     void* tablePtr = base->value.gc;
     if (!tablePtr) return -1;
 
+    // Reject if table has a metatable
+    void* metatable = *(void**)((char*)tablePtr + 8);
+    if (metatable) return -1;
+
+    // Reject if table has any hash nodes (must be a pure array)
+    unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
+    if (lsizenode > 0) return -1;
+
     int sizearray = *(int*)((char*)tablePtr + 32);
     if (sizearray < 2 || sizearray > 100000) return -1;
 
@@ -2946,11 +2948,6 @@ static int Hooked_TableSort_Internal(lua_State* L) {
     if (n < 2) {
         g_tableSortHits++;
         return 0;
-    }
-
-    if (n == sizearray) {
-        unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
-        if (lsizenode > 0) return -1;
     }
 
     bool isNumber = true;
