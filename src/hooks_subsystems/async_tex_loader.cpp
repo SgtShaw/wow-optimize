@@ -13,6 +13,8 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <psapi.h>
+
 extern "C" void Log(const char* fmt, ...);
 
 namespace AsyncTexLoader {
@@ -57,6 +59,52 @@ static HANDLE g_nextVirtualHandle = (HANDLE)0xFEED0000;
 
 static std::unordered_map<std::string, std::vector<char>> g_fileMemoryCache;
 static std::mutex g_fileCacheMutex;
+
+#pragma pack(push, 1)
+struct BLPHeader {
+    uint32_t magic;          // 'BLP2'
+    uint32_t type;           // 0 or 1
+    uint8_t  encoding;       // 1 = uncompressed/raw, 2 = DXT, 3 = RGBA
+    uint8_t  alphaDepth;     // 0, 1, 8
+    uint8_t  alphaEncoding;  // 0, 1, 7, 8
+    uint8_t  hasMipmaps;     // 0 or 1
+    uint32_t width;
+    uint32_t height;
+    uint32_t mipmapOffsets[16];
+    uint32_t mipmapSizes[16];
+};
+#pragma pack(pop)
+
+static bool CheckMemoryOomPressure() {
+    PROCESS_MEMORY_COUNTERS pmc;
+    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) {
+        // Threshold: 2.3 GB (2468241408 bytes)
+        return pmc.PagefileUsage > 2468241408ULL;
+    }
+    return false;
+}
+
+static void DownscaleBLPInPlace(std::vector<char>& fileData, const std::string& path) {
+    if (fileData.size() < sizeof(BLPHeader)) return;
+    
+    BLPHeader* header = (BLPHeader*)fileData.data();
+    if (header->magic != 0x32504C42) return; // 'BLP2'
+    
+    if (header->width <= 16 || header->height <= 16) return;
+    if (header->mipmapOffsets[1] == 0) return;
+    
+    header->width /= 2;
+    header->height /= 2;
+    if (header->width < 1) header->width = 1;
+    if (header->height < 1) header->height = 1;
+    
+    for (int i = 0; i < 15; i++) {
+        header->mipmapOffsets[i] = header->mipmapOffsets[i + 1];
+        header->mipmapSizes[i] = header->mipmapSizes[i + 1];
+    }
+    header->mipmapOffsets[15] = 0;
+    header->mipmapSizes[15] = 0;
+}
 
 // Hot-swapping structures
 struct PlaceholderEntry {
@@ -190,6 +238,9 @@ static void WorkerProc() {
         }
 
         if (loaded) {
+            if (Config::g_settings.OptOomGovernor && CheckMemoryOomPressure()) {
+                DownscaleBLPInPlace(fileData, filename);
+            }
             std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
             g_fileMemoryCache[filename] = std::move(fileData);
         }
@@ -226,6 +277,49 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
     if (!path) return 0;
 
     if (LoadingDefrag::IsLoadingActive() || !IsCacheableAsset(path)) {
+        if (Config::g_settings.OptOomGovernor && CheckMemoryOomPressure() && IsCacheableAsset(path)) {
+            std::string normPath = path;
+            for (char& c : normPath) {
+                if (c == '/') c = '\\';
+                else c = tolower(c);
+            }
+            
+            bool alreadyCached = false;
+            {
+                std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+                if (g_fileMemoryCache.count(normPath)) {
+                    alreadyCached = true;
+                }
+            }
+            
+            if (!alreadyCached) {
+                std::vector<char> fileData;
+                bool loaded = false;
+                for (HANDLE hArchive : g_privateArchives) {
+                    HANDLE hFile = nullptr;
+                    if (pSFileOpenFileEx(hArchive, path, 0, &hFile)) {
+                        DWORD size = GetFileSize(hFile, NULL);
+                        if (size != INVALID_FILE_SIZE && size > 0) {
+                            fileData.resize(size);
+                            DWORD read = 0;
+                            if (pSFileReadFile(hFile, fileData.data(), size, &read, NULL) && read == size) {
+                                loaded = true;
+                            }
+                        }
+                        pSFileCloseFile(hFile);
+                    }
+                    if (loaded) break;
+                }
+                
+                if (loaded) {
+                    DownscaleBLPInPlace(fileData, path);
+                    {
+                        std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+                        g_fileMemoryCache[normPath] = std::move(fileData);
+                    }
+                }
+            }
+        }
         return Call_Orig_TexCreateBLP(flags, path, a3, a4);
     }
 
