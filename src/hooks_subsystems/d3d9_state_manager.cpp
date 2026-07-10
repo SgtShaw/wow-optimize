@@ -116,7 +116,7 @@ static bool   g_psValid = false;
 static uint64_t QuickMatrixHash(const float* m) {
     uint64_t h = 0;
     const uint32_t* p = (const uint32_t*)m;
-    for (int i = 0; i < 12; i++) {
+    for (int i = 0; i < 16; i++) {
         h ^= (uint64_t)p[i] << (i % 32);
         h = (h * 0x9E3779B97F4A7C15ULL) ^ (h >> 31);
     }
