@@ -7351,7 +7351,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Visual Frustum Culling Cache ---");
 #if !TEST_DISABLE_ASYNC_CULLING
-    bool asyncCullingOk = Config::g_settings.OptDbcLookupCache && AsyncCulling::Init();
+    bool asyncCullingOk = Config::g_settings.OptSpatialCulling && AsyncCulling::Init();
 #else
     bool asyncCullingOk = false;
     Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");

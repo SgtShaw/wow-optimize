@@ -432,7 +432,7 @@
 #define TEST_DISABLE_LOADING_DEFRAG     0
 
 // Async Visual Frustum Culling Cache
-#define TEST_DISABLE_ASYNC_CULLING      1
+#define TEST_DISABLE_ASYNC_CULLING      0
 
 // D3D9 Render State Redundancy Cache
 #define TEST_DISABLE_D3D9_STATE_CACHE   0
@@ -555,7 +555,7 @@
 #define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // disabled: Dynamic Mipmap Bias Governor
-#define TEST_DISABLE_SPATIAL_CULLING            1  // disabled: Spatial Culling Grid
+#define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 #define TEST_DISABLE_ASYNC_TERRAIN              1  // disabled: Asynchronous Terrain Loader
 
