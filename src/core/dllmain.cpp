@@ -1289,8 +1289,8 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             IncrementParticleFrameCount();
 #endif
 
-            // D3D9 disabled (DXVK vtable mismatch), other 4 enabled
-            // OnFrameD3D9StateManager(g_mainThreadId);
+            // Enable D3D9 State Manager frame update
+            OnFrameD3D9StateManager(g_mainThreadId);
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
@@ -7312,8 +7312,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- D3D9 State Manager (15 hooks) ---");
-    bool d3d9StateOk = false; // DISABLED: vtable patching crashes with DXVK/d3d9 wrapper
-    Log("[D3D9State] DISABLED: vtable layout mismatch (DXVK/overlay wrappers)");
+    bool d3d9StateOk = InstallD3D9StateManager();
 
     Log("");
     Log("--- Render Hooks (anim throttle, backbuffer) ---");
