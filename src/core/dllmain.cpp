@@ -1357,7 +1357,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameAsyncHooks(g_mainThreadId);
             DynamicShadowScaler::OnFrame((float)elapsedMs);
             ParticleDensityScaler::OnFrame((float)elapsedMs);
-            LuaGcGovernor::OnFrame((float)elapsedMs);
+            // LuaGcGovernor::OnFrame((float)elapsedMs); // Disabled duplicate governor
             MouseCursorSmooth::OnFrame();
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
@@ -7566,7 +7566,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     AuraPreloadCache::Init();
     DbcFileCache::Init();
     FontOutlineCache::Init();
-    LuaGcGovernor::Init();
+    // LuaGcGovernor::Init(); // Disabled duplicate governor
     ParticleDensityScaler::Init();
     AddonMsgLimiter::Init();
     MouseCursorSmooth::Init();
