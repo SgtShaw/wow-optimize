@@ -525,7 +525,7 @@
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
 #define TEST_DISABLE_LUA_GC_COALESCE           1  // enabled: incremental Lua GC coalescing
-#define TEST_DISABLE_FRAMEXML_COALESCE         0  // enabled: coalesced UI layout recalculation
+#define TEST_DISABLE_FRAMEXML_COALESCE         1  // disabled: coalesced UI layout recalculation
 
 // ================================================================
 // 10 Extended Performance Optimization Features
