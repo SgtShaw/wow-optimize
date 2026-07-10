@@ -130,23 +130,12 @@ static int __cdecl hook_IsShown(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 bool isShown = (*(uint8_t*)((uintptr_t)obj + 204) & 0x10) != 0;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    uint32_t taint = *(uint32_t*)TAINT_CELL;
-                    if (isShown) {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
-                        *(int*)(top + 8) = 3; // LUA_TNUMBER
-                        *(uint32_t*)(top + 12) = taint;
-                    } else {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0;
-                        *(int*)(top + 8) = 0; // LUA_TNIL
-                        *(uint32_t*)(top + 12) = taint;
-                    }
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
+                if (isShown) {
+                    ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, 1.0);
+                } else {
+                    ((void (__cdecl*)(uintptr_t))0x0084E280)(L);
                 }
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -169,23 +158,12 @@ static int __cdecl hook_IsVisible(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 bool isVisible = (*(uint8_t*)((uintptr_t)obj + 204) & 0x20) != 0;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    uint32_t taint = *(uint32_t*)TAINT_CELL;
-                    if (isVisible) {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
-                        *(int*)(top + 8) = 3;
-                        *(uint32_t*)(top + 12) = taint;
-                    } else {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0;
-                        *(int*)(top + 8) = 0;
-                        *(uint32_t*)(top + 12) = taint;
-                    }
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
+                if (isVisible) {
+                    ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, 1.0);
+                } else {
+                    ((void (__cdecl*)(uintptr_t))0x0084E280)(L);
                 }
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -212,14 +190,8 @@ static int __cdecl hook_GetAlpha(uintptr_t L) {
                     alpha_byte = *(uint8_t*)((uintptr_t)obj + 164);
                 }
                 double alpha_val = (double)alpha_byte * 0.00392156862745098;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    *(double*)(top + 0) = alpha_val;
-                    *(int*)(top + 8) = 3; // LUA_TNUMBER
-                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
-                }
+                ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, alpha_val);
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -242,14 +214,8 @@ static int __cdecl hook_GetScale(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 float scale = *(float*)((uintptr_t)obj + 184);
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    *(double*)(top + 0) = (double)scale;
-                    *(int*)(top + 8) = 3; // LUA_TNUMBER
-                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
-                }
+                ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, (double)scale);
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -420,23 +386,12 @@ static int __cdecl hook_Frame_IsShown(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 bool isShown = *(int*)((uintptr_t)obj + 220) != 0;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    uint32_t taint = *(uint32_t*)TAINT_CELL;
-                    if (isShown) {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
-                        *(int*)(top + 8) = 3; // LUA_TNUMBER
-                        *(uint32_t*)(top + 12) = taint;
-                    } else {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0;
-                        *(int*)(top + 8) = 0; // LUA_TNIL
-                        *(uint32_t*)(top + 12) = taint;
-                    }
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
+                if (isShown) {
+                    ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, 1.0);
+                } else {
+                    ((void (__cdecl*)(uintptr_t))0x0084E280)(L);
                 }
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -459,23 +414,12 @@ static int __cdecl hook_Frame_IsVisible(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 bool isVisible = *(int*)((uintptr_t)obj + 224) != 0;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    uint32_t taint = *(uint32_t*)TAINT_CELL;
-                    if (isVisible) {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0x3FF00000; // double 1.0
-                        *(int*)(top + 8) = 3;
-                        *(uint32_t*)(top + 12) = taint;
-                    } else {
-                        *(uint32_t*)(top + 0) = 0;
-                        *(uint32_t*)(top + 4) = 0;
-                        *(int*)(top + 8) = 0;
-                        *(uint32_t*)(top + 12) = taint;
-                    }
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
+                if (isVisible) {
+                    ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, 1.0);
+                } else {
+                    ((void (__cdecl*)(uintptr_t))0x0084E280)(L);
                 }
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -498,14 +442,8 @@ static int __cdecl hook_Frame_GetAlpha(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 double alpha_val = (double)*(unsigned __int8 *)((uintptr_t)obj + 188) * 0.00392156862745098;
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    *(double*)(top + 0) = alpha_val;
-                    *(int*)(top + 8) = 3; // LUA_TNUMBER
-                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
-                }
+                ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, alpha_val);
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -528,14 +466,8 @@ static int __cdecl hook_Frame_GetFrameLevel(uintptr_t L) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
                 double level = (double)*(int*)((uintptr_t)obj + 212);
-                uintptr_t top = *(uintptr_t*)(L + 0x0C);
-                if (IsValidPtr(top)) {
-                    *(double*)(top + 0) = level;
-                    *(int*)(top + 8) = 3; // LUA_TNUMBER
-                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
-                    *(uintptr_t*)(L + 0x0C) = top + 16;
-                    return 1;
-                }
+                ((void (__cdecl*)(uintptr_t, double))0x0084E2A0)(L, level);
+                return 1;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
