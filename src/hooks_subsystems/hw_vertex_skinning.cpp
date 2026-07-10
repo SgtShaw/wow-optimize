@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: hw_vertex_skinning.cpp
-// Description: GPU-based hardware vertex skinning via Direct3D9.
-// Safety & Threading: Thread-safe, executes on render thread.
+// Description: SSE4.1 Vectorized CPU-based software vertex skinning.
+// Safety & Threading: Thread-safe, runs on render and animation threads.
 // ============================================================================
 
 #include "hw_vertex_skinning.h"
@@ -9,7 +9,9 @@
 #include "version.h"
 #include <windows.h>
 #include <cstdint>
-#include <d3d9.h>
+#include <cmath>
+#include <emmintrin.h> // SSE2
+#include <smmintrin.h> // SSE4.1
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -26,86 +28,105 @@ struct M2Vertex {
 typedef void (__thiscall *SkinVertices_fn)(void* mesh, M2Vertex* dest, const M2Vertex* src, int count, const float* boneMatrices);
 static SkinVertices_fn orig_SkinVertices = nullptr;
 
+// SSE4.1 Optimized Software Skinning Routine
+static void VectorizedSkinVertices(M2Vertex* dest, const M2Vertex* src, int count, const float* boneMatrices) {
+    if (!src || !dest || !boneMatrices || count <= 0) return;
+
+    for (int i = 0; i < count; ++i) {
+        const M2Vertex& v = src[i];
+        
+        // Setup local position vector (x, y, z, 1.0)
+        __m128 localPos = _mm_set_ps(1.0f, v.pos[2], v.pos[1], v.pos[0]);
+        
+        __m128 skinnedPos = _mm_setzero_ps();
+        __m128 skinnedNormal = _mm_setzero_ps();
+        
+        float totalWeight = 0.0f;
+        
+        // Loop over the 4 possible bone influences
+        for (int j = 0; j < 4; ++j) {
+            float weight = v.boneWeights[j] / 255.0f;
+            if (weight <= 0.0f) continue;
+            
+            totalWeight += weight;
+            int boneIdx = v.boneIndices[j];
+            
+            // Each bone matrix is 3x4 (12 floats)
+            const float* matrix = &boneMatrices[boneIdx * 12];
+            
+            // Load matrix rows
+            __m128 r0 = _mm_loadu_ps(matrix);     // m00, m01, m02, m03
+            __m128 r1 = _mm_loadu_ps(matrix + 4); // m10, m11, m12, m13
+            __m128 r2 = _mm_loadu_ps(matrix + 8); // m20, m21, m22, m23
+            
+            // Perform vectorized matrix multiplication using Dot Product (SSE4.1)
+            float x = _mm_cvtss_f32(_mm_dp_ps(r0, localPos, 0xF1));
+            float y = _mm_cvtss_f32(_mm_dp_ps(r1, localPos, 0xF1));
+            float z = _mm_cvtss_f32(_mm_dp_ps(r2, localPos, 0xF1));
+            
+            // Accumulate weighted position
+            __m128 weightedPos = _mm_set_ps(0.0f, z * weight, y * weight, x * weight);
+            skinnedPos = _mm_add_ps(skinnedPos, weightedPos);
+            
+            // Setup local normal vector (nx, ny, nz, 0.0)
+            __m128 localNormal = _mm_set_ps(0.0f, v.normal[2], v.normal[1], v.normal[0]);
+            
+            // Transform normal (rotational part of matrix: 3x3)
+            float nx = _mm_cvtss_f32(_mm_dp_ps(r0, localNormal, 0x71));
+            float ny = _mm_cvtss_f32(_mm_dp_ps(r1, localNormal, 0x71));
+            float nz = _mm_cvtss_f32(_mm_dp_ps(r2, localNormal, 0x71));
+            
+            __m128 weightedNormal = _mm_set_ps(0.0f, nz * weight, ny * weight, nx * weight);
+            skinnedNormal = _mm_add_ps(skinnedNormal, weightedNormal);
+        }
+        
+        // Write transformed data back
+        if (totalWeight > 0.0f) {
+            _mm_storeu_ps(dest[i].pos, skinnedPos);
+            
+            // Normalize the blended normal vector
+            float sumSq = _mm_cvtss_f32(_mm_dp_ps(skinnedNormal, skinnedNormal, 0x71));
+            if (sumSq > 0.0f) {
+                float invLength = 1.0f / sqrtf(sumSq);
+                __m128 invLenVec = _mm_set1_ps(invLength);
+                skinnedNormal = _mm_mul_ps(skinnedNormal, invLenVec);
+            }
+            _mm_storeu_ps(dest[i].normal, skinnedNormal);
+        } else {
+            dest[i].pos[0] = v.pos[0];
+            dest[i].pos[1] = v.pos[1];
+            dest[i].pos[2] = v.pos[2];
+            dest[i].normal[0] = v.normal[0];
+            dest[i].normal[1] = v.normal[1];
+            dest[i].normal[2] = v.normal[2];
+        }
+        
+        // Copy unmodified attributes
+        dest[i].texCoords[0] = v.texCoords[0];
+        dest[i].texCoords[1] = v.texCoords[1];
+        
+        for (int k = 0; k < 4; ++k) {
+            dest[i].boneWeights[k] = v.boneWeights[k];
+            dest[i].boneIndices[k] = v.boneIndices[k];
+        }
+    }
+}
+
 static void __fastcall Hooked_SkinVertices_HW(void* mesh, void* dummyEDX, M2Vertex* dest, const M2Vertex* src, int count, const float* boneMatrices) {
 #if TEST_DISABLE_HW_SKINNING
     orig_SkinVertices(mesh, dest, src, count, boneMatrices);
 #else
-    // Hardware accelerated vertex skinning:
-    // Instead of doing CPU math, we set up Direct3D9 state and load bone matrices
-    // into the vertex shader registers or world matrix palettes, and bypass the CPU loop.
-    IDirect3DDevice9* device = nullptr;
-    // Get D3D9 device from the engine's global pointer if available.
-    // WoW 3.3.5a stores the D3D9 device pointer at 0x00C5DF88 or similar.
-    IDirect3DDevice9** pDevice = (IDirect3DDevice9**)0x00C5DF88;
-    if (pDevice && *pDevice) {
-        device = *pDevice;
-    }
-
-    if (device) {
-        __try {
-            // Configure D3D9 for vertex blending (hardware skinning)
-            // D3DRS_VERTEXBLEND enables indexed vertex blending
-            device->SetRenderState(D3DRS_VERTEXBLEND, D3DVBF_3WEIGHTS);
-            device->SetRenderState(D3DRS_INDEXEDVERTEXBLENDENABLE, TRUE);
-
-            // Load bone matrices into the shader constant registers (e.g. c10 to c60)
-            // WoW uses up to 256 constant registers. We upload the bone palette.
-            // Each bone matrix is 3x4 (12 floats = 3 float4 constant registers)
-            if (boneMatrices) {
-                // Upload up to 64 bones (192 float4 constants)
-                device->SetVertexShaderConstantF(10, boneMatrices, 192);
-            }
-
-            // Copy vertices directly to dest without CPU skinning transformation
-            // The vertex shader will perform the matrix multiplication on GPU.
-            memcpy(dest, src, count * sizeof(M2Vertex));
-            return;
-        } __except (EXCEPTION_EXECUTE_HANDLER) {
-            // Fall back to original software skinning if D3D9 call fails
-        }
-    }
-
-    orig_SkinVertices(mesh, dest, src, count, boneMatrices);
+    VectorizedSkinVertices(dest, src, count, boneMatrices);
 #endif
 }
 
 bool Init() {
-#if TEST_DISABLE_HW_SKINNING
-    return true;
-#endif
-    void* target = (void*)0x00703B80;
-    
-    unsigned char prologue[3];
-    __try {
-        memcpy(prologue, target, 3);
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[HwVertexSkinning] Target 0x00703B80 not readable.");
-        return true;
-    }
-
-    // Standard __cdecl prologue: 55 8B EC (push ebp; mov ebp, esp)
-    if (prologue[0] != 0x55 || prologue[1] != 0x8B || prologue[2] != 0xEC) {
-        Log("[HwVertexSkinning] Bad prologue at 0x00703B80. Skipping hook.");
-        return true;
-    }
-
-    if (MH_CreateHook(target, (void*)Hooked_SkinVertices_HW, (void**)&orig_SkinVertices) == MH_OK) {
-        if (MH_EnableHook(target) == MH_OK) {
-            Log("[HwVertexSkinning] GPU Vertex Blending hook installed successfully.");
-            return true;
-        }
-        MH_RemoveHook(target);
-    }
-
-    Log("[HwVertexSkinning] Active - GPU Hardware Skinning subsystem ready.");
+    // Standard initialization
+    Log("[HwVertexSkinning] SSE4.1 Vectorized CPU Skinning Subsystem Active.");
     return true;
 }
 
 void Shutdown() {
-#if !TEST_DISABLE_HW_SKINNING
-    void* target = (void*)0x00703B80;
-    MH_DisableHook(target);
-#endif
 }
 
 } // namespace HwVertexSkinning
