@@ -110,60 +110,65 @@ static void DispatchSingle(const QueuedEvent* ev) {
 extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* vaStart) {
     if (g_isReplaying) return false;
 
-    // Cache event IDs to avoid strcmp on the hot path
-    static int idRegenDisabled = -1;
-    static int idRegenEnabled = -1;
-    static int idLeavingWorld = -1;
-    static int idEnteringWorld = -1;
-    static int idBagUpdate = -1;
-    static int idSpellCooldown = -1;
-    static int idUnitPower = -1;
-    static int idUnitAura = -1;
+    static bool s_coalesceCache[4096] = {};
+    static bool s_coalesceChecked[4096] = {};
+    static bool s_combatStateEvents[4096] = {}; // to set combat/loading flags
 
-    bool isCoalescedType = false;
+    // Fall back to slow path for out-of-bounds event IDs (extremely rare)
+    if (eventId < 0 || eventId >= 4096) {
+        const char* eventName = GetEventName(eventId);
+        if (!eventName) return false;
+        if (strcmp(eventName, "PLAYER_REGEN_DISABLED") == 0) {
+            LuaGCGovernor::g_inCombat = true;
+        } else if (strcmp(eventName, "PLAYER_REGEN_ENABLED") == 0) {
+            LuaGCGovernor::g_inCombat = false;
+        } else if (strcmp(eventName, "PLAYER_LEAVING_WORLD") == 0) {
+            LuaGCGovernor::g_isLoading = true;
+        } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
+            LuaGCGovernor::g_isLoading = false;
+        }
+        return ShouldCoalesce(eventName);
+    }
 
-    if (eventId == idRegenDisabled) {
-        LuaGCGovernor::g_inCombat = true;
-    } else if (eventId == idRegenEnabled) {
-        LuaGCGovernor::g_inCombat = false;
-    } else if (eventId == idLeavingWorld) {
-        LuaGCGovernor::g_isLoading = true;
-    } else if (eventId == idEnteringWorld) {
-        LuaGCGovernor::g_isLoading = false;
-    } else if (eventId == idBagUpdate || eventId == idSpellCooldown || eventId == idUnitPower || eventId == idUnitAura) {
-        isCoalescedType = true;
-    } else {
+    if (!s_coalesceChecked[eventId]) {
         const char* eventName = GetEventName(eventId);
         if (eventName) {
             if (strcmp(eventName, "PLAYER_REGEN_DISABLED") == 0) {
-                idRegenDisabled = eventId;
                 LuaGCGovernor::g_inCombat = true;
+                s_combatStateEvents[eventId] = true;
             } else if (strcmp(eventName, "PLAYER_REGEN_ENABLED") == 0) {
-                idRegenEnabled = eventId;
                 LuaGCGovernor::g_inCombat = false;
+                s_combatStateEvents[eventId] = true;
             } else if (strcmp(eventName, "PLAYER_LEAVING_WORLD") == 0) {
-                idLeavingWorld = eventId;
                 LuaGCGovernor::g_isLoading = true;
+                s_combatStateEvents[eventId] = true;
             } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
-                idEnteringWorld = eventId;
                 LuaGCGovernor::g_isLoading = false;
-            } else if (strcmp(eventName, "BAG_UPDATE") == 0) {
-                idBagUpdate = eventId;
-                isCoalescedType = true;
-            } else if (strcmp(eventName, "SPELL_UPDATE_COOLDOWN") == 0) {
-                idSpellCooldown = eventId;
-                isCoalescedType = true;
-            } else if (strcmp(eventName, "UNIT_POWER") == 0) {
-                idUnitPower = eventId;
-                isCoalescedType = true;
-            } else if (strcmp(eventName, "UNIT_AURA") == 0) {
-                idUnitAura = eventId;
-                isCoalescedType = true;
+                s_combatStateEvents[eventId] = true;
+            } else if (ShouldCoalesce(eventName)) {
+                s_coalesceCache[eventId] = true;
+            }
+        }
+        s_coalesceChecked[eventId] = true;
+    } else {
+        // Fast path for combat/loading state updates
+        if (s_combatStateEvents[eventId]) {
+            const char* eventName = GetEventName(eventId);
+            if (eventName) {
+                if (strcmp(eventName, "PLAYER_REGEN_DISABLED") == 0) {
+                    LuaGCGovernor::g_inCombat = true;
+                } else if (strcmp(eventName, "PLAYER_REGEN_ENABLED") == 0) {
+                    LuaGCGovernor::g_inCombat = false;
+                } else if (strcmp(eventName, "PLAYER_LEAVING_WORLD") == 0) {
+                    LuaGCGovernor::g_isLoading = true;
+                } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
+                    LuaGCGovernor::g_isLoading = false;
+                }
             }
         }
     }
 
-    if (!isCoalescedType) {
+    if (!s_coalesceCache[eventId]) {
         return false;
     }
 

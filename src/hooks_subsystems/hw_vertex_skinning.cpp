@@ -81,17 +81,29 @@ static void VectorizedSkinVertices(M2Vertex* dest, const M2Vertex* src, int coun
         }
         
         // Write transformed data back
+        // Write transformed data back
         if (totalWeight > 0.0f) {
-            _mm_storeu_ps(dest[i].pos, skinnedPos);
+            float tempPos[4];
+            float tempNormal[4];
+            _mm_storeu_ps(tempPos, skinnedPos);
+            _mm_storeu_ps(tempNormal, skinnedNormal);
+            
+            dest[i].pos[0] = tempPos[0];
+            dest[i].pos[1] = tempPos[1];
+            dest[i].pos[2] = tempPos[2];
             
             // Normalize the blended normal vector
             float sumSq = _mm_cvtss_f32(_mm_dp_ps(skinnedNormal, skinnedNormal, 0x71));
             if (sumSq > 0.0f) {
                 float invLength = 1.0f / sqrtf(sumSq);
-                __m128 invLenVec = _mm_set1_ps(invLength);
-                skinnedNormal = _mm_mul_ps(skinnedNormal, invLenVec);
+                dest[i].normal[0] = tempNormal[0] * invLength;
+                dest[i].normal[1] = tempNormal[1] * invLength;
+                dest[i].normal[2] = tempNormal[2] * invLength;
+            } else {
+                dest[i].normal[0] = tempNormal[0];
+                dest[i].normal[1] = tempNormal[1];
+                dest[i].normal[2] = tempNormal[2];
             }
-            _mm_storeu_ps(dest[i].normal, skinnedNormal);
         } else {
             dest[i].pos[0] = v.pos[0];
             dest[i].pos[1] = v.pos[1];

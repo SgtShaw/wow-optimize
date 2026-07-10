@@ -49,9 +49,22 @@ static std::condition_variable g_cv;
 static std::unordered_map<int, void*> g_criteriaCache;
 static void* g_lastListHead = nullptr;
 
+static bool IsReadablePtr(const void* ptr, size_t size) {
+    if (!ptr) return false;
+    __try {
+        volatile const char* p = (volatile const char*)ptr;
+        char dummy = p[0];
+        dummy = p[size - 1];
+        return true;
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
+
 static void* FindCriteriaHandlerFast(int criteriaId) {
     void** pHead = (void**)0x00ACFDC4;
-    if (!pHead || !*pHead) return nullptr;
+    if (!pHead || !IsReadablePtr(pHead, sizeof(void*)) || !*pHead) return nullptr;
     
     void* currentHead = *pHead;
     if (currentHead != g_lastListHead) {
@@ -61,6 +74,7 @@ static void* FindCriteriaHandlerFast(int criteriaId) {
         // Walk the criteria linked list to populate cache
         int* curr = (int*)currentHead;
         while (curr && (((uintptr_t)curr & 1) == 0)) {
+            if (!IsReadablePtr(curr, 12)) break; // Each node has at least 3 dwords (12 bytes)
             int cid = curr[2];
             g_criteriaCache[cid] = curr;
             curr = (int*)curr[1];
@@ -88,23 +102,22 @@ static bool PerformDecompress(const std::vector<uint8_t>& src, std::vector<uint8
 // Background thread loop
 static void WorkerProc(int threadId) {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
+        std::unique_lock<std::mutex> lock(g_cvMutex);
+        g_cv.wait(lock, [] {
+            return g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_acquire) || g_shutdown.load();
+        });
+        if (g_shutdown.load()) break;
+
         int currentHead = g_head.load(std::memory_order_relaxed);
         int currentTail = g_tail.load(std::memory_order_acquire);
-
-        if (currentHead == currentTail) {
-            std::unique_lock<std::mutex> lock(g_cvMutex);
-            g_cv.wait_for(lock, std::chrono::milliseconds(10), [] {
-                return g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_acquire) || g_shutdown.load();
-            });
-            continue;
-        }
-
-        int nextHead = (currentHead + 1) % QUEUE_SIZE;
-        if (g_head.compare_exchange_weak(currentHead, nextHead, std::memory_order_acq_rel)) {
-            PacketTask* task = g_queue[currentHead];
-            if (task) {
-                PerformDecompress(task->compressedData, task->decompressedData);
-                task->isDone.store(true, std::memory_order_release);
+        if (currentHead != currentTail) {
+            int nextHead = (currentHead + 1) % QUEUE_SIZE;
+            if (g_head.compare_exchange_weak(currentHead, nextHead, std::memory_order_acq_rel)) {
+                PacketTask* task = g_queue[currentHead];
+                if (task) {
+                    PerformDecompress(task->compressedData, task->decompressedData);
+                    task->isDone.store(true, std::memory_order_release);
+                }
             }
         }
     }

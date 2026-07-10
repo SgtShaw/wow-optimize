@@ -1,7 +1,8 @@
 // ============================================================================
 // Module: async_sound_loader.cpp
 // Description: Preloads and caches FMOD sound files in memory to bypass disk I/O.
-// Safety & Threading: Thread-safe cache using mutex protection.
+//              Uses a safe background task queue and worker thread to prevent thread leaks.
+// Safety & Threading: Thread-safe cache and queue using mutex protection.
 // ============================================================================
 
 #include "async_sound_loader.h"
@@ -13,6 +14,9 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <queue>
+#include <condition_variable>
+#include <atomic>
 #include <unordered_map>
 
 extern "C" void Log(const char* fmt, ...);
@@ -26,9 +30,14 @@ struct SoundBuffer {
 
 static std::unordered_map<std::string, SoundBuffer> g_soundCache;
 static std::mutex g_soundMutex;
-static std::vector<std::thread> g_workerThreads;
 static bool g_active = false;
 static uint64_t g_preloads = 0;
+
+static std::queue<std::string> g_preloadQueue;
+static std::mutex g_queueMutex;
+static std::condition_variable g_queueCv;
+static std::thread g_workerThread;
+static std::atomic<bool> g_workerShutdown{false};
 
 // Storm DLL types
 typedef BOOL (APIENTRY *SFileOpenFileEx_fn)(HANDLE hArchive, const char* szFileName, DWORD dwSearchScope, HANDLE* phFile);
@@ -108,19 +117,44 @@ void SoundLoadWorker(std::string filePath) {
     }
 }
 
+static void SoundWorkerProc() {
+    while (!g_workerShutdown.load(std::memory_order_relaxed)) {
+        std::string filePath;
+        {
+            std::unique_lock<std::mutex> lock(g_queueMutex);
+            g_queueCv.wait(lock, [] {
+                return !g_preloadQueue.empty() || g_workerShutdown.load();
+            });
+            if (g_workerShutdown.load()) break;
+            filePath = std::move(g_preloadQueue.front());
+            g_preloadQueue.pop();
+        }
+        SoundLoadWorker(filePath);
+    }
+}
+
 void PreloadSound(const std::string& filePath) {
     if (!Config::g_settings.OptAudioDecodeMt) return;
-    std::lock_guard<std::mutex> lock(g_soundMutex);
+    if (!g_active) return;
+
     std::string normPath = filePath;
     for (char& c : normPath) {
         if (c == '/') c = '\\';
         else c = tolower(c);
     }
-    if (g_soundCache.find(normPath) != g_soundCache.end()) return;
-    g_soundCache[normPath] = { {}, false };
+
+    {
+        std::lock_guard<std::mutex> lock(g_soundMutex);
+        if (g_soundCache.find(normPath) != g_soundCache.end()) return;
+        g_soundCache[normPath] = { {}, false };
+    }
     
+    {
+        std::lock_guard<std::mutex> lock(g_queueMutex);
+        g_preloadQueue.push(filePath);
+    }
+    g_queueCv.notify_one();
     g_preloads++;
-    g_workerThreads.emplace_back(SoundLoadWorker, filePath);
 }
 
 bool Init() {
@@ -156,6 +190,8 @@ bool Init() {
     }
 
     g_active = true;
+    g_workerShutdown = false;
+    g_workerThread = std::thread(SoundWorkerProc);
 
     // Preload critical combat sounds
     const char* sounds[] = {
@@ -181,10 +217,11 @@ bool Init() {
 void Shutdown() {
     if (!Config::g_settings.OptAudioDecodeMt) return;
     g_active = false;
-    for (auto& t : g_workerThreads) {
-        if (t.joinable()) t.join();
+    g_workerShutdown = true;
+    g_queueCv.notify_all();
+    if (g_workerThread.joinable()) {
+        g_workerThread.join();
     }
-    g_workerThreads.clear();
     std::lock_guard<std::mutex> lock(g_soundMutex);
     g_soundCache.clear();
     Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects.", g_preloads);
