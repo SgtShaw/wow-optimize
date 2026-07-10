@@ -52,15 +52,18 @@ static void* __cdecl Hooked_GetObject(unsigned __int64 guid, int typemask) {
     if (cachedGuid == guid) {
         void* cachedObj = g_cache[slot].obj.load(std::memory_order_relaxed);
         if (cachedObj && IsValidPtr((uintptr_t)cachedObj)) {
-            // Replicate the original function's type mask validation:
-            // ecx = [cachedObj + 8] (metadata descriptor)
-            // test [ecx + 8], typemask
-            void* ecx = *(void**)((uintptr_t)cachedObj + 8);
-            if (ecx && IsValidPtr((uintptr_t)ecx)) {
-                int typeMask = *(int*)((uintptr_t)ecx + 8);
-                if ((typeMask & typemask) != 0) {
-                    return cachedObj;
+            __try {
+                // Replicate the original function's type mask validation safely:
+                void* ecx = *(void**)((uintptr_t)cachedObj + 8);
+                if (ecx && IsValidPtr((uintptr_t)ecx)) {
+                    int typeMask = *(int*)((uintptr_t)ecx + 8);
+                    if ((typeMask & typemask) != 0) {
+                        return cachedObj;
+                    }
                 }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                // Stale object pointer or unmapped memory page — fall through to invalidate
             }
         }
         // Type check failed or object pointer stale — invalidate and fall through
