@@ -53,7 +53,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "M2LodBias", "0", iniPath.c_str());

@@ -389,6 +389,47 @@ __declspec(naked) void Hooked_TexCreateBLP_Naked() {
     }
 }
 
+typedef int (__stdcall *TextureRelease_fn)(void* Block);
+static TextureRelease_fn orig_TextureRelease = nullptr;
+
+int __stdcall Hooked_TextureRelease(void* Block) {
+    if (Block) {
+        std::lock_guard<std::mutex> lock(g_swapMutex);
+        for (auto it = g_placeholderMap.begin(); it != g_placeholderMap.end(); ) {
+            if (it->second.placeholderHandle == (int)Block) {
+                Log("[AsyncTexLoader] Active placeholder %p released, removing from swap queue", Block);
+                it = g_placeholderMap.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+    return orig_TextureRelease(Block);
+}
+
+static bool SafeSwapPointers(int placeholderHandle, int realHandle) {
+    __try {
+        if (placeholderHandle && ((placeholderHandle & 3) == 0) && (placeholderHandle >= 0x00010000) && (placeholderHandle < 0x7FFE0000)) {
+            int placeholderD3D = *(int*)(placeholderHandle + 68);
+            int realD3D = *(int*)(realHandle + 68);
+
+            *(int*)(placeholderHandle + 68) = realD3D;
+
+            *(short*)(placeholderHandle + 76) = *(short*)(realHandle + 76);
+            *(short*)(placeholderHandle + 78) = *(short*)(realHandle + 78);
+            *(int*)(placeholderHandle + 80) = *(int*)(realHandle + 80);
+            *(int*)(placeholderHandle + 84) = *(int*)(realHandle + 84);
+
+            // Reclaim placeholder D3D resource via temp object release
+            *(int*)(realHandle + 68) = placeholderD3D;
+            return true;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Safe handling of exception if pointer is invalid
+    }
+    return false;
+}
+
 void OnFrame() {
     if (!Config::g_settings.OptAsyncTexLoader) return;
 #if TEST_DISABLE_TEXTURE_DECODE_MT
@@ -422,23 +463,16 @@ void OnFrame() {
 
         int real = Call_Orig_TexCreateBLP(entry.flags, const_cast<char*>(tempPath.c_str()), entry.a3, entry.a4);
         if (real) {
-            // Swap wrapper pointers
-            int placeholderD3D = *(int*)(entry.placeholderHandle + 68);
-            int realD3D = *(int*)(real + 68);
+            bool swapped = SafeSwapPointers(entry.placeholderHandle, real);
 
-            *(int*)(entry.placeholderHandle + 68) = realD3D;
-
-            *(short*)(entry.placeholderHandle + 76) = *(short*)(real + 76);
-            *(short*)(entry.placeholderHandle + 78) = *(short*)(real + 78);
-            *(int*)(entry.placeholderHandle + 80) = *(int*)(real + 80);
-            *(int*)(entry.placeholderHandle + 84) = *(int*)(real + 84);
-
-            // Reclaim placeholder D3D resource via temp object release
-            *(int*)(real + 68) = placeholderD3D;
-
-            {
+            if (swapped) {
                 std::lock_guard<std::mutex> lock(g_swapMutex);
                 g_hotSwapTextures.insert(entry.realPath);
+            }
+
+            // Release the temporary real texture handle (now holding the placeholder resource)
+            if (orig_TextureRelease) {
+                orig_TextureRelease((void*)real);
             }
         }
 
@@ -480,6 +514,17 @@ bool Init() {
         return false;
     }
 
+    void* releaseTarget = (void*)0x004B83F0;
+    if (MH_CreateHook(releaseTarget, (void*)Hooked_TextureRelease, (void**)&orig_TextureRelease) != MH_OK) {
+        Log("[AsyncTexLoader] Failed to create TextureRelease hook.");
+        return false;
+    }
+
+    if (MH_EnableHook(releaseTarget) != MH_OK) {
+        Log("[AsyncTexLoader] Failed to enable TextureRelease hook.");
+        return false;
+    }
+
     Log("[AsyncTexLoader] Active - VFS redirector and hot-swapper active.");
     return true;
 }
@@ -498,6 +543,10 @@ void Shutdown() {
     void* target = (void*)0x004B8910;
     MH_DisableHook(target);
     MH_RemoveHook(target);
+
+    void* releaseTarget = (void*)0x004B83F0;
+    MH_DisableHook(releaseTarget);
+    MH_RemoveHook(releaseTarget);
 
     for (HANDLE hArchive : g_privateArchives) {
         pSFileCloseArchive(hArchive);

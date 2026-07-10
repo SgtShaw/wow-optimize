@@ -411,7 +411,7 @@
 // event-wait) but NOTHING ever submits work to them (no external caller feeds the
 // decode/inflate/bone queues). On a 32-bit VA-constrained client each thread also
 // reserves ~1MB of stack address space. Disabled until a real producer wires them.
-#define TEST_DISABLE_TEXTURE_DECODE_MT  1   // 2 workers, BLP decode path wired and hot-swapped
+#define TEST_DISABLE_TEXTURE_DECODE_MT  0   // 2 workers, BLP decode path wired and hot-swapped
 #define TEST_DISABLE_MPQ_DECOMPRESS_MT  1   // 3 workers, inflate path never wired
 #define TEST_DISABLE_ANIM_MT            1   // 2 workers, M2 bone path never wired
 
