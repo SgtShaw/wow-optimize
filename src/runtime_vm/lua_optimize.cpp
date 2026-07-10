@@ -1760,6 +1760,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             Log("[LuaOpt] FrameScript injection armed for L=0x%08X", (unsigned)(uintptr_t)currentL);
 
             __try {
+                int topBefore = Api.lua_gettop ? Api.lua_gettop(currentL) : 0;
                 WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_LOADED", true);
                 WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_GC_ACTIVE", false);
                 WriteLuaGlobal_Bool(currentL, "LUABOOST_DLL_LUA_ALLOC", g_luaAllocReplaced);
@@ -1770,7 +1771,12 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
                 } else {
                     WriteLuaGlobal_String(currentL, "LUABOOST_DLL_LATEST_VERSION", "unknown");
                 }
-            } __except(EXCEPTION_EXECUTE_HANDLER) {}
+                if (Api.lua_settop) Api.lua_settop(currentL, topBefore);
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                // Stack may be dirty after exception — clean up
+                __try { if (Api.lua_settop) Api.lua_settop(currentL, 0); }
+                __except(EXCEPTION_EXECUTE_HANDLER) {}
+            }
             return;
         }
 
@@ -1936,11 +1942,14 @@ void Shutdown() {
         RestoreGC(L);
 
         if (Api.lua_pushboolean && Api.lua_setfield) {
+            int topBefore = Api.lua_gettop ? Api.lua_gettop(L) : 0;
             __try {
                 WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LOADED", false);
                 WriteLuaGlobal_Bool(L, "LUABOOST_DLL_GC_ACTIVE", false);
                 WriteLuaGlobal_Bool(L, "LUABOOST_DLL_LUA_ALLOC", false);
             }
+            __except (EXCEPTION_EXECUTE_HANDLER) {}
+            __try { if (Api.lua_settop) Api.lua_settop(L, topBefore); }
             __except (EXCEPTION_EXECUTE_HANDLER) {}
         }
     }

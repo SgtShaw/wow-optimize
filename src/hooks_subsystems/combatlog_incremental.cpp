@@ -44,6 +44,31 @@ static void SafeCallCombatLogEvent(CombatLogEvent_fn orig, void* data, int luaSt
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 }
 
+// lua_gettop / lua_settop for stack cleanup around deferred event calls
+typedef int  (__cdecl* lua_gettop_fn)(int L);
+typedef void (__cdecl* lua_settop_fn)(int L, int idx);
+static const lua_gettop_fn lua_gettop_ = (lua_gettop_fn)0x0084DBD0;
+static const lua_settop_fn lua_settop_ = (lua_settop_fn)0x0084DBF0;
+
+// Process deferred events with Lua stack protection.
+// Separate function because __try cannot coexist with C++ object unwinding
+// (std::vector) in the same function scope (MSVC C2712).
+static void ProcessDeferredEvents(CombatLogEvent_fn orig, StoredEvent* events, int count, int luaState) {
+    int topBefore = 0;
+    __try { topBefore = lua_gettop_(luaState); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+    for (int i = 0; i < count; i++) {
+        SafeCallCombatLogEvent(orig, events[i].data, luaState);
+    }
+
+    // CRITICAL: Restore stack to pre-event state to prevent stack leak.
+    // WoW's combat log handler pushes event args onto the Lua stack. When
+    // called from our Sleep hook (outside normal dispatch), a Lua error
+    // (longjmp caught by SEH) or incomplete cleanup leaves values on the
+    // stack. The next frame's lua_gettop(L)!=0 check then fires #134.
+    __try { lua_settop_(luaState, topBefore); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+}
+
 void OnFrame(int luaState) {
     g_eventsThisFrame = 0;
 
@@ -63,10 +88,7 @@ void OnFrame(int luaState) {
     }
 
     CombatLogEvent_fn orig = (CombatLogEvent_fn)g_origCombatLogEvent;
-
-    for (auto& ev : toProcess) {
-        SafeCallCombatLogEvent(orig, ev.data, luaState);
-    }
+    ProcessDeferredEvents(orig, toProcess.data(), (int)toProcess.size(), luaState);
 }
 
 bool ShouldDefer(void* This, int luaState, void* orig_func) {

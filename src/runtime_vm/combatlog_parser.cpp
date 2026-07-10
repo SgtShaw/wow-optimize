@@ -115,6 +115,9 @@ static const fn_lua_settop lua_settop_ = (fn_lua_settop)0x0084DBF0;
 typedef int (__cdecl *fn_lua_type)(void* L, int idx);
 static const fn_lua_type lua_type_ = (fn_lua_type)0x0084DEB0;
 
+typedef int (__cdecl *fn_lua_gettop)(void* L);
+static const fn_lua_gettop lua_gettop_ = (fn_lua_gettop)0x0084DBD0;
+
 static void UpdateStats(const char* guid, const char* name, uint32_t spellId, const char* spellName,
                          uint64_t damage, uint64_t healing, uint64_t overheal, bool critical, bool isDamage) {
     if (!guid || !name) return;
@@ -235,6 +238,9 @@ void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
     }
 }
 extern "C" int LUABOOST_GetCombatStats(void* L) {
+    int topBefore = 0;
+    __try { topBefore = lua_gettop_(L); } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
     __try {
         // Create the outer table: { ["playerGUID"] = playerTable, ... }
         lua_createtable_(L, 0, 0);
@@ -254,18 +260,22 @@ extern "C" int LUABOOST_GetCombatStats(void* L) {
             lua_pushstring_(L, player.guid.c_str());
             lua_settable_(L, -3);
             
+            // name
             lua_pushstring_(L, "name");
             lua_pushstring_(L, player.name.c_str());
             lua_settable_(L, -3);
             
+            // damage
             lua_pushstring_(L, "damage");
             lua_pushnumber_(L, (double)player.totalDamage);
             lua_settable_(L, -3);
             
+            // healing
             lua_pushstring_(L, "healing");
             lua_pushnumber_(L, (double)player.totalHealing);
             lua_settable_(L, -3);
             
+            // overheal
             lua_pushstring_(L, "overheal");
             lua_pushnumber_(L, (double)player.totalOverheal);
             lua_settable_(L, -3);
@@ -319,10 +329,16 @@ extern "C" int LUABOOST_GetCombatStats(void* L) {
         }
         
         ReleaseSRWLockShared(&g_statsLock);
+        return 1;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
+        // Stack may be corrupted/partially populated: clean up
+        __try {
+            lua_settop_(L, topBefore);
+            lua_pushnil_(L);
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+        return 1;
     }
-    return 1;
 }
 
 extern "C" int LUABOOST_ResetCombatStats(void* L) {

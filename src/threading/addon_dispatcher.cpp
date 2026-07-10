@@ -405,8 +405,15 @@ void OnFrame(DWORD mainThreadId) {
     AddonCallback cb;
     lua_State* L = *(lua_State**)0x00D3F78C;
     
+    typedef int  (__cdecl *lua_gettop_fn)(lua_State* L);
+    typedef void (__cdecl *lua_settop_fn)(lua_State* L, int idx);
+    lua_gettop_fn p_lua_gettop = (lua_gettop_fn)0x0084DBD0;
+    lua_settop_fn p_lua_settop = (lua_settop_fn)0x0084DBF0;
+
     while (DequeueOutputCallback(&cb)) {
         if (L && IsReadable((uintptr_t)cb.frame) && IsReadable((uintptr_t)cb.callback)) {
+            int topBefore = 0;
+            __try { topBefore = p_lua_gettop(L); } __except(EXCEPTION_EXECUTE_HANDLER) {}
             __try {
                 // Push callback (closure)
                 RawTValue* top = GetStackTopFast(L);
@@ -431,8 +438,13 @@ void OnFrame(DWORD mainThreadId) {
                 p_lua_pcall(L, 2, 0, 0);
             }
             __except (EXCEPTION_EXECUTE_HANDLER) {
-                // Safely catch errors
+                // Exception during push or pcall — stack is dirty
             }
+            // CRITICAL: Restore stack to pre-callback state.
+            // lua_pcall on error pushes 1 error message, and exceptions during
+            // the manual push phase leave 1-3 values. Without this cleanup,
+            // the next frame's lua_gettop(L)!=0 check fires Fatal Condition #134.
+            __try { p_lua_settop(L, topBefore); } __except(EXCEPTION_EXECUTE_HANDLER) {}
         }
         InterlockedIncrement(&g_callbacksProcessed);
     }
