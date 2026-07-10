@@ -499,7 +499,7 @@ static bool GetUnitDMAField(const char* unitStr, int fieldIndex, int& outValue) 
 static int __cdecl Hooked_UnitHealth(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitHealth", (uintptr_t)L);
     __try {
-        if (L && !IsTeardownState()) {
+        if (L && !IsTeardownState() && L == *(uintptr_t*)0x00D3F78C) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
@@ -544,7 +544,7 @@ static int __cdecl Hooked_UnitHealth(uintptr_t L) {
 static int __cdecl Hooked_UnitPower(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitPower", (uintptr_t)L);
     __try {
-        if (L && !IsTeardownState()) {
+        if (L && !IsTeardownState() && L == *(uintptr_t*)0x00D3F78C) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
@@ -610,7 +610,7 @@ static int __cdecl Hooked_UnitPower(uintptr_t L) {
 static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitMaxHealth", (uintptr_t)L);
     __try {
-        if (L && !IsTeardownState()) {
+        if (L && !IsTeardownState() && L == *(uintptr_t*)0x00D3F78C) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
@@ -655,7 +655,7 @@ static int __cdecl Hooked_UnitMaxHealth(uintptr_t L) {
 static int __cdecl Hooked_UnitLevel(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitLevel", (uintptr_t)L);
     __try {
-        if (L && !IsTeardownState()) {
+        if (L && !IsTeardownState() && L == *(uintptr_t*)0x00D3F78C) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
@@ -693,7 +693,7 @@ static int __cdecl Hooked_UnitLevel(uintptr_t L) {
 static int __cdecl Hooked_UnitPowerMax(uintptr_t L) {
     CrashDumper::RecordHookCall("UnitPowerMax", (uintptr_t)L);
     __try {
-        if (L && !IsTeardownState()) {
+        if (L && !IsTeardownState() && L == *(uintptr_t*)0x00D3F78C) {
             size_t len = 0;
             const char* unit = lua_tolstring_(L, 1, &len);
             if (unit && len < 32) {
