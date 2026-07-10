@@ -557,7 +557,7 @@
 #define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // disabled: Dynamic Mipmap Bias Governor
 #define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
-#define TEST_DISABLE_ASYNC_TERRAIN              1  // disabled: Asynchronous Terrain Loader
+#define TEST_DISABLE_ASYNC_TERRAIN              0  // enabled: Asynchronous Terrain Loader
 
 // Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
 // These ~47 hooks were never validated in-game and are suspected of causing
