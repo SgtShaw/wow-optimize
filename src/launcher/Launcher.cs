@@ -102,7 +102,7 @@ namespace WowOptimizeLauncher {
                 // Combat & Net
                 { "Aggregated Combat Log Parser", new SettingItem("Combat_Net", "CombatLogParser", false, null, "C++ level combat log aggregator that intercepts and summarizes events, bypassing slow Lua parsers.") },
                 { "Incremental Combat Log parsing", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "Splits large combat updates into small steps, preventing massive spikes in large-scale combat.") },
-                { "Event Coalescing & Minimap Throttling", new SettingItem("Combat_Net", "EventCoalescer", false, null, "Combines duplicate UI/combat events and throttles minimap updates/rendering to 15Hz to reduce CPU overhead.") },
+                { "Event Coalescing", new SettingItem("Combat_Net", "EventCoalescer", false, null, "Combines duplicate UI/combat event notifications within the same frame to prevent event spam.") },
                 { "Coalesced Network Packets", new SettingItem("Combat_Net", "NetPacketCoalesce", false, null, "Groups incoming game packets before processing to reduce context switching and network thread latency.") },
                 { "Unit Aura Coalescing", new SettingItem("Combat_Net", "UnitAuraCoalesce", false, null, "Batches player/target buff updates to minimize frame lag when many auras refresh concurrently.") },
                 { "Addon Message Coalescing", new SettingItem("Combat_Net", "NetAddonCoalescer", false, null, "Groups chat/addon network communications to reduce the volume of individual messages.") },
