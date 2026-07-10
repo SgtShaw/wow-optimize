@@ -652,6 +652,10 @@ static void FlushFieldUpdates() {
     // Thread safety: Flush must only run on the main thread
     if (g_mainThreadId != 0 && GetCurrentThreadId() != g_mainThreadId) return;
 
+    static constexpr int TEMP_SIZE = 4096;
+    static FieldTask tempQueue[TEMP_SIZE];
+    int tempCount = 0;
+
     AcquireSRWLockExclusive(&g_fieldQueueLock);
     LONG head = g_fieldHead;
     LONG tail = g_fieldTail;
@@ -660,26 +664,31 @@ static void FlushFieldUpdates() {
         return;
     }
 
-    while (head != tail) {
+    while (head != tail && tempCount < TEMP_SIZE) {
         FieldTask& task = g_fieldQueue[head];
-        void* unit = task.unit;
-        task.unit = nullptr;
-
-        if (unit != nullptr) {
-            __try {
-                // Validate pointer is in valid WoW address range
-                uintptr_t p = (uintptr_t)unit;
-                if (p > 0x10000 && p < 0xFFE00000) {
-                    orig_OnFieldUpdate(unit, task.fieldId, task.value);
-                }
-            } __except(EXCEPTION_EXECUTE_HANDLER) {
-                // Unit was freed despite our checks - safe to ignore
-            }
+        if (task.unit != nullptr) {
+            tempQueue[tempCount++] = task;
+            task.unit = nullptr;
         }
         head = (head + 1) & FIELD_QUEUE_MASK;
     }
     g_fieldHead = head;
     ReleaseSRWLockExclusive(&g_fieldQueueLock);
+
+    // Process tasks outside of the lock to prevent SRWLock recursion deadlock!
+    for (int i = 0; i < tempCount; i++) {
+        void* unit = tempQueue[i].unit;
+        if (unit != nullptr) {
+            __try {
+                uintptr_t p = (uintptr_t)unit;
+                if (p > 0x10000 && p < 0xFFE00000) {
+                    orig_OnFieldUpdate(unit, tempQueue[i].fieldId, tempQueue[i].value);
+                }
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                // Unit was freed - safe to ignore
+            }
+        }
+    }
 #endif
 }
 
