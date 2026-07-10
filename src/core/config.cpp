@@ -50,7 +50,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptDispatch", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "1", iniPath.c_str());
