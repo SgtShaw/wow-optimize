@@ -39,6 +39,15 @@ static VB_Lock_fn orig_VB_Lock = nullptr;
 typedef HRESULT (WINAPI *VB_Unlock_fn)(IDirect3DVertexBuffer9* vb);
 static VB_Unlock_fn orig_VB_Unlock = nullptr;
 
+typedef HRESULT (WINAPI *CreateIndexBuffer_fn)(IDirect3DDevice9* device, UINT Length, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DIndexBuffer9** ppIndexBuffer, HANDLE* pSharedHandle);
+static CreateIndexBuffer_fn orig_CreateIndexBuffer = nullptr;
+
+typedef HRESULT (WINAPI *IB_Lock_fn)(IDirect3DIndexBuffer9* ib, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags);
+static IB_Lock_fn orig_IB_Lock = nullptr;
+
+typedef HRESULT (WINAPI *IB_Unlock_fn)(IDirect3DIndexBuffer9* ib);
+static IB_Unlock_fn orig_IB_Unlock = nullptr;
+
 typedef HRESULT (WINAPI *SetVertexShaderConstantF_fn)(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
 SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
 
@@ -276,6 +285,39 @@ static HRESULT WINAPI Hooked_CreateVertexBuffer(IDirect3DDevice9* device, UINT L
     return hr;
 }
 
+static bool g_ibHooksInstalled = false;
+
+static HRESULT WINAPI Hooked_IB_Lock(IDirect3DIndexBuffer9* ib, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags) {
+    D3D9RenderThread::PipelineFlush();
+    return orig_IB_Lock(ib, OffsetToLock, SizeToLock, ppbData, Flags);
+}
+
+static HRESULT WINAPI Hooked_IB_Unlock(IDirect3DIndexBuffer9* ib) {
+    D3D9RenderThread::PipelineFlush();
+    return orig_IB_Unlock(ib);
+}
+
+static HRESULT WINAPI Hooked_CreateIndexBuffer(IDirect3DDevice9* device, UINT Length, DWORD Usage, D3DFORMAT Format, D3DPOOL Pool, IDirect3DIndexBuffer9** ppIndexBuffer, HANDLE* pSharedHandle) {
+    HRESULT hr = orig_CreateIndexBuffer(device, Length, Usage, Format, Pool, ppIndexBuffer, pSharedHandle);
+    if (hr == D3D_OK && ppIndexBuffer && *ppIndexBuffer && (Usage & D3DUSAGE_DYNAMIC)) {
+        if (!g_ibHooksInstalled) {
+            uintptr_t* ib_vtable = *(uintptr_t**)(*ppIndexBuffer);
+            void* target_Lock = (void*)ib_vtable[11];
+            void* target_Unlock = (void*)ib_vtable[12];
+            
+            if (MH_CreateHook(target_Lock, (void*)Hooked_IB_Lock, (void**)&orig_IB_Lock) == MH_OK) {
+                MH_EnableHook(target_Lock);
+            }
+            if (MH_CreateHook(target_Unlock, (void*)Hooked_IB_Unlock, (void**)&orig_IB_Unlock) == MH_OK) {
+                MH_EnableHook(target_Unlock);
+            }
+            g_ibHooksInstalled = true;
+            Log("[D3D9StateCache] Detoured IDirect3DIndexBuffer9::Lock/Unlock for dynamic buffer optimization");
+        }
+    }
+    return hr;
+}
+
 static HRESULT WINAPI Hooked_SetVertexShaderConstantF(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount) {
     #if !TEST_DISABLE_D3D9_VS_CONSTANT_CACHE
     if (pConstantData && StartRegister + Vector4fCount <= 256) {
@@ -435,6 +477,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     orig_SetTransform = (SetTransform_fn)vtable[44];
     orig_SetViewport = (SetViewport_fn)vtable[47];
     orig_CreateVertexBuffer = (CreateVertexBuffer_fn)vtable[26];
+    orig_CreateIndexBuffer = (CreateIndexBuffer_fn)vtable[27];
     orig_SetVertexShaderConstantF = (SetVertexShaderConstantF_fn)vtable[94];
     orig_SetSamplerState = (SetSamplerState_fn)vtable[69];
     orig_SetTextureStageState = (SetTextureStageState_fn)vtable[64];
@@ -453,6 +496,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     void* target_SetTransform = (void*)orig_SetTransform;
     void* target_SetViewport = (void*)orig_SetViewport;
     void* target_CreateVertexBuffer = (void*)orig_CreateVertexBuffer;
+    void* target_CreateIndexBuffer = (void*)orig_CreateIndexBuffer;
     void* target_SetVertexShaderConstantF = (void*)orig_SetVertexShaderConstantF;
     void* target_SetSamplerState = (void*)orig_SetSamplerState;
     void* target_SetTextureStageState = (void*)orig_SetTextureStageState;
@@ -463,6 +507,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
         MH_CreateHook(target_SetTransform, (void*)Hooked_SetTransform, (void**)&orig_SetTransform) != MH_OK ||
         MH_CreateHook(target_SetViewport, (void*)Hooked_SetViewport, (void**)&orig_SetViewport) != MH_OK ||
         MH_CreateHook(target_CreateVertexBuffer, (void*)Hooked_CreateVertexBuffer, (void**)&orig_CreateVertexBuffer) != MH_OK ||
+        MH_CreateHook(target_CreateIndexBuffer, (void*)Hooked_CreateIndexBuffer, (void**)&orig_CreateIndexBuffer) != MH_OK ||
         MH_CreateHook(target_SetVertexShaderConstantF, (void*)Hooked_SetVertexShaderConstantF, (void**)&orig_SetVertexShaderConstantF) != MH_OK ||
         MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK ||
         MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK) 
@@ -477,6 +522,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     MH_EnableHook(target_SetTransform);
     MH_EnableHook(target_SetViewport);
     MH_EnableHook(target_CreateVertexBuffer);
+    MH_EnableHook(target_CreateIndexBuffer);
     MH_EnableHook(target_SetVertexShaderConstantF);
     MH_EnableHook(target_SetSamplerState);
     MH_EnableHook(target_SetTextureStageState);
