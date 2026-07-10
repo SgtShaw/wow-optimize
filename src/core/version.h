@@ -554,7 +554,7 @@
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader
 #define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
-#define TEST_DISABLE_MIP_BIAS_GOVERNOR          1  // disabled: Dynamic Mipmap Bias Governor
+#define TEST_DISABLE_MIP_BIAS_GOVERNOR          0  // enabled: Dynamic Mipmap Bias Governor
 #define TEST_DISABLE_SPATIAL_CULLING            0  // enabled: Spatial Culling Grid
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 #define TEST_DISABLE_ASYNC_TERRAIN              0  // enabled: Asynchronous Terrain Loader
