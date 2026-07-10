@@ -31,58 +31,58 @@ namespace Config {
             WritePrivateProfileStringA("General", "TimingFix", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MpqMmapVfs", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "MpqMmapVfs", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "ObjVisCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "DbcPreload", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "DbcPreload", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "OomGovernor", "0", iniPath.c_str());
 
 
             // UI & Lua
             WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsLockFree", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameXmlCoalesce", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "TooltipCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "TooltipCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptDispatch", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "M2LodBias", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "SpatialCulling", "0", iniPath.c_str());
 
             // Combat & Network
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogIncremental", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetPacketCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "GetSpellInfoCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "PacketOffload", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateMT", "0", iniPath.c_str());
 
             // Graphics & Sound
-            WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "StrCatFast", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "StrCatFast", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundMixerOpt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
         }
 
