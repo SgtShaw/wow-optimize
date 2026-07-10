@@ -485,7 +485,7 @@
 // Worker thread pool (2 threads), lock-free queues (4096 entries each)
 // Priority system: Target > Focus > Nearby > Distant
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
-#define TEST_DISABLE_NAMEPLATE_MT       0
+#define TEST_DISABLE_NAMEPLATE_MT       1
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
 // DISABLED again: suppresses whitelisted events and re-emits them a frame later from
@@ -541,7 +541,7 @@
 #define TEST_DISABLE_WORLD_STATE_COALESCE       0
 #define TEST_DISABLE_HW_SKINNING                1
 #define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
-#define TEST_DISABLE_FONT_METRICS_LOCK_FREE    0  // enabled: lock-free font metrics cache
+#define TEST_DISABLE_FONT_METRICS_LOCK_FREE    1  // disabled: lock-free font metrics cache
 #define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
