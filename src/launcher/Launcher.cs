@@ -122,7 +122,7 @@ namespace WowOptimizeLauncher {
                 { "Asynchronous Terrain Loader", new SettingItem("Graphics_Sound", "AsyncTerrainLoader", false, null, "Offloads ADT terrain file loading and collision mesh compiling to helper cores.") },
                 { "M2 Model LOD Bias Control", new SettingItem("Graphics_Sound", "M2LodBias", false, null, "Dynamically scales 3D model level-of-detail bias depending on active rendering frametimes.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
-                { "Spatial Culling Visibility Grid", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Uses a spatial grid to pre-cull off-screen or distant models before rendering calls.") },
+                { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
                 { "Direct3D 9 Render-Thread Offloading", new SettingItem("Graphics_Sound", "D3d9RenderThread", false, null, "Offloads draw dispatches and state updates to an asynchronous render thread to prevent driver bottlenecks.") }
             };
 
