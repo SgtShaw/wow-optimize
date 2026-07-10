@@ -159,7 +159,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      1
+#define TEST_DISABLE_OBJ_VIS_CACHE      0
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -394,7 +394,7 @@
 // Tracks zone transitions, predicts next zone, prefetches common files
 // Worker thread pool (2 threads), lock-free queue (2048 entries)
 // Loads files into OS cache before zone transition occurs
-#define TEST_DISABLE_MPQ_PREFETCH       1
+#define TEST_DISABLE_MPQ_PREFETCH       0
 
 // Async Sound/Audio Prefetching - DISABLED.
 // Placeholder: the worker loads nothing (TODOs only), so it just spins 2 idle

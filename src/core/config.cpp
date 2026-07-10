@@ -32,6 +32,9 @@ namespace Config {
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqMmapVfs", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "ObjVisCache", "0", iniPath.c_str());
+
 
             // UI & Lua
             WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "0", iniPath.c_str());
@@ -94,6 +97,9 @@ namespace Config {
         g_settings.OptCvarNullGuard       = GetPrivateProfileIntA("General", "CvarNullGuard", 1, iniPath.c_str()) != 0;
         g_settings.OptFrameLimiter        = GetPrivateProfileIntA("General", "FrameLimiter", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqMmapVfs          = GetPrivateProfileIntA("General", "MpqMmapVfs", 0, iniPath.c_str()) != 0;
+        g_settings.OptMpqPrefetch         = GetPrivateProfileIntA("General", "MpqPrefetch", 0, iniPath.c_str()) != 0;
+        g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 0, iniPath.c_str()) != 0;
+
 
         // UI & Lua
         g_settings.OptUIFrameBatch        = GetPrivateProfileIntA("UI_Lua", "UIFrameBatch", 0, iniPath.c_str()) != 0;

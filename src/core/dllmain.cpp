@@ -6995,7 +6995,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
 #if !TEST_DISABLE_MPQ_PREFETCH
-    bool mpqPrefetchOk = MPQPrefetch::Init();
+    bool mpqPrefetchOk = Config::g_settings.OptMpqPrefetch && MPQPrefetch::Init();
 #else
     Log("[MPQPrefetch] DISABLED via TEST_DISABLE_MPQ_PREFETCH");
     bool mpqPrefetchOk = false;
@@ -7010,8 +7010,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #if TEST_DISABLE_OBJ_VIS_CACHE
     Log("[ObjVisCache] DISABLED (feature flag)");
 #else
-    ObjVisCache::Init();
+    if (Config::g_settings.OptObjVisCache) ObjVisCache::Init();
 #endif
+
 
     // Crash fix: sub_5E90D0 dereferences dword_C24238 without NULL check.
     // During loading screen transitions, this global may be uninitialized (NULL),

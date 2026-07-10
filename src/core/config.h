@@ -16,6 +16,8 @@ namespace Config {
         bool OptCvarNullGuard = true; // Safe default: enabled
         bool OptFrameLimiter = false;
         bool OptMpqMmapVfs = false;
+        bool OptMpqPrefetch = false;
+        bool OptObjVisCache = false;
 
         // UI & Lua
         bool OptUIFrameBatch = false;
