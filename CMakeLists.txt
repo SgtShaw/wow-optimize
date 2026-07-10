@@ -448,6 +448,47 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/sound_emitter_guard.h
     src/hooks_subsystems/sound_buffer_guard.h
     src/hooks_subsystems/sound_update_guard.h
+
+    src/hooks_subsystems/dynamic_shadow_scaler.cpp
+    src/hooks_subsystems/dynamic_shadow_scaler.h
+    src/hooks_subsystems/sound_coalescer.cpp
+    src/hooks_subsystems/sound_coalescer.h
+    src/hooks_subsystems/aura_preload_cache.cpp
+    src/hooks_subsystems/aura_preload_cache.h
+    src/hooks_subsystems/dbc_file_cache.cpp
+    src/hooks_subsystems/dbc_file_cache.h
+    src/hooks_subsystems/font_outline_cache.cpp
+    src/hooks_subsystems/font_outline_cache.h
+    src/hooks_subsystems/lua_gc_governor.cpp
+    src/hooks_subsystems/lua_gc_governor.h
+    src/hooks_subsystems/particle_density_scaler.cpp
+    src/hooks_subsystems/particle_density_scaler.h
+    src/hooks_subsystems/addon_msg_limiter.cpp
+    src/hooks_subsystems/addon_msg_limiter.h
+    src/hooks_subsystems/mouse_cursor_smooth.cpp
+    src/hooks_subsystems/mouse_cursor_smooth.h
+    src/hooks_subsystems/vertex_buffer_prealloc.cpp
+    src/hooks_subsystems/vertex_buffer_prealloc.h
+    src/hooks_subsystems/world_object_opt.cpp
+    src/hooks_subsystems/world_object_opt.h
+    src/hooks_subsystems/nameplate_distance_cvar.cpp
+    src/hooks_subsystems/nameplate_distance_cvar.h
+    src/hooks_subsystems/combat_log_async.cpp
+    src/hooks_subsystems/combat_log_async.h
+    src/hooks_subsystems/cdatastore_buffering.cpp
+    src/hooks_subsystems/cdatastore_buffering.h
+    src/hooks_subsystems/camera_shake_opt.cpp
+    src/hooks_subsystems/camera_shake_opt.h
+    src/hooks_subsystems/combat_text_font.cpp
+    src/hooks_subsystems/combat_text_font.h
+    src/hooks_subsystems/spell_overlay_preload.cpp
+    src/hooks_subsystems/spell_overlay_preload.h
+    src/hooks_subsystems/saved_vars_backup.cpp
+    src/hooks_subsystems/saved_vars_backup.h
+    src/hooks_subsystems/unit_max_power_cache.cpp
+    src/hooks_subsystems/unit_max_power_cache.h
+    src/hooks_subsystems/mouse_clip_release.cpp
+    src/hooks_subsystems/mouse_clip_release.h
 )
 
 target_link_libraries(wow_optimize PRIVATE

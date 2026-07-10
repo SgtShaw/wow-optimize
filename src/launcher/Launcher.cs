@@ -127,7 +127,31 @@ namespace WowOptimizeLauncher {
                 { "M2 Model LOD Bias Control", new SettingItem("Graphics_Sound", "M2LodBias", false, null, "Dynamically scales 3D model level-of-detail bias depending on active rendering frametimes.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
                 { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
-                { "Direct3D 9 Render-Thread Offloading", new SettingItem("Graphics_Sound", "D3d9RenderThread", false, null, "Offloads draw dispatches and state updates to an asynchronous render thread to prevent driver bottlenecks.") }
+                { "Direct3D 9 Render-Thread Offloading", new SettingItem("Graphics_Sound", "D3d9RenderThread", false, null, "Offloads draw dispatches and state updates to an asynchronous render thread to prevent driver bottlenecks.") },
+
+                // 10 New Features
+                { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", true, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
+                { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", true, null, "[NEW] Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
+                { "Aura / Buff Textures Preload Cache", new SettingItem("Combat_Net", "AuraPreloadCache", true, null, "[NEW] Pre-caches spell/aura icons at zone transitions to eliminate micro-freezes during combat.") },
+                { "DBC File Query Cache", new SettingItem("Graphics_Sound", "DbcFileCache", true, null, "[NEW] High-performance cache for record retrieval from client DBC files (items, spells, etc.).") },
+                { "Font Glyph Outline Cache", new SettingItem("UI_Lua", "FontOutlineCache", true, null, "[NEW] Caches glyph outline bitmaps to accelerate formatted text rendering.") },
+                { "LUA GC Budget Governor", new SettingItem("UI_Lua", "LuaGcGovernor", true, null, "[NEW] Runs GC step cycles dynamically, matching the exact frame time budget to prevent spikes.") },
+                { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", true, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
+                { "Addon Message Rate Limiter", new SettingItem("Combat_Net", "AddonMsgLimiter", true, null, "[NEW] Intercepts and rate-limits outbound addon sync messages to prevent disconnection #36.") },
+                { "Hardware Mouse Smoothing & Edge Lock", new SettingItem("General", "MouseCursorSmooth", true, null, "[NEW] Smooths mouse coordinates and locks the cursor inside the window during mouselook.") },
+                { "Model Vertex Buffers Pre-Allocator", new SettingItem("General", "VertexBufferPrealloc", true, null, "[NEW] Pre-allocates memory slabs for dynamic vertex updates using memory pools to stop stutters.") },
+
+                // 10 Additional New Features
+                { "World Object Render Optimizer", new SettingItem("Graphics_Sound", "WorldObjectOpt", true, null, "[NEW] Caches visibility state of non-interactive far world objects to skip drawing when camera is static.") },
+                { "Nameplate Render Distance CVar", new SettingItem("Combat_Net", "NameplateDistanceCvar", true, null, "[NEW] Enables customizable rendering distance bounds on unit nameplates.") },
+                { "Combat Log File Async Flusher", new SettingItem("Combat_Net", "CombatLogAsync", true, null, "[NEW] Writes combat log files to disk asynchronously in a background thread to prevent lag.") },
+                { "CDataStore Payload Buffering", new SettingItem("Combat_Net", "CDataStoreBuffering", true, null, "[NEW] Caches data buffer pointers to prevent redundant dereferences on packets.") },
+                { "Camera Shake Reducer", new SettingItem("General", "CameraShakeOpt", true, null, "[NEW] Filters out excessive camera shakes to stabilize rendering during heavy combat.") },
+                { "Combat Floating Text Font Optimizer", new SettingItem("UI_Lua", "CombatTextFont", true, null, "[NEW] Caches fonts and metrics specifically for floating scrolling damage/heal strings.") },
+                { "Spell Overlay Preload Cache", new SettingItem("Combat_Net", "SpellOverlayPreload", true, null, "[NEW] Preloads visual spell overlays at zone transitions to stop combat freezes.") },
+                { "Addon SavedVariables Backup Engine", new SettingItem("General", "SavedVarsBackup", true, null, "[NEW] Automatically duplicates saved variables into a backup file to prevent loss on crash.") },
+                { "Unit Max Power Cache", new SettingItem("UI_Lua", "UnitMaxPowerCache", true, null, "[NEW] Caches maximum unit power limits to bypass Lua-to-C client API query overhead.") },
+                { "Mouse Clip Release", new SettingItem("General", "MouseClipRelease", true, null, "[NEW] Releases coordinate boundaries locks automatically when WoW loses window focus.") }
             };
 
             // Build GUI Layout

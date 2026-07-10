@@ -67,6 +67,26 @@
 #include "lua_alloc_pool.h"
 #include "world_state_coalesce.h"
 #include "hw_vertex_skinning.h"
+#include "hooks_subsystems/dynamic_shadow_scaler.h"
+#include "hooks_subsystems/sound_coalescer.h"
+#include "hooks_subsystems/aura_preload_cache.h"
+#include "hooks_subsystems/dbc_file_cache.h"
+#include "hooks_subsystems/font_outline_cache.h"
+#include "hooks_subsystems/lua_gc_governor.h"
+#include "hooks_subsystems/particle_density_scaler.h"
+#include "hooks_subsystems/addon_msg_limiter.h"
+#include "hooks_subsystems/mouse_cursor_smooth.h"
+#include "hooks_subsystems/vertex_buffer_prealloc.h"
+#include "hooks_subsystems/world_object_opt.h"
+#include "hooks_subsystems/nameplate_distance_cvar.h"
+#include "hooks_subsystems/combat_log_async.h"
+#include "hooks_subsystems/cdatastore_buffering.h"
+#include "hooks_subsystems/camera_shake_opt.h"
+#include "hooks_subsystems/combat_text_font.h"
+#include "hooks_subsystems/spell_overlay_preload.h"
+#include "hooks_subsystems/saved_vars_backup.h"
+#include "hooks_subsystems/unit_max_power_cache.h"
+#include "hooks_subsystems/mouse_clip_release.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -1303,6 +1323,10 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
+            DynamicShadowScaler::OnFrame((float)elapsedMs);
+            ParticleDensityScaler::OnFrame((float)elapsedMs);
+            LuaGcGovernor::OnFrame((float)elapsedMs);
+            MouseCursorSmooth::OnFrame();
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
 #endif
@@ -7502,6 +7526,29 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Fast DBC Lookup Cache ---");
     if (Config::g_settings.OptDbcLookupCache) DbcLookupCacheFast::Init();
+
+    Log("");
+    Log("--- 20 New Subsystem Performance & Stability Features ---");
+    DynamicShadowScaler::Init();
+    SoundCoalescer::Init();
+    AuraPreloadCache::Init();
+    DbcFileCache::Init();
+    FontOutlineCache::Init();
+    LuaGcGovernor::Init();
+    ParticleDensityScaler::Init();
+    AddonMsgLimiter::Init();
+    MouseCursorSmooth::Init();
+    VertexBufferPrealloc::Init();
+    WorldObjectOpt::Init();
+    NameplateDistanceCvar::Init();
+    CombatLogAsync::Init();
+    CDataStoreBuffering::Init();
+    CameraShakeOpt::Init();
+    CombatTextFont::Init();
+    SpellOverlayPreload::Init();
+    SavedVarsBackup::Init();
+    UnitMaxPowerCache::Init();
+    MouseClipRelease::Init();
 
     Log("");
     Log("--- World-to-Screen SSE Math ---");
