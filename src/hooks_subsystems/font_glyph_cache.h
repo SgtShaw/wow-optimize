@@ -1,16 +1,12 @@
 #pragma once
-#include <windows.h>
+
+// ============================================================================
+// Module: font_glyph_cache.h
+// Description: Pre-caching atlas allocator for font glyph textures.
+// Safety & Threading: Thread-safe, lock-guarded find/insert operations.
+// ============================================================================
 
 namespace FontGlyphCache {
-    struct GlyphData {
-        int width;
-        int height;
-        int advance;
-        void* textureData;
-    };
-
     bool Init();
     void Shutdown();
-    bool GetGlyph(uint32_t charCode, GlyphData* outData);
-    void InsertGlyph(uint32_t charCode, const GlyphData& data);
 }
