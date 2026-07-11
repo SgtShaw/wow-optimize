@@ -24,6 +24,7 @@ namespace WowOptimizeLauncher {
         public string Key;
         public bool DefaultVal;
         public CheckBox Ctrl;
+        public CheckBox RecentCtrl;
         public string Tooltip;
 
         public SettingItem(string section, string key, bool defaultVal, CheckBox ctrl, string tooltip) {
@@ -31,6 +32,7 @@ namespace WowOptimizeLauncher {
             Key = key;
             DefaultVal = defaultVal;
             Ctrl = ctrl;
+            RecentCtrl = null;
             Tooltip = tooltip;
         }
     }
@@ -44,6 +46,7 @@ namespace WowOptimizeLauncher {
         private StackPanel uiLuaPanel;
         private StackPanel combatNetPanel;
         private StackPanel graphicsSoundPanel;
+        private StackPanel recentNewPanel;
         private TabControl tabs;
         private TextBlock versionText;
 
@@ -388,7 +391,7 @@ namespace WowOptimizeLauncher {
 
             // Footer Version Info Label
             versionText = new TextBlock {
-                Text = "v3.15.0-Release",
+                Text = "v3.16.0-Release",
                 FontSize = 9,
                 Foreground = new SolidColorBrush(Color.FromRgb(90, 90, 110)),
                 Margin = new Thickness(2, 5, 0, 0),
@@ -428,11 +431,13 @@ namespace WowOptimizeLauncher {
             uiLuaPanel = new StackPanel();
             combatNetPanel = new StackPanel();
             graphicsSoundPanel = new StackPanel();
+            recentNewPanel = new StackPanel();
 
             tabs.Items.Add(CreateTabItem("GENERAL", generalPanel));
             tabs.Items.Add(CreateTabItem("UI & LUA", uiLuaPanel));
             tabs.Items.Add(CreateTabItem("COMBAT & NET", combatNetPanel));
             tabs.Items.Add(CreateTabItem("GRAPHICS & SOUND", graphicsSoundPanel));
+            tabs.Items.Add(CreateTabItem("RECENT & NEW", recentNewPanel));
 
             // Populate Checkboxes into Panels
             foreach (var item in settingsMap) {
@@ -457,6 +462,44 @@ namespace WowOptimizeLauncher {
                     case "Graphics_Sound":
                         graphicsSoundPanel.Children.Add(chk);
                         break;
+                }
+
+                // If feature is new, create a duplicate checkbox in the RECENT & NEW tab and sync them
+                if (data.Tooltip.StartsWith("[NEW]")) {
+                    CheckBox recentChk = CreateStyledCheckBox(name, data.Tooltip);
+                    data.RecentCtrl = recentChk;
+
+                    bool isSyncing = false;
+                    chk.Checked += (s, ev) => {
+                        if (!isSyncing) {
+                            isSyncing = true;
+                            recentChk.IsChecked = true;
+                            isSyncing = false;
+                        }
+                    };
+                    chk.Unchecked += (s, ev) => {
+                        if (!isSyncing) {
+                            isSyncing = true;
+                            recentChk.IsChecked = false;
+                            isSyncing = false;
+                        }
+                    };
+                    recentChk.Checked += (s, ev) => {
+                        if (!isSyncing) {
+                            isSyncing = true;
+                            chk.IsChecked = true;
+                            isSyncing = false;
+                        }
+                    };
+                    recentChk.Unchecked += (s, ev) => {
+                        if (!isSyncing) {
+                            isSyncing = true;
+                            chk.IsChecked = false;
+                            isSyncing = false;
+                        }
+                    };
+
+                    recentNewPanel.Children.Add(recentChk);
                 }
             }
         }
@@ -732,7 +775,7 @@ namespace WowOptimizeLauncher {
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
-                            Version current = new Version("3.15.0");
+                            Version current = new Version("3.16.0");
 
                             if (latest > current) {
                                 Dispatcher.BeginInvoke(new Action(() => {

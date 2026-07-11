@@ -14,7 +14,7 @@ The current public build is focused on real frametime stability, long-session sm
 ---
 
 ## Table of Contents
-* [What's New in the Upcoming Update (v3.15.0)](#whats-new-in-the-upcoming-update-v3150)
+* [What's New in the Upcoming Update (v3.16.0)](#whats-new-in-the-upcoming-update-v3160)
 * [Reviews & Acknowledgments](#reviews)
 * [Current Feature Set](#current-feature-set)
 * [Installation](#installation)
@@ -27,11 +27,11 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in the Upcoming Update (v3.15.0)
+## What's New in the Upcoming Update (v3.16.0)
 
 This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 51 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
 
-### Modular Configurator Launcher (v3.15.0)
+### Modular Configurator Launcher (v3.16.0)
 - **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 51 optimization features via a C# WPF UI (no DLL recompiles required).
 - **Save & Load Profiles** — Supports exporting/importing customized configurations as `.ini` profiles.
 - **Preset Sharing** — Features a "Share with Developer" button to copy active settings to the clipboard for submitting safe profile recommendations.
@@ -39,7 +39,7 @@ This release marks a significant milestone, bringing together substantial perfor
 
 ![wow_optimize Launcher Dashboard](images/launcher_screenshot.jpg)
 
-### Core Performance & Allocator Updates (v3.15.0)
+### Core Performance & Allocator Updates (v3.16.0)
 - **Asynchronous Terrain Mesh Loader & Collision Decoupler** — Offloads ADT map grid loading and physical geometry parsing to background worker threads during gameplay. Hooks ground elevation query `sub_7C1660` to return player's current Z coordinate as height fallback during active loads, preventing falling through the world.
 - **Asynchronous Texture Hot-Swapping & Storm VFS** — Intercepts `0x004B8910` (`TexCreateBLP`) via assembly detour. Instantly returns placeholder white texture and background loads real BLP into an in-memory Virtual File System (VFS). On frame boundary (`OnFrame`), the real texture wrapper is built from the VFS and hot-swapped into place without stutters.
 - **RCU Client Object Manager Traverser** — Hooks `sub_6DED60` (`TSExplicitList::LinkNode`), `sub_4D4C20` (`UnlinkNode`), and `sub_4D4B30` (`ClntObjMgrEnum`) to replace linear linked-list entity traversals with an atomic pointer flat mirror array, removing list search and lock contention on the main thread in raids.
@@ -51,12 +51,12 @@ This release marks a significant milestone, bringing together substantial perfor
 - **Free-Wrapper Fast Path** — Directs deallocations to bypass redundant heap-walk overheads on one of the hottest paths in the binary.
 - **Hook Enable Batching** — Startup times have been improved by over 1.7 seconds by batching MinHook hooks during startup initialization via single-snapshot batch activation.
 
-### Lua VM & C-API Inlines (v3.15.0)
+### Lua VM & C-API Inlines (v3.16.0)
 - **Safe Inline Caches & Stack Operations** — Restored and verified the optimized inline paths for `luaH_getstr` (16384 entries with prefetch), `lua_rawgeti` (8192-entry array direct & hash cache), `lua_toboolean`, and `lua_objlen` matching engine byte layouts exactly.
 - **Lua VM Inline Fast-Path Groups** — Over 30 inline helpers (Safe Groups 1, 2, and 3) have been stabilized and activated (e.g. `string.gsub` plain-literal matching, `math.fmod`, `math.modf`, `string.char`, `select`, `rawequal`, `strjoin`, `strsplit`, etc.).
 - **Adaptive GC Pacing** — Lua garbage collection intervals scale dynamically depending on frametime limits and VA-pressure triggers.
 
-### SIMD Geometry, Math & Physics (v3.15.0)
+### SIMD Geometry, Math & Physics (v3.16.0)
 - **Double-Precision Quaternion Normalization (`CQuaternion::Normalize`)** — Fully stabilized and re-enabled the custom SSE2 quaternion normalization hook (`0x00979110`). By moving from 32-bit float to 64-bit double precision, it matches original FPU outputs exactly, preventing floating-point precision drift and completely resolving the camera jiggling bug when steering.
 - **Thread-Safe SIMD Statistics Counters** — Hardened all physics, culling, and rotation statistics counters using atomic 32-bit `InterlockedIncrement` operations to prevent data races between render and async engine worker threads.
 - **Vectorized Frustum Culling & Geometry Math** — Bypassed legacy x87 FPU stack calculations with SSE2 vectorized operators for matrix multiplies (`CMatrix::operator*` at `0x004C1F00`), matrix-vector transformations (3D/4D transforms at `0x004C21B0` and `0x004C2270`), rigid inversions, and `CFrustum` culling.
