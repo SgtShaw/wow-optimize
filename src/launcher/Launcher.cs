@@ -463,10 +463,50 @@ namespace WowOptimizeLauncher {
 
             // Tab Panels
             generalPanel = new StackPanel();
+            Button btnEnableGeneral = CreateStyledButton("ENABLE ALL IN GENERAL", Color.FromRgb(0, 229, 255), false);
+            btnEnableGeneral.Margin = new Thickness(5, 5, 5, 15);
+            btnEnableGeneral.Height = 28;
+            btnEnableGeneral.FontSize = 10;
+            btnEnableGeneral.Click += (s, e) => ToggleTabFeatures("General", true);
+            generalPanel.Children.Add(btnEnableGeneral);
+
             uiLuaPanel = new StackPanel();
+            Button btnEnableUiLua = CreateStyledButton("ENABLE ALL IN UI & LUA", Color.FromRgb(0, 229, 255), false);
+            btnEnableUiLua.Margin = new Thickness(5, 5, 5, 15);
+            btnEnableUiLua.Height = 28;
+            btnEnableUiLua.FontSize = 10;
+            btnEnableUiLua.Click += (s, e) => ToggleTabFeatures("UI_Lua", true);
+            uiLuaPanel.Children.Add(btnEnableUiLua);
+
             combatNetPanel = new StackPanel();
+            Button btnEnableCombatNet = CreateStyledButton("ENABLE ALL IN COMBAT & NET", Color.FromRgb(0, 229, 255), false);
+            btnEnableCombatNet.Margin = new Thickness(5, 5, 5, 15);
+            btnEnableCombatNet.Height = 28;
+            btnEnableCombatNet.FontSize = 10;
+            btnEnableCombatNet.Click += (s, e) => ToggleTabFeatures("Combat_Net", true);
+            combatNetPanel.Children.Add(btnEnableCombatNet);
+
             graphicsSoundPanel = new StackPanel();
+            Button btnEnableGraphicsSound = CreateStyledButton("ENABLE ALL IN GRAPHICS & SOUND", Color.FromRgb(0, 229, 255), false);
+            btnEnableGraphicsSound.Margin = new Thickness(5, 5, 5, 15);
+            btnEnableGraphicsSound.Height = 28;
+            btnEnableGraphicsSound.FontSize = 10;
+            btnEnableGraphicsSound.Click += (s, e) => ToggleTabFeatures("Graphics_Sound", true);
+            graphicsSoundPanel.Children.Add(btnEnableGraphicsSound);
+
             recentNewPanel = new StackPanel();
+            Button btnEnableRecentNew = CreateStyledButton("ENABLE ALL NEW FEATURES", Color.FromRgb(0, 229, 255), false);
+            btnEnableRecentNew.Margin = new Thickness(5, 5, 5, 15);
+            btnEnableRecentNew.Height = 28;
+            btnEnableRecentNew.FontSize = 10;
+            btnEnableRecentNew.Click += (s, e) => {
+                foreach (var item in settingsMap.Values) {
+                    if (item.RecentCtrl != null) {
+                        item.RecentCtrl.IsChecked = true;
+                    }
+                }
+            };
+            recentNewPanel.Children.Add(btnEnableRecentNew);
 
             tabs.Items.Add(CreateTabItem("GENERAL", generalPanel));
             tabs.Items.Add(CreateTabItem("UI & LUA", uiLuaPanel));
@@ -700,6 +740,14 @@ namespace WowOptimizeLauncher {
         private void ToggleAll(bool enabled) {
             foreach (SettingItem item in settingsMap.Values) {
                 if (item.Ctrl != null) {
+                    item.Ctrl.IsChecked = enabled;
+                }
+            }
+        }
+
+        private void ToggleTabFeatures(string section, bool enabled) {
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.Section == section && item.Ctrl != null) {
                     item.Ctrl.IsChecked = enabled;
                 }
             }
