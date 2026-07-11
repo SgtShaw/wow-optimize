@@ -43,36 +43,8 @@ static int __fastcall Hooked_GetLodLevel(void* This, void* unused_edx, float dis
 }
 
 bool Init() {
-    if (!Config::g_settings.OptM2LodBias) {
-        Log("[M2LodBias] DISABLED via configuration");
-        return true;
-    }
-#if TEST_DISABLE_M2_LOD_BIAS
+    Log("[M2LodBias] DISABLED - target address 0x007CD3F0 is M2Array append, not GetLodLevel (wrong convention/signature would corrupt stack)");
     return true;
-#endif
-    void* target = (void*)0x007CD3F0;
-    
-    unsigned char prologue[3];
-    __try {
-        memcpy(prologue, target, 3);
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[M2LodBias] Target 0x007CD3F0 not readable.");
-        return true;
-    }
-
-    if (prologue[0] != 0x55 || prologue[1] != 0x8B || prologue[2] != 0xEC) {
-        Log("[M2LodBias] BAD PROLOGUE at 0x007CD3F0. Skipping hook.");
-        return true;
-    }
-
-    if (MH_CreateHook(target, (void*)Hooked_GetLodLevel, (void**)&orig_GetLodLevel) == MH_OK) {
-        if (MH_EnableHook(target) == MH_OK) {
-            Log("[M2LodBias] Detour active at 0x007CD3F0.");
-            return true;
-        }
-        MH_RemoveHook(target);
-    }
-    return false;
 }
 
 void Shutdown() {
