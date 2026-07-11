@@ -61,8 +61,11 @@ void OnFrame(double frameMs) {
     if (diffKB < 0.0) diffKB = 0.0;
     g_lastMemoryKB = memKB;
 
+#define LUA_GCSETPAUSE   6
+#define LUA_GCSETSTEPMUL 7
+
     if (g_isLoading) {
-        g_lua_gc(L, 9, 300); // LUA_GCSETSTEPMUL = 300
+        g_lua_gc(L, LUA_GCSETSTEPMUL, 300); // LUA_GCSETSTEPMUL = 300
         g_lua_gc(L, 5, 2048); // LUA_GCSTEP
         return;
     }
@@ -71,9 +74,9 @@ void OnFrame(double frameMs) {
         if (memKB < 256.0 * 1024.0) {
             g_lua_gc(L, 0, 0); // LUA_GCSTOP
         } else {
-            g_lua_gc(L, 1, 0); // LUA_GCRESTART
-            g_lua_gc(L, 8, 100);
-            g_lua_gc(L, 9, 110);
+            g_lua_gc(L, 1, 0); // Ensure restarted
+            g_lua_gc(L, LUA_GCSETPAUSE, 100);
+            g_lua_gc(L, LUA_GCSETSTEPMUL, 110);
             g_lua_gc(L, 5, 16);
         }
         return;
@@ -82,12 +85,12 @@ void OnFrame(double frameMs) {
     g_lua_gc(L, 1, 0); // Ensure restarted
 
     if (g_isIdle && frameMs < 8.0) {
-        g_lua_gc(L, 8, 110);
-        g_lua_gc(L, 9, 400);
+        g_lua_gc(L, LUA_GCSETPAUSE, 110);
+        g_lua_gc(L, LUA_GCSETSTEPMUL, 400);
         g_lua_gc(L, 5, 1024);
     } else {
-        g_lua_gc(L, 8, 120);
-        g_lua_gc(L, 9, 200);
+        g_lua_gc(L, LUA_GCSETPAUSE, 120);
+        g_lua_gc(L, LUA_GCSETSTEPMUL, 200);
         
         int stepKB = (int)(diffKB * 1.5);
         if (stepKB < 62) stepKB = 62;
