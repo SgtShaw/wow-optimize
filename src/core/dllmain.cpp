@@ -123,10 +123,6 @@
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
 
-// Global shared TLS index for CRT fast paths recursion guard.
-// Allocated early in DllMain process attach to be safe.
-__declspec(thread) bool g_inCrtHook = false;
-
 // ================================================================
 // Freeze Detection Watchdog
 // Detects when main thread stops responding (no Sleep calls for N seconds)

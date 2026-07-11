@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: crt_mem_fastpath.cpp
-// Description: SSE2 vectorized replacement for legacy CRT function `crt_mem_fastpath.cpp`.
-// Safety & Threading: Concurrent execution safe. Ensure page boundary alignment checks are active.
+// Description: SSE2 vectorized replacement for legacy CRT memory functions.
+// Safety & Threading: Concurrent execution safe.
 // ============================================================================
 
 #include <windows.h>
@@ -21,17 +21,7 @@ extern long g_crtMemcpyHits, g_crtMemcpyFallbacks;
 extern long g_crtMemsetHits, g_crtMemsetFallbacks;
 
 // Init-readiness gate (set after all originals are captured).
-// Prevents hooks from firing during MinHook's own install sequence
-// or during early CRT initialization before originals are valid.
 static volatile LONG g_crtReady = 0;
-
-extern __declspec(thread) bool g_inCrtHook;
-
-#define CRT_ENTER() do { \
-    if (g_inCrtHook) goto fallback; \
-    g_inCrtHook = true; \
-} while(0)
-#define CRT_LEAVE() g_inCrtHook = false
 
 // Page-safety check: returns true if a 16-byte SSE load/store at ptr
 // would cross a 4KB page boundary into a potentially unmapped page.
@@ -58,16 +48,15 @@ static strncmp_fn orig_strncmp = nullptr;
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
     if (!g_crtReady || !orig_strlen) goto fallback;
-    CRT_ENTER();
-    if (!s) { CRT_LEAVE(); goto fallback; }
+    if (!s) goto fallback;
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t len = 0;
         while (true) {
-            // Page-boundary guard inside the loop
             if (PAGE_NEAR_BOUNDARY(s + len)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume scanning using the original strlen function
+                g_crtStrlenFallbacks++;
+                return len + orig_strlen(s + len);
             }
             __m128i v = _mm_loadu_si128((const __m128i*)(s + len));
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
@@ -75,13 +64,12 @@ static size_t __cdecl hooked_strlen(const char* s) {
                 unsigned long idx;
                 _BitScanForward(&idx, (unsigned long)mask);
                 len += idx;
-                CRT_LEAVE();
                 g_crtStrlenHits++;
                 return len;
             }
             len += 16;
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     g_crtStrlenFallbacks++;
     if (orig_strlen) return orig_strlen(s);
@@ -95,16 +83,15 @@ fallback:
 // ================================================================
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     if (!g_crtReady || !orig_strcmp) goto fallback;
-    CRT_ENTER();
-    if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
+    if (!s1 || !s2) goto fallback;
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
         while (true) {
-            // Page-boundary guard inside the loop
             if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume comparison using original strcmp
+                g_crtStrcmpFallbacks++;
+                return orig_strcmp(s1 + i, s2 + i);
             }
             __m128i a = _mm_loadu_si128((const __m128i*)(s1 + i));
             __m128i b = _mm_loadu_si128((const __m128i*)(s2 + i));
@@ -126,19 +113,17 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
 
             if (diff_idx <= null_idx) {
                 int result = (unsigned char)s1[i + diff_idx] - (unsigned char)s2[i + diff_idx];
-                CRT_LEAVE();
                 g_crtStrcmpHits++;
                 return result;
             }
 
             if (nullMask != 0) {
-                CRT_LEAVE();
                 g_crtStrcmpHits++;
                 return 0;
             }
             i += 16;
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     g_crtStrcmpFallbacks++;
     if (orig_strcmp) return orig_strcmp(s1, s2);
@@ -152,17 +137,15 @@ fallback:
 // ================================================================
 static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
     if (!g_crtReady || !orig_strncmp) goto fallback;
-    CRT_ENTER();
-    if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
-    if (n == 0) { CRT_LEAVE(); return 0; }
+    if (!s1 || !s2) goto fallback;
+    if (n == 0) return 0;
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
         while (i + 16 <= n) {
-            // Page-boundary guard inside the loop
             if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume comparison using original strncmp with remaining limit
+                return orig_strncmp(s1 + i, s2 + i, n - i);
             }
             __m128i a = _mm_loadu_si128((const __m128i*)(s1 + i));
             __m128i b = _mm_loadu_si128((const __m128i*)(s2 + i));
@@ -184,25 +167,22 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
 
             if (diff_idx <= null_idx) {
                 int result = (unsigned char)s1[i + diff_idx] - (unsigned char)s2[i + diff_idx];
-                CRT_LEAVE();
                 return result;
             }
 
             if (nullMask != 0) {
-                CRT_LEAVE();
                 return 0;
             }
             i += 16;
         }
         while (i < n) {
             int d = (unsigned char)s1[i] - (unsigned char)s2[i];
-            if (d) { CRT_LEAVE(); return d; }
-            if (!s1[i]) { CRT_LEAVE(); return 0; }
+            if (d) return d;
+            if (!s1[i]) return 0;
             i++;
         }
-        CRT_LEAVE();
         return 0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     if (orig_strncmp) return orig_strncmp(s1, s2, n);
     if (n == 0) return 0;
@@ -217,20 +197,17 @@ fallback:
 // ================================================================
 static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     if (!g_crtReady || !orig_memcmp) goto fallback;
-    CRT_ENTER();
-    if (!s1 || !s2) { CRT_LEAVE(); goto fallback; }
-    if (n == 0) { CRT_LEAVE(); return 0; }
+    if (!s1 || !s2) goto fallback;
+    if (n == 0) return 0;
     __try {
         const unsigned char* p1 = (const unsigned char*)s1;
         const unsigned char* p2 = (const unsigned char*)s2;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            // Per-chunk page-boundary guard (was missing — caused
-            // ACCESS_VIOLATION when a long compare crossed into an
-            // unmapped page mid-loop)
             if (PAGE_NEAR_BOUNDARY(p1 + i) || PAGE_NEAR_BOUNDARY(p2 + i)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume comparison using original memcmp
+                g_crtMemcmpFallbacks++;
+                return orig_memcmp(p1 + i, p2 + i, n - i);
             }
             __m128i a = _mm_loadu_si128((const __m128i*)(p1 + i));
             __m128i b = _mm_loadu_si128((const __m128i*)(p2 + i));
@@ -239,19 +216,17 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
                 unsigned long idx;
                 _BitScanForward(&idx, (unsigned long)(~eq & 0xFFFF));
                 int result = p1[i + idx] - p2[i + idx];
-                CRT_LEAVE();
                 g_crtMemcmpHits++;
                 return result;
             }
         }
         for (; i < n; i++) {
             int diff = p1[i] - p2[i];
-            if (diff) { CRT_LEAVE(); g_crtMemcmpHits++; return diff; }
+            if (diff) { g_crtMemcmpHits++; return diff; }
         }
-        CRT_LEAVE();
         g_crtMemcmpHits++;
         return 0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     g_crtMemcmpFallbacks++;
     if (orig_memcmp) return orig_memcmp(s1, s2, n);
@@ -268,34 +243,27 @@ fallback:
 // ================================================================
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     if (!g_crtReady || !orig_memcpy) goto fallback;
-    CRT_ENTER();
-    if (!dst || !src) { CRT_LEAVE(); goto fallback; }
-    if (n == 0) { CRT_LEAVE(); return dst; }
-    // Reject overlapping copies — fall back to original (which may
-    // use memmove semantics). Only check the forward-overlap case
-    // since memcpy with overlap is UB, but the original may handle it.
-    if (src < dst && (const char*)src + n > (char*)dst) { CRT_LEAVE(); goto fallback; }
+    if (!dst || !src) goto fallback;
+    if (n == 0) return dst;
+    if (src < dst && (const char*)src + n > (char*)dst) goto fallback;
     __try {
         unsigned char* d = (unsigned char*)dst;
         const unsigned char* s = (const unsigned char*)src;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            // Per-chunk page-boundary guard for BOTH load and store.
-            // The old code only checked the start address, so a copy
-            // longer than 16 bytes could cross a page boundary mid-loop
-            // and fault on _mm_loadu_si128 / _mm_storeu_si128.
             if (PAGE_NEAR_BOUNDARY(s + i) || PAGE_NEAR_BOUNDARY(d + i)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume copy using original memcpy
+                g_crtMemcpyFallbacks++;
+                orig_memcpy(d + i, s + i, n - i);
+                return dst;
             }
             _mm_storeu_si128((__m128i*)(d + i), _mm_loadu_si128((const __m128i*)(s + i)));
         }
         for (size_t j = i; j < n; j++) d[j] = s[j];
 
-        CRT_LEAVE();
         g_crtMemcpyHits++;
         return dst;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     g_crtMemcpyFallbacks++;
     if (orig_memcpy) return orig_memcpy(dst, src, n);
@@ -314,29 +282,26 @@ fallback:
 // ================================================================
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     if (!g_crtReady || !orig_memset) goto fallback;
-    CRT_ENTER();
-    if (!dst) { CRT_LEAVE(); goto fallback; }
-    if (n == 0) { CRT_LEAVE(); return dst; }
+    if (!dst) goto fallback;
+    if (n == 0) return dst;
     __try {
         __m128i val = _mm_set1_epi8((char)c);
         unsigned char* d = (unsigned char*)dst;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            // Per-chunk page-boundary guard for the store.
-            // The old code only checked the start address, so a fill
-            // longer than 16 bytes could cross a page boundary mid-loop.
             if (PAGE_NEAR_BOUNDARY(d + i)) {
-                CRT_LEAVE();
-                goto fallback;
+                // Resume fill using original memset
+                g_crtMemsetFallbacks++;
+                orig_memset(d + i, c, n - i);
+                return dst;
             }
             _mm_storeu_si128((__m128i*)(d + i), val);
         }
         for (size_t j = i; j < n; j++) d[j] = (unsigned char)c;
 
-        CRT_LEAVE();
         g_crtMemsetHits++;
         return dst;
-    } __except(EXCEPTION_EXECUTE_HANDLER) { CRT_LEAVE(); }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {}
 fallback:
     g_crtMemsetFallbacks++;
     if (orig_memset) return orig_memset(dst, c, n);
@@ -379,8 +344,6 @@ bool InstallCrtMemFastPaths() {
     tryHook("strncmp", (void*)hooked_strncmp, (void**)&orig_strncmp, &g_target_strncmp);
 
     // Set the init-readiness gate AFTER all originals are captured.
-    // This prevents hooks from firing during the install sequence
-    // itself (if a queued enable triggers a CRT call before we finish).
     InterlockedExchange(&g_crtReady, 1);
 
     if (ok > 0) {
