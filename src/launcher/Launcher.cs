@@ -771,7 +771,7 @@ namespace WowOptimizeLauncher {
                     using (System.Net.WebClient wc = new System.Net.WebClient()) {
                         wc.Headers.Add("User-Agent", "WoW-Optimize-Launcher");
                         // Fetch latest version from developer release version file
-                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/Suprematist/wow-optimize/main/version.txt");
+                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt");
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
@@ -799,7 +799,7 @@ namespace WowOptimizeLauncher {
                 versionText.ToolTip = "Click to open GitHub releases page for upgrade!";
                 versionText.MouseLeftButtonDown += (s, e) => {
                     try {
-                        Process.Start("https://github.com/Suprematist/wow-optimize/releases");
+                        Process.Start("https://github.com/suprepupre/wow-optimize/releases");
                     } catch {
                         // ignore
                     }
