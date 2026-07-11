@@ -29,10 +29,15 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in the Upcoming Update (v3.16.0)
 
-This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 51 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
+This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 106 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
 
 ### Modular Configurator Launcher (v3.16.0)
-- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 51 optimization features via a C# WPF UI (no DLL recompiles required).
+- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 106 optimization features via a C# WPF UI (no DLL recompiles required).
+- **Active Modules Counter & Progress Bar** — Displays a real-time active module ratio (`Active modules: X/106`) and a custom flat, square-cornered progress bar directly above the launch button that dynamically fills to reflect configuration coverage.
+- **Tab-Specific "ENABLE ALL" Actions** — Adds custom button bars at the top of each settings panel (GENERAL, UI & LUA, COMBAT & NET, etc.) to toggle all modules in that specific tab with a single click.
+- **Refined Safe Defaults** — Adjusts defaults so that new or experimental features default to off (`false`) when restoring safe configurations, letting testers easily isolate new additions.
+- **Fast Hover Tooltips** — Lowers hover pop-up delay to `250ms` (from standard OS delay) and extends display time to `30s` to make reading module behaviors smooth and effortless.
+- **Custom-Templated Flat UI** — Replaces default rounded OS checkbox textures with a unified, strictly flat square template featuring cyan indicator squares.
 - **Save & Load Profiles** — Supports exporting/importing customized configurations as `.ini` profiles.
 - **Preset Sharing** — Features a "Share with Developer" button to copy active settings to the clipboard for submitting safe profile recommendations.
 - **Update Checker** — Checks for new versions on startup and displays a link when an update is available on GitHub.
