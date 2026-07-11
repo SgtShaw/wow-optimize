@@ -1077,7 +1077,7 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
         return mi_realloc(ptr, size);
     if (orig_msize) {
         size_t old_size = orig_msize(ptr);
-        if (old_size > 0) {
+        if (old_size > 0 && old_size != (size_t)-1) {
             void* np = mi_malloc(size);
             if (np) {
                 memcpy(np, ptr, (old_size < size) ? old_size : size);
@@ -1110,11 +1110,13 @@ static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
     // Block predates our hook: migrate into a zero-filled mimalloc block.
     if (orig_msize) {
         size_t old = orig_msize(ptr);
-        void* np = mi_calloc(count, size);
-        if (np) {
-            memcpy(np, ptr, (old < total) ? old : total);
-            orig_free(ptr);
-            return np;
+        if (old != (size_t)-1) {
+            void* np = mi_calloc(count, size);
+            if (np) {
+                memcpy(np, ptr, (old < total) ? old : total);
+                orig_free(ptr);
+                return np;
+            }
         }
     }
     return orig_recalloc ? orig_recalloc(ptr, count, size) : nullptr;
@@ -2675,8 +2677,12 @@ static bool InstallHeapRedirectToMimalloc() {
     int ok = 0;
     void* p;
 
-    p = (void*)GetProcAddress(hK32, "HeapAlloc");
-    if (p && MH_CreateHook(p, (void*)hooked_HeapAlloc, (void**)&orig_HeapAlloc) == MH_OK) ok++;
+    // NOTE: We DO NOT hook HeapAlloc here anymore because returning mimalloc blocks
+    // directly from HeapAlloc causes crashes in third-party DLLs/Win32 APIs that
+    // perform heap validation/walks. Instead, we only hook HeapFree/HeapReAlloc/HeapSize/HeapValidate
+    // as a safety bridge: if they receive a mimalloc pointer (allocated by WoW static CRT),
+    // they delegate to mimalloc. Standard heap pointers pass through to kernel32.
+
     p = (void*)GetProcAddress(hK32, "HeapFree");
     if (p && MH_CreateHook(p, (void*)hooked_HeapFree, (void**)&orig_HeapFree) == MH_OK) ok++;
     p = (void*)GetProcAddress(hK32, "HeapReAlloc");
@@ -2686,18 +2692,17 @@ static bool InstallHeapRedirectToMimalloc() {
     p = (void*)GetProcAddress(hK32, "HeapValidate");
     if (p && MH_CreateHook(p, (void*)hooked_HeapValidate, (void**)&orig_HeapValidate) == MH_OK) ok++;
 
-    if (ok == 5) {
+    if (ok == 4) {
         // Enable individually through WO_EnableHook so they batch with the rest of
         // MainThread's init sequence instead of flushing the queue prematurely.
-        WO_EnableHook((void*)GetProcAddress(hK32, "HeapAlloc"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapFree"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapReAlloc"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapSize"));
         WO_EnableHook((void*)GetProcAddress(hK32, "HeapValidate"));
-        Log("Heap redirect: ACTIVE (5/5 hooks, process heap -> mimalloc)");
+        Log("Heap safety redirect bridge: ACTIVE (4/4 hooks, catching external HeapFree on mimalloc blocks)");
         return true;
     }
-    Log("Heap redirect: FAILED (%d/5 hooks installed)", ok);
+    Log("Heap safety redirect bridge: FAILED (%d/4 hooks installed)", ok);
     return false;
 }
 
