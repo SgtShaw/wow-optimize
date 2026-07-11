@@ -550,7 +550,7 @@
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // disabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
-#define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     0  // enabled: D3D9 VS Constant Cache
+#define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     1  // disabled: D3D9 VS Constant Cache
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader
 #define TEST_DISABLE_ADAPTIVE_FARCLIP           0  // enabled: dynamic adaptive farclip controller
 #define TEST_DISABLE_NET_ADDON_COALESCER        0  // enabled: Net Addon Message Coalescer
