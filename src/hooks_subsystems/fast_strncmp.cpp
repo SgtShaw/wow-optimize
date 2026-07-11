@@ -40,8 +40,7 @@ int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {
 
     // SSE2 fast skip: advance over equal (case-insensitive) 16-byte runs while
     // both pointers are >=16 bytes from a 4 KiB page boundary, so the unaligned
-    // loads can never read into an unmapped page. The scalar loop below resolves
-    // the exact result from the first chunk that differs or holds a terminator.
+    // loads can never read into an unmapped page.
     {
         const __m128i zero   = _mm_setzero_si128();
         const __m128i loA    = _mm_set1_epi8(0x40);  // 'A' - 1
@@ -51,6 +50,11 @@ int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {
                ((((uintptr_t)p1 | (uintptr_t)p2) & 0xFFF) <= (0x1000u - 16))) {
             __m128i a = _mm_loadu_si128((const __m128i*)p1);
             __m128i b = _mm_loadu_si128((const __m128i*)p2);
+
+            // If either block contains non-ASCII characters (bytes >= 0x80),
+            // break to allow the scalar loop to safely delegate to the original locale-sensitive _strnicmp.
+            if (_mm_movemask_epi8(a) || _mm_movemask_epi8(b)) break;
+
             __m128i la = _mm_add_epi8(a, _mm_and_si128(
                 _mm_and_si128(_mm_cmpgt_epi8(a, loA), _mm_cmplt_epi8(a, hiZ)), mask20));
             __m128i lb = _mm_add_epi8(b, _mm_and_si128(
@@ -65,6 +69,11 @@ int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {
     while (n--) {
         unsigned char c1 = *p1;
         unsigned char c2 = *p2;
+
+        if (c1 >= 0x80 || c2 >= 0x80) {
+            // Fall back to original for non-ASCII characters to preserve locale-aware comparison
+            return g_orig((const char*)p1, (const char*)p2, n + 1);
+        }
 
         if (c1 == c2) {
             if (c1 == 0) return 0;

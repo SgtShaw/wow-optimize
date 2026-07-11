@@ -202,7 +202,7 @@
 // DISABLED: SSE2 strnicmp hook causes subtle result corruption leading to crash at 0x87307D
 // Likely bug in scalar fallback after SSE2 chunk processing
 // Keep disabled until rewritten with more careful null-terminator handling
-#define TEST_DISABLE_STRING_OPS_FAST         1
+#define TEST_DISABLE_STRING_OPS_FAST         0
 
 // Crash dump generator (minidump on exception)
 #define TEST_DISABLE_CRASH_DUMPER       0
@@ -525,7 +525,7 @@
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         1  // enabled: string interning lookup optimization
 #define TEST_DISABLE_LUA_GC_COALESCE           1  // enabled: incremental Lua GC coalescing
-#define TEST_DISABLE_FRAMEXML_COALESCE         1  // disabled: coalesced UI layout recalculation
+#define TEST_DISABLE_FRAMEXML_COALESCE         0  // disabled: coalesced UI layout recalculation
 
 // ================================================================
 // 10 Extended Performance Optimization Features

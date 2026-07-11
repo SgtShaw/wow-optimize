@@ -44,25 +44,29 @@ static bool IsValidFramePtr(void* ptr) {
 
 int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
     #if !TEST_DISABLE_FRAMEXML_COALESCE
-    if (UILayoutThrottle::ShouldThrottle(ecx)) {
-        return 0;
-    }
-    if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
-        if (IsTeardownState()) {
-            g_dirtyLayoutFramesCount = 0;
-            return orig_LayoutRecalc(ecx, 0, a2);
+    // Only apply layout optimization (coalescing and throttling) in the game world
+    uint64_t playerGuid = *(uint64_t*)0x00BD07A0;
+    if (playerGuid != 0) {
+        if (UILayoutThrottle::ShouldThrottle(ecx)) {
+            return 0;
         }
-        bool found = false;
-        for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
-            if (g_dirtyLayoutFrames[i] == ecx) {
-                found = true;
-                break;
+        if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
+            if (IsTeardownState()) {
+                g_dirtyLayoutFramesCount = 0;
+                return orig_LayoutRecalc(ecx, 0, a2);
             }
+            bool found = false;
+            for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
+                if (g_dirtyLayoutFrames[i] == ecx) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                g_dirtyLayoutFrames[g_dirtyLayoutFramesCount++] = ecx;
+            }
+            return 0;
         }
-        if (!found) {
-            g_dirtyLayoutFrames[g_dirtyLayoutFramesCount++] = ecx;
-        }
-        return 0;
     }
     #endif
     return orig_LayoutRecalc(ecx, 0, a2);
