@@ -12,7 +12,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // lua_pushthread at 0x84E530 — push current thread onto stack
 typedef int(__cdecl *pushthread_fn)(uintptr_t L);

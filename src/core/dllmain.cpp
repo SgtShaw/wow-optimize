@@ -444,14 +444,14 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       0   // lua_pushstring intern cache (cleared on luaC_step)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
 #ifndef TEST_DISABLE_RAWGETI_INLINE
-#define TEST_DISABLE_RAWGETI_INLINE             1   // lua_rawgeti inline v2 DISABLED due to VM state corruption crashes
+#define TEST_DISABLE_RAWGETI_INLINE             0
 #endif
 #ifndef TEST_DISABLE_RAWGET_INLINE
-#define TEST_DISABLE_RAWGET_INLINE              1   // lua_rawget inline fast path DISABLED due to VM state corruption crashes
+#define TEST_DISABLE_RAWGET_INLINE              0
 #endif
 #define TEST_DISABLE_STRTOD_FAST                0   // enabled: safe string->number fast path
 #ifndef TEST_DISABLE_GETSTR_INLINE
-#define TEST_DISABLE_GETSTR_INLINE              1   // luaH_getstr inline v2 DISABLED due to VM state corruption crashes
+#define TEST_DISABLE_GETSTR_INLINE              0
 #endif
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----

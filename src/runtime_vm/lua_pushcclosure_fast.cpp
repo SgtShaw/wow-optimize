@@ -12,7 +12,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // lua_pushcclosure at 0x84E400 — push C closure (L, fn, nupvals)
 // Fast path: nupvals==0 (equivalent to lua_pushcfunction)

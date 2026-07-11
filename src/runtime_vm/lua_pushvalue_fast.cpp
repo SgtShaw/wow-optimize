@@ -19,7 +19,7 @@ extern "C" void Log(const char* fmt, ...);
 static volatile LONG64 g_pushvalue_calls = 0;
 static volatile LONG64 g_pushvalue_hits = 0;
 
-static const uint32_t TAINT_CELL = 0x00D4139C;
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 static const uint32_t TAINT_A0 = 0x00D413A0;
 static const uint32_t TAINT_A4 = 0x00D413A4;
 

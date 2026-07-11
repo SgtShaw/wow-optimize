@@ -14,7 +14,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 #define LUA_TSTRING           4
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // luaV_concat at 0x857900 — __cdecl(L, total, last). Concatenates `total` values
 // ending at stack slot base+last. The earlier 2-arg (L, n) prototype dropped the

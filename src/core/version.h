@@ -510,7 +510,7 @@
 // lua_isfunction, lua_isstring, lua_tothread). Each ≤45 bytes in the
 // engine; inlined to eliminate call overhead and index2adr for plain
 // stack indices. Disassembly-verified. Set to 1 to disable all 8.
-#define TEST_DISABLE_LUA_STACK_FAST         1
+#define TEST_DISABLE_LUA_STACK_FAST         0
 
 // Inline luaS_newlstr intern lookup (string-creation fast path)
 // RE-ENABLED after root-causing the crash in disassembly (sub_856C80): the dead-string
@@ -601,11 +601,11 @@
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
 // Taint propagation matches engine byte-exact; defers pseudo-indices to index2adr.
-#define TEST_DISABLE_RAWGETI_INLINE  1
+#define TEST_DISABLE_RAWGETI_INLINE  0
 
 // lua_rawget inline at 0x84E600 — verified byte-exact to sub_84E600 disassembly.
 // Copies TValue from luaH_get result, taint logic matches the engine exactly.
-#define TEST_DISABLE_RAWGET_INLINE    1
+#define TEST_DISABLE_RAWGET_INLINE    0
 
 // lua_toboolean inline (0x84E0B0) — fast path for truthiness check
 #define TEST_DISABLE_TOBOOLEAN_INLINE         0  // enabled: lua_toboolean inline
@@ -615,13 +615,13 @@
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0).
-#define TEST_DISABLE_PUSHNUMBER_FAST         1
+#define TEST_DISABLE_PUSHNUMBER_FAST         0
 
 // lua_pushvalue direct stack copy (sub_84DE50, inline fast path).
-#define TEST_DISABLE_PUSHVALUE_FAST         1
+#define TEST_DISABLE_PUSHVALUE_FAST         0
 
 // FrameScript_Execute hook (inject DLL markers)
 #define TEST_DISABLE_FRAMESCRIPT_EXECUTE         0

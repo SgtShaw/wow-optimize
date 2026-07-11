@@ -18,7 +18,7 @@ extern "C" void Log(const char* fmt, ...);
 static volatile long g_rawgetCalls = 0;
 static volatile long g_rawgetFast  = 0;
 
-static const uint32_t TAINT_CELL = 0x00D4139C;
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 typedef int (__cdecl* lua_rawget_fn)(uintptr_t L, int idx);
 static lua_rawget_fn orig_rawget = nullptr;

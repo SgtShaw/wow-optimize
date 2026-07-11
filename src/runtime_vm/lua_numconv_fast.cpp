@@ -21,7 +21,7 @@ extern "C" void Log(const char* fmt, ...);
 #define LUA_REGISTRYINDEX (-10000)
 
 // WoW taint cell
-static const uint32_t TAINT_CELL = 0x00D4139C;
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // Teardown state helper
 static inline bool IsTeardownState() {

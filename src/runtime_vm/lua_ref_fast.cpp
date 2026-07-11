@@ -12,7 +12,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 #define TAINT_FLAG 0x00D413A0
 
 // luaL_ref at 0x84F6C0 — store value in table[t], return reference key

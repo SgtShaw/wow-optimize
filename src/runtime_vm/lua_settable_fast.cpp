@@ -14,7 +14,7 @@
 extern "C" void Log(const char* fmt, ...);
 
 #define LUA_TSTRING           4
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 #define TAINT_A0   0x00D413A0
 #define TAINT_A4   0x00D413A4
 

@@ -62,7 +62,8 @@ static int __cdecl Optimized_PushNumber(void* L, double n)
         top[0] = (DWORD)(value_bits & 0xFFFFFFFF);         // value lo
         top[1] = (DWORD)(value_bits >> 32);                // value hi
         top[2] = 3;                                         // tt = LUA_TNUMBER
-        top[3] = *(DWORD*)ADDR_taint_global;               // taint from global
+        DWORD* pTaintCell = *(DWORD**)ADDR_taint_global;
+        top[3] = pTaintCell ? *pTaintCell : 0;               // taint from global
 
         // Advance L->top
         *(DWORD**)(L_addr + 0x0C) = top + 4;

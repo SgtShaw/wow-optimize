@@ -12,7 +12,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // lua_createtable at 0x84E6E0 — create table (L, narray, nhash)
 // Fast path: narray==0 && nhash==0 (most common addon pattern)

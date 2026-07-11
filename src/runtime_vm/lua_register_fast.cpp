@@ -12,7 +12,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // luaL_register at 0x84FC00 — register C functions into a module table
 // Fast path: inline the function-registration loop (most common case)

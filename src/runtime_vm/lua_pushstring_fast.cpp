@@ -13,7 +13,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 
-#define TAINT_CELL 0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 // lua_pushstring at 0x84E350 — push string onto stack (L, s)
 // NULL → pushes nil; non-NULL → pushes interned string

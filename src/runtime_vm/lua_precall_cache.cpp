@@ -16,7 +16,7 @@ extern "C" void Log(const char* fmt, ...);
 
 #define CACHE_SIZE  1024
 #define CACHE_MASK  (CACHE_SIZE - 1)
-#define TAINT_CELL   0x00D4139C
+#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
 struct Entry { uintptr_t closure; int nups; uint64_t hits; };
 static Entry g_cache[CACHE_SIZE];
