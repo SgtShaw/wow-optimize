@@ -674,6 +674,8 @@ namespace WowOptimizeLauncher {
                     BorderThickness = new Thickness(1)
                 }
             };
+            ToolTipService.SetInitialShowDelay(chk, 50);
+            ToolTipService.SetShowDuration(chk, 30000);
 
             // Custom CheckBox template for flat square look
             ControlTemplate template = new ControlTemplate(typeof(CheckBox));
