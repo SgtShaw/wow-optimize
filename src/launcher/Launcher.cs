@@ -49,6 +49,9 @@ namespace WowOptimizeLauncher {
         private StackPanel recentNewPanel;
         private TabControl tabs;
         private TextBlock versionText;
+        private TextBlock activeModulesText;
+        private System.Windows.Documents.Run activeCountRun;
+        private Grid progressBarGrid;
 
         public MainWindow() {
             // Setup Paths
@@ -375,6 +378,38 @@ namespace WowOptimizeLauncher {
             statusCard.Child = statusPanel;
             leftPanel.Children.Add(statusCard);
 
+            // Active Modules Counter
+            activeModulesText = new TextBlock {
+                Margin = new Thickness(2, 5, 2, 2),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 180))
+            };
+            activeModulesText.Inlines.Add(new System.Windows.Documents.Run("Active modules: "));
+            activeCountRun = new System.Windows.Documents.Run("0") {
+                Foreground = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
+                FontWeight = FontWeights.Bold
+            };
+            activeModulesText.Inlines.Add(activeCountRun);
+            activeModulesText.Inlines.Add(new System.Windows.Documents.Run("/" + settingsMap.Count));
+            leftPanel.Children.Add(activeModulesText);
+
+            // Thin square progress bar
+            progressBarGrid = new Grid {
+                Height = 4,
+                Margin = new Thickness(2, 4, 2, 12),
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 45)) // Dark track
+            };
+            progressBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) }); // Filled
+            progressBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Unfilled
+
+            Border progressFill = new Border {
+                Background = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            Grid.SetColumn(progressFill, 0);
+            progressBarGrid.Children.Add(progressFill);
+            leftPanel.Children.Add(progressBarGrid);
+
             // LAUNCH BUTTON
             Button btnLaunch = CreateStyledButton("LAUNCH WOW", Color.FromRgb(0, 229, 255), true);
             btnLaunch.Height = 45;
@@ -447,6 +482,9 @@ namespace WowOptimizeLauncher {
 
                 // Update setting item to reference its created Control
                 data.Ctrl = chk;
+
+                chk.Checked += (s, e) => UpdateActiveModulesCount();
+                chk.Unchecked += (s, e) => UpdateActiveModulesCount();
 
                 // Add to appropriate Panel
                 switch (data.Section) {
@@ -596,6 +634,66 @@ namespace WowOptimizeLauncher {
                     BorderThickness = new Thickness(1)
                 }
             };
+
+            // Custom CheckBox template for flat square look
+            ControlTemplate template = new ControlTemplate(typeof(CheckBox));
+            FrameworkElementFactory gridFactory = new FrameworkElementFactory(typeof(Grid));
+            gridFactory.SetValue(Grid.BackgroundProperty, Brushes.Transparent);
+
+            // Columns: Checkbox border (col 0), Content (col 1)
+            FrameworkElementFactory col1 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            col1.SetValue(ColumnDefinition.WidthProperty, new GridLength(20));
+            FrameworkElementFactory col2 = new FrameworkElementFactory(typeof(ColumnDefinition));
+            col2.SetValue(ColumnDefinition.WidthProperty, new GridLength(1, GridUnitType.Star));
+            gridFactory.AppendChild(col1);
+            gridFactory.AppendChild(col2);
+
+            // Outer box border (strictly square)
+            FrameworkElementFactory borderFactory = new FrameworkElementFactory(typeof(Border));
+            borderFactory.Name = "checkBoxBorder";
+            borderFactory.SetValue(Border.WidthProperty, 16.0);
+            borderFactory.SetValue(Border.HeightProperty, 16.0);
+            borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
+            borderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(100, 110, 140)));
+            borderFactory.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(18, 18, 28)));
+            borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(0)); // STRICT SQUARE
+            borderFactory.SetValue(Border.HorizontalAlignmentProperty, HorizontalAlignment.Left);
+            borderFactory.SetValue(Border.VerticalAlignmentProperty, VerticalAlignment.Center);
+
+            // Check indicator (inner solid flat cyan square)
+            FrameworkElementFactory checkIndicator = new FrameworkElementFactory(typeof(Border));
+            checkIndicator.Name = "checkMark";
+            checkIndicator.SetValue(Border.WidthProperty, 8.0);
+            checkIndicator.SetValue(Border.HeightProperty, 8.0);
+            checkIndicator.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0, 229, 255)));
+            checkIndicator.SetValue(Border.CornerRadiusProperty, new CornerRadius(0)); // STRICT SQUARE
+            checkIndicator.SetValue(Border.VisibilityProperty, Visibility.Collapsed);
+            borderFactory.AppendChild(checkIndicator);
+
+            gridFactory.AppendChild(borderFactory);
+
+            // ContentPresenter for checkbox label
+            FrameworkElementFactory contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
+            contentPresenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(CheckBox.ContentProperty));
+            contentPresenter.SetValue(ContentPresenter.MarginProperty, new Thickness(8, 0, 0, 0));
+            contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
+            contentPresenter.SetValue(Grid.ColumnProperty, 1);
+            gridFactory.AppendChild(contentPresenter);
+
+            template.VisualTree = gridFactory;
+
+            // Trigger for Checked state
+            Trigger checkedTrigger = new Trigger { Property = CheckBox.IsCheckedProperty, Value = true };
+            checkedTrigger.Setters.Add(new Setter { TargetName = "checkMark", Property = Border.VisibilityProperty, Value = Visibility.Visible });
+            checkedTrigger.Setters.Add(new Setter { TargetName = "checkBoxBorder", Property = Border.BorderBrushProperty, Value = new SolidColorBrush(Color.FromRgb(0, 229, 255)) });
+            template.Triggers.Add(checkedTrigger);
+
+            // Trigger for MouseOver state
+            Trigger mouseOverTrigger = new Trigger { Property = CheckBox.IsMouseOverProperty, Value = true };
+            mouseOverTrigger.Setters.Add(new Setter { TargetName = "checkBoxBorder", Property = Border.BorderBrushProperty, Value = new SolidColorBrush(Color.FromRgb(0, 229, 255)) });
+            template.Triggers.Add(mouseOverTrigger);
+
+            chk.Template = template;
             return chk;
         }
 
@@ -649,6 +747,7 @@ namespace WowOptimizeLauncher {
                         data.Ctrl.IsChecked = data.DefaultVal;
                     }
                 }
+                UpdateActiveModulesCount();
             } catch (Exception ex) {
                 MessageBox.Show("Error loading config profile: " + ex.Message, "Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 RestoreDefaults();
@@ -860,6 +959,24 @@ namespace WowOptimizeLauncher {
                 Close();
             } catch (Exception ex) {
                 MessageBox.Show("Failed to launch " + System.IO.Path.GetFileName(wowPath) + ": " + ex.Message, "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateActiveModulesCount() {
+            if (settingsMap == null) return;
+            int activeCount = 0;
+            foreach (var item in settingsMap.Values) {
+                if (item.Ctrl != null && item.Ctrl.IsChecked == true) {
+                    activeCount++;
+                }
+            }
+            if (activeCountRun != null) {
+                activeCountRun.Text = activeCount.ToString();
+            }
+            if (progressBarGrid != null) {
+                int totalCount = settingsMap.Count;
+                progressBarGrid.ColumnDefinitions[0].Width = new GridLength(activeCount, GridUnitType.Star);
+                progressBarGrid.ColumnDefinitions[1].Width = new GridLength(totalCount - activeCount, GridUnitType.Star);
             }
         }
 
