@@ -7,6 +7,8 @@
 #include <windows.h>
 #include <MinHook.h>
 #include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
@@ -38,10 +40,7 @@ static JenkinsHash_t  pOrigJenkins = nullptr;
 // The original has a 12-byte block main loop with mix() macro
 // We inline with explicit register allocation
 // ================================================================
-static uint32_t __cdecl HookJenkinsHash(const uint8_t* key, uint32_t length, uint32_t initval) {
-#if !TEST_DISABLE_STRING_OPS_FAST
-    ++g_jenkins_calls;
-
+static uint32_t CalculateOurHash(const uint8_t* key, uint32_t length, uint32_t initval) {
     if (!key) return initval;
 
     uint32_t a, b, c;
@@ -98,8 +97,29 @@ static uint32_t __cdecl HookJenkinsHash(const uint8_t* key, uint32_t length, uin
     b -= c; b -= a; b ^= (a << 10);
     c -= a; c -= b; c ^= (b >> 15);
 
-    ++g_jenkins_fast;
     return c;
+}
+
+static uint32_t __cdecl HookJenkinsHash(const uint8_t* key, uint32_t length, uint32_t initval) {
+#if !TEST_DISABLE_STRING_OPS_FAST
+    ++g_jenkins_calls;
+    if (!pOrigJenkins) return initval;
+
+    uint32_t orig_hash = pOrigJenkins(key, length, initval);
+    uint32_t our_hash = CalculateOurHash(key, length, initval);
+    if (orig_hash != our_hash) {
+        Log("[JenkinsHash Mismatch] len=%u init=%u orig=0x%08X our=0x%08X", length, initval, orig_hash, our_hash);
+        if (key && length > 0) {
+            char buf[256] = {0};
+            size_t print_len = length < 32 ? length : 32;
+            for (size_t i = 0; i < print_len; i++) {
+                sprintf_s(buf + strlen(buf), sizeof(buf) - strlen(buf), "%02X ", key[i]);
+            }
+            Log("  Key: %s", buf);
+        }
+    }
+    ++g_jenkins_fast;
+    return orig_hash;
 #else
     return pOrigJenkins(key, length, initval);
 #endif

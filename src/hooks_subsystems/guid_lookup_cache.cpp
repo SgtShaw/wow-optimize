@@ -53,12 +53,17 @@ static void* __cdecl Hooked_GetObject(unsigned __int64 guid, int typemask) {
         void* cachedObj = g_cache[slot].obj.load(std::memory_order_relaxed);
         if (cachedObj && IsValidPtr((uintptr_t)cachedObj)) {
             __try {
-                // Replicate the original function's type mask validation safely:
-                void* ecx = *(void**)((uintptr_t)cachedObj + 8);
-                if (ecx && IsValidPtr((uintptr_t)ecx)) {
-                    int typeMask = *(int*)((uintptr_t)ecx + 8);
-                    if ((typeMask & typemask) != 0) {
-                        return cachedObj;
+                // Check if the object's own GUID at offset 48 still matches the queried GUID.
+                // This detects freed/recycled memory blocks immediately.
+                uint64_t actualGuid = *(uint64_t*)((char*)cachedObj + 48);
+                if (actualGuid == guid) {
+                    // Replicate the original function's type mask validation safely:
+                    void* ecx = *(void**)((uintptr_t)cachedObj + 8);
+                    if (ecx && IsValidPtr((uintptr_t)ecx)) {
+                        int typeMask = *(int*)((uintptr_t)ecx + 8);
+                        if ((typeMask & typemask) != 0) {
+                            return cachedObj;
+                        }
                     }
                 }
             }

@@ -126,8 +126,21 @@ static void* __fastcall hooked_HashLookup(
         entry->guidLow == guidLow &&
         entry->guidHigh == guidHigh)
     {
-        InterlockedIncrement(&g_cacheHits);
-        return entry->result;
+        void* resObj = entry->result;
+        if (resObj && (uintptr_t)resObj > 0x10000 && (uintptr_t)resObj < 0xFFE00000) {
+            __try {
+                uint64_t expectedGuid = ((uint64_t)guidHigh << 32) | guidLow;
+                uint64_t actualGuid = *(uint64_t*)((char*)resObj + 48);
+                if (actualGuid == expectedGuid) {
+                    InterlockedIncrement(&g_cacheHits);
+                    return resObj;
+                }
+            }
+            __except (EXCEPTION_EXECUTE_HANDLER) {
+                // Stale or unmapped pointer
+            }
+        }
+        entry->frameStamp = 0; // invalidate slot
     }
 
     void* result = orig_HashLookup(thisPtr, hashKey, guidPtr);

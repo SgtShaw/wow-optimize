@@ -392,7 +392,11 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, 
         if (g_latencyInitialized) {
             IDirect3DQuery9* q = g_latencyQueries[g_latencyQueryIndex];
             if (q) {
+                ULONGLONG start = GetTickCount64();
                 while (q->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
+                    if (GetTickCount64() - start > 16) {
+                        break;
+                    }
                     SwitchToThread();
                 }
             }

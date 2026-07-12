@@ -65,7 +65,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t tv, int nres, uint64_t tin, uint6
             
             for (uintptr_t p = orig_top; p < newtop; p += 16) {
                 *(uint32_t*)(p + 8) = 0;
-                *(uint32_t*)(p + 12) = *(uint32_t*)TAINT_CELL;
+                *(uint32_t*)(p + 12) = *(uint32_t*)0x00D4139C;
             }
             
             *(uintptr_t*)(L + 0x0C) = newtop;

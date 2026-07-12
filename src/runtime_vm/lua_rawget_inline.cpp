@@ -83,13 +83,13 @@ static int __cdecl Hooked_RawGet(uintptr_t L, int idx) {
                         // Handle taint — engine checks val+12 (taint), not val+8 (tt)
                         uint32_t found_taint = *(uint32_t*)(val + 12);
                         if (found_taint == 0) {
-                            uint32_t gt = *(uint32_t*)TAINT_CELL;
+                            uint32_t gt = *(uint32_t*)0x00D4139C;
                             *(uint32_t*)(key + 12) = gt;
                             ++g_rawgetFast;
                             return (int)gt;
                         } else {
                             if (*(uint32_t*)0x00D413A0 && !*(uint32_t*)0x00D413A4) {
-                                *(uint32_t*)TAINT_CELL = found_taint;
+                                *(uint32_t*)0x00D4139C = found_taint;
                             }
                             *(uint32_t*)(key + 12) = found_taint;
                             ++g_rawgetFast;

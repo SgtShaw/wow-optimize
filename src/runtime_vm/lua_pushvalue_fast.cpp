@@ -68,10 +68,10 @@ static int __cdecl Hooked_PushValue(uintptr_t L, int idx) {
             uint32_t a0 = *(uint32_t*)TAINT_A0;
             uint32_t a4 = *(uint32_t*)TAINT_A4;
             if (a0 && !a4) {
-                *(uint32_t*)TAINT_CELL = src_taint;
+                *(uint32_t*)0x00D4139C = src_taint;
             }
         } else {
-            uint32_t global_taint = *(uint32_t*)TAINT_CELL;
+            uint32_t global_taint = *(uint32_t*)0x00D4139C;
             *(uint32_t*)(top + 12) = global_taint;
             result_val = global_taint;
         }

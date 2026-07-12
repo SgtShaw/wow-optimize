@@ -60,7 +60,7 @@ static int __cdecl hook(uintptr_t L, int idx, int n) {
 
         // Taint propagation
         if (val12 && *(uint32_t*)TAINT_A0 && !*(uint32_t*)TAINT_A4)
-            *(uint32_t*)TAINT_CELL = val12;
+            *(uint32_t*)0x00D4139C = val12;
 
         // GC write barrier
         if (val8 >= LUA_TSTRING && (*(unsigned char*)(*(uintptr_t*)val_tv + 9) & 3)) {

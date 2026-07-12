@@ -13,6 +13,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "crash_dumper.h"
+#include <intrin.h>
 
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
@@ -401,12 +402,21 @@ typedef void (__cdecl *WowAssert_fn)(const char* msg, int arg1, int arg2);
 static WowAssert_fn orig_WowAssert = nullptr;
 
 static void __cdecl Hooked_WowAssert(const char* msg, int arg1, int arg2) {
+    if (arg1 == 0x009E14FF && *(uintptr_t*)0x00B499A8 == 0) {
+        static unsigned char s_dummyConsole[8192] = {0};
+        *(uintptr_t*)0x00B499A8 = (uintptr_t)s_dummyConsole;
+        Log("[CrashDumper] Bypassed NOT_OWNER assert (arg1=0x9E14FF): redirected NULL console pointer to dummy buffer");
+        LogFlushImmediate();
+        return;
+    }
+
     // Flush and log the assertion before WoW kills the process
     LogFlushImmediate();
 
     Log("!!! WOW ASSERTION (ERROR #134 Fatal Condition) !!!");
     Log("!!!   Message: %s", msg ? msg : "(null)");
     Log("!!!   arg1=0x%08X  arg2=0x%08X", (unsigned)arg1, (unsigned)arg2);
+    Log("!!!   Caller=0x%08X", (unsigned)(uintptr_t)_ReturnAddress());
     Log("!!!   TID=%lu", GetCurrentThreadId());
 
     // Log active features

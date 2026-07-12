@@ -28,44 +28,44 @@ static uint32_t g_newlstr_dead = 0;
 void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     g_newlstr_calls++;
     
-    // Bounds check string length
-    if (l >= (1 << 30)) {
+    // Bounds check string length and validate pointer
+    if (l >= (1 << 30) || !str || (uintptr_t)str < 0x10000 || (uintptr_t)str >= 0xFFE00000) {
         return orig_luaS_newlstr(L, str, l);
     }
     
-    // global_State is at L + 0x14
-    uintptr_t L_addr = (uintptr_t)L;
-    uintptr_t globalState = *(uintptr_t*)(L_addr + 0x14);
-    
-    if (globalState < 0x10000) {
-        return orig_luaS_newlstr(L, str, l);
-    }
-    
-    // Compute Lua 5.1 string hash
-    uint32_t h = (uint32_t)l;
-    size_t step = (l >> 5) + 1;
-    for (size_t l1 = l; l1 >= step; l1 -= step) {
-        h = h ^ ((h << 5) + (h >> 2) + (uint8_t)str[l1 - 1]);
-    }
-    
-    // stringtable is at globalState + 0x00
-    uint32_t* hash_array = *(uint32_t**)(globalState + 0x00);
-    int nsize = *(int*)(globalState + 0x08);
-    
-    if (!hash_array || nsize <= 0) {
-        return orig_luaS_newlstr(L, str, l);
-    }
-    
-    uint32_t bucket = h & (nsize - 1);
-    uint32_t tstring = hash_array[bucket];
-
-    // currentwhite lives at G+0x15 in this build (verified vs sub_856C80;
-    // the dead/resurrect test reads *(BYTE*)(G+21)). Reading +0x14 was the bug.
-    uint8_t currentwhite = *(uint8_t*)(globalState + 0x15);
-
-    // Traverse collision chain — wrapped in SEH because a GC sweep
-    // can modify the chain concurrently with FrameScript execution
     __try {
+        uintptr_t L_addr = (uintptr_t)L;
+        if (L_addr < 0x10000 || L_addr >= 0xFFE00000) {
+            return orig_luaS_newlstr(L, str, l);
+        }
+        
+        // global_State is at L + 0x14
+        uintptr_t globalState = *(uintptr_t*)(L_addr + 0x14);
+        if (globalState < 0x10000 || globalState >= 0xFFE00000) {
+            return orig_luaS_newlstr(L, str, l);
+        }
+        
+        // Compute Lua 5.1 string hash
+        uint32_t h = (uint32_t)l;
+        size_t step = (l >> 5) + 1;
+        for (size_t l1 = l; l1 >= step; l1 -= step) {
+            h = h ^ ((h << 5) + (h >> 2) + (uint8_t)str[l1 - 1]);
+        }
+        
+        // stringtable is at globalState + 0x00
+        uint32_t* hash_array = *(uint32_t**)(globalState + 0x00);
+        int nsize = *(int*)(globalState + 0x08);
+        
+        if (!hash_array || nsize <= 0 || (uintptr_t)hash_array < 0x10000 || (uintptr_t)hash_array >= 0xFFE00000) {
+            return orig_luaS_newlstr(L, str, l);
+        }
+        
+        uint32_t bucket = h & (nsize - 1);
+        uint32_t tstring = hash_array[bucket];
+
+        // currentwhite lives at G+0x15 in this build
+        uint8_t currentwhite = *(uint8_t*)(globalState + 0x15);
+
         while (tstring) {
             if (tstring < 0x10000 || tstring > 0xFFE00000) break;
 
@@ -75,13 +75,6 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
                 const char* ts_data = (const char*)(tstring + 20);
 
                 if (memcmp(ts_data, str, l) == 0) {
-                    // Content match. Replicate the engine EXACTLY (sub_856C80 tail):
-                    //   if (~currentwhite & marked & 3)  marked ^= 3;  // changewhite
-                    //   return ts;
-                    // i.e. if the interned string is "other-white" (would be swept
-                    // = dead), resurrect it in place, then hand it back. marked is
-                    // the byte at TString+0x09 (reading +5 was the bug that let a
-                    // GC-dead string slip through as live -> use-after-free).
                     uint8_t marked = *(uint8_t*)(tstring + 9);
                     if (((uint8_t)(~currentwhite) & marked & 3) != 0) {
                         *(uint8_t*)(tstring + 9) = (uint8_t)(marked ^ 3);
@@ -94,7 +87,7 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
             tstring = *(uint32_t*)(tstring + 0);
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {
-        // Corrupted chain pointer — fall through to original
+        // Fall through on any exception
     }
 
     return orig_luaS_newlstr(L, str, l);

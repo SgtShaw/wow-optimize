@@ -30,9 +30,9 @@ static int __cdecl hook(uintptr_t L, int t, int ref) {
         // Save/restore taint for secure execution (engine clears it around the
         // freelist update so re-referencing never taints the registry).
         int32_t savedTaintFlag = *(int32_t*)TAINT_FLAG;
-        int32_t savedTaintCell = *(int32_t*)TAINT_CELL;
+        int32_t savedTaintCell = *(int32_t*)0x00D4139C;
         *(int32_t*)TAINT_FLAG = 0;
-        *(int32_t*)TAINT_CELL = 0;
+        *(int32_t*)0x00D4139C = 0;
 
         // Normalize the table index ONCE to an absolute index, exactly as the
         // engine does — the stack grows by one between ops, so a relative index
@@ -54,7 +54,7 @@ static int __cdecl hook(uintptr_t L, int t, int ref) {
         int result = ((rawseti_fn)0x0084EA00)(L, ti, 0); // t[0] = ref (pops it)
 
         // Restore taint
-        *(int32_t*)TAINT_CELL = savedTaintCell;
+        *(int32_t*)0x00D4139C = savedTaintCell;
         *(int32_t*)TAINT_FLAG = savedTaintFlag;
 
         g_hits++;

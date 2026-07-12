@@ -28,7 +28,7 @@ extern "C" void Log(const char* fmt, ...);
 #define LUA_TUSERDATA         7
 #define LUA_TTHREAD           8
 
-#define TAINT_CELL ( *(uint32_t**)0x00D4139C )
+#define TAINT_CELL ( *(uint32_t*)0x00D4139C )
 static const uint32_t TAINT_A0   = 0x00D413A0;
 static const uint32_t TAINT_A4   = 0x00D413A4;
 
@@ -98,7 +98,7 @@ static int __cdecl hook_pushnil(uintptr_t L) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) return orig_pushnil(L);
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = TAINT_CELL;
         *(uint32_t*)(top + 0) = 0;
         *(uint32_t*)(top + 4) = 0;
         *(uint32_t*)(top + 8) = 0;
@@ -120,7 +120,7 @@ static int __cdecl hook_pushinteger(uintptr_t L, int n) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) return orig_pushinteger(L, n);
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = TAINT_CELL;
         double dn = (double)n;
         *(double*)(top + 0) = dn;
         *(uint32_t*)(top + 8) = LUA_TNUMBER;
@@ -142,7 +142,7 @@ static __int64 __cdecl hook_pushboolean(uintptr_t L, int b) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) return orig_pushboolean(L, b);
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = TAINT_CELL;
         *(uint32_t*)(top + 0) = (b != 0) ? 1 : 0;
         *(uint32_t*)(top + 4) = 0;
         *(uint32_t*)(top + 8) = LUA_TBOOLEAN;
@@ -166,7 +166,7 @@ static int __cdecl hook_pushlightuserdata(uintptr_t L, uintptr_t p) {
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (!IsValidPtr(top)) return orig_pushlightuserdata(L, p);
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = TAINT_CELL;
         *(uintptr_t*)(top + 0) = p;
         *(uint32_t*)(top + 8) = LUA_TLIGHTUSERDATA;
         *(uint32_t*)(top + 12) = taint;
@@ -270,6 +270,7 @@ static lua_remove_t orig_lua_remove = nullptr;
 
 static int __cdecl hook_lua_remove(uintptr_t L, int idx) {
     if (IsTeardownState()) return orig_lua_remove(L, idx);
+    bool processed = false;
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         uintptr_t base = *(uintptr_t*)(L + 0x10);
@@ -279,7 +280,7 @@ static int __cdecl hook_lua_remove(uintptr_t L, int idx) {
             if (!defer && target && target >= base && target < top) {
                 uint32_t a0 = *(uint32_t*)TAINT_A0;
                 uint32_t a4 = *(uint32_t*)TAINT_A4;
-                uint32_t current_taint = *(uint32_t*)TAINT_CELL;
+                uint32_t current_taint = TAINT_CELL;
 
                 uintptr_t curr = target + 16;
                 while (curr < top) {
@@ -304,14 +305,17 @@ static int __cdecl hook_lua_remove(uintptr_t L, int idx) {
                 }
 
                 if (a0 && !a4) {
-                    *(uint32_t*)TAINT_CELL = current_taint;
+                    *(uint32_t*)0x00D4139C = current_taint;
                 }
 
                 *(uintptr_t*)(L + 0x0C) = top - 16;
+                processed = true;
                 return (int)top;
             }
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        if (processed) return 0;
+    }
     return orig_lua_remove(L, idx);
 }
 
@@ -323,16 +327,18 @@ static lua_insert_t orig_lua_insert = nullptr;
 
 static int __cdecl hook_lua_insert(uintptr_t L, int idx) {
     if (IsTeardownState()) return orig_lua_insert(L, idx);
+    bool processed = false;
+    uintptr_t target = 0;
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         uintptr_t base = *(uintptr_t*)(L + 0x10);
         if (IsValidPtr(top) && IsValidPtr(base)) {
             bool defer = false;
-            uintptr_t target = ResolveTValue(L, idx, &defer);
+            target = ResolveTValue(L, idx, &defer);
             if (!defer && target && target >= base && target < top) {
                 uint32_t a0 = *(uint32_t*)TAINT_A0;
                 uint32_t a4 = *(uint32_t*)TAINT_A4;
-                uint32_t current_taint = *(uint32_t*)TAINT_CELL;
+                uint32_t current_taint = TAINT_CELL;
 
                 // Copy original top element (now at top - 16) to temp
                 uintptr_t src_top = top - 16;
@@ -379,13 +385,16 @@ static int __cdecl hook_lua_insert(uintptr_t L, int idx) {
                 }
 
                 if (a0 && !a4) {
-                    *(uint32_t*)TAINT_CELL = current_taint;
+                    *(uint32_t*)0x00D4139C = current_taint;
                 }
 
+                processed = true;
                 return (int)target;
             }
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        if (processed) return (int)target;
+    }
     return orig_lua_insert(L, idx);
 }
 
@@ -397,16 +406,17 @@ static lua_replace_t orig_lua_replace = nullptr;
 
 static int __cdecl hook_lua_replace(uintptr_t L, int idx) {
     if (IsTeardownState()) return orig_lua_replace(L, idx);
+    bool processed = false;
+    uintptr_t target = 0;
     __try {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         uintptr_t base = *(uintptr_t*)(L + 0x10);
         if (IsValidPtr(top) && IsValidPtr(base)) {
             bool defer = false;
-            uintptr_t target = ResolveTValue(L, idx, &defer);
+            target = ResolveTValue(L, idx, &defer);
             if (!defer && target && target >= base && target < top && idx >= -10002) {
                 uint32_t a0 = *(uint32_t*)TAINT_A0;
                 uint32_t a4 = *(uint32_t*)TAINT_A4;
-                uint32_t current_taint = *(uint32_t*)TAINT_CELL;
 
                 uintptr_t src = top - 16;
                 uint32_t val0 = *(uint32_t*)(src + 0);
@@ -421,15 +431,18 @@ static int __cdecl hook_lua_replace(uintptr_t L, int idx) {
                 *(uint32_t*)(target + 12) = val3;
                 if (val3 != 0) {
                     if (a0 && !a4) {
-                        *(uint32_t*)TAINT_CELL = val3;
+                        *(uint32_t*)0x00D4139C = val3;
                     }
                 }
 
                 *(uintptr_t*)(L + 0x0C) = top - 16;
+                processed = true;
                 return (int)target;
             }
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        if (processed) return (int)target;
+    }
     return orig_lua_replace(L, idx);
 }
 
@@ -499,7 +512,7 @@ static int __cdecl hook_lua_getmetatable(uintptr_t L, int idx) {
                 if (IsValidPtr(top)) {
                     *(uintptr_t*)(top + 0) = mt;
                     *(int*)(top + 8) = LUA_TTABLE;
-                    *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+                    *(uint32_t*)(top + 12) = TAINT_CELL;
                     *(uintptr_t*)(L + 0x0C) = top + 16;
                     return 1;
                 } else {
@@ -606,7 +619,7 @@ static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
                         }
                         *(uintptr_t*)(cl + 16) = env;
                         if (!*(uint8_t*)(cl + 10) && !*(uintptr_t*)(cl + 4)) {
-                            *(uintptr_t*)(cl + 4) = *(uintptr_t*)TAINT_CELL;
+                            *(uintptr_t*)(cl + 4) = TAINT_CELL;
                         }
                     } else {
                         goto fallback;
@@ -628,7 +641,7 @@ static int __cdecl hook_lua_setfenv(uintptr_t L, int idx) {
                             goto fallback;
                         }
                         uintptr_t th_env = th + 72;
-                        *(uintptr_t*)(th_env + 12) = *(uintptr_t*)TAINT_CELL;
+                        *(uintptr_t*)(th_env + 12) = TAINT_CELL;
                         *(uintptr_t*)(th_env + 0) = env;
                         *(int*)(th_env + 8) = LUA_TTABLE;
                     } else {
@@ -664,7 +677,7 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
             if (IsValidPtr(top)) {
                 int tt = *(int*)(tv + 8);
                 uintptr_t env = 0;
-                uint32_t taint = *(uint32_t*)TAINT_CELL;
+                uint32_t taint = TAINT_CELL;
                 uint32_t push_taint = taint;
                 int result = 0;
 
@@ -682,7 +695,7 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                             if (cl_taint) {
                                 push_taint = cl_taint;
                                 if (a0 && !a4) {
-                                    *(uint32_t*)TAINT_CELL = cl_taint;
+                                    *(uint32_t*)0x00D4139C = cl_taint;
                                 }
                             }
                         }
@@ -720,7 +733,7 @@ static int __cdecl hook_lua_getfenv(uintptr_t L, int idx) {
                         if (th_val3) {
                             *(uint32_t*)(top + 12) = th_val3;
                             if (a0 && !a4) {
-                                *(uint32_t*)TAINT_CELL = th_val3;
+                                *(uint32_t*)0x00D4139C = th_val3;
                             }
                             result = th_val3;
                         } else {

@@ -80,7 +80,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t tt, uintptr_t kt, uintptr_t vt)
 
         // Taint propagation (match engine)
         if (val3 && *(uint32_t*)TAINT_A0 && !*(uint32_t*)TAINT_A4)
-            *(uint32_t*)TAINT_CELL = val3;
+            *(uint32_t*)0x00D4139C = val3;
 
         // GC barrier: check if value is white and table is black
         if (val2 >= 4 && (*(unsigned char*)(val0 + 9) & 3)) {

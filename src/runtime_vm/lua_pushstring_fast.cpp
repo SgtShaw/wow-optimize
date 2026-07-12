@@ -54,7 +54,7 @@ static int __cdecl hook(uintptr_t L, const char* s) {
         // The original (sub_84E300) does: v3[3] = taint, then calls luaS_newlstr.
         // This matters because luaS_newlstr may itself trigger GC/stack realloc.
         // If we wrote taint after, the slot ptr would be stale.
-        *(uint32_t*)(top + 12) = *(uint32_t*)TAINT_CELL;
+        *(uint32_t*)(top + 12) = *(uint32_t*)0x00D4139C;
 
         // Intern string — may trigger GC → may reallocate the Lua stack.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);
@@ -66,7 +66,7 @@ static int __cdecl hook(uintptr_t L, const char* s) {
         *(uintptr_t*)(new_top + 0) = ts;
         *(uint32_t*)(new_top + 4) = 0;
         *(uint32_t*)(new_top + 8) = 4;    // LUA_TSTRING
-        *(uint32_t*)(new_top + 12) = *(uint32_t*)TAINT_CELL;
+        *(uint32_t*)(new_top + 12) = *(uint32_t*)0x00D4139C;
 
         *(uintptr_t*)(L + 0x0C) = new_top + 16;
 

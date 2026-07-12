@@ -60,7 +60,7 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
         if (new_base < 0x10000) { g_misses++; return orig(L, total, last); }
         uintptr_t new_s1_tv = new_base + (uintptr_t)(last - total + 1) * 16;
 
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = *(uint32_t*)0x00D4139C;
         *(uintptr_t*)(new_s1_tv + 0) = new_ts;
         *(uint32_t*)(new_s1_tv + 4) = 0;
         *(uint32_t*)(new_s1_tv + 8) = LUA_TSTRING;

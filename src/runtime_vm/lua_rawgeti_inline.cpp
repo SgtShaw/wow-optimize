@@ -42,6 +42,8 @@ static lua_rawgeti_fn g_orig_rawgeti = nullptr;
 static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 {
     ++g_total_calls;
+    bool processed = false;
+    int res_val = 0;
 
     // Bail out during lua_State swap — L->base and L->top become garbage
     // when WoW destroys the old Lua VM during UI reload/logout.
@@ -114,19 +116,21 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
             top[2] = src[2];  // tt
             top[3] = src[3];  // taint
             *(int**)(L + 0x0C) = top + 4;
+            processed = true;
 
             // Taint propagation — replicate sub_84E670 EXACTLY
             DWORD taint = src[3];
             ++g_array_hits;
             if (taint) {
                 if (*(int*)0x00D413A0 && !*(int*)0x00D413A4)
-                    *(DWORD*)0x00D4139C = taint;
-                return (int)taint;
+                    *(uint32_t*)0x00D4139C = taint;
+                res_val = (int)taint;
             } else {
-                DWORD gt = *(DWORD*)0x00D4139C;
+                DWORD gt = *(uint32_t*)0x00D4139C;
                 top[3] = gt;
-                return (int)gt;
+                res_val = (int)gt;
             }
+            return res_val;
         }
 
         // ============================================================
@@ -135,6 +139,7 @@ static int __cdecl Optimized_RawGetI(int L, int idx, int n)
         return g_orig_rawgeti(L, idx, n);
 
     } __except(EXCEPTION_EXECUTE_HANDLER) {
+        if (processed) return res_val;
         return g_orig_rawgeti(L, idx, n);
     }
 }

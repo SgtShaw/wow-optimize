@@ -646,8 +646,13 @@ static inline char SSE2_RayTriangleIntersection(const float* ray, const float* v
             goto fallback;
         }
 
+        double t = (edge2_x * qvec_x + edge2_y * qvec_y + edge2_z * qvec_z) * inv_det;
+        if (t < min_margin) {
+            goto fallback;
+        }
+
         if (outT) {
-            *outT = (float)((edge2_x * qvec_x + edge2_y * qvec_y + edge2_z * qvec_z) * inv_det);
+            *outT = (float)t;
         }
 
         if (outUV) {

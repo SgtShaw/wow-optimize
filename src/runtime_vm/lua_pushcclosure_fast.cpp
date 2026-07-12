@@ -61,7 +61,7 @@ static int __cdecl hook(uintptr_t L, uintptr_t fn, int nupvals) {
         // Push the closure value onto the stack.
         uintptr_t new_top = *(uintptr_t*)(L + 0x0C);
         if (new_top < 0x10000 || new_top > 0xFFE00000) { g_misses++; return orig(L, fn, nupvals); }
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = *(uint32_t*)0x00D4139C;
         *(uintptr_t*)(new_top + 0) = cl;
         *(uint32_t*)(new_top + 4) = 0;
         *(uint32_t*)(new_top + 8) = 6;         // LUA_TFUNCTION

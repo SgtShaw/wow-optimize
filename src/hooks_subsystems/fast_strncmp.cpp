@@ -24,8 +24,10 @@ typedef int (__cdecl *strcmp_t)(const char*, const char*);
 static strcmp_t g_orig_strcmp = nullptr;
 
 static inline unsigned char to_lower_ascii(unsigned char c) {
-    unsigned char is_upper = (unsigned char)((c - 'A') <= ('Z' - 'A'));
-    return (unsigned char)(c | (is_upper << 5));
+    if (c >= 'A' && c <= 'Z') {
+        return c | 0x20;
+    }
+    return c;
 }
 
 int __stdcall Hooked_strnicmp(const char* s1, const char* s2, size_t n) {

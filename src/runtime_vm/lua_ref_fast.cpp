@@ -51,14 +51,14 @@ static int __cdecl hook(uintptr_t L, int t) {
 
         // Engine clears taint around the registry write so referencing never taints.
         int32_t savedTaintFlag = *(int32_t*)TAINT_FLAG;
-        int32_t savedTaintCell = *(int32_t*)TAINT_CELL;
+        int32_t savedTaintCell = *(int32_t*)0x00D4139C;
         *(int32_t*)TAINT_FLAG = 0;
-        *(int32_t*)TAINT_CELL = 0;
+        *(int32_t*)0x00D4139C = 0;
 
         typedef int(__cdecl *rawseti_fn)(uintptr_t, int, int);
         ((rawseti_fn)0x0084EA00)(L, t, ref);     // t[ref] = value (pops it)
 
-        *(int32_t*)TAINT_CELL = savedTaintCell;
+        *(int32_t*)0x00D4139C = savedTaintCell;
         *(int32_t*)TAINT_FLAG = savedTaintFlag;
 
         g_hits++;

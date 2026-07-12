@@ -75,10 +75,10 @@ static int __cdecl hook(uintptr_t L, int idx) {
 
         if (val_taint) {
             if (*(uint32_t*)TAINT_A0 && !*(uint32_t*)TAINT_A4)
-                *(uint32_t*)TAINT_CELL = val_taint;
+                *(uint32_t*)0x00D4139C = val_taint;
         } else {
             // Apply global taint to the value if value is untainted
-            *(uint32_t*)(key_tv + 12) = *(uint32_t*)TAINT_CELL;
+            *(uint32_t*)(key_tv + 12) = *(uint32_t*)0x00D4139C;
         }
 
         g_hits++;

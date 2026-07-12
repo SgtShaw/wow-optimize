@@ -26,7 +26,7 @@ static int __cdecl hook(uintptr_t L) {
         uintptr_t top = *(uintptr_t*)(L + 0x0C);
         if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L); }
 
-        uint32_t taint = *(uint32_t*)TAINT_CELL;
+        uint32_t taint = *(uint32_t*)0x00D4139C;
         *(uintptr_t*)(top + 0) = L;
         *(uint32_t*)(top + 4) = 0;
         *(uint32_t*)(top + 8) = 8;   // LUA_TTHREAD
