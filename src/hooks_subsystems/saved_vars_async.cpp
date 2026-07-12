@@ -243,48 +243,14 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
 }
 
 bool InstallSavedVarsAsync() {
-    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
-    if (!hK32) return false;
-    
-    void* pWF = (void*)GetProcAddress(hK32, "WriteFile");
-    if (!pWF) return false;
-    
-    if (MH_CreateHook(pWF, (void*)Hooked_WriteFile_SV, (void**)&orig_WriteFile_SV) != MH_OK) {
-        Log("[SavedVarsAsync] WriteFile hook FAILED");
-        return false;
-    }
-    if (MH_EnableHook(pWF) != MH_OK) return false;
-
-    void* pCH = (void*)GetProcAddress(hK32, "CloseHandle");
-    if (pCH) {
-        if (MH_CreateHook(pCH, (void*)Hooked_CloseHandle, (void**)&orig_CloseHandle) == MH_OK) {
-            MH_EnableHook(pCH);
-        }
-    }
-    
-    CrashDumper::RegisterFeature("SavedVarsAsync");
-    Log("[SavedVarsAsync] ACTIVE (buffered single-write SV optimizer)");
+    Log("[SavedVarsAsync] Bypassed for stability (standard OS buffered writing enabled).");
     return true;
 }
 
 void ShutdownSavedVarsAsync() {
-    if (orig_CloseHandle) {
-        void* pCH = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "CloseHandle");
-        if (pCH) MH_DisableHook(pCH);
-    }
-    
-    // Free any active buffers that were left over
-    AcquireSRWLockExclusive(&s_bufferLock);
-    for (int i = 0; i < MAX_ACTIVE_BUFFERS; i++) {
-        if (s_activeBuffers[i].data) {
-            HeapFree(GetProcessHeap(), 0, s_activeBuffers[i].data);
-            s_activeBuffers[i].data = nullptr;
-        }
-        s_activeBuffers[i].hFile = nullptr;
-    }
-    ReleaseSRWLockExclusive(&s_bufferLock);
+    // No-op
 }
 
 void FlushSavedVarsAsyncSynchronously() {
-    // No-op since all writes are completed synchronously on CloseHandle
+    // No-op
 }
