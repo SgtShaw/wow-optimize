@@ -222,6 +222,7 @@ static void StopFreezeWatchdog() {
 
 #include "MinHook.h"
 #include <mimalloc.h>
+#include <unordered_map>
 #include "lua_optimize.h"
 #include "combatlog_optimize.h"
 #include "combatlog_buffer.h"
@@ -408,7 +409,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_SETFILEPOINTER  0   // SetFilePointer -> SetFilePointerEx
 #endif
 #ifndef CRASH_TEST_DISABLE_READFILE
-#define CRASH_TEST_DISABLE_READFILE        1   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
+#define CRASH_TEST_DISABLE_READFILE        0   // ReadFile MPQ cache (DISABLED to resolve lock serialization and landing freezes)
 #endif
 #ifndef CRASH_TEST_DISABLE_ISBADPTR
 #define CRASH_TEST_DISABLE_ISBADPTR        1   // IsBadReadPtr/WritePtr fast path (DISABLED - VirtualQuery is slow)
@@ -434,7 +435,9 @@ extern "C" void IncrementParticleFrameCount();
 #ifndef CRASH_TEST_DISABLE_MODHANDLE_CACHE
 #define CRASH_TEST_DISABLE_MODHANDLE_CACHE      0   // GetModuleHandleA cache
 #endif
-#define CRASH_TEST_DISABLE_LSTRCMP              1   // lstrcmp/lstrcmpiA fast path - DISABLED: buggy length comparison instead of dictionary order broke CVar sorting/registry
+#ifndef CRASH_TEST_DISABLE_LSTRCMP
+#define CRASH_TEST_DISABLE_LSTRCMP              0   // lstrcmp/lstrcmpiA fast path - DISABLED: buggy length comparison instead of dictionary order broke CVar sorting/registry
+#endif
 #define CRASH_TEST_DISABLE_PROFILE_CACHE        0   // GetPrivateProfileStringA cache
 #define CRASH_TEST_DISABLE_MSGPUMP_RC1          1   // sub_869E00 frame-continue (CONFIRMED BROKEN: returns 1 with *a1=-1 → infinite freeze)
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
@@ -2064,71 +2067,70 @@ static BOOL CheckPrefetch(HANDLE hFile, LARGE_INTEGER offset, LPVOID lpBuffer, D
 
 struct ReadCache {
     HANDLE handle; uint8_t* buffer;
-    LARGE_INTEGER fileOffset; DWORD validBytes; bool active;
+    LARGE_INTEGER fileOffset; DWORD validBytes;
     SRWLOCK lock;
 };
 
-static const int   MAX_CACHED_HANDLES  = 16;
 static const DWORD READ_AHEAD_NORMAL   = 16 * 1024;
 static const DWORD READ_AHEAD_LOADING  = 64 * 1024;
 static const DWORD READ_AHEAD_MAX      = 256 * 1024;  // buffer allocation size
-static ReadCache   g_readCache[MAX_CACHED_HANDLES] = {};
-static int         g_cacheEvictIndex = 0;               
-static SRWLOCK g_cacheLock = SRWLOCK_INIT;
+static std::unordered_map<HANDLE, ReadCache*> g_readCacheMap;
+static SRWLOCK g_cacheMapLock = SRWLOCK_INIT;
 static bool g_cacheInitialized = false;
 
-static ReadCache* FindCache(HANDLE h) {
-    for (int i = 0; i < MAX_CACHED_HANDLES; i++)
-        if (g_readCache[i].active && g_readCache[i].handle == h) return &g_readCache[i];
-    return nullptr;
-}
+static ReadCache* LockCacheForHandle(HANDLE hFile) {
+    if (!g_cacheInitialized) return nullptr;
 
-static ReadCache* AllocCache(HANDLE h) {
-    for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
-        if (!g_readCache[i].active) {
-            g_readCache[i].handle = h;
-            if (!g_readCache[i].buffer) g_readCache[i].buffer = (uint8_t*)mi_malloc(READ_AHEAD_MAX);
-            g_readCache[i].validBytes = 0;
-            InitializeSRWLock(&g_readCache[i].lock);
-            g_readCache[i].active = true;
-            return &g_readCache[i];
-        }
+    AcquireSRWLockShared(&g_cacheMapLock);
+    auto it = g_readCacheMap.find(hFile);
+    if (it != g_readCacheMap.end()) {
+        ReadCache* cache = it->second;
+        ReleaseSRWLockShared(&g_cacheMapLock);
+        AcquireSRWLockExclusive(&cache->lock);
+        return cache;
+    }
+    ReleaseSRWLockShared(&g_cacheMapLock);
+
+    AcquireSRWLockExclusive(&g_cacheMapLock);
+    it = g_readCacheMap.find(hFile);
+    if (it != g_readCacheMap.end()) {
+        ReadCache* cache = it->second;
+        ReleaseSRWLockExclusive(&g_cacheMapLock);
+        AcquireSRWLockExclusive(&cache->lock);
+        return cache;
     }
 
-    int idx = g_cacheEvictIndex;
-    g_cacheEvictIndex = (g_cacheEvictIndex + 1) % MAX_CACHED_HANDLES;
-    g_readCache[idx].handle = h;
-    if (!g_readCache[idx].buffer) g_readCache[idx].buffer = (uint8_t*)mi_malloc(READ_AHEAD_MAX);
-    g_readCache[idx].validBytes = 0;
-    InitializeSRWLock(&g_readCache[idx].lock);
-    g_readCache[idx].active = true;
-    return &g_readCache[idx];
+    ReadCache* cache = new ReadCache();
+    cache->handle = hFile;
+    cache->buffer = (uint8_t*)mi_malloc(READ_AHEAD_MAX);
+    cache->validBytes = 0;
+    InitializeSRWLock(&cache->lock);
+    g_readCacheMap[hFile] = cache;
+    ReleaseSRWLockExclusive(&g_cacheMapLock);
+
+    AcquireSRWLockExclusive(&cache->lock);
+    return cache;
 }
 
-static ReadCache* LockCacheForHandle(HANDLE hFile) {
-    while (true) {
-        AcquireSRWLockShared(&g_cacheLock);
-        ReadCache* cache = FindCache(hFile);
-        if (!cache) {
-            ReleaseSRWLockShared(&g_cacheLock);
-            
-            AcquireSRWLockExclusive(&g_cacheLock);
-            cache = FindCache(hFile);
-            if (!cache) {
-                cache = AllocCache(hFile);
+static void RemoveCacheForHandle(HANDLE hFile) {
+    AcquireSRWLockExclusive(&g_cacheMapLock);
+    auto it = g_readCacheMap.find(hFile);
+    if (it != g_readCacheMap.end()) {
+        ReadCache* cache = it->second;
+        g_readCacheMap.erase(it);
+        ReleaseSRWLockExclusive(&g_cacheMapLock);
+
+        if (cache) {
+            AcquireSRWLockExclusive(&cache->lock);
+            if (cache->buffer) {
+                mi_free(cache->buffer);
+                cache->buffer = nullptr;
             }
-            ReleaseSRWLockExclusive(&g_cacheLock);
-        } else {
-            ReleaseSRWLockShared(&g_cacheLock);
+            ReleaseSRWLockExclusive(&cache->lock);
+            delete cache;
         }
-        
-        if (!cache) return nullptr;
-        
-        AcquireSRWLockExclusive(&cache->lock);
-        if (cache->active && cache->handle == hFile) {
-            return cache;
-        }
-        ReleaseSRWLockExclusive(&cache->lock);
+    } else {
+        ReleaseSRWLockExclusive(&g_cacheMapLock);
     }
 }
 
@@ -2297,7 +2299,7 @@ static bool InstallReadFileHook() {
     if (!p) return false;
     if (MH_CreateHook(p, (void*)hooked_ReadFile, (void**)&orig_ReadFile) != MH_OK) return false;
     if (WO_EnableHook(p) != MH_OK) return false;
-    Log("ReadFile hook: ACTIVE (MPQ cache, 64KB/256KB adaptive read-ahead, %d slots + async prefetch)", MAX_CACHED_HANDLES);
+    Log("ReadFile hook: ACTIVE (MPQ cache, 64KB/256KB adaptive read-ahead, dynamic slots + async prefetch)");
     return true;
 }
 
@@ -3511,13 +3513,7 @@ static BOOL WINAPI hooked_CloseHandle(HANDLE hObject) {
     SavedVarsPretoken::OnCloseHandle(hObject);
     #endif
     if (g_cacheInitialized) {
-        AcquireSRWLockExclusive(&g_cacheLock);
-        for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
-            if (g_readCache[i].active && g_readCache[i].handle == hObject) {
-                g_readCache[i].active = false; g_readCache[i].validBytes = 0; break;
-            }
-        }
-        ReleaseSRWLockExclusive(&g_cacheLock);
+        RemoveCacheForHandle(hObject);
     }
     return orig_CloseHandle(hObject);
 }
@@ -8273,58 +8269,74 @@ static lstrcmpA_fn  orig_lstrcmpA  = nullptr;
 static lstrcmpiA_fn orig_lstrcmpiA = nullptr;
 
 static int WINAPI hooked_lstrcmpA(LPCSTR lpString1, LPCSTR lpString2) {
-    if (!lpString1 || !lpString2) goto lstr_fallback;
+    if (!lpString1 || !lpString2) return orig_lstrcmpA(lpString1, lpString2);
 
-    int len1 = 0, len2 = 0;
-    for (const char* p = lpString1; *p && len1 < 256; p++, len1++);
-    if (len1 >= 256) goto lstr_fallback;
-    for (const char* p = lpString2; *p && len2 < 256; p++, len2++);
-    if (len2 >= 256) goto lstr_fallback;
+    const unsigned char* s1 = (const unsigned char*)lpString1;
+    const unsigned char* s2 = (const unsigned char*)lpString2;
 
-    if (len1 != len2) { g_lstrcmpHits++; return len1 < len2 ? -1 : 1; }
-
-    for (int i = 0; i < len1; i++) {
-        if ((unsigned char)lpString1[i] > 127 || (unsigned char)lpString2[i] > 127)
-            goto lstr_fallback;
+    int i = 0;
+    while (s1[i] && s2[i] && i < 512) {
+        if (s1[i] > 127 || s2[i] > 127) {
+            g_lstrcmpFallbacks++;
+            return orig_lstrcmpA(lpString1, lpString2);
+        }
+        i++;
+    }
+    if (s1[i] > 127 || s2[i] > 127) {
+        g_lstrcmpFallbacks++;
+        return orig_lstrcmpA(lpString1, lpString2);
     }
 
+    s1 = (const unsigned char*)lpString1;
+    s2 = (const unsigned char*)lpString2;
+    while (*s1 && *s1 == *s2) {
+        s1++;
+        s2++;
+    }
     g_lstrcmpHits++;
-    return memcmp(lpString1, lpString2, len1);
-
-lstr_fallback:
-    g_lstrcmpFallbacks++;
-    return orig_lstrcmpA(lpString1, lpString2);
+    return (int)*s1 - (int)*s2;
 }
 
 static int WINAPI hooked_lstrcmpiA(LPCSTR lpString1, LPCSTR lpString2) {
-    if (!lpString1 || !lpString2) goto lstri_fallback;
+    if (!lpString1 || !lpString2) return orig_lstrcmpiA(lpString1, lpString2);
 
-    int len1 = 0, len2 = 0;
-    for (const char* p = lpString1; *p && len1 < 256; p++, len1++);
-    if (len1 >= 256) goto lstri_fallback;
-    for (const char* p = lpString2; *p && len2 < 256; p++, len2++);
-    if (len2 >= 256) goto lstri_fallback;
+    const unsigned char* s1 = (const unsigned char*)lpString1;
+    const unsigned char* s2 = (const unsigned char*)lpString2;
 
-    if (len1 != len2) { g_lstrcmpHits++; return len1 < len2 ? -1 : 1; }
+    int i = 0;
+    while (s1[i] && s2[i] && i < 512) {
+        if (s1[i] > 127 || s2[i] > 127) {
+            g_lstrcmpFallbacks++;
+            return orig_lstrcmpiA(lpString1, lpString2);
+        }
+        i++;
+    }
+    if (s1[i] > 127 || s2[i] > 127) {
+        g_lstrcmpFallbacks++;
+        return orig_lstrcmpiA(lpString1, lpString2);
+    }
 
-    for (int i = 0; i < len1; i++) {
-        unsigned char c1 = (unsigned char)lpString1[i];
-        unsigned char c2 = (unsigned char)lpString2[i];
-        if (c1 > 127 || c2 > 127) goto lstri_fallback;
+    s1 = (const unsigned char*)lpString1;
+    s2 = (const unsigned char*)lpString2;
+    while (*s1) {
+        unsigned char c1 = *s1;
+        unsigned char c2 = *s2;
+
         if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
         if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+
         if (c1 != c2) {
             g_lstrcmpHits++;
             return (int)c1 - (int)c2;
         }
+        s1++;
+        s2++;
     }
 
     g_lstrcmpHits++;
-    return 0;
-
-lstri_fallback:
-    g_lstrcmpFallbacks++;
-    return orig_lstrcmpiA(lpString1, lpString2);
+    unsigned char c2 = *s2;
+    if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+    return 0 - (int)c2;
 }
 
 static bool InstallLstrcmpHook() {
@@ -9715,8 +9727,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownAsyncHooks();
             MH_DisableHook(MH_ALL_HOOKS);
             MH_Uninitialize();
-            for (int i = 0; i < MAX_CACHED_HANDLES; i++) {
-                if (g_readCache[i].buffer) { mi_free(g_readCache[i].buffer); g_readCache[i].buffer = nullptr; }
+            {
+                AcquireSRWLockExclusive(&g_cacheMapLock);
+                for (auto& pair : g_readCacheMap) {
+                    ReadCache* cache = pair.second;
+                    if (cache) {
+                        if (cache->buffer) {
+                            mi_free(cache->buffer);
+                        }
+                        delete cache;
+                    }
+                }
+                g_readCacheMap.clear();
+                ReleaseSRWLockExclusive(&g_cacheMapLock);
             }
             // Return all mimalloc-managed pages to the OS before process exit.
             // Without this, freed blocks sit in mimalloc's internal caches and
