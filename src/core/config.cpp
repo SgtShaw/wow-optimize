@@ -33,7 +33,7 @@ namespace Config {
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqMmapVfs", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "ObjVisCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "ObjVisCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "DbcPreload", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "OomGovernor", "0", iniPath.c_str());
 
@@ -134,7 +134,7 @@ namespace Config {
         g_settings.OptFrameLimiter        = GetPrivateProfileIntA("General", "FrameLimiter", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqMmapVfs          = GetPrivateProfileIntA("General", "MpqMmapVfs", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqPrefetch         = GetPrivateProfileIntA("General", "MpqPrefetch", 0, iniPath.c_str()) != 0;
-        g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 1, iniPath.c_str()) != 0;
         g_settings.OptDbcPreload          = GetPrivateProfileIntA("General", "DbcPreload", 0, iniPath.c_str()) != 0;
         g_settings.OptOomGovernor         = GetPrivateProfileIntA("General", "OomGovernor", 0, iniPath.c_str()) != 0;
 

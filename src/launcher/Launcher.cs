@@ -85,7 +85,7 @@ namespace WowOptimizeLauncher {
                 { "Memory-Mapped MPQ VFS", new SettingItem("General", "MpqMmapVfs", false, null, "Maps all main MPQ files to memory using map views to speed up asset load times and parallelize decompression.") },
                 { "Lock-Free Object Manager", new SettingItem("General", "RcuObjMgr", false, null, "Replaces linear linked-list entity loops with atomic pointer mirror arrays to remove object manager locks in raids.") },
                 { "Predictive MPQ Prefetcher", new SettingItem("General", "MpqPrefetch", false, null, "Tracks zone transitions and speculatively pre-caches MPQ asset files in background threads before you arrive.") },
-                { "Object Visibility Cache", new SettingItem("General", "ObjVisCache", false, null, "Speeds up GUID-to-Object translations in the Client Object Manager using a high-performance thread-local hash cache.") },
+                { "Object Visibility Cache", new SettingItem("General", "ObjVisCache", true, null, "Speeds up GUID-to-Object translations in the Client Object Manager using a high-performance thread-local hash cache.") },
                 { "Memory-Mapped DBC RAM Cache", new SettingItem("General", "DbcPreload", false, null, "Pre-loads and decompresses all major client database files (.dbc) into RAM at startup for near-instant loading screens.") },
                 { "32-bit OOM VRAM Governor", new SettingItem("General", "OomGovernor", false, null, "Dynamically downscales texture mipmaps when the 32-bit client's virtual address space usage approaches critical OOM levels.") },
 
