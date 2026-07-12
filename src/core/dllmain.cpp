@@ -1055,8 +1055,13 @@ static calloc_fn   orig_calloc   = nullptr;
 static msize_fn    orig_msize    = nullptr;
 static recalloc_fn orig_recalloc = nullptr;
 
+static constexpr size_t ALLOCATOR_REDIRECT_THRESHOLD = 16384;
+
 static void* __cdecl hooked_malloc(size_t size) {
-    return mi_malloc(size);
+    if (size >= ALLOCATOR_REDIRECT_THRESHOLD) {
+        return mi_malloc(size);
+    }
+    return orig_malloc(size);
 }
 
 static void __cdecl hooked_free(void* ptr) {
@@ -1068,26 +1073,51 @@ static void __cdecl hooked_free(void* ptr) {
 }
 
 static void* __cdecl hooked_realloc(void* ptr, size_t size) {
-    if (!ptr) return mi_malloc(size);
+    if (!ptr) return hooked_malloc(size);
     if (size == 0) { hooked_free(ptr); return nullptr; }
-    if (mi_is_in_heap_region(ptr))
-        return mi_realloc(ptr, size);
-    if (orig_msize) {
-        size_t old_size = orig_msize(ptr);
-        if (old_size > 0 && old_size != (size_t)-1) {
+    
+    if (mi_is_in_heap_region(ptr)) {
+        if (size >= ALLOCATOR_REDIRECT_THRESHOLD) {
+            return mi_realloc(ptr, size);
+        } else {
+            // Shrinking below threshold: migrate block out of mimalloc to stock CRT.
+            void* np = orig_malloc(size);
+            if (np) {
+                size_t old_size = mi_usable_size(ptr);
+                memcpy(np, ptr, (old_size < size) ? old_size : size);
+                mi_free(ptr);
+                return np;
+            }
+            return nullptr;
+        }
+    } else {
+        if (size < ALLOCATOR_REDIRECT_THRESHOLD) {
+            return orig_realloc(ptr, size);
+        } else {
+            // Growing above threshold: migrate block from stock CRT to mimalloc.
             void* np = mi_malloc(size);
             if (np) {
-                memcpy(np, ptr, (old_size < size) ? old_size : size);
+                if (orig_msize) {
+                    size_t old_size = orig_msize(ptr);
+                    if (old_size > 0 && old_size != (size_t)-1) {
+                        memcpy(np, ptr, (old_size < size) ? old_size : size);
+                    }
+                }
                 orig_free(ptr);
                 return np;
             }
+            return nullptr;
         }
     }
-    return orig_realloc(ptr, size);
 }
 
 static void* __cdecl hooked_calloc(size_t count, size_t size) {
-    return mi_calloc(count, size);
+    if (size != 0 && count > (size_t)-1 / size) return nullptr;
+    size_t total = count * size;
+    if (total >= ALLOCATOR_REDIRECT_THRESHOLD) {
+        return mi_calloc(count, size);
+    }
+    return orig_calloc(count, size);
 }
 
 static size_t __cdecl hooked_msize(void* ptr) {
@@ -1097,26 +1127,47 @@ static size_t __cdecl hooked_msize(void* ptr) {
 }
 
 static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
-    // _recalloc(ptr, count, size): realloc to count*size, zero-filling any growth.
-    if (size != 0 && count > (size_t)-1 / size) return nullptr;  // overflow
+    if (size != 0 && count > (size_t)-1 / size) return nullptr;
     size_t total = count * size;
-    if (!ptr) return mi_calloc(count, size);
+    if (!ptr) {
+        if (total >= ALLOCATOR_REDIRECT_THRESHOLD) return mi_calloc(count, size);
+        return orig_calloc(count, size);
+    }
     if (size == 0) { hooked_free(ptr); return nullptr; }
-    if (mi_is_in_heap_region(ptr))
-        return mi_recalloc(ptr, count, size);
-    // Block predates our hook: migrate into a zero-filled mimalloc block.
-    if (orig_msize) {
-        size_t old = orig_msize(ptr);
-        if (old != (size_t)-1) {
+    
+    if (mi_is_in_heap_region(ptr)) {
+        if (total >= ALLOCATOR_REDIRECT_THRESHOLD) {
+            return mi_recalloc(ptr, count, size);
+        } else {
+            // Migrate out of mimalloc
+            void* np = orig_calloc(count, size);
+            if (np) {
+                size_t old = mi_usable_size(ptr);
+                memcpy(np, ptr, (old < total) ? old : total);
+                mi_free(ptr);
+                return np;
+            }
+            return nullptr;
+        }
+    } else {
+        if (total < ALLOCATOR_REDIRECT_THRESHOLD) {
+            return orig_recalloc(ptr, count, size);
+        } else {
+            // Migrate to mimalloc
             void* np = mi_calloc(count, size);
             if (np) {
-                memcpy(np, ptr, (old < total) ? old : total);
+                if (orig_msize) {
+                    size_t old = orig_msize(ptr);
+                    if (old != (size_t)-1) {
+                        memcpy(np, ptr, (old < total) ? old : total);
+                    }
+                }
                 orig_free(ptr);
                 return np;
             }
+            return nullptr;
         }
     }
-    return orig_recalloc ? orig_recalloc(ptr, count, size) : nullptr;
 }
 
 // Redirect WoW's STATIC MSVCRT allocator to mimalloc. WoW links its CRT statically,

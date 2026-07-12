@@ -54,7 +54,7 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
@@ -62,7 +62,7 @@
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
 // MUST be 1 to disable VA allocator redirect completely.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
