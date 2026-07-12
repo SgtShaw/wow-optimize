@@ -213,9 +213,18 @@ static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLo
         ShadowBufferEntry* e = &g_vbCache[slot];
         
         if (e->valid && e->vb != vb) {
-            if (e->data) _aligned_free(e->data);
-            e->valid = false;
-            e->data = nullptr;
+            // Collision! Bypass cache to prevent heap allocation/free churn within the frame
+            return orig_VB_Lock(vb, OffsetToLock, SizeToLock, ppbData, Flags);
+        }
+        
+        if (e->valid && e->vb == vb) {
+            // Recycled pointer check: make sure the cached size matches the active vertex buffer
+            D3DVERTEXBUFFER_DESC desc;
+            if (FAILED(vb->GetDesc(&desc)) || desc.Size != e->size) {
+                if (e->data) _aligned_free(e->data);
+                e->valid = false;
+                e->data = nullptr;
+            }
         }
         
         if (!e->valid) {

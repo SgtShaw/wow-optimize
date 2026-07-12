@@ -545,10 +545,10 @@
 #define TEST_DISABLE_NET_PACKET_COALESCE       0  // enabled: coalesced network packet dispatch
 #define TEST_DISABLE_AUDIO_DECODE_MT           0  // enabled: parallel sound wave pre-decoding and cache
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
-#define TEST_DISABLE_LUA_GC_GOVERNOR            1  // disabled: adaptive Lua GC governor
+#define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
-#define TEST_DISABLE_D3D9_VB_CACHE              1  // disabled: D3D9 VB Shadow Cache
+#define TEST_DISABLE_D3D9_VB_CACHE              0  // enabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
 #define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     0  // enabled: D3D9 VS Constant Cache
 #define TEST_DISABLE_SAVED_VARS_PRETOKEN        0  // enabled: SavedVariables Preloader

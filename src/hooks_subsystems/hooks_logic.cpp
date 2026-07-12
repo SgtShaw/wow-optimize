@@ -43,52 +43,18 @@ static bool IsValidFramePtr(void* ptr) {
 }
 
 int __fastcall Hooked_LayoutRecalc(void* ecx, int edx, int a2) {
-    #if !TEST_DISABLE_FRAMEXML_COALESCE
-    // Only apply layout optimization (coalescing and throttling) in the game world
+    // Only apply layout loop throttling in the game world
     uint64_t playerGuid = *(uint64_t*)0x00BD07A0;
     if (playerGuid != 0) {
         if (UILayoutThrottle::ShouldThrottle(ecx)) {
             return 0;
         }
-        if (g_coalescingLayouts && a2 && g_dirtyLayoutFramesCount < 2048) {
-            if (IsTeardownState()) {
-                g_dirtyLayoutFramesCount = 0;
-                return orig_LayoutRecalc(ecx, 0, a2);
-            }
-            bool found = false;
-            for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
-                if (g_dirtyLayoutFrames[i] == ecx) {
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                g_dirtyLayoutFrames[g_dirtyLayoutFramesCount++] = ecx;
-            }
-            return 0;
-        }
     }
-    #endif
     return orig_LayoutRecalc(ecx, 0, a2);
 }
 
 void FlushLayoutUpdates() {
-    #if !TEST_DISABLE_FRAMEXML_COALESCE
     UILayoutThrottle::ResetFrameCounter();
-    if (g_dirtyLayoutFramesCount > 0) {
-        g_coalescingLayouts = false; // suspend coalescing
-        for (int i = 0; i < g_dirtyLayoutFramesCount; i++) {
-            void* frame = g_dirtyLayoutFrames[i];
-            if (IsValidFramePtr(frame) && !IsTeardownState()) {
-                __try {
-                    orig_LayoutRecalc(frame, 0, 1);
-                } __except(EXCEPTION_EXECUTE_HANDLER) {}
-            }
-        }
-        g_dirtyLayoutFramesCount = 0;
-        g_coalescingLayouts = true; // resume coalescing
-    }
-    #endif
 }
 
 // Memory validation
@@ -857,14 +823,12 @@ bool InstallLogicHooks(void) {
     int installed = 0;
     Log("[LogicHooks] Invariant script cache hooks DISABLED (stack leak safety)");
 
-    #if !TEST_DISABLE_FRAMEXML_COALESCE
     if (WineSafe_CreateHook((void*)0x00489DE0, (void*)Hooked_LayoutRecalc, (void**)&orig_LayoutRecalc) == MH_OK) {
         if (WO_EnableHook((void*)0x00489DE0) == MH_OK) {
             installed++;
-            Log("[LogicHooks] Hooked LayoutRecalc at 0x00489DE0");
+            Log("[LogicHooks] Hooked LayoutRecalc at 0x00489DE0 (layout loop throttling active)");
         }
     }
-    #endif
 
     Log("[LogicHooks] Initialized — combat text batching, UI layout cache, "
         "network heartbeat filter, invariant script cache (%d hooks active)", installed);

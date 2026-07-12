@@ -1,5 +1,6 @@
 #include "lua_gc_governor.h"
 #include "version.h"
+#include "lua_optimize.h"
 #include <atomic>
 #include <emmintrin.h>
 
@@ -52,6 +53,7 @@ void Shutdown() {
 
 void OnFrame(double frameMs) {
     if (!g_initialized) return;
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) return;
 
     void* L = *(void**)0x00D3F78C;
     if (!L) return;
