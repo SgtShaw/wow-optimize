@@ -1918,8 +1918,12 @@ static DWORD WINAPI AsyncIoWorkerProc(LPVOID) {
         AsyncIoTask& task = g_asyncIoQueue[head];
         __try {
             DWORD bytesRead = 0;
-            SetFilePointerEx(task.hFile, task.offset, NULL, FILE_BEGIN);
-            BOOL ok = orig_ReadFile(task.hFile, task.buffer, task.bytes, &bytesRead, NULL);
+            OVERLAPPED ov = {};
+            ov.Offset = task.offset.LowPart;
+            ov.OffsetHigh = task.offset.HighPart;
+            // Use OVERLAPPED structure to specify the offset. This ensures the read is thread-safe
+            // and does not modify the file handle's shared file pointer (avoiding race conditions with the main thread).
+            BOOL ok = orig_ReadFile(task.hFile, task.buffer, task.bytes, &bytesRead, &ov);
             InterlockedExchange(&task.status, ok ? 1 : 2);
         } __except(EXCEPTION_EXECUTE_HANDLER) {
             InterlockedExchange(&task.status, 2);
@@ -1965,6 +1969,21 @@ static bool CheckAsyncCompletion(HANDLE hFile, LARGE_INTEGER offset, DWORD bytes
     return false;
 }
 
+static void ShutdownAsyncIoWorker() {
+    g_asyncIoShutdown = true;
+    if (g_asyncIoWorker) {
+        WaitForSingleObject(g_asyncIoWorker, 2000);
+        CloseHandle(g_asyncIoWorker);
+        g_asyncIoWorker = NULL;
+    }
+    for (int i = 0; i < ASYNC_IO_QUEUE_SIZE; i++) {
+        if (g_asyncIoQueue[i].status == 0 && g_asyncIoQueue[i].buffer) {
+            mi_free(g_asyncIoQueue[i].buffer);
+            g_asyncIoQueue[i].buffer = nullptr;
+        }
+    }
+}
+
 static bool InstallAsyncIoWorker() {
     g_asyncIoShutdown = false;
     g_asyncIoWorker = CreateThread(NULL, 0, AsyncIoWorkerProc, NULL, 0, NULL);
@@ -1981,6 +2000,7 @@ static bool InstallAsyncIoWorker() {
 static bool QueueAsyncRead(HANDLE, LARGE_INTEGER, DWORD, uint8_t*) { return false; }
 static bool CheckAsyncCompletion(HANDLE, LARGE_INTEGER, DWORD, uint8_t*) { return false; }
 static bool InstallAsyncIoWorker() { return false; }
+static void ShutdownAsyncIoWorker() {}
 
 #endif
 
@@ -9555,6 +9575,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             VersionChecker_Shutdown();
             LoadingDefrag::Shutdown();
             AsyncCulling::Shutdown();
+            ShutdownAsyncIoWorker();
             D3D9RenderThread::Shutdown();
             D3D9StateCache::Shutdown();
             FrameLimiter::Shutdown();

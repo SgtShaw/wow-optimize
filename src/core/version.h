@@ -107,7 +107,7 @@
 
 // ipairs factory hook - closure creation causes
 // EXCEPTION crashes (architectural mismatch: factory vs. iterator)
-#define TEST_DISABLE_HOOK_IPAIRS        1
+#define TEST_DISABLE_HOOK_IPAIRS        0
 
 // math.random
 #define TEST_DISABLE_HOOK_MATH_RANDOM   0
@@ -159,7 +159,7 @@
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      1
+#define TEST_DISABLE_OBJ_VIS_CACHE      0
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -173,13 +173,13 @@
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
-#define TEST_DISABLE_HARDWARE_CURSOR    1
+#define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE         0
 
 // Async MPQ I/O predictive read-ahead queue
-#define TEST_DISABLE_ASYNC_MPQ_IO       1
+#define TEST_DISABLE_ASYNC_MPQ_IO       0
 
 // table.sort fast path - Lua table corruption (0x851E01 AV)
 #define TEST_DISABLE_TABLE_SORT_FASTPATH    0
