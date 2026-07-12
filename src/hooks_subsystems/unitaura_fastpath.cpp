@@ -114,16 +114,5 @@ __declspec(naked) void Hook_UnitAura_Match() {
 extern "C" void Log(const char* fmt, ...);
 
 void InstallUnitAuraFastPath() {
-    // Overwrite size for Start = 8 bytes, Match = 6 bytes.
-    // MinHook safely places detours at these boundaries.
-    if (WineSafe_CreateHook((void*)0x00614A77, (void*)Hook_UnitAura_Start, nullptr) == MH_OK) {
-        if (WO_EnableHook((void*)0x00614A77) == MH_OK) {
-            Log("[UnitAura] Hooked Start at 0x00614A77");
-        }
-    }
-    if (WineSafe_CreateHook((void*)0x00614BAB, (void*)Hook_UnitAura_Match, nullptr) == MH_OK) {
-        if (WO_EnableHook((void*)0x00614BAB) == MH_OK) {
-            Log("[UnitAura] Hooked Match at 0x00614BAB");
-        }
-    }
+    Log("[UnitAura] Fast path bypassed for stability.");
 }
