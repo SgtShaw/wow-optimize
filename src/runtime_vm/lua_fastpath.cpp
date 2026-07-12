@@ -1416,7 +1416,7 @@ static int __cdecl Hooked_StrByte(lua_State* L) {
 static lua_CFunction_t orig_luaB_tostring = nullptr;
 
 static int __cdecl Hooked_ToString(lua_State* L) {
-    if (lua_gettop_(L) < 1) return orig_luaB_tostring(L);
+    if (lua_gettop_(L) < 1) goto tostring_fallback;
 
     int t = lua_type_(L, 1);
     switch (t) {
@@ -1446,7 +1446,7 @@ static int __cdecl Hooked_ToString(lua_State* L) {
         }
 
         default:
-            break;
+            goto tostring_fallback;
     }
 
 tostring_fallback:

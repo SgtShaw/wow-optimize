@@ -619,7 +619,7 @@ uint32_t InfraPatch_MurmurHash3_32(const void* key, size_t len, uint32_t seed) {
     uint32_t h1 = seed, c1 = 0xCC9E2D51, c2 = 0x1B873593;
     size_t nblocks = len / 4;
     const uint32_t* blocks = (const uint32_t*)(data + nblocks * 4);
-    for (size_t i = -nblocks; i; i++) {
+    for (intptr_t i = -((intptr_t)nblocks); i; i++) {
         uint32_t k1 = blocks[i];
         k1 *= c1; k1 = (k1 << 15) | (k1 >> 17); k1 *= c2;
         h1 ^= k1; h1 = (h1 << 13) | (h1 >> 19); h1 = h1 * 5 + 0xE6546B64;
