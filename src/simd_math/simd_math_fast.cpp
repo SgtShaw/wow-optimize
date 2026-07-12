@@ -31,9 +31,10 @@ static void __cdecl Hooked_MatVec3Mul(float* outVec, const float* inVec, const f
     double y = inVec[1];
     double z = inVec[2];
 
-    double rx = matrix[0] * x + matrix[1] * y + matrix[2] * z + matrix[3];
-    double ry = matrix[4] * x + matrix[5] * y + matrix[6] * z + matrix[7];
-    double rz = matrix[8] * x + matrix[9] * y + matrix[10] * z + matrix[11];
+    // Correct column-major multiplication to match sub_4C21B0
+    double rx = matrix[0] * x + matrix[4] * y + matrix[8] * z + matrix[12];
+    double ry = matrix[1] * x + matrix[5] * y + matrix[9] * z + matrix[13];
+    double rz = matrix[2] * x + matrix[6] * y + matrix[10] * z + matrix[14];
 
     outVec[0] = (float)rx;
     outVec[1] = (float)ry;
@@ -42,12 +43,13 @@ static void __cdecl Hooked_MatVec3Mul(float* outVec, const float* inVec, const f
 }
 
 // 2. Vector3 Normalize Hook Target: 0x004C3420
-typedef float (__cdecl *Vec3Normalize_fn)(float* vec);
+// Original signature is __thiscall returning void.
+typedef void (__thiscall *Vec3Normalize_fn)(float* vec);
 static Vec3Normalize_fn orig_Vec3Normalize = nullptr;
 
-static float __cdecl Hooked_Vec3Normalize(float* vec) {
+static void __fastcall Hooked_Vec3Normalize(float* vec, void* unused) {
 #if TEST_DISABLE_SIMD_MATH_FAST
-    return orig_Vec3Normalize(vec);
+    orig_Vec3Normalize(vec);
 #else
     double x = vec[0];
     double y = vec[1];
@@ -60,12 +62,11 @@ static float __cdecl Hooked_Vec3Normalize(float* vec) {
         vec[0] = (float)(x * inv);
         vec[1] = (float)(y * inv);
         vec[2] = (float)(z * inv);
-        return (float)mag;
+    } else {
+        vec[0] = 0.0f;
+        vec[1] = 0.0f;
+        vec[2] = 0.0f;
     }
-    vec[0] = 0.0f;
-    vec[1] = 0.0f;
-    vec[2] = 0.0f;
-    return 0.0f;
 #endif
 }
 
