@@ -42,6 +42,9 @@ static VB_Unlock_fn orig_VB_Unlock = nullptr;
 typedef HRESULT (WINAPI *SetVertexShaderConstantF_fn)(IDirect3DDevice9* device, UINT StartRegister, const float* pConstantData, UINT Vector4fCount);
 SetVertexShaderConstantF_fn orig_SetVertexShaderConstantF = nullptr;
 
+typedef HRESULT (WINAPI *SetVertexShader_fn)(IDirect3DDevice9* device, IDirect3DVertexShader9* shader);
+static SetVertexShader_fn orig_SetVertexShader = nullptr;
+
 typedef HRESULT (WINAPI *SetSamplerState_fn)(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value);
 SetSamplerState_fn orig_SetSamplerState = nullptr;
 
@@ -307,6 +310,16 @@ static HRESULT WINAPI Hooked_SetVertexShaderConstantF(IDirect3DDevice9* device, 
     return orig_SetVertexShaderConstantF(device, StartRegister, pConstantData, Vector4fCount);
 }
 
+static HRESULT WINAPI Hooked_SetVertexShader(IDirect3DDevice9* device, IDirect3DVertexShader9* shader) {
+    #if !TEST_DISABLE_D3D9_VS_CONSTANT_CACHE
+    // Invalidate VS constant cache since a new shader might change register meanings or load compiler-embedded constants
+    for (int i = 0; i < 256; i++) {
+        g_vsConstantCache[i].valid = false;
+    }
+    #endif
+    return orig_SetVertexShader(device, shader);
+}
+
 static HRESULT WINAPI Hooked_SetSamplerState(IDirect3DDevice9* device, DWORD Sampler, D3DSAMPLERSTATETYPE Type, DWORD Value) {
     if (Sampler < 16 && (DWORD)Type < 32) {
         if (g_samplerStateValid[Sampler][Type] && g_samplerStateCache[Sampler][Type] == Value) {
@@ -429,6 +442,9 @@ bool Init() {
 void OnCreateDevice(IDirect3DDevice9* device) {
     if (!device) return;
 
+    // Invalidate the cache whenever a new device is created to prevent stale cache entries from being reused
+    InvalidateCache();
+
     uintptr_t* vtable = *(uintptr_t**)device;
     if (!vtable) return;
 
@@ -442,6 +458,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     orig_SetVertexShaderConstantF = (SetVertexShaderConstantF_fn)vtable[94];
     orig_SetSamplerState = (SetSamplerState_fn)vtable[69];
     orig_SetTextureStageState = (SetTextureStageState_fn)vtable[64];
+    orig_SetVertexShader = (SetVertexShader_fn)vtable[92];
 
     // Only install state cache hooks if it is actually enabled by the user config
     if (!Config::g_settings.OptVulkanDXVK && !Config::g_settings.OptD3d9RenderThread) {
@@ -460,6 +477,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     void* target_SetVertexShaderConstantF = (void*)orig_SetVertexShaderConstantF;
     void* target_SetSamplerState = (void*)orig_SetSamplerState;
     void* target_SetTextureStageState = (void*)orig_SetTextureStageState;
+    void* target_SetVertexShader = (void*)orig_SetVertexShader;
 
     if (MH_CreateHook(target_Reset, (void*)Hooked_Reset, (void**)&orig_Reset) != MH_OK ||
         MH_CreateHook(target_Present, (void*)Hooked_Present, (void**)&orig_Present) != MH_OK ||
@@ -469,7 +487,8 @@ void OnCreateDevice(IDirect3DDevice9* device) {
         MH_CreateHook(target_CreateVertexBuffer, (void*)Hooked_CreateVertexBuffer, (void**)&orig_CreateVertexBuffer) != MH_OK ||
         MH_CreateHook(target_SetVertexShaderConstantF, (void*)Hooked_SetVertexShaderConstantF, (void**)&orig_SetVertexShaderConstantF) != MH_OK ||
         MH_CreateHook(target_SetSamplerState, (void*)Hooked_SetSamplerState, (void**)&orig_SetSamplerState) != MH_OK ||
-        MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK) 
+        MH_CreateHook(target_SetTextureStageState, (void*)Hooked_SetTextureStageState, (void**)&orig_SetTextureStageState) != MH_OK ||
+        MH_CreateHook(target_SetVertexShader, (void*)Hooked_SetVertexShader, (void**)&orig_SetVertexShader) != MH_OK) 
     {
         Log("[D3D9StateCache] Failed to create MinHook detours");
         return;
@@ -484,6 +503,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     MH_EnableHook(target_SetVertexShaderConstantF);
     MH_EnableHook(target_SetSamplerState);
     MH_EnableHook(target_SetTextureStageState);
+    MH_EnableHook(target_SetVertexShader);
 
     hooksInstalled = true;
     Log("[D3D9StateCache] Active - Redundant render state filtering successfully hooked on main thread");
