@@ -399,7 +399,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_GETFILEATTR     0   // GetFileAttributesA cache
 #endif
 #ifndef CRASH_TEST_DISABLE_GLOBALALLOC
-#define CRASH_TEST_DISABLE_GLOBALALLOC     0   // GlobalAlloc->mimalloc (enabled with consistency fixes)
+#define CRASH_TEST_DISABLE_GLOBALALLOC     1   // GlobalAlloc->mimalloc (enabled with consistency fixes)
 #endif
 #define CRASH_TEST_DISABLE_CS_ENTER        1   // CriticalSection TryEnter spin (causes login freeze)
 #define CRASH_TEST_DISABLE_CS_INIT         1   // InitializeCriticalSection hook (causes login freeze/crash)

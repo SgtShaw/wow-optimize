@@ -344,105 +344,16 @@ static int __cdecl Hooked_FileClose(int fd) {
 }
 
 void FlushFile(const std::string& filename) {
-    if (std::this_thread::get_id() == g_workerThreadId) {
-        return; // Avoid self-deadlocking when background writer thread opens files
-    }
-
-    PendingFileWrite task;
-    bool found_pending = false;
-    {
-        std::lock_guard<std::mutex> lock(g_pendingMutex);
-        auto it = g_pendingWrites.find(NormalizePath(filename));
-        if (it != g_pendingWrites.end()) {
-            task = std::move(it->second);
-            g_pendingWrites.erase(it);
-            found_pending = true;
-        }
-    }
-
-    if (found_pending) {
-        std::string buffer;
-        for (const auto& var : task.variables) {
-            buffer += var.name + " = ";
-            SerializeNode(buffer, var.node, 0);
-            buffer += "\r\n";
-        }
-        std::ofstream file(task.filename, std::ios::out | std::ios::binary);
-        if (file.is_open()) {
-            file.write(buffer.data(), buffer.size());
-            file.close();
-        }
-        return;
-    }
-
-    while (true) {
-        bool match = false;
-        {
-            std::lock_guard<std::mutex> lock(g_activeFileMutex);
-            if (NormalizePath(g_activeWritingFile) == NormalizePath(filename)) {
-                match = true;
-            }
-        }
-        if (!match) {
-            std::lock_guard<std::mutex> qLock(g_queueMutex);
-            if (g_taskQueue.empty()) {
-                break;
-            }
-        }
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    // Bypassed
 }
 
 bool Init() {
-#if TEST_DISABLE_SAVEDVARS_ASYNC
-    Log("[SavedVarsAsyncSerializer] DISABLED via TEST_DISABLE_SAVEDVARS_ASYNC.");
-    return false;
-#endif
-
-    g_shutdown = false;
-    
-    // Spawn worker thread
-    g_workerThread = std::thread(WorkerThreadProc);
-    g_workerThreadId = g_workerThread.get_id();
-    
-    // Hook target functions
-    void* target_FileOpen = (void*)0x00461FA0;
-    void* target_SaveVariable = (void*)0x00818B50;
-    void* target_FileClose = (void*)0x00461B00;
-    
-    if (MH_CreateHook(target_FileOpen, (void*)Hooked_FileOpen, (void**)&orig_FileOpen) != MH_OK ||
-        MH_CreateHook(target_SaveVariable, (void*)Hooked_SaveVariable, (void**)&orig_SaveVariable) != MH_OK ||
-        MH_CreateHook(target_FileClose, (void*)Hooked_FileClose, (void**)&orig_FileClose) != MH_OK) 
-    {
-        g_shutdown = true;
-        g_queueCv.notify_all();
-        if (g_workerThread.joinable()) g_workerThread.join();
-        Log("[SavedVarsAsyncSerializer] Failed to install detours");
-        return false;
-    }
-    
-    MH_EnableHook(target_FileOpen);
-    MH_EnableHook(target_SaveVariable);
-    MH_EnableHook(target_FileClose);
-    
-    Log("[SavedVarsAsyncSerializer] Active - Off-thread asynchronous SavedVariables serialization active");
+    Log("[SavedVarsAsyncSerializer] Integrated with SavedVarsAsync buffered writer. Detours bypassed for stability.");
     return true;
 }
 
 void Shutdown() {
-    {
-        std::lock_guard<std::mutex> lock(g_queueMutex);
-        g_shutdown = true;
-        g_queueCv.notify_all();
-    }
-    if (g_workerThread.joinable()) {
-        g_workerThread.join();
-    }
-    
-    MH_DisableHook((void*)0x00461FA0);
-    MH_DisableHook((void*)0x00818B50);
-    MH_DisableHook((void*)0x00461B00);
+    // No-op
 }
 
 } // namespace SavedVarsAsyncSerializer

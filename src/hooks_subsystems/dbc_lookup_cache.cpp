@@ -21,11 +21,10 @@ static constexpr int CACHE_SIZE = 4096;
 static constexpr int CACHE_MASK = CACHE_SIZE - 1;
 
 struct DbcRowEntry {
+    std::atomic<uint32_t> seq;
     uintptr_t storePtr;   // DBCStore* — identifies which DBC file
     uint32_t  recordId;
-    uint8_t   data[0x2A8]; // Raw or transformed DBC record data
-    bool      valid;
-    std::atomic<bool> lock; // Spinlock to prevent concurrent read/write races
+    const void* recordPtr; // Pointer to the raw record data in DBCStore memory
 };
 
 static DbcRowEntry g_cache[CACHE_SIZE];
@@ -40,49 +39,57 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
 #if TEST_DISABLE_DBC_LOOKUP_CACHE
     return g_orig(store, recordId, outBuf);
 #else
+    if (!store) {
+        return g_orig(store, recordId, outBuf);
+    }
+
     uintptr_t storeKey = (uintptr_t)store;
     uint32_t idx = ((uint32_t)(storeKey >> 2) ^ recordId) & CACHE_MASK;
     DbcRowEntry* e = &g_cache[idx];
 
-    // Attempt to read under spinlock
-    bool hit = false;
-    bool expected = false;
-    while (!e->lock.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
-        expected = false;
-        YieldProcessor();
-    }
+    // Optimistic lock-free read
+    uint32_t s1 = e->seq.load(std::memory_order_acquire);
+    if ((s1 & 1) == 0) { // even sequence means no write in progress
+        uintptr_t sk = e->storePtr;
+        uint32_t rid = e->recordId;
+        const void* rptr = e->recordPtr;
+        uint32_t s2 = e->seq.load(std::memory_order_acquire);
 
-    if (e->valid && e->storePtr == storeKey && e->recordId == (uint32_t)recordId) {
-        g_hits++;
-        if (outBuf) {
-            memcpy(outBuf, e->data, 0x2A8);
+        if (s1 == s2 && sk == storeKey && rid == (uint32_t)recordId && rptr != nullptr) {
+            g_hits++;
+            if (outBuf) {
+                memcpy(outBuf, rptr, 0x2A8);
+            }
+            return true;
         }
-        hit = true;
-    }
-
-    e->lock.store(false, std::memory_order_release);
-
-    if (hit) {
-        return true;
     }
 
     g_misses++;
+    // Call original function to load
     bool result = g_orig(store, recordId, outBuf);
 
-    if (result && outBuf && store) {
-        // Attempt to write under spinlock
-        expected = false;
-        while (!e->lock.compare_exchange_weak(expected, true, std::memory_order_acquire, std::memory_order_relaxed)) {
-            expected = false;
-            YieldProcessor();
-        }
+    if (result) {
+        // Safe extraction of direct record pointer from DBCStore fields
+        __try {
+            uint32_t minId = *reinterpret_cast<const uint32_t*>(storeKey + 0x10);
+            uint32_t maxId = *reinterpret_cast<const uint32_t*>(storeKey + 0x0C);
+            if (recordId >= (int)minId && recordId <= (int)maxId) {
+                uintptr_t rowsArray = *reinterpret_cast<const uintptr_t*>(storeKey + 0x20);
+                if (rowsArray) {
+                    const void* rptr = *reinterpret_cast<const void**>(rowsArray + (recordId - minId) * 4);
+                    if (rptr != nullptr) {
+                        uint32_t s = e->seq.load(std::memory_order_relaxed);
+                        e->seq.store(s + 1, std::memory_order_release); // Odd: write start
 
-        e->storePtr = storeKey;
-        e->recordId = (uint32_t)recordId;
-        memcpy(e->data, outBuf, 0x2A8);
-        e->valid = true;
+                        e->storePtr = storeKey;
+                        e->recordId = (uint32_t)recordId;
+                        e->recordPtr = rptr;
 
-        e->lock.store(false, std::memory_order_release);
+                        e->seq.store(s + 2, std::memory_order_release); // Even: write complete
+                    }
+                }
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
     }
 
     return result;
@@ -94,8 +101,8 @@ bool InstallDbcLookupCache()
     for (int i = 0; i < CACHE_SIZE; i++) {
         g_cache[i].storePtr = 0;
         g_cache[i].recordId = 0;
-        g_cache[i].valid = false;
-        g_cache[i].lock.store(false, std::memory_order_relaxed);
+        g_cache[i].recordPtr = nullptr;
+        g_cache[i].seq.store(0, std::memory_order_relaxed);
     }
     g_hits = 0;
     g_misses = 0;

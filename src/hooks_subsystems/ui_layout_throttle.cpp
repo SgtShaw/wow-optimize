@@ -25,10 +25,10 @@ namespace UILayoutThrottle {
         std::lock_guard<std::mutex> lock(g_throttleMutex);
         int count = ++g_frameUpdateCounts[frame];
         
-        // If a frame updates its layout more than 5 times in a single game frame,
+        // If a frame updates its layout more than 200 times in a single game frame,
         // it is almost certainly stuck in a layout loop or updating excessively.
-        if (count > 5) {
-            if (count == 6) {
+        if (count > 200) {
+            if (count == 201) {
                 // Log only once per frame per problematic frame to avoid spam
                 Log("[UILayoutThrottle] Warning: Frame %p is updating its layout excessively (%d times). Throttling to prevent layout loop.", frame, count);
             }

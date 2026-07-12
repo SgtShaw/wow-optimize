@@ -110,6 +110,7 @@ static const uintptr_t ADDR_FONTSTRING_TYPEID = 0x00B4792C;
 // Lock-free Font String Cache with frame-based lazy invalidation
 struct FontStringCacheEntry {
     void* obj;
+    const char* text; // Pointer to the internal text buffer (at obj+244)
     double width;
     double height;
     uint32_t frame;
@@ -135,20 +136,21 @@ static void InvalidateFontStringCache(void* obj) {
     uint32_t idx = HashObj(obj);
     if (g_fontStringCache[idx].obj == obj) {
         g_fontStringCache[idx].obj = nullptr;
+        g_fontStringCache[idx].text = nullptr;
         g_fontStringCache[idx].hasWidth = false;
         g_fontStringCache[idx].hasHeight = false;
         g_fontStringCache[idx].frame = 0;
     }
 }
 
-typedef void (__fastcall *SetText_fn)(void* ecx, int edx, const char* text, int flag);
-static SetText_fn orig_SetText = nullptr;
+typedef int (__fastcall *InvalidateMetrics_fn)(void* ecx, int edx);
+static InvalidateMetrics_fn orig_InvalidateMetrics = nullptr;
 
-static void __fastcall Hooked_SetText(void* ecx, int edx, const char* text, int flag) {
+static int __fastcall Hooked_InvalidateMetrics(void* ecx, int edx) {
     #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
     InvalidateFontStringCache(ecx);
     #endif
-    orig_SetText(ecx, 0, text, flag);
+    return orig_InvalidateMetrics(ecx, 0);
 }
 
 // Functions
@@ -184,9 +186,11 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
         if (typeId != 0) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
+                const char* text = *(const char**)((char*)obj + 244);
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
                 if (g_fontStringCache[idx].obj == obj && 
+                    g_fontStringCache[idx].text == text &&
                     g_fontStringCache[idx].frame == g_fontCacheFrame && 
                     g_fontStringCache[idx].hasWidth) {
                     pushnumber_fn(L, g_fontStringCache[idx].width);
@@ -201,6 +205,7 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
 
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
+                g_fontStringCache[idx].text = text;
                 g_fontStringCache[idx].width = final_w;
                 g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasWidth = true;
@@ -228,9 +233,11 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
         if (typeId != 0) {
             void* obj = GetCFrameFromLuaTable(L, 1);
             if (obj && ValidateObjectType(obj, typeId)) {
+                const char* text = *(const char**)((char*)obj + 244);
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
                 if (g_fontStringCache[idx].obj == obj && 
+                    g_fontStringCache[idx].text == text &&
                     g_fontStringCache[idx].frame == g_fontCacheFrame && 
                     g_fontStringCache[idx].hasHeight) {
                     pushnumber_fn(L, g_fontStringCache[idx].height);
@@ -245,6 +252,7 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
 
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
+                g_fontStringCache[idx].text = text;
                 g_fontStringCache[idx].height = final_h;
                 g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasHeight = true;
@@ -282,7 +290,7 @@ bool InstallFontMetricsFast() {
     INSTALL(GetStringHeight_t, orig_GetStringHeight, hook_GetStringHeight, 0x0048DF00, "GetStringHeight");
     
     #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
-    INSTALL(SetText_fn, orig_SetText, Hooked_SetText, 0x00483910, "SetText");
+    INSTALL(InvalidateMetrics_fn, orig_InvalidateMetrics, Hooked_InvalidateMetrics, 0x00482E10, "InvalidateMetrics");
     #endif
 
     #undef INSTALL
