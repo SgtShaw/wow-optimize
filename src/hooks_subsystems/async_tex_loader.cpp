@@ -479,6 +479,7 @@ void OnFrame() {
         {
             std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
             g_fileMemoryCache.erase(tempPath);
+            g_fileMemoryCache.erase(entry.realPath);
         }
     }
 }

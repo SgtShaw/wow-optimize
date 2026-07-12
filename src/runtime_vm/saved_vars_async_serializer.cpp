@@ -93,6 +93,8 @@ static std::queue<PendingFileWrite> g_taskQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
 static bool g_shutdown = false;
+static std::string g_activeWritingFile;
+static std::mutex g_activeFileMutex;
 
 // Function detours
 typedef int (__cdecl *FileOpen_fn)(const char* filename, int access, int share, int create, int flags);
@@ -115,6 +117,17 @@ static bool ContainsWTF(const char* path) {
         }
     }
     return false;
+}
+
+static std::thread::id g_workerThreadId;
+
+static std::string NormalizePath(const std::string& path) {
+    std::string norm = path;
+    for (char& c : norm) {
+        if (c == '/') c = '\\';
+        else if (c >= 'A' && c <= 'Z') c = c - 'A' + 'a';
+    }
+    return norm;
 }
 
 // Helper to push global to Lua stack safely under SEH without object unwinding
@@ -232,6 +245,11 @@ static void WorkerThreadProc() {
             buffer += "\r\n";
         }
         
+        {
+            std::lock_guard<std::mutex> lock(g_activeFileMutex);
+            g_activeWritingFile = task.filename;
+        }
+        
         // Open file and write the complete buffer in one block (avoiding locking stutters)
         std::ofstream file(task.filename, std::ios::out | std::ios::binary);
         if (file.is_open()) {
@@ -240,11 +258,19 @@ static void WorkerThreadProc() {
         } else {
             Log("[SavedVarsAsyncSerializer] Failed to open file for write: '%s'", task.filename.c_str());
         }
+
+        {
+            std::lock_guard<std::mutex> lock(g_activeFileMutex);
+            g_activeWritingFile.clear();
+        }
     }
 }
 
 // Hooked File Open
 static int __cdecl Hooked_FileOpen(const char* filename, int access, int share, int create, int flags) {
+    if (ContainsWTF(filename)) {
+        FlushFile(filename);
+    }
     int fd = orig_FileOpen(filename, access, share, create, flags);
     if (fd != -1 && ContainsWTF(filename)) {
         std::lock_guard<std::mutex> lock(g_filesMutex);
@@ -276,7 +302,7 @@ static int __cdecl Hooked_SaveVariable(int fd, const char* varName) {
                 
                 // Save it to pending list
                 std::lock_guard<std::mutex> lock(g_pendingMutex);
-                auto& pending = g_pendingWrites[filename];
+                auto& pending = g_pendingWrites[NormalizePath(filename)];
                 pending.filename = filename;
                 pending.variables.push_back({varName, root});
                 
@@ -303,7 +329,7 @@ static int __cdecl Hooked_FileClose(int fd) {
     if (!filename.empty()) {
         // Retrieve and hand over task to the background thread
         std::lock_guard<std::mutex> lock(g_pendingMutex);
-        auto it = g_pendingWrites.find(filename);
+        auto it = g_pendingWrites.find(NormalizePath(filename));
         if (it != g_pendingWrites.end()) {
             {
                 std::lock_guard<std::mutex> qLock(g_queueMutex);
@@ -317,6 +343,57 @@ static int __cdecl Hooked_FileClose(int fd) {
     return orig_FileClose(fd);
 }
 
+void FlushFile(const std::string& filename) {
+    if (std::this_thread::get_id() == g_workerThreadId) {
+        return; // Avoid self-deadlocking when background writer thread opens files
+    }
+
+    PendingFileWrite task;
+    bool found_pending = false;
+    {
+        std::lock_guard<std::mutex> lock(g_pendingMutex);
+        auto it = g_pendingWrites.find(NormalizePath(filename));
+        if (it != g_pendingWrites.end()) {
+            task = std::move(it->second);
+            g_pendingWrites.erase(it);
+            found_pending = true;
+        }
+    }
+
+    if (found_pending) {
+        std::string buffer;
+        for (const auto& var : task.variables) {
+            buffer += var.name + " = ";
+            SerializeNode(buffer, var.node, 0);
+            buffer += "\r\n";
+        }
+        std::ofstream file(task.filename, std::ios::out | std::ios::binary);
+        if (file.is_open()) {
+            file.write(buffer.data(), buffer.size());
+            file.close();
+        }
+        return;
+    }
+
+    while (true) {
+        bool match = false;
+        {
+            std::lock_guard<std::mutex> lock(g_activeFileMutex);
+            if (NormalizePath(g_activeWritingFile) == NormalizePath(filename)) {
+                match = true;
+            }
+        }
+        if (!match) {
+            std::lock_guard<std::mutex> qLock(g_queueMutex);
+            if (g_taskQueue.empty()) {
+                break;
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+}
+
 bool Init() {
 #if TEST_DISABLE_SAVEDVARS_ASYNC
     Log("[SavedVarsAsyncSerializer] DISABLED via TEST_DISABLE_SAVEDVARS_ASYNC.");
@@ -327,6 +404,7 @@ bool Init() {
     
     // Spawn worker thread
     g_workerThread = std::thread(WorkerThreadProc);
+    g_workerThreadId = g_workerThread.get_id();
     
     // Hook target functions
     void* target_FileOpen = (void*)0x00461FA0;

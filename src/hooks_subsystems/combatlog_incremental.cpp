@@ -94,7 +94,7 @@ void OnFrame(int luaState) {
 bool ShouldDefer(void* This, int luaState, void* orig_func) {
     g_origCombatLogEvent = orig_func;
 
-#if TEST_DISABLE_COMBATLOG_INCREMENTAL
+#if 1
     return false;
 #else
     g_eventsThisFrame++;

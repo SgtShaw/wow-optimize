@@ -83,6 +83,7 @@ struct PlayerStats {
 
 static std::unordered_map<std::string, PlayerStats> g_combatStats;
 static SRWLOCK g_statsLock = SRWLOCK_INIT;
+static bool g_combatStatsRequestedEver = false;
 
 // Lua C API bindings for getting and resetting stats
 typedef void (__cdecl *fn_lua_createtable)(void* L, int narr, int nrec);
@@ -167,6 +168,7 @@ static void UpdateStats(const char* guid, const char* name, uint32_t spellId, co
 }
 
 void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
+    if (!g_combatStatsRequestedEver) return;
     if (fieldCount < 11) return;
 
     __try {
@@ -238,6 +240,7 @@ void CombatLogParser_ProcessEvent(void* L, int fieldCount) {
     }
 }
 extern "C" int LUABOOST_GetCombatStats(void* L) {
+    g_combatStatsRequestedEver = true;
     int topBefore = 0;
     __try { topBefore = lua_gettop_(L); } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
@@ -342,6 +345,7 @@ extern "C" int LUABOOST_GetCombatStats(void* L) {
 }
 
 extern "C" int LUABOOST_ResetCombatStats(void* L) {
+    g_combatStatsRequestedEver = true;
     AcquireSRWLockExclusive(&g_statsLock);
     g_combatStats.clear();
     ReleaseSRWLockExclusive(&g_statsLock);

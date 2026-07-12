@@ -200,26 +200,28 @@ BOOL APIENTRY Hooked_SFileReadFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOf
         return orig_SFileReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);
     }
 
+    VirtualFile* vf = nullptr;
     {
         std::lock_guard<std::mutex> hLock(g_handlesMutex);
         auto it = g_virtualHandles.find(hFile);
         if (it != g_virtualHandles.end()) {
-            VirtualFile* vf = it->second;
-            if (!vf) return FALSE;
-
-            size_t available = vf->data.size() - vf->offset;
-            size_t toCopy = (nNumberOfBytesToRead < available) ? nNumberOfBytesToRead : available;
-
-            if (toCopy > 0) {
-                memcpy(lpBuffer, vf->data.data() + vf->offset, toCopy);
-                vf->offset += toCopy;
-            }
-
-            if (lpNumberOfBytesRead) {
-                *lpNumberOfBytesRead = (DWORD)toCopy;
-            }
-            return TRUE;
+            vf = it->second;
         }
+    }
+
+    if (vf) {
+        size_t available = vf->data.size() - vf->offset;
+        size_t toCopy = (nNumberOfBytesToRead < available) ? nNumberOfBytesToRead : available;
+
+        if (toCopy > 0) {
+            memcpy(lpBuffer, vf->data.data() + vf->offset, toCopy);
+            vf->offset += toCopy;
+        }
+
+        if (lpNumberOfBytesRead) {
+            *lpNumberOfBytesRead = (DWORD)toCopy;
+        }
+        return TRUE;
     }
 
     return orig_SFileReadFile(hFile, lpBuffer, nNumberOfBytesToRead, lpNumberOfBytesRead, lpOverlapped);

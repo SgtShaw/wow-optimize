@@ -120,20 +120,17 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
         WaitForSingleObject(g_taskEvent, INFINITE);
         if (g_shutdown.load(std::memory_order_relaxed)) break;
-        
-        size_t head = g_taskHead.load(std::memory_order_relaxed);
-        size_t tail = g_taskTail.load(std::memory_order_acquire);
-        
-        while (head != tail) {
-            size_t slot = head & TASK_QUEUE_MASK;
-            CullingTask task = g_taskQueue[slot];
+        while (true) {
+            size_t head = g_taskHead.load(std::memory_order_relaxed);
+            size_t tail = g_taskTail.load(std::memory_order_acquire);
+            if (head == tail) break;
             
-            // Advance head
-            head++;
-            g_taskHead.store(head, std::memory_order_release);
-            
-            // Process task if it belongs to the current frame generation
-            uint32_t currentGen = g_cullingFrameGen.load(std::memory_order_acquire);
+            if (g_taskHead.compare_exchange_weak(head, head + 1, std::memory_order_release, std::memory_order_relaxed)) {
+                size_t slot = head & TASK_QUEUE_MASK;
+                CullingTask task = g_taskQueue[slot];
+                
+                // Process task if it belongs to the current frame generation
+                uint32_t currentGen = g_cullingFrameGen.load(std::memory_order_acquire);
             if (task.frameGen == currentGen && g_frustumReady.load(std::memory_order_acquire)) {
                 // Prepare arguments: we construct a local fake sphere/point block
                 // since the original function reads from the pointer we pass.
@@ -170,6 +167,7 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
                 }
             }
         }
+    }
         
         ResetEvent(g_taskEvent);
     }
@@ -381,9 +379,7 @@ void OnFrameStart() {
     size_t count = g_queryCount.exchange(0, std::memory_order_relaxed);
     if (count > HISTORY_MAX) count = HISTORY_MAX;
     
-    // Clear background queue
-    g_taskHead.store(0, std::memory_order_relaxed);
-    g_taskTail.store(0, std::memory_order_relaxed);
+    // Do NOT reset queue indices. The circular queue will overwrite old tasks safely.
     
     for (size_t i = 0; i < count; i++) {
         CullingQuery q = g_queryHistory[i];

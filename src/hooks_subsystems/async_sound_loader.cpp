@@ -64,11 +64,20 @@ static void* APIENTRY Hooked_FSOUND_Sample_Load(int index, const void* name_or_d
             else c = tolower(c);
         }
 
-        std::lock_guard<std::mutex> lock(g_soundMutex);
-        auto it = g_soundCache.find(normPath);
-        if (it != g_soundCache.end() && it->second.ready) {
+        const void* memData = nullptr;
+        size_t memSize = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_soundMutex);
+            auto it = g_soundCache.find(normPath);
+            if (it != g_soundCache.end() && it->second.ready) {
+                memData = it->second.data.data();
+                memSize = it->second.data.size();
+            }
+        }
+
+        if (memData) {
             unsigned int newMode = mode | 0x0800; // Force load from memory
-            return orig_FSOUND_Sample_Load(index, it->second.data.data(), newMode, offset, it->second.data.size());
+            return orig_FSOUND_Sample_Load(index, memData, newMode, offset, (int)memSize);
         }
     }
     return orig_FSOUND_Sample_Load(index, name_or_data, mode, offset, length);
@@ -83,11 +92,20 @@ static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsign
             else c = tolower(c);
         }
 
-        std::lock_guard<std::mutex> lock(g_soundMutex);
-        auto it = g_soundCache.find(normPath);
-        if (it != g_soundCache.end() && it->second.ready) {
+        const char* memData = nullptr;
+        size_t memSize = 0;
+        {
+            std::lock_guard<std::mutex> lock(g_soundMutex);
+            auto it = g_soundCache.find(normPath);
+            if (it != g_soundCache.end() && it->second.ready) {
+                memData = (const char*)it->second.data.data();
+                memSize = it->second.data.size();
+            }
+        }
+
+        if (memData) {
             unsigned int newMode = mode | 0x0800;
-            return orig_FSOUND_Stream_OpenFile((const char*)it->second.data.data(), newMode, 0, it->second.data.size());
+            return orig_FSOUND_Stream_OpenFile(memData, newMode, 0, (int)memSize);
         }
     }
     return orig_FSOUND_Stream_OpenFile(filename, mode, offset, length);

@@ -54,7 +54,7 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
@@ -62,7 +62,7 @@
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
 // MUST be 1 to disable VA allocator redirect completely.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
@@ -84,7 +84,7 @@
 // use a private mimalloc heap that masquerades as the process heap, or
 // only redirect allocations above a size threshold where win32 internals
 // don't track pointers.
-#define TEST_DISABLE_HEAP_REDIRECT        0
+#define TEST_DISABLE_HEAP_REDIRECT        1
 
 // Phase 2 write hooks (rawset, insert, remove, next)
 // Direct RawTValue* table writes caused hangs in real gameplay
@@ -154,7 +154,7 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -252,7 +252,7 @@
 // DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
 // reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
-#define TEST_DISABLE_CRT_CHAR_SSE2       0
+#define TEST_DISABLE_CRT_CHAR_SSE2       1
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -525,7 +525,7 @@
 // engine on a hit. See CONTEXT lessons 3, 4.
 #define TEST_DISABLE_LUAS_NEWLSTR_SSE2         0  // enabled: string interning lookup optimization
 #define TEST_DISABLE_LUA_GC_COALESCE           0  // enabled: incremental Lua GC coalescing
-#define TEST_DISABLE_FRAMEXML_COALESCE         0  // disabled: coalesced UI layout recalculation
+#define TEST_DISABLE_FRAMEXML_COALESCE         1  // disabled: coalesced UI layout recalculation
 
 // ================================================================
 // 10 Extended Performance Optimization Features

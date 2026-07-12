@@ -440,7 +440,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_SWAP_RC1             0   // sub_69E220 swap - glFinish skip (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_TABLERESHAPE_RC1     0   // luaH_resize table rehash prevention
 #define CRASH_TEST_DISABLE_LUAH_GETSTR          1   // luaH_getstr OLD pointer cache DISABLED - replaced by safe v2 in lua_getstr_inline.cpp
-#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  0   // CombatLog full event cache (memory-safe value copy)
+#define CRASH_TEST_DISABLE_COMBATLOG_FULLCACHE  1   // CombatLog full event cache (memory-safe value copy)
 #define CRASH_TEST_DISABLE_LUA_PUSHSTRING       0   // lua_pushstring intern cache (cleared on luaC_step)
 #define CRASH_TEST_DISABLE_LUA_RAWGETI          1   // lua_rawgeti OLD pointer cache DISABLED - CONFIRMED: freezes world load when combined with other features
 #ifndef TEST_DISABLE_RAWGETI_INLINE
@@ -3335,16 +3335,21 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
         #endif
         
         // Track SavedVariables files for async writing
-#if !TEST_DISABLE_SAVED_VARS_ASYNC
-        if (lpFileName && (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL))) {
+        if (lpFileName) {
             extern bool ContainsWTF(const char* path);
             const char* luaExt = strrchr(lpFileName, '.');
             if (ContainsWTF(lpFileName) && luaExt && _stricmp(luaExt, ".lua") == 0) {
-                extern void TrackSVHandle(HANDLE h);
-                TrackSVHandle(result);
+                #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
+                SavedVarsAsyncSerializer::FlushFile(lpFileName);
+                #endif
+                #if !TEST_DISABLE_SAVED_VARS_ASYNC
+                if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
+                    extern void TrackSVHandle(HANDLE h);
+                    TrackSVHandle(result);
+                }
+                #endif
             }
         }
-#endif
     }
     return result;
 }
@@ -3380,16 +3385,19 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         #endif
 
         // Track SavedVariables files for async writing
-#if !TEST_DISABLE_SAVED_VARS_ASYNC
-        if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
-            extern bool ContainsWTF(const char* path);
-            const char* luaExt = strrchr(buf, '.');
-            if (ContainsWTF(buf) && luaExt && _stricmp(luaExt, ".lua") == 0) {
+        extern bool ContainsWTF(const char* path);
+        const char* luaExt = strrchr(buf, '.');
+        if (ContainsWTF(buf) && luaExt && _stricmp(luaExt, ".lua") == 0) {
+            #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
+            SavedVarsAsyncSerializer::FlushFile(buf);
+            #endif
+            #if !TEST_DISABLE_SAVED_VARS_ASYNC
+            if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
                 extern void TrackSVHandle(HANDLE h);
                 TrackSVHandle(result);
             }
+            #endif
         }
-#endif
     }
     return result;
 }
@@ -4778,15 +4786,15 @@ static int __cdecl hooked_table_concat(int L) {
     if (!table) return orig_table_concat(L);
 
     // Arg 2: Separator. Must be string or nil.
-    int sep_type = base[5];
+    int sep_type = base[6];
     const char* sep = "";
     int sep_len = 0;
     if (sep_type == 4) { // String
         int ts = base[4]; // TString*
         if (!ts) return orig_table_concat(L);
-        // TString layout: +8=len, +16=str
-        sep = (const char*)(ts + 16);
-        sep_len = *(int*)(ts + 8);
+        // TString layout: +16=len, +20=str
+        sep = (const char*)(ts + 20);
+        sep_len = *(int*)(ts + 16);
     } else if (sep_type == 3) {
         // Number separator - fallback to original
         return orig_table_concat(L);
@@ -4796,14 +4804,14 @@ static int __cdecl hooked_table_concat(int L) {
 
     // Arg 3: i (default 1)
     int i = 1;
-    if (base[8] == 3) i = (int)*(double*)(base + 8);
-    else if (base[8] != 0) return orig_table_concat(L);
+    if (base[10] == 3) i = (int)*(double*)(base + 8);
+    else if (base[10] != 0) return orig_table_concat(L);
 
     // Arg 4: j (default sizearray)
     int sizearray = *(int*)(table + 32);
     int j = sizearray;
-    if (base[11] == 3) j = (int)*(double*)(base + 11);
-    else if (base[11] != 0) return orig_table_concat(L);
+    if (base[14] == 3) j = (int)*(double*)(base + 12);
+    else if (base[14] != 0) return orig_table_concat(L);
 
     if (i < 1) i = 1;
     if (j > sizearray) return orig_table_concat(L); // Hash part fallback

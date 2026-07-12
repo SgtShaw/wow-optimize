@@ -124,21 +124,25 @@ static void PerformSyncWrite(HANDLE hObject, void* data, size_t size) {
 // CloseHandle hook implementation - writes buffered data synchronously on close
 static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
     if (hObject != INVALID_HANDLE_VALUE && IsSVHandle(hObject)) {
-        BufferedWrite* b = nullptr;
+        BufferedWrite tempBuffer = {};
         
-        // Find active buffer matching the handle
+        // Safely extract and clear the buffer slot under the lock
         AcquireSRWLockExclusive(&s_bufferLock);
         for (int i = 0; i < MAX_ACTIVE_BUFFERS; i++) {
             if (s_activeBuffers[i].hFile == hObject) {
-                b = &s_activeBuffers[i];
+                tempBuffer = s_activeBuffers[i];
+                s_activeBuffers[i].hFile = nullptr;
+                s_activeBuffers[i].data = nullptr;
+                s_activeBuffers[i].size = 0;
+                s_activeBuffers[i].capacity = 0;
                 break;
             }
         }
         ReleaseSRWLockExclusive(&s_bufferLock);
 
-        if (b) {
-            if (b->data && b->size > 0) {
-                PerformSyncWrite(hObject, b->data, b->size);
+        if (tempBuffer.hFile != nullptr) {
+            if (tempBuffer.data && tempBuffer.size > 0) {
+                PerformSyncWrite(hObject, tempBuffer.data, tempBuffer.size);
 
                 // Optimize the SavedVariables and create backup
                 char filePath[MAX_PATH];
@@ -151,17 +155,9 @@ static BOOL WINAPI Hooked_CloseHandle(HANDLE hObject) {
                     SavedVarsBackup::CreateBackup(pathPtr);
                 }
             }
-            if (b->data) {
-                HeapFree(GetProcessHeap(), 0, b->data);
+            if (tempBuffer.data) {
+                HeapFree(GetProcessHeap(), 0, tempBuffer.data);
             }
-            
-            // Clear all slot fields cleanly under lock to prevent double-free / leakage
-            AcquireSRWLockExclusive(&s_bufferLock);
-            b->hFile = nullptr;
-            b->data = nullptr;
-            b->size = 0;
-            b->capacity = 0;
-            ReleaseSRWLockExclusive(&s_bufferLock);
         }
 
         // Clean up handle from tracked list
@@ -188,7 +184,27 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
     LPDWORD lpNumberOfBytesWritten, LPOVERLAPPED lpOverlapped)
 {
     if (!lpOverlapped && IsSVHandle(hFile) && nBytesToWrite > 0 && nBytesToWrite <= 64 * 1024 * 1024) {
-        BufferedWrite* b = GetOrCreateBuffer(hFile);
+        AcquireSRWLockExclusive(&s_bufferLock);
+        BufferedWrite* b = nullptr;
+        for (int i = 0; i < MAX_ACTIVE_BUFFERS; i++) {
+            if (s_activeBuffers[i].hFile == hFile) {
+                b = &s_activeBuffers[i];
+                break;
+            }
+        }
+        if (!b) {
+            for (int i = 0; i < MAX_ACTIVE_BUFFERS; i++) {
+                if (s_activeBuffers[i].hFile == nullptr) {
+                    s_activeBuffers[i].hFile = hFile;
+                    s_activeBuffers[i].data = nullptr;
+                    s_activeBuffers[i].size = 0;
+                    s_activeBuffers[i].capacity = 0;
+                    b = &s_activeBuffers[i];
+                    break;
+                }
+            }
+        }
+
         if (b) {
             if (b->size + nBytesToWrite > b->capacity) {
                 size_t newCap = b->capacity == 0 ? 65536 : b->capacity * 2;
@@ -202,7 +218,7 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
                     newData = HeapReAlloc(GetProcessHeap(), 0, b->data, newCap);
                 }
                 if (!newData) {
-                    // Fallback to synchronous write on memory allocation failure
+                    ReleaseSRWLockExclusive(&s_bufferLock);
                     if (orig_WriteFile_SV) {
                         return orig_WriteFile_SV(hFile, lpBuffer, nBytesToWrite, lpNumberOfBytesWritten, lpOverlapped);
                     }
@@ -214,8 +230,10 @@ static BOOL WINAPI Hooked_WriteFile_SV(HANDLE hFile, LPCVOID lpBuffer, DWORD nBy
             memcpy(b->data + b->size, lpBuffer, nBytesToWrite);
             b->size += nBytesToWrite;
             if (lpNumberOfBytesWritten) *lpNumberOfBytesWritten = nBytesToWrite;
+            ReleaseSRWLockExclusive(&s_bufferLock);
             return TRUE;
         }
+        ReleaseSRWLockExclusive(&s_bufferLock);
     }
     
     if (orig_WriteFile_SV) {
