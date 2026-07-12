@@ -107,11 +107,12 @@ static volatile long g_getstringheight_calls = 0;
 // TypeId pointer
 static const uintptr_t ADDR_FONTSTRING_TYPEID = 0x00B4792C;
 
-// Lock-free Font String Cache
+// Lock-free Font String Cache with frame-based lazy invalidation
 struct FontStringCacheEntry {
     void* obj;
     double width;
     double height;
+    uint32_t frame;
     bool hasWidth;
     bool hasHeight;
 };
@@ -119,6 +120,11 @@ struct FontStringCacheEntry {
 static constexpr int FONT_CACHE_SIZE = 2048;
 static constexpr int FONT_CACHE_MASK = FONT_CACHE_SIZE - 1;
 static FontStringCacheEntry g_fontStringCache[FONT_CACHE_SIZE] = {};
+static uint32_t g_fontCacheFrame = 0;
+
+void FontMetrics_OnFrame() {
+    g_fontCacheFrame++;
+}
 
 static inline uint32_t HashObj(void* obj) {
     uintptr_t val = (uintptr_t)obj;
@@ -131,6 +137,7 @@ static void InvalidateFontStringCache(void* obj) {
         g_fontStringCache[idx].obj = nullptr;
         g_fontStringCache[idx].hasWidth = false;
         g_fontStringCache[idx].hasHeight = false;
+        g_fontStringCache[idx].frame = 0;
     }
 }
 
@@ -145,11 +152,14 @@ static void __fastcall Hooked_SetText(void* ecx, int edx, const char* text, int 
 }
 
 // Functions
+static const uintptr_t ADDR_FONT_GETWIDTH  = 0x00483E80;
+static const uintptr_t ADDR_FONT_GETHEIGHT = 0x00483FA0;
+
 typedef double (__thiscall* GetWidth_t)(void* obj);
-static const GetWidth_t orig_GetWidth = (GetWidth_t)0x00483E80;
+static const GetWidth_t orig_GetWidth = (GetWidth_t)ADDR_FONT_GETWIDTH;
 
 typedef double (__thiscall* GetHeight_t)(void* obj);
-static const GetHeight_t orig_GetHeight = (GetHeight_t)0x00483FA0;
+static const GetHeight_t orig_GetHeight = (GetHeight_t)ADDR_FONT_GETHEIGHT;
 
 typedef double (*sub_47BFE0_t)();
 static const sub_47BFE0_t orig_sub_47BFE0 = (sub_47BFE0_t)0x0047BFE0;
@@ -176,7 +186,9 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
             if (obj && ValidateObjectType(obj, typeId)) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
-                if (g_fontStringCache[idx].obj == obj && g_fontStringCache[idx].hasWidth) {
+                if (g_fontStringCache[idx].obj == obj && 
+                    g_fontStringCache[idx].frame == g_fontCacheFrame && 
+                    g_fontStringCache[idx].hasWidth) {
                     pushnumber_fn(L, g_fontStringCache[idx].width);
                     return 1;
                 }
@@ -190,6 +202,7 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
                 g_fontStringCache[idx].width = final_w;
+                g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasWidth = true;
                 #endif
 
@@ -217,7 +230,9 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
             if (obj && ValidateObjectType(obj, typeId)) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
-                if (g_fontStringCache[idx].obj == obj && g_fontStringCache[idx].hasHeight) {
+                if (g_fontStringCache[idx].obj == obj && 
+                    g_fontStringCache[idx].frame == g_fontCacheFrame && 
+                    g_fontStringCache[idx].hasHeight) {
                     pushnumber_fn(L, g_fontStringCache[idx].height);
                     return 1;
                 }
@@ -231,6 +246,7 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
                 g_fontStringCache[idx].height = final_h;
+                g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasHeight = true;
                 #endif
 

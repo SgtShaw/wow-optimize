@@ -473,6 +473,7 @@ extern bool InstallUIAccessorFast();
 extern void ShutdownUIAccessorFast();
 extern bool InstallFontMetricsFast();
 extern void ShutdownFontMetricsFast();
+extern void FontMetrics_OnFrame();
 
 
 // Forward declarations
@@ -1302,6 +1303,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             LuaOpt::OnMainThreadSleep(g_mainThreadId, elapsedMs);
             LuaVMEngine_FrameTick();
             ApiCache::OnNewFrame();
+            FontMetrics_OnFrame();
             if (Config::g_settings.OptDefragLf) {
                 LoadingDefrag::OnFrame();
             }
