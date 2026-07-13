@@ -24,7 +24,8 @@ struct DbcRowEntry {
     std::atomic<uint32_t> seq;
     uintptr_t storePtr;   // DBCStore* — identifies which DBC file
     uint32_t  recordId;
-    const void* recordPtr; // Pointer to the raw record data in DBCStore memory
+    uint8_t   rowData[0x2A8]; // Cache the actual 680-byte record data directly!
+    bool      valid;
 };
 
 static DbcRowEntry g_cache[CACHE_SIZE];
@@ -47,18 +48,20 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
     uint32_t idx = ((uint32_t)(storeKey >> 2) ^ recordId) & CACHE_MASK;
     DbcRowEntry* e = &g_cache[idx];
 
-    // Optimistic lock-free read
+    // Optimistic lock-free read using Sequence Lock
     uint32_t s1 = e->seq.load(std::memory_order_acquire);
-    if ((s1 & 1) == 0) { // even sequence means no write in progress
+    if ((s1 & 1) == 0 && e->valid) { // even sequence means no write in progress
         uintptr_t sk = e->storePtr;
         uint32_t rid = e->recordId;
-        const void* rptr = e->recordPtr;
+        uint8_t tempBuf[0x2A8];
+        memcpy(tempBuf, e->rowData, 0x2A8); // read payload safely into temp buffer
         uint32_t s2 = e->seq.load(std::memory_order_acquire);
 
-        if (s1 == s2 && sk == storeKey && rid == (uint32_t)recordId && rptr != nullptr) {
+        // If sequence didn't change, the data we read is consistent and valid
+        if (s1 == s2 && sk == storeKey && rid == (uint32_t)recordId) {
             g_hits++;
             if (outBuf) {
-                memcpy(outBuf, rptr, 0x2A8);
+                memcpy(outBuf, tempBuf, 0x2A8);
             }
             return true;
         }
@@ -83,7 +86,8 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
                             if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
                                 e->storePtr = storeKey;
                                 e->recordId = (uint32_t)recordId;
-                                e->recordPtr = rptr;
+                                memcpy(e->rowData, rptr, 0x2A8); // Store actual row data
+                                e->valid = true;
                                 e->seq.store(s + 2, std::memory_order_release); // Even: write complete
                             }
                         }
@@ -102,7 +106,8 @@ bool InstallDbcLookupCache()
     for (int i = 0; i < CACHE_SIZE; i++) {
         g_cache[i].storePtr = 0;
         g_cache[i].recordId = 0;
-        g_cache[i].recordPtr = nullptr;
+        g_cache[i].valid = false;
+        memset(g_cache[i].rowData, 0, 0x2A8);
         g_cache[i].seq.store(0, std::memory_order_relaxed);
     }
     g_hits = 0;
@@ -160,7 +165,7 @@ extern "C" void ClearDbcLookupCache()
                 if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
                     e->storePtr = 0;
                     e->recordId = 0;
-                    e->recordPtr = nullptr;
+                    e->valid = false;
                     e->seq.store(s + 2, std::memory_order_release);
                     break;
                 }

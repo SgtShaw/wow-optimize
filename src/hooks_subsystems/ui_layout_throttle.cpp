@@ -7,7 +7,7 @@ extern "C" void Log(const char* fmt, ...);
 namespace UILayoutThrottle {
     static std::unordered_map<void*, int> g_frameUpdateCounts;
     static WinMutex g_throttleMutex;
-    static bool g_enabled = true;
+    static bool g_enabled = false;
     static unsigned int g_throttledCount = 0;
 
     bool Init() {
