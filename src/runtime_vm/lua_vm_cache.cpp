@@ -208,8 +208,49 @@ extern "C" void ProcessDeferredGC(double idleBudgetMs) {
 }
 
 bool InstallLuaVMCache() {
-    Log("[GetTableCache] DISABLED (bypassed for stability, using safe luaH_getstr cache instead)");
-    return false;
+    void* target_get  = (void*)0x857250;
+    void* target_set  = (void*)0x8573C0;
+    void* target_gc   = (void*)0x85B950;
+    void* target_hset = (void*)0x85C520;
+
+    if (MH_CreateHook(target_get, (void*)Hooked_luaV_gettable, (void**)&orig_luaV_gettable) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaV_gettable");
+        return false;
+    }
+    if (MH_EnableHook(target_get) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaV_gettable");
+        return false;
+    }
+
+    if (MH_CreateHook(target_set, (void*)Hooked_luaV_settable, (void**)&orig_luaV_settable) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaV_settable");
+        return false;
+    }
+    if (MH_EnableHook(target_set) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaV_settable");
+        return false;
+    }
+
+    if (MH_CreateHook(target_hset, (void*)Hooked_luaH_set, (void**)&orig_luaH_set) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaH_set");
+        return false;
+    }
+    if (MH_EnableHook(target_hset) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaH_set");
+        return false;
+    }
+
+    if (MH_CreateHook(target_gc, (void*)Hooked_luaC_step, (void**)&orig_luaC_step) != MH_OK) {
+        Log("[GetTableCache] CreateHook failed for luaC_step");
+        return false;
+    }
+    if (MH_EnableHook(target_gc) != MH_OK) {
+        Log("[GetTableCache] EnableHook failed for luaC_step");
+        return false;
+    }
+
+    Log("[GetTableCache] Active: %d-slot synchronized VM table cache (synced via settable/GC/hset)", CACHE_SIZE);
+    return true;
 }
 
 void GetTableCacheStats(long long* hits, long long* misses) {

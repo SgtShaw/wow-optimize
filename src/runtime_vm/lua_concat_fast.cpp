@@ -69,9 +69,6 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
         *(uint32_t*)(new_s1_tv + 8) = LUA_TSTRING;
         *(uint32_t*)(new_s1_tv + 12) = taint;
 
-        // Balance the stack: set top to point to slot after result
-        *(uintptr_t*)(L + 0x0C) = new_base + (uintptr_t)(last - total + 2) * 16;
-
         g_hits++;
         return 1;
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
