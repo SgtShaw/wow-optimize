@@ -668,8 +668,25 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
             return orig_OnFieldUpdate(This, fieldId, value);
         }
 
-        // All fields >= 0x40 are processed immediately to prevent bag, buff, and model glitches
-        return orig_OnFieldUpdate(This, fieldId, value);
+        // Process display, mount, and scale fields immediately to prevent model stretching/flickering
+        if (fieldId == 70 || fieldId == 71 || fieldId == 74 || fieldId == 75 || fieldId == 117) {
+            return orig_OnFieldUpdate(This, fieldId, value);
+        }
+
+        AcquireSRWLockExclusive(&g_fieldQueueLock);
+        LONG tail = g_fieldTail;
+        LONG nextTail = (tail + 1) & FIELD_QUEUE_MASK;
+        if (nextTail == g_fieldHead) {
+            ReleaseSRWLockExclusive(&g_fieldQueueLock);
+            return orig_OnFieldUpdate(This, fieldId, value); // Queue full
+        }
+
+        g_fieldQueue[tail].fieldId = fieldId;
+        g_fieldQueue[tail].value = value;
+        g_fieldQueue[tail].unit = This;
+        g_fieldTail = nextTail;
+        ReleaseSRWLockExclusive(&g_fieldQueueLock);
+        return;
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return orig_OnFieldUpdate(This, fieldId, value);
     }
@@ -4369,6 +4386,12 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     // NO IsBadReadPtr - it breaks guard pages and causes mouse-triggered crashes
     // when cursor/UI redraw happens during device state transitions.
     __try {
+        // Ensure deferred field updates and coalesced world states are flushed 
+        // on the main thread every frame boundary, even when the client is running
+        // with VSync off / uncapped framerates (which bypass hooked_Sleep).
+        FlushFieldUpdates();
+        WorldStateCoalesce::OnFrame();
+
         // sub_682E50()
         orig_sub_682E50();
 
