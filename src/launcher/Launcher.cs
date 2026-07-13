@@ -12,8 +12,32 @@ using System.Windows.Media.Imaging;
 
 namespace WowOptimizeLauncher {
     public class App : Application {
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
+        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
+
+        private static bool IsRunningOnWine() {
+            try {
+                IntPtr hNtdll = GetModuleHandle("ntdll.dll");
+                if (hNtdll != IntPtr.Zero) {
+                    IntPtr pFunc = GetProcAddress(hNtdll, "wine_get_version");
+                    if (pFunc != IntPtr.Zero) {
+                        return true;
+                    }
+                }
+            } catch {
+                // Ignore
+            }
+            return false;
+        }
+
         [STAThread]
         public static void Main() {
+            if (IsRunningOnWine()) {
+                System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+            }
             App app = new App();
             app.Run(new MainWindow());
         }
