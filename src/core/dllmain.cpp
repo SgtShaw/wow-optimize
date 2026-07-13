@@ -660,31 +660,16 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
     __try {
         // Critical fields (HP, Mana, GUID, Flags, Level) process immediately
         if (fieldId < 0x40) {
-            if (WorldStateCoalesce::ProcessFieldUpdate(This, fieldId, value, (void*)orig_OnFieldUpdate)) {
-                return;
+            if (Config::g_settings.OptWorldStateCoalesce) {
+                if (WorldStateCoalesce::ProcessFieldUpdate(This, fieldId, value, (void*)orig_OnFieldUpdate)) {
+                    return;
+                }
             }
             return orig_OnFieldUpdate(This, fieldId, value);
         }
 
-        // Process display, mount, and scale fields immediately to prevent model stretching/flickering
-        if (fieldId == 70 || fieldId == 71 || fieldId == 74 || fieldId == 75 || fieldId == 117) {
-            return orig_OnFieldUpdate(This, fieldId, value);
-        }
-
-        AcquireSRWLockExclusive(&g_fieldQueueLock);
-        LONG tail = g_fieldTail;
-        LONG nextTail = (tail + 1) & FIELD_QUEUE_MASK;
-        if (nextTail == g_fieldHead) {
-            ReleaseSRWLockExclusive(&g_fieldQueueLock);
-            return orig_OnFieldUpdate(This, fieldId, value); // Queue full
-        }
-
-        g_fieldQueue[tail].fieldId = fieldId;
-        g_fieldQueue[tail].value = value;
-        g_fieldQueue[tail].unit = This;
-        g_fieldTail = nextTail;
-        ReleaseSRWLockExclusive(&g_fieldQueueLock);
-        return;
+        // All fields >= 0x40 are processed immediately to prevent bag, buff, and model glitches
+        return orig_OnFieldUpdate(This, fieldId, value);
     } __except(EXCEPTION_EXECUTE_HANDLER) {
         return orig_OnFieldUpdate(This, fieldId, value);
     }
@@ -1088,37 +1073,9 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
     if (size == 0) { hooked_free(ptr); return nullptr; }
     
     if (mi_is_in_heap_region(ptr)) {
-        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
-            return mi_realloc(ptr, size);
-        } else {
-            // Shrinking below threshold or reallocating on a background thread: migrate block out of mimalloc to stock CRT.
-            void* np = orig_malloc(size);
-            if (np) {
-                size_t old_size = mi_usable_size(ptr);
-                memcpy(np, ptr, (old_size < size) ? old_size : size);
-                mi_free(ptr);
-                return np;
-            }
-            return nullptr;
-        }
+        return mi_realloc(ptr, size);
     } else {
-        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
-            // Growing above threshold on the main thread: migrate block from stock CRT to mimalloc.
-            void* np = mi_malloc(size);
-            if (np) {
-                if (orig_msize) {
-                    size_t old_size = orig_msize(ptr);
-                    if (old_size > 0 && old_size != (size_t)-1) {
-                        memcpy(np, ptr, (old_size < size) ? old_size : size);
-                    }
-                }
-                orig_free(ptr);
-                return np;
-            }
-            return nullptr;
-        } else {
-            return orig_realloc(ptr, size);
-        }
+        return orig_realloc(ptr, size);
     }
 }
 
@@ -1147,37 +1104,9 @@ static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
     if (size == 0) { hooked_free(ptr); return nullptr; }
     
     if (mi_is_in_heap_region(ptr)) {
-        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
-            return mi_recalloc(ptr, count, size);
-        } else {
-            // Migrate out of mimalloc
-            void* np = orig_calloc(count, size);
-            if (np) {
-                size_t old = mi_usable_size(ptr);
-                memcpy(np, ptr, (old < total) ? old : total);
-                mi_free(ptr);
-                return np;
-            }
-            return nullptr;
-        }
+        return mi_recalloc(ptr, count, size);
     } else {
-        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
-            // Migrate to mimalloc
-            void* np = mi_calloc(count, size);
-            if (np) {
-                if (orig_msize) {
-                    size_t old = orig_msize(ptr);
-                    if (old != (size_t)-1) {
-                        memcpy(np, ptr, (old < total) ? old : total);
-                    }
-                }
-                orig_free(ptr);
-                return np;
-            }
-            return nullptr;
-        } else {
-            return orig_recalloc(ptr, count, size);
-        }
+        return orig_recalloc(ptr, count, size);
     }
 }
 
