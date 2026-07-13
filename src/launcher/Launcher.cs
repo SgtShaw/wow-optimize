@@ -252,6 +252,12 @@ namespace WowOptimizeLauncher {
         private DarkTabControl tabs;
         private ToolTip toolTip;
 
+        private DarkButton btnEnableGeneral;
+        private DarkButton btnEnableUiLua;
+        private DarkButton btnEnableCombatNet;
+        private DarkButton btnEnableGfx;
+        private DarkButton btnEnableRecent;
+
         // Background image
         private Image backgroundImage;
 
@@ -714,7 +720,7 @@ namespace WowOptimizeLauncher {
 
             // ── Version Label ───────────────────────────────────
             versionLabel = new Label();
-            versionLabel.Text = "v3.16.3-Release";
+            versionLabel.Text = "v3.16.2-Release";
             versionLabel.Font = new Font("Segoe UI", 7f, FontStyle.Regular);
             versionLabel.ForeColor = Color.FromArgb(90, 90, 110);
             versionLabel.AutoSize = true;
@@ -765,30 +771,24 @@ namespace WowOptimizeLauncher {
             FlowLayoutPanel recentNewFlow = (FlowLayoutPanel)((Panel)tpRecentNew.Controls[0]).Controls[0];
 
             // Add "ENABLE ALL IN ..." buttons at top of each flow
-            DarkButton btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
-            btnEnableGeneral.Click += delegate { ToggleTabFeatures("General", true); };
+            btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
+            btnEnableGeneral.Click += delegate { ToggleCategoryAction("General", btnEnableGeneral, "GENERAL"); };
             generalFlow.Controls.Add(btnEnableGeneral);
 
-            DarkButton btnEnableUiLua = CreateCategoryButton("ENABLE ALL IN UI & LUA");
-            btnEnableUiLua.Click += delegate { ToggleTabFeatures("UI_Lua", true); };
+            btnEnableUiLua = CreateCategoryButton("ENABLE ALL IN UI & LUA");
+            btnEnableUiLua.Click += delegate { ToggleCategoryAction("UI_Lua", btnEnableUiLua, "UI & LUA"); };
             uiLuaFlow.Controls.Add(btnEnableUiLua);
 
-            DarkButton btnEnableCombatNet = CreateCategoryButton("ENABLE ALL IN COMBAT & NET");
-            btnEnableCombatNet.Click += delegate { ToggleTabFeatures("Combat_Net", true); };
+            btnEnableCombatNet = CreateCategoryButton("ENABLE ALL IN COMBAT & NET");
+            btnEnableCombatNet.Click += delegate { ToggleCategoryAction("Combat_Net", btnEnableCombatNet, "COMBAT & NET"); };
             combatNetFlow.Controls.Add(btnEnableCombatNet);
 
-            DarkButton btnEnableGfx = CreateCategoryButton("ENABLE ALL IN GRAPHICS & SOUND");
-            btnEnableGfx.Click += delegate { ToggleTabFeatures("Graphics_Sound", true); };
+            btnEnableGfx = CreateCategoryButton("ENABLE ALL IN GRAPHICS & SOUND");
+            btnEnableGfx.Click += delegate { ToggleCategoryAction("Graphics_Sound", btnEnableGfx, "GRAPHICS & SOUND"); };
             graphicsSoundFlow.Controls.Add(btnEnableGfx);
 
-            DarkButton btnEnableRecent = CreateCategoryButton("ENABLE ALL NEW FEATURES");
-            btnEnableRecent.Click += delegate {
-                foreach (SettingItem item in settingsMap.Values) {
-                    if (item.RecentCtrl != null) {
-                        item.RecentCtrl.Checked = true;
-                    }
-                }
-            };
+            btnEnableRecent = CreateCategoryButton("ENABLE ALL NEW FEATURES");
+            btnEnableRecent.Click += delegate { ToggleRecentAction(btnEnableRecent); };
             recentNewFlow.Controls.Add(btnEnableRecent);
 
             // Populate checkboxes
@@ -946,6 +946,97 @@ namespace WowOptimizeLauncher {
                 if (item.Section == section && item.Ctrl != null) {
                     item.Ctrl.Checked = enabled;
                 }
+            }
+        }
+
+        private void ToggleCategoryAction(string section, DarkButton btn, string labelName) {
+            bool allChecked = true;
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.Section == section && item.Ctrl != null && !item.Ctrl.Checked) {
+                    allChecked = false;
+                    break;
+                }
+            }
+
+            bool nextState = !allChecked;
+            ToggleTabFeatures(section, nextState);
+            UpdateCategoryButtonTexts();
+        }
+
+        private void ToggleRecentAction(DarkButton btn) {
+            bool allChecked = true;
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.RecentCtrl != null && !item.RecentCtrl.Checked) {
+                    allChecked = false;
+                    break;
+                }
+            }
+
+            bool nextState = !allChecked;
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.RecentCtrl != null) {
+                    item.RecentCtrl.Checked = nextState;
+                }
+            }
+            UpdateCategoryButtonTexts();
+        }
+
+        private void UpdateCategoryButtonTexts() {
+            if (settingsMap == null) return;
+
+            if (btnEnableGeneral != null) {
+                bool all = true;
+                foreach (SettingItem item in settingsMap.Values) {
+                    if (item.Section == "General" && item.Ctrl != null && !item.Ctrl.Checked) {
+                        all = false;
+                        break;
+                    }
+                }
+                btnEnableGeneral.Text = all ? "DISABLE ALL IN GENERAL" : "ENABLE ALL IN GENERAL";
+            }
+
+            if (btnEnableUiLua != null) {
+                bool all = true;
+                foreach (SettingItem item in settingsMap.Values) {
+                    if (item.Section == "UI_Lua" && item.Ctrl != null && !item.Ctrl.Checked) {
+                        all = false;
+                        break;
+                    }
+                }
+                btnEnableUiLua.Text = all ? "DISABLE ALL IN UI & LUA" : "ENABLE ALL IN UI & LUA";
+            }
+
+            if (btnEnableCombatNet != null) {
+                bool all = true;
+                foreach (SettingItem item in settingsMap.Values) {
+                    if (item.Section == "Combat_Net" && item.Ctrl != null && !item.Ctrl.Checked) {
+                        all = false;
+                        break;
+                    }
+                }
+                btnEnableCombatNet.Text = all ? "DISABLE ALL IN COMBAT & NET" : "ENABLE ALL IN COMBAT & NET";
+            }
+
+            if (btnEnableGfx != null) {
+                bool all = true;
+                foreach (SettingItem item in settingsMap.Values) {
+                    if (item.Section == "Graphics_Sound" && item.Ctrl != null && !item.Ctrl.Checked) {
+                        all = false;
+                        break;
+                    }
+                }
+                btnEnableGfx.Text = all ? "DISABLE ALL IN GRAPHICS & SOUND" : "ENABLE ALL IN GRAPHICS & SOUND";
+            }
+
+            if (btnEnableRecent != null) {
+                bool all = true;
+                foreach (SettingItem item in settingsMap.Values) {
+                    if (item.RecentCtrl != null && !item.RecentCtrl.Checked) {
+                        all = false;
+                        break;
+                    }
+                }
+                btnEnableRecent.Text = all ? "DISABLE ALL NEW FEATURES" : "ENABLE ALL NEW FEATURES";
             }
         }
 
@@ -1111,7 +1202,7 @@ namespace WowOptimizeLauncher {
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
-                            Version current = new Version("3.16.3");
+                            Version current = new Version("3.16.2");
 
                             if (latest > current) {
                                 BeginInvoke(new Action(delegate { ShowUpdateAlert(cleanVer); }));
@@ -1209,6 +1300,7 @@ namespace WowOptimizeLauncher {
             if (progressBarPanel != null) {
                 progressBarPanel.Invalidate();
             }
+            UpdateCategoryButtonTexts();
         }
     }
 
