@@ -39,7 +39,12 @@ static SFileCloseFile_fn orig_SFileCloseFile = nullptr;
 static std::vector<HANDLE> g_privateArchives;
 
 // Thread variables
-static std::thread g_workerThread;
+static HANDLE g_workerThread = nullptr;
+static void WorkerProc();
+static DWORD WINAPI WorkerThreadProc(LPVOID) {
+    WorkerProc();
+    return 0;
+}
 static std::queue<std::string> g_prefetchQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
@@ -502,7 +507,7 @@ bool Init() {
     }
 
     g_shutdown = false;
-    g_workerThread = std::thread(WorkerProc);
+    g_workerThread = CreateThread(NULL, 0, WorkerThreadProc, NULL, 0, NULL);
 
     void* target = (void*)0x004B8910;
     if (MH_CreateHook(target, (void*)Hooked_TexCreateBLP_Naked, (void**)&orig_TexCreateBLP) != MH_OK) {
@@ -537,8 +542,10 @@ void Shutdown() {
 #endif
     g_shutdown.store(true);
     g_queueCv.notify_all();
-    if (g_workerThread.joinable()) {
-        g_workerThread.join();
+    if (g_workerThread) {
+        WaitForSingleObject(g_workerThread, INFINITE);
+        CloseHandle(g_workerThread);
+        g_workerThread = nullptr;
     }
 
     void* target = (void*)0x004B8910;

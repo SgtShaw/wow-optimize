@@ -1,7 +1,6 @@
 #include "combat_log_async.h"
 #include <queue>
 #include <mutex>
-#include <thread>
 #include <condition_variable>
 #include <atomic>
 #include <fstream>
@@ -11,11 +10,11 @@ namespace CombatLogAsync {
 static std::queue<std::string> g_logQueue;
 static std::mutex g_logMutex;
 static std::condition_variable g_logCv;
-static std::thread g_workerThread;
+static HANDLE g_workerThread = nullptr;
 static std::atomic<bool> g_shutdown{false};
 static std::string g_logFilePath = "Logs\\WoWCombatLog.txt";
 
-void LogWorker() {
+static DWORD WINAPI LogWorkerProc(LPVOID) {
     std::ofstream file;
     
     while (!g_shutdown) {
@@ -49,19 +48,22 @@ void LogWorker() {
         file.flush();
         file.close();
     }
+    return 0;
 }
 
 bool Init() {
     g_shutdown = false;
-    g_workerThread = std::thread(LogWorker);
-    return true;
+    g_workerThread = CreateThread(NULL, 0, LogWorkerProc, NULL, 0, NULL);
+    return g_workerThread != nullptr;
 }
 
 void Shutdown() {
     g_shutdown = true;
     g_logCv.notify_all();
-    if (g_workerThread.joinable()) {
-        g_workerThread.join();
+    if (g_workerThread) {
+        WaitForSingleObject(g_workerThread, INFINITE);
+        CloseHandle(g_workerThread);
+        g_workerThread = nullptr;
     }
 }
 

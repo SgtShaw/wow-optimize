@@ -36,7 +36,12 @@ static uint64_t g_preloads = 0;
 static std::queue<std::string> g_preloadQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
-static std::thread g_workerThread;
+static HANDLE g_workerThread = nullptr;
+static void SoundWorkerProc();
+static DWORD WINAPI SoundWorkerThreadProc(LPVOID) {
+    SoundWorkerProc();
+    return 0;
+}
 static std::atomic<bool> g_workerShutdown{false};
 
 // Storm DLL types
@@ -209,7 +214,7 @@ bool Init() {
 
     g_active = true;
     g_workerShutdown = false;
-    g_workerThread = std::thread(SoundWorkerProc);
+    g_workerThread = CreateThread(NULL, 0, SoundWorkerThreadProc, NULL, 0, NULL);
 
     // Preload critical combat sounds
     const char* sounds[] = {
@@ -237,8 +242,10 @@ void Shutdown() {
     g_active = false;
     g_workerShutdown = true;
     g_queueCv.notify_all();
-    if (g_workerThread.joinable()) {
-        g_workerThread.join();
+    if (g_workerThread) {
+        WaitForSingleObject(g_workerThread, INFINITE);
+        CloseHandle(g_workerThread);
+        g_workerThread = nullptr;
     }
     std::lock_guard<std::mutex> lock(g_soundMutex);
     g_soundCache.clear();
