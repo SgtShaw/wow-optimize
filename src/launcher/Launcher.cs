@@ -919,8 +919,8 @@ namespace WowOptimizeLauncher {
                 try {
                     using (System.Net.WebClient wc = new System.Net.WebClient()) {
                         wc.Headers.Add("User-Agent", "WoW-Optimize-Launcher");
-                        // Fetch latest version from developer release version file
-                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt");
+                        // Fetch latest version from developer release version file (with cache-busting timestamp to bypass raw GitHub CDN caching)
+                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt?t=" + DateTime.UtcNow.Ticks);
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
