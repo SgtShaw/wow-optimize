@@ -25,6 +25,21 @@ static uint32_t g_newlstr_calls = 0;
 static uint32_t g_newlstr_fast_hits = 0;
 static uint32_t g_newlstr_dead = 0;
 
+static inline bool CompareStringInline(const char* s1, const char* s2, size_t len) {
+    if (len == 0) return true;
+    switch (len) {
+        case 1: return s1[0] == s2[0];
+        case 2: return s1[0] == s2[0] && s1[1] == s2[1];
+        case 3: return s1[0] == s2[0] && s1[1] == s2[1] && s1[2] == s2[2];
+        case 4: return *(const uint32_t*)s1 == *(const uint32_t*)s2;
+        case 5: return *(const uint32_t*)s1 == *(const uint32_t*)s2 && s1[4] == s2[4];
+        case 6: return *(const uint32_t*)s1 == *(const uint32_t*)s2 && *(const uint16_t*)(s1 + 4) == *(const uint16_t*)(s2 + 4);
+        case 7: return *(const uint32_t*)s1 == *(const uint32_t*)s2 && *(const uint16_t*)(s1 + 4) == *(const uint16_t*)(s2 + 4) && s1[6] == s2[6];
+        case 8: return *(const uint64_t*)s1 == *(const uint64_t*)s2;
+        default: return memcmp(s1, s2, len) == 0;
+    }
+}
+
 void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
     g_newlstr_calls++;
     
@@ -74,7 +89,7 @@ void* __cdecl Hooked_luaS_newlstr(void* L, const char* str, size_t l) {
                 // tstring+20 is string data
                 const char* ts_data = (const char*)(tstring + 20);
 
-                if (memcmp(ts_data, str, l) == 0) {
+                if (CompareStringInline(ts_data, str, l)) {
                     uint8_t marked = *(uint8_t*)(tstring + 9);
                     if (((uint8_t)(~currentwhite) & marked & 3) != 0) {
                         *(uint8_t*)(tstring + 9) = (uint8_t)(marked ^ 3);
