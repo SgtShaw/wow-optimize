@@ -42,7 +42,7 @@
 #define TEST_DISABLE_ALL_APICACHE       0
 
 // Phase 2 Lua fast paths
-#define TEST_DISABLE_ALL_PHASE2         0
+#define TEST_DISABLE_ALL_PHASE2         1
 
 // Lua VM GC optimizer + mimalloc allocator replacement
 #define TEST_DISABLE_LUA_VM_OPT         0
