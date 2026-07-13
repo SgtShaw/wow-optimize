@@ -17,7 +17,16 @@ struct CachedFile {
 
 static std::unordered_map<std::string, CachedFile> g_fileCache;
 static std::mutex g_cacheMutex;
-static std::vector<std::thread> g_preloadThreads;
+static std::vector<HANDLE> g_preloadThreads;
+static void PreloadWorker(std::string filePath);
+static DWORD WINAPI PreloadWorkerThread(LPVOID lpParam) {
+    std::string* pPath = static_cast<std::string*>(lpParam);
+    if (pPath) {
+        PreloadWorker(*pPath);
+        delete pPath;
+    }
+    return 0;
+}
 static bool g_active = false;
 
 // Worker function to load a file in the background
@@ -42,7 +51,13 @@ void QueuePreload(const std::string& filePath) {
     if (g_fileCache.find(filePath) != g_fileCache.end()) return; // Already queued or loaded
     g_fileCache[filePath] = { "", false };
     
-    g_preloadThreads.emplace_back(PreloadWorker, filePath);
+    std::string* pPath = new std::string(filePath);
+    HANDLE h = CreateThread(NULL, 0, PreloadWorkerThread, pPath, 0, NULL);
+    if (h) {
+        g_preloadThreads.push_back(h);
+    } else {
+        delete pPath;
+    }
 }
 
 bool GetPreloadedContent(const std::string& filePath, std::string* outContent) {
@@ -63,8 +78,11 @@ bool Init() {
 
 void Shutdown() {
     g_active = false;
-    for (auto& t : g_preloadThreads) {
-        if (t.joinable()) t.join();
+    for (HANDLE h : g_preloadThreads) {
+        if (h) {
+            WaitForSingleObject(h, INFINITE);
+            CloseHandle(h);
+        }
     }
     g_preloadThreads.clear();
     std::lock_guard<std::mutex> lock(g_cacheMutex);

@@ -70,7 +70,12 @@ struct PrefetchRequest {
 // ================================================================
 // Thread-Safe Queue & Worker Variables
 // ================================================================
-static std::vector<std::thread> g_workerThreads;
+static std::vector<HANDLE> g_workerThreads;
+static void WorkerProc();
+static DWORD WINAPI MpqPrefetchWorkerThread(LPVOID) {
+    WorkerProc();
+    return 0;
+}
 static std::queue<std::string> g_prefetchQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
@@ -369,7 +374,8 @@ bool Init() {
     // Spawn background threads
     g_workerShutdown = false;
     for (int i = 0; i < WORKER_THREAD_COUNT; i++) {
-        g_workerThreads.push_back(std::thread(WorkerProc));
+        HANDLE h = CreateThread(NULL, 0, MpqPrefetchWorkerThread, NULL, 0, NULL);
+        if (h) g_workerThreads.push_back(h);
     }
 
     // Install zone change hook on sub_5204C0
@@ -407,9 +413,10 @@ void Shutdown() {
     g_queueCv.notify_all();
 
     // Wait for worker threads
-    for (auto& thread : g_workerThreads) {
-        if (thread.joinable()) {
-            thread.join();
+    for (HANDLE h : g_workerThreads) {
+        if (h) {
+            WaitForSingleObject(h, INFINITE);
+            CloseHandle(h);
         }
     }
     g_workerThreads.clear();

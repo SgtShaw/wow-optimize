@@ -67,7 +67,13 @@ static std::mutex g_handlesMutex;
 static HANDLE g_nextVirtualHandle = (HANDLE)0xFEED0000;
 
 // ---- Worker Thread Pool ----
-static std::vector<std::thread> g_workers;
+static std::vector<HANDLE> g_workers;
+static void DecompressorProc(int threadIdx);
+static DWORD WINAPI DecompressorThreadProc(LPVOID lpParam) {
+    int threadIdx = (int)(uintptr_t)lpParam;
+    DecompressorProc(threadIdx);
+    return 0;
+}
 static std::queue<std::string> g_preloadQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
@@ -354,7 +360,8 @@ bool Init() {
     // 3. Start decompressor worker pool
     g_shutdown = false;
     for (int i = 1; i <= 2; i++) {
-        g_workers.push_back(std::thread(DecompressorProc, i));
+        HANDLE h = CreateThread(NULL, 0, DecompressorThreadProc, (LPVOID)(uintptr_t)i, 0, NULL);
+        if (h) g_workers.push_back(h);
     }
 
     // 4. Install SFile hooks
@@ -444,8 +451,11 @@ void Shutdown() {
     // Stop worker threads
     g_shutdown = true;
     g_queueCv.notify_all();
-    for (auto& w : g_workers) {
-        if (w.joinable()) w.join();
+    for (HANDLE h : g_workers) {
+        if (h) {
+            WaitForSingleObject(h, INFINITE);
+            CloseHandle(h);
+        }
     }
     g_workers.clear();
 

@@ -40,7 +40,13 @@ static std::atomic<int> g_head{0};
 static std::atomic<int> g_tail{0};
 
 // Worker threads
-static std::thread g_workers[2];
+static HANDLE g_workers[2] = {nullptr, nullptr};
+static void WorkerProc(int threadId);
+static DWORD WINAPI NetPacketOffloadWorkerThread(LPVOID lpParam) {
+    int threadId = (int)(uintptr_t)lpParam;
+    WorkerProc(threadId);
+    return 0;
+}
 static std::atomic<bool> g_shutdown{false};
 static std::mutex g_cvMutex;
 static std::condition_variable g_cv;
@@ -195,7 +201,7 @@ bool Init() {
 
     // Start workers
     for (int i = 0; i < 2; i++) {
-        g_workers[i] = std::thread(WorkerProc, i);
+        g_workers[i] = CreateThread(NULL, 0, NetPacketOffloadWorkerThread, (LPVOID)(uintptr_t)i, 0, NULL);
     }
 
     Log("[NetPacketOffload] Active - Parallel Network Packet Offloader Active.");
@@ -206,8 +212,10 @@ void Shutdown() {
     g_shutdown.store(true);
     g_cv.notify_all();
     for (int i = 0; i < 2; i++) {
-        if (g_workers[i].joinable()) {
-            g_workers[i].join();
+        if (g_workers[i]) {
+            WaitForSingleObject(g_workers[i], INFINITE);
+            CloseHandle(g_workers[i]);
+            g_workers[i] = nullptr;
         }
     }
     MH_DisableHook((void*)0x005B2CB0);

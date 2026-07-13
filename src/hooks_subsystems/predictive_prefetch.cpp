@@ -34,7 +34,12 @@ static SFileCloseFile_fn pSFileCloseFile = nullptr;
 static SFileCloseArchive_fn pSFileCloseArchive = nullptr;
 
 // Thread variables
-static std::thread g_workerThread;
+static HANDLE g_workerThread = nullptr;
+static void WorkerProc();
+static DWORD WINAPI PredictivePrefetchWorkerThread(LPVOID) {
+    WorkerProc();
+    return 0;
+}
 static std::queue<std::string> g_prefetchQueue;
 static std::mutex g_queueMutex;
 static std::condition_variable g_queueCv;
@@ -136,7 +141,7 @@ bool Init() {
     OpenPrivateArchives();
 
     // Spawn background thread
-    g_workerThread = std::thread(WorkerProc);
+    g_workerThread = CreateThread(NULL, 0, PredictivePrefetchWorkerThread, NULL, 0, NULL);
 
     Log("[PredictivePrefetch] Active - Predictive movement-based read-ahead prefetcher running");
     return true;
@@ -199,8 +204,10 @@ void OnFrame() {
 void Shutdown() {
     g_shutdown.store(true);
     g_queueCv.notify_all();
-    if (g_workerThread.joinable()) {
-        g_workerThread.join();
+    if (g_workerThread) {
+        WaitForSingleObject(g_workerThread, INFINITE);
+        CloseHandle(g_workerThread);
+        g_workerThread = nullptr;
     }
 
     // Close private archive handles
