@@ -454,7 +454,7 @@ extern "C" void IncrementParticleFrameCount();
 #endif
 #define TEST_DISABLE_STRTOD_FAST                0   // enabled: safe string->number fast path
 #ifndef TEST_DISABLE_GETSTR_INLINE
-#define TEST_DISABLE_GETSTR_INLINE              0
+#define TEST_DISABLE_GETSTR_INLINE              1
 #endif
 
 // ---- Roadmap performance features (latency-oriented; FPS is GPU/vsync-bound) ----
