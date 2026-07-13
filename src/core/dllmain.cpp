@@ -654,6 +654,9 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
 #if TEST_DISABLE_DEFERRED_FIELD_UPDATES
     return orig_OnFieldUpdate(This, fieldId, value);
 #else
+    if (LoadingDefrag::IsLoadingActive()) {
+        return orig_OnFieldUpdate(This, fieldId, value);
+    }
     __try {
         // Critical fields (HP, Mana, GUID, Flags, Level) process immediately
         if (fieldId < 0x40) {
@@ -4348,6 +4351,9 @@ static int __cdecl hooked_MsgPump(void* a1, int* a2, DWORD* a3, void* a4, void* 
     int result = orig_MsgPump(a1, a2, a3, a4, a5);
 
     if (result == 0) {
+        if (LoadingDefrag::IsLoadingActive()) {
+            return result;
+        }
         // Original would exit the render loop (no messages pending).
         // Previous rc1 just returned 1 → stale *a1 → infinite loop.
         // Fix: inject WM_NULL into WoW's message queue so the next

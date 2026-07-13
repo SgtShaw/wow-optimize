@@ -79,13 +79,14 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
                     const void* rptr = *reinterpret_cast<const void**>(rowsArray + (recordId - minId) * 4);
                     if (rptr != nullptr) {
                         uint32_t s = e->seq.load(std::memory_order_relaxed);
-                        e->seq.store(s + 1, std::memory_order_release); // Odd: write start
-
-                        e->storePtr = storeKey;
-                        e->recordId = (uint32_t)recordId;
-                        e->recordPtr = rptr;
-
-                        e->seq.store(s + 2, std::memory_order_release); // Even: write complete
+                        if ((s & 1) == 0) {
+                            if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
+                                e->storePtr = storeKey;
+                                e->recordId = (uint32_t)recordId;
+                                e->recordPtr = rptr;
+                                e->seq.store(s + 2, std::memory_order_release); // Even: write complete
+                            }
+                        }
                     }
                 }
             }
