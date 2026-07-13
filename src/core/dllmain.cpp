@@ -1526,46 +1526,13 @@ static bool RemovePendingSocket(SOCKET s) {
 
 static void OptimizeSocket(SOCKET s, const char* trigger) {
     int applied = 0;
-    int failed  = 0;
 
-    // 1. Disable Nagle
+    // 1. Disable Nagle (TCP_NODELAY is standard, safe, and lowers latency)
     BOOL nodelay = TRUE;
     if (setsockopt(s, IPPROTO_TCP, TCP_NODELAY, (const char*)&nodelay, sizeof(nodelay)) == 0)
         applied++;
 
-    // 2. Disable Delayed ACK
-    DWORD ackFreq = 1;
-    DWORD bytesReturned = 0;
-    if (WSAIoctl(s, SIO_TCP_SET_ACK_FREQUENCY, &ackFreq, sizeof(ackFreq),
-                 NULL, 0, &bytesReturned, NULL, NULL) == 0)
-        applied++;
-    else
-        failed++;
-
-    // 3. QoS Low Delay
-    int tos = 0x10;
-    if (setsockopt(s, IPPROTO_IP, IP_TOS, (const char*)&tos, sizeof(tos)) == 0)
-        applied++;
-    else
-        failed++;
-
-    // 4. Buffer sizing: deliberately NOT set. Calling setsockopt(SO_RCVBUF/SO_SNDBUF)
-    // PINS the socket buffers and DISABLES Windows TCP receive-window auto-tuning,
-    // locking the receive window at a fixed ~64KB. In a high-throughput zone like
-    // Dalaran (the server relays updates for hundreds of nearby players) that fixed
-    // window fills whenever the main thread hitches; the window drops to zero, the
-    // server's per-client send queue backs up, and TrinityCore-based realms (e.g.
-    // Circle) drop a client whose send queue overflows -- the reproducible ~45-min
-    // "only in Dalaran" disconnect. Leaving the buffers unset lets Windows auto-tune
-    // the window upward under load and avoids the backlog. TCP_NODELAY already covers
-    // latency; the fixed buffer caps only hurt throughput.
-
-    // 5. Keepalive. WoW already has an app-level heartbeat, so this only needs to keep
-    // NAT mappings warm. The old 10s/1s was far too aggressive: after 10s idle it probes
-    // every 1s and Windows drops the connection after ~10 unanswered probes, so any
-    // ~20s network blip (or a transient server hiccup) became a disconnect on long
-    // sessions. 30s idle + 5s interval tolerates real-world jitter while still keeping
-    // the path alive.
+    // 2. Keepalive (30s idle, 5s interval to keep NAT mappings warm without flooding)
     tcp_keepalive ka;
     ka.onoff             = 1;
     ka.keepalivetime     = 30000;
@@ -1574,11 +1541,9 @@ static void OptimizeSocket(SOCKET s, const char* trigger) {
     if (WSAIoctl(s, SIO_KEEPALIVE_VALS, &ka, sizeof(ka),
                  NULL, 0, &kaBytes, NULL, NULL) == 0)
         applied++;
-    else
-        failed++;
 
-    Log("Socket %d [%s]: %d applied, %d failed (NODELAY+ACK+QoS+KA, buffers auto-tuned)",
-       (int)s, trigger, applied, failed);
+    Log("Socket %d [%s]: %d applied (TCP_NODELAY + Keepalive, QoS/ACK frequency disabled for ISP/VPN compatibility)",
+       (int)s, trigger, applied);
 }
 
 static int WINAPI hooked_connect(SOCKET s, const struct sockaddr* name, int namelen) {
