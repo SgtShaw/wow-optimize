@@ -12,9 +12,8 @@
 #include <string>
 #include <vector>
 #include <queue>
-#include <mutex>
+#include "win_mutex.h"
 #include <thread>
-#include <condition_variable>
 #include <atomic>
 #include <unordered_map>
 #include <unordered_set>
@@ -77,8 +76,8 @@ static DWORD WINAPI MpqPrefetchWorkerThread(LPVOID) {
     return 0;
 }
 static std::queue<std::string> g_prefetchQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static std::atomic<bool> g_workerShutdown{false};
 
 // ================================================================
@@ -273,7 +272,7 @@ static void WorkerProc() {
     while (!g_workerShutdown.load(std::memory_order_relaxed)) {
         std::string filename;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait_for(lock, std::chrono::milliseconds(20), [] {
                 return !g_prefetchQueue.empty() || g_workerShutdown.load();
             });
@@ -335,7 +334,7 @@ static void OnZoneChange(int newZone) {
             Log("[MPQPrefetch] Predicting zone %d, queuing %d files", 
                 predictedZone, (int)it->second.size());
 
-            std::lock_guard<std::mutex> lock(g_queueMutex);
+            WinLockGuard lock(g_queueMutex);
             // Clear current queue to prioritize new zone files
             while (!g_prefetchQueue.empty()) g_prefetchQueue.pop();
 
@@ -452,7 +451,7 @@ Stats GetStats() {
     s.cacheMisses = g_cacheMisses;
     s.zoneTransitions = g_zoneTransitions;
 
-    std::lock_guard<std::mutex> lock(g_queueMutex);
+    WinLockGuard lock(g_queueMutex);
     s.queueDepth = (long)g_prefetchQueue.size();
 
     AcquireSRWLockShared(&g_prefetchTimeLock);

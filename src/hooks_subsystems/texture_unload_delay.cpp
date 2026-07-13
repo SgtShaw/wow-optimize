@@ -1,11 +1,11 @@
 #include "texture_unload_delay.h"
 #include <unordered_map>
 #include <string>
-#include <mutex>
+#include "win_mutex.h"
 
 namespace TextureUnloadDelay {
     static bool g_enabled = true;
-    static std::mutex g_textureLock;
+    static WinMutex g_textureLock;
     static std::unordered_map<std::string, DWORD> g_recentTextures;
 
     bool Init() {
@@ -21,7 +21,7 @@ namespace TextureUnloadDelay {
 
         std::string path(texturePath);
         DWORD now = GetTickCount();
-        std::lock_guard<std::mutex> lock(g_textureLock);
+        WinLockGuard lock(g_textureLock);
         
         // Cache that this texture was requested for unloading
         auto it = g_recentTextures.find(path);

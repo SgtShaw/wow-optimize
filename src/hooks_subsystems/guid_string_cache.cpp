@@ -1,5 +1,5 @@
 #include "guid_string_cache.h"
-#include <mutex>
+#include "win_mutex.h"
 #include <cstdio>
 
 namespace GuidStringCache {
@@ -11,7 +11,7 @@ namespace GuidStringCache {
 
     static constexpr int CACHE_SIZE = 512;
     static CacheEntry g_cache[CACHE_SIZE] = {};
-    static std::mutex g_cacheMutex;
+    static WinMutex g_cacheMutex;
     static bool g_enabled = true;
 
     bool Init() {
@@ -26,7 +26,7 @@ namespace GuidStringCache {
         if (!g_enabled) return nullptr;
 
         size_t index = (size_t)(guid % CACHE_SIZE);
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         if (g_cache[index].valid && g_cache[index].guid == guid) {
             return g_cache[index].str;
         }

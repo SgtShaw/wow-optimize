@@ -1,15 +1,14 @@
 #include "combat_log_async.h"
 #include <queue>
-#include <mutex>
-#include <condition_variable>
+#include "win_mutex.h"
 #include <atomic>
 #include <fstream>
 
 namespace CombatLogAsync {
 
 static std::queue<std::string> g_logQueue;
-static std::mutex g_logMutex;
-static std::condition_variable g_logCv;
+static WinMutex g_logMutex;
+static WinCondVar g_logCv;
 static HANDLE g_workerThread = nullptr;
 static std::atomic<bool> g_shutdown{false};
 static std::string g_logFilePath = "Logs\\WoWCombatLog.txt";
@@ -20,7 +19,7 @@ static DWORD WINAPI LogWorkerProc(LPVOID) {
     while (!g_shutdown) {
         std::string line;
         {
-            std::unique_lock<std::mutex> lock(g_logMutex);
+            WinUniqueLock lock(g_logMutex);
             g_logCv.wait(lock, [] { return !g_logQueue.empty() || g_shutdown; });
             
             if (g_shutdown && g_logQueue.empty()) break;
@@ -69,7 +68,7 @@ void Shutdown() {
 
 void WriteLogAsync(const std::string& line) {
     if (line.empty()) return;
-    std::lock_guard<std::mutex> lock(g_logMutex);
+    WinLockGuard lock(g_logMutex);
     g_logQueue.push(line);
     g_logCv.notify_one();
 }

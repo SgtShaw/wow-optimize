@@ -1,7 +1,7 @@
 #include <windows.h>
 #include <unordered_map>
 #include <string>
-#include <mutex>
+#include "win_mutex.h"
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
@@ -10,12 +10,12 @@ namespace LuaStringPoolFast {
 
 // Interned symbol pool
 static std::unordered_map<std::string, void*> g_symbolPool;
-static std::mutex g_poolMutex;
+static WinMutex g_poolMutex;
 static uint64_t g_hits = 0;
 static uint64_t g_misses = 0;
 
 void* GetSymbol(const std::string& str) {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    WinLockGuard lock(g_poolMutex);
     auto it = g_symbolPool.find(str);
     if (it != g_symbolPool.end()) {
         g_hits++;
@@ -26,7 +26,7 @@ void* GetSymbol(const std::string& str) {
 }
 
 void InsertSymbol(const std::string& str, void* luaStringObj) {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    WinLockGuard lock(g_poolMutex);
     g_symbolPool[str] = luaStringObj;
 }
 
@@ -36,7 +36,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    WinLockGuard lock(g_poolMutex);
     g_symbolPool.clear();
     Log("[LuaStringPoolFast] Stats: %lld hits, %lld misses in string pool", g_hits, g_misses);
 }

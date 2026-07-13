@@ -3,7 +3,7 @@
 #include "version.h"
 #include <string>
 #include <vector>
-#include <mutex>
+#include "win_mutex.h"
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
@@ -22,13 +22,13 @@ struct QueuedMessage {
 };
 
 static std::vector<QueuedMessage> g_queue;
-static std::mutex g_queueMutex;
+static WinMutex g_queueMutex;
 static DWORD g_lastFlushTick = 0;
 
 static int __cdecl Hooked_SendAddonMessage(const char* prefix, const char* text, int channel, const char* target) {
     #if !TEST_DISABLE_NET_PACKET_COALESCE
     if (prefix && text) {
-        std::lock_guard<std::mutex> lock(g_queueMutex);
+        WinLockGuard lock(g_queueMutex);
         QueuedMessage msg;
         msg.prefix = prefix;
         msg.text = text;
@@ -53,7 +53,7 @@ void OnFrame() {
     
     std::vector<QueuedMessage> toSend;
     {
-        std::lock_guard<std::mutex> lock(g_queueMutex);
+        WinLockGuard lock(g_queueMutex);
         if (g_queue.empty()) return;
         toSend.swap(g_queue);
     }

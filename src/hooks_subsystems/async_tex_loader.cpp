@@ -6,9 +6,8 @@
 #include <string>
 #include <vector>
 #include <queue>
-#include <mutex>
+#include "win_mutex.h"
 #include <thread>
-#include <condition_variable>
 #include <atomic>
 #include <unordered_map>
 #include <unordered_set>
@@ -46,8 +45,8 @@ static DWORD WINAPI WorkerThreadProc(LPVOID) {
     return 0;
 }
 static std::queue<std::string> g_prefetchQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static std::atomic<bool> g_shutdown{false};
 static DWORD g_workerThreadId = 0;
 
@@ -59,11 +58,11 @@ struct VirtualFile {
 };
 
 static std::unordered_map<HANDLE, VirtualFile*> g_virtualHandles;
-static std::mutex g_virtualHandlesMutex;
+static WinMutex g_virtualHandlesMutex;
 static HANDLE g_nextVirtualHandle = (HANDLE)0xFEED0000;
 
 static std::unordered_map<std::string, std::vector<char>> g_fileMemoryCache;
-static std::mutex g_fileCacheMutex;
+static WinMutex g_fileCacheMutex;
 
 #pragma pack(push, 1)
 struct BLPHeader {
@@ -122,7 +121,7 @@ struct PlaceholderEntry {
 
 static std::unordered_map<std::string, PlaceholderEntry> g_placeholderMap;
 static std::unordered_set<std::string> g_hotSwapTextures;
-static std::mutex g_swapMutex;
+static WinMutex g_swapMutex;
 
 static std::vector<char> g_whiteTextureBytes;
 
@@ -187,7 +186,7 @@ bool GetCachedTextureData(const std::string& path, std::vector<uint8_t>& outData
         if (c == '/') c = '\\';
         else c = tolower(c);
     }
-    std::lock_guard<std::mutex> lock(g_fileCacheMutex);
+    WinLockGuard lock(g_fileCacheMutex);
     auto it = g_fileMemoryCache.find(normPath);
     if (it != g_fileMemoryCache.end()) {
         outData.assign(it->second.begin(), it->second.end());
@@ -203,7 +202,7 @@ static void WorkerProc() {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
         std::string filename;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait_for(lock, std::chrono::milliseconds(50), [] {
                 return !g_prefetchQueue.empty() || g_shutdown.load();
             });
@@ -215,7 +214,7 @@ static void WorkerProc() {
 
         bool alreadyLoaded = false;
         {
-            std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+            WinLockGuard cacheLock(g_fileCacheMutex);
             if (g_fileMemoryCache.count(filename) && g_fileMemoryCache[filename].size() != g_whiteTextureBytes.size()) {
                 alreadyLoaded = true;
             }
@@ -246,7 +245,7 @@ static void WorkerProc() {
             if (Config::g_settings.OptOomGovernor && CheckMemoryOomPressure()) {
                 DownscaleBLPInPlace(fileData, filename);
             }
-            std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+            WinLockGuard cacheLock(g_fileCacheMutex);
             g_fileMemoryCache[filename] = std::move(fileData);
         }
     }
@@ -291,7 +290,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
             
             bool alreadyCached = false;
             {
-                std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+                WinLockGuard cacheLock(g_fileCacheMutex);
                 if (g_fileMemoryCache.count(normPath)) {
                     alreadyCached = true;
                 }
@@ -319,7 +318,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
                 if (loaded) {
                     DownscaleBLPInPlace(fileData, path);
                     {
-                        std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+                        WinLockGuard cacheLock(g_fileCacheMutex);
                         g_fileMemoryCache[normPath] = std::move(fileData);
                     }
                 }
@@ -332,7 +331,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
 
     // Check if successfully swapped already
     {
-        std::lock_guard<std::mutex> lock(g_swapMutex);
+        WinLockGuard lock(g_swapMutex);
         if (g_hotSwapTextures.count(realPath)) {
             return Call_Orig_TexCreateBLP(flags, path, a3, a4);
         }
@@ -340,7 +339,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
 
     // Check if already in progress
     {
-        std::lock_guard<std::mutex> lock(g_swapMutex);
+        WinLockGuard lock(g_swapMutex);
         if (g_placeholderMap.count(realPath)) {
             return g_placeholderMap[realPath].placeholderHandle;
         }
@@ -348,7 +347,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
 
     // Allocate placeholder white texture bytes initially under the target path
     {
-        std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+        WinLockGuard cacheLock(g_fileCacheMutex);
         g_fileMemoryCache[realPath] = g_whiteTextureBytes;
     }
 
@@ -363,7 +362,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
 
     // Queue real file read in background
     {
-        std::lock_guard<std::mutex> lock(g_swapMutex);
+        WinLockGuard lock(g_swapMutex);
         PlaceholderEntry entry;
         entry.placeholderHandle = placeholder;
         entry.realPath = realPath;
@@ -373,7 +372,7 @@ int __stdcall Handle_TexCreateBLP(unsigned int flags, char* path, void* a3, int 
         g_placeholderMap[realPath] = entry;
 
         {
-            std::lock_guard<std::mutex> qLock(g_queueMutex);
+            WinLockGuard qLock(g_queueMutex);
             g_prefetchQueue.push(realPath);
             g_queueCv.notify_one();
         }
@@ -399,7 +398,7 @@ static TextureRelease_fn orig_TextureRelease = nullptr;
 
 int __stdcall Hooked_TextureRelease(void* Block) {
     if (Block) {
-        std::lock_guard<std::mutex> lock(g_swapMutex);
+        WinLockGuard lock(g_swapMutex);
         for (auto it = g_placeholderMap.begin(); it != g_placeholderMap.end(); ) {
             if (it->second.placeholderHandle == (int)Block) {
                 Log("[AsyncTexLoader] Active placeholder %p released, removing from swap queue", Block);
@@ -443,8 +442,8 @@ void OnFrame() {
     std::vector<PlaceholderEntry> completed;
 
     {
-        std::lock_guard<std::mutex> lock(g_swapMutex);
-        std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+        WinLockGuard lock(g_swapMutex);
+        WinLockGuard cacheLock(g_fileCacheMutex);
 
         auto it = g_placeholderMap.begin();
         while (it != g_placeholderMap.end()) {
@@ -462,7 +461,7 @@ void OnFrame() {
         std::string tempPath = entry.realPath + "_tmp";
 
         {
-            std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+            WinLockGuard cacheLock(g_fileCacheMutex);
             g_fileMemoryCache[tempPath] = g_fileMemoryCache[entry.realPath];
         }
 
@@ -471,7 +470,7 @@ void OnFrame() {
             bool swapped = SafeSwapPointers(entry.placeholderHandle, real);
 
             if (swapped) {
-                std::lock_guard<std::mutex> lock(g_swapMutex);
+                WinLockGuard lock(g_swapMutex);
                 g_hotSwapTextures.insert(entry.realPath);
             }
 
@@ -482,7 +481,7 @@ void OnFrame() {
         }
 
         {
-            std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+            WinLockGuard cacheLock(g_fileCacheMutex);
             g_fileMemoryCache.erase(tempPath);
             g_fileMemoryCache.erase(entry.realPath);
         }
@@ -561,16 +560,16 @@ void Shutdown() {
     }
     g_privateArchives.clear();
 
-    std::lock_guard<std::mutex> cacheLock(g_fileCacheMutex);
+    WinLockGuard cacheLock(g_fileCacheMutex);
     g_fileMemoryCache.clear();
 
-    std::lock_guard<std::mutex> lock(g_virtualHandlesMutex);
+    WinLockGuard lock(g_virtualHandlesMutex);
     for (auto pair : g_virtualHandles) {
         delete pair.second;
     }
     g_virtualHandles.clear();
 
-    std::lock_guard<std::mutex> swapLock(g_swapMutex);
+    WinLockGuard swapLock(g_swapMutex);
     g_placeholderMap.clear();
     g_hotSwapTextures.clear();
 }

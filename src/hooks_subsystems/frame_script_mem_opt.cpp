@@ -1,11 +1,11 @@
 #include "frame_script_mem_opt.h"
-#include <mutex>
+#include "win_mutex.h"
 #include <vector>
 
 namespace FrameScriptMemOpt {
     static bool g_enabled = true;
     static std::vector<void*> g_scriptBlocksPool;
-    static std::mutex g_poolMutex;
+    static WinMutex g_poolMutex;
     static constexpr size_t POOL_LIMIT = 64;
     static constexpr size_t FIXED_BLOCK_SIZE = 512; // Common script closure block size
 
@@ -14,7 +14,7 @@ namespace FrameScriptMemOpt {
     }
 
     void Shutdown() {
-        std::lock_guard<std::mutex> lock(g_poolMutex);
+        WinLockGuard lock(g_poolMutex);
         for (void* ptr : g_scriptBlocksPool) {
             HeapFree(GetProcessHeap(), 0, ptr);
         }
@@ -26,7 +26,7 @@ namespace FrameScriptMemOpt {
             return HeapAlloc(GetProcessHeap(), 0, size);
         }
 
-        std::lock_guard<std::mutex> lock(g_poolMutex);
+        WinLockGuard lock(g_poolMutex);
         if (!g_scriptBlocksPool.empty()) {
             void* block = g_scriptBlocksPool.back();
             g_scriptBlocksPool.pop_back();
@@ -43,7 +43,7 @@ namespace FrameScriptMemOpt {
             return;
         }
 
-        std::lock_guard<std::mutex> lock(g_poolMutex);
+        WinLockGuard lock(g_poolMutex);
         if (g_scriptBlocksPool.size() < POOL_LIMIT) {
             g_scriptBlocksPool.push_back(ptr);
         } else {

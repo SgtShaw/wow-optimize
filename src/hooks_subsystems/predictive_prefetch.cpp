@@ -11,9 +11,8 @@
 #include <string>
 #include <vector>
 #include <queue>
-#include <mutex>
+#include "win_mutex.h"
 #include <thread>
-#include <condition_variable>
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
@@ -41,8 +40,8 @@ static DWORD WINAPI PredictivePrefetchWorkerThread(LPVOID) {
     return 0;
 }
 static std::queue<std::string> g_prefetchQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static std::atomic<bool> g_shutdown{false};
 
 // Private Storm Archive handles
@@ -102,7 +101,7 @@ static void WorkerProc() {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
         std::string filename;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait_for(lock, std::chrono::milliseconds(20), [] {
                 return !g_prefetchQueue.empty() || g_shutdown.load();
             });
@@ -188,7 +187,7 @@ void OnFrame() {
         // Predict paths for the 4 primary continent folders
         const char* continents[] = { "Azeroth", "Kalimdor", "Expansion01", "Northrend" };
 
-        std::lock_guard<std::mutex> lock(g_queueMutex);
+        WinLockGuard lock(g_queueMutex);
         // Clear previous queue to prioritize the new location
         while (!g_prefetchQueue.empty()) g_prefetchQueue.pop();
 

@@ -3,7 +3,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -16,13 +16,13 @@ typedef int (APIENTRY *FSOUND_PlaySoundEx_fn)(int channel, void* sptr, void* dsp
 static FSOUND_PlaySoundEx_fn orig_FSOUND_PlaySoundEx = nullptr;
 
 static std::unordered_map<void*, DWORD> g_playTimes;
-static std::mutex g_soundMutex;
+static WinMutex g_soundMutex;
 static uint64_t g_coalescedPlays = 0;
 
 static int APIENTRY Hooked_FSOUND_PlaySound(int channel, void* sptr) {
     if (sptr) {
         DWORD now = GetTickCount();
-        std::lock_guard<std::mutex> lock(g_soundMutex);
+        WinLockGuard lock(g_soundMutex);
         auto it = g_playTimes.find(sptr);
         if (it != g_playTimes.end() && (now - it->second < 30)) {
             g_coalescedPlays++;
@@ -40,7 +40,7 @@ static int APIENTRY Hooked_FSOUND_PlaySound(int channel, void* sptr) {
 static int APIENTRY Hooked_FSOUND_PlaySoundEx(int channel, void* sptr, void* dsp, signed char startpaused) {
     if (sptr) {
         DWORD now = GetTickCount();
-        std::lock_guard<std::mutex> lock(g_soundMutex);
+        WinLockGuard lock(g_soundMutex);
         auto it = g_playTimes.find(sptr);
         if (it != g_playTimes.end() && (now - it->second < 30)) {
             g_coalescedPlays++;
@@ -80,7 +80,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_soundMutex);
+    WinLockGuard lock(g_soundMutex);
     g_playTimes.clear();
     Log("[SoundCoalescer] Stats: Coalesced %lld sound plays", g_coalescedPlays);
 }

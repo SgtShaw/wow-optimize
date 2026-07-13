@@ -1,5 +1,5 @@
 #include "spell_cooldown_cache.h"
-#include <mutex>
+#include "win_mutex.h"
 
 namespace SpellCooldownCache {
     struct CooldownEntry {
@@ -12,7 +12,7 @@ namespace SpellCooldownCache {
 
     static constexpr int CACHE_SIZE = 256;
     static CooldownEntry g_cache[CACHE_SIZE] = {};
-    static std::mutex g_cacheMutex;
+    static WinMutex g_cacheMutex;
     static bool g_enabled = true;
 
     bool Init() {
@@ -29,7 +29,7 @@ namespace SpellCooldownCache {
         size_t index = spellId % CACHE_SIZE;
         DWORD now = GetTickCount();
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         if (g_cache[index].valid && g_cache[index].spellId == spellId) {
             if (now - g_cache[index].timestamp < 33) { // Coalesce checks within the same frame (33ms)
                 outStart = g_cache[index].start;
@@ -46,7 +46,7 @@ namespace SpellCooldownCache {
         size_t index = spellId % CACHE_SIZE;
         DWORD now = GetTickCount();
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         g_cache[index].spellId = spellId;
         g_cache[index].start = start;
         g_cache[index].duration = duration;

@@ -1,10 +1,10 @@
 #include "packet_processing_throttle.h"
-#include <mutex>
+#include "win_mutex.h"
 #include <unordered_map>
 
 namespace PacketProcessingThrottle {
     static bool g_enabled = true;
-    static std::mutex g_throttleMutex;
+    static WinMutex g_throttleMutex;
     static std::unordered_map<unsigned int, DWORD> g_lastProcessedTime;
 
     bool Init() {
@@ -25,7 +25,7 @@ namespace PacketProcessingThrottle {
         // SMSG_MOTD = 0x009E
         if (opcode == 0x008A || opcode == 0x03C4 || opcode == 0x0096 || opcode == 0x009E) {
             DWORD now = GetTickCount();
-            std::lock_guard<std::mutex> lock(g_throttleMutex);
+            WinLockGuard lock(g_throttleMutex);
             auto it = g_lastProcessedTime.find(opcode);
             if (it != g_lastProcessedTime.end()) {
                 if (now - it->second < 10000) { // Limit to once every 10 seconds in combat / heavy load

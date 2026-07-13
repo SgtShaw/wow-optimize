@@ -5,7 +5,7 @@
 #include <windows.h>
 #include <unordered_map>
 #include <vector>
-#include <mutex>
+#include "win_mutex.h"
 #include <cstdint>
 
 extern "C" void Log(const char* fmt, ...);
@@ -21,7 +21,7 @@ struct ProtoCacheEntry {
 // Thread-safe lock-free direct-mapped cache of compiled blocks
 static ProtoCacheEntry g_protoCache[4096] = {0};
 static std::vector<void*> g_allocatedPages;
-static std::mutex g_jitMutex;
+static WinMutex g_jitMutex;
 static uint64_t g_compiledCount = 0;
 static uint64_t g_invocations = 0;
 
@@ -73,7 +73,7 @@ void* CompileFunction(void* proto) {
 
     // Keep track of allocated pages for clean shutdown
     {
-        std::lock_guard<std::mutex> lock(g_jitMutex);
+        WinLockGuard lock(g_jitMutex);
         g_allocatedPages.push_back(execMem);
         g_compiledCount++;
     }
@@ -189,7 +189,7 @@ void Shutdown() {
     MH_DisableHook(target);
     MH_RemoveHook(target);
 
-    std::lock_guard<std::mutex> lock(g_jitMutex);
+    WinLockGuard lock(g_jitMutex);
     for (void* page : g_allocatedPages) {
         VirtualFree(page, 0, MEM_RELEASE);
     }

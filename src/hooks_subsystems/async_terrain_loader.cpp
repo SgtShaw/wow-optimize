@@ -4,7 +4,7 @@
 #include "../allocators/loading_defrag.h"
 #include "../core/version.h"
 #include <windows.h>
-#include <mutex>
+#include "win_mutex.h"
 #include <unordered_set>
 #include <thread>
 #include <atomic>
@@ -27,12 +27,12 @@ typedef void* (__thiscall *sub_7D6BF0_fn)(void* This, int a2, void* a3);
 static sub_7D6BF0_fn orig_sub_7D6BF0 = nullptr;
 
 static std::unordered_set<void*> g_loadingGrids;
-static std::mutex g_loadingGridsMutex;
+static WinMutex g_loadingGridsMutex;
 static std::atomic<int> g_asyncLoadCount{0};
 
 bool IsGridLoading(void* grid) {
     if (!grid) return false;
-    std::lock_guard<std::mutex> lock(g_loadingGridsMutex);
+    WinLockGuard lock(g_loadingGridsMutex);
     return g_loadingGrids.count(grid) > 0;
 }
 
@@ -54,7 +54,7 @@ int __cdecl Hooked_LoadAdt(void* grid) {
     }
 
     {
-        std::lock_guard<std::mutex> lock(g_loadingGridsMutex);
+        WinLockGuard lock(g_loadingGridsMutex);
         if (g_loadingGrids.count(grid)) {
             return 0; // Already loading
         }
@@ -67,7 +67,7 @@ int __cdecl Hooked_LoadAdt(void* grid) {
         SafeLoadAdt(grid, orig_sub_7D9A20);
 
         {
-            std::lock_guard<std::mutex> lock(g_loadingGridsMutex);
+            WinLockGuard lock(g_loadingGridsMutex);
             g_loadingGrids.erase(grid);
         }
         g_asyncLoadCount.fetch_sub(1, std::memory_order_relaxed);
@@ -81,7 +81,7 @@ int __cdecl Hooked_UnloadGrid(void* grid) {
         // Wait if the grid is currently loading in the background
         while (true) {
             {
-                std::lock_guard<std::mutex> lock(g_loadingGridsMutex);
+                WinLockGuard lock(g_loadingGridsMutex);
                 if (g_loadingGrids.count(grid) == 0) {
                     break;
                 }
@@ -180,7 +180,7 @@ void Shutdown() {
         Sleep(1);
     }
 
-    std::lock_guard<std::mutex> lock(g_loadingGridsMutex);
+    WinLockGuard lock(g_loadingGridsMutex);
     g_loadingGrids.clear();
 }
 

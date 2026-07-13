@@ -1,7 +1,7 @@
 #include "font_outline_cache.h"
 #include "version.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -24,7 +24,7 @@ struct OutlineKeyHash {
 };
 
 static std::unordered_map<OutlineKey, void*, OutlineKeyHash> g_outlineCache;
-static std::mutex g_outlineMutex;
+static WinMutex g_outlineMutex;
 static uint64_t g_outlineHits = 0;
 static uint64_t g_outlineMisses = 0;
 
@@ -34,7 +34,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_outlineMutex);
+    WinLockGuard lock(g_outlineMutex);
     g_outlineCache.clear();
     Log("[FontOutlineCache] Stats: %lld hits, %lld misses", g_outlineHits, g_outlineMisses);
 }
@@ -42,7 +42,7 @@ void Shutdown() {
 void* LookupOutline(void* font, uint32_t charCode, int style) {
     if (!font) return nullptr;
     OutlineKey key = {font, charCode, style};
-    std::lock_guard<std::mutex> lock(g_outlineMutex);
+    WinLockGuard lock(g_outlineMutex);
     auto it = g_outlineCache.find(key);
     if (it != g_outlineCache.end()) {
         g_outlineHits++;

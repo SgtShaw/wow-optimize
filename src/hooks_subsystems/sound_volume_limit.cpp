@@ -1,6 +1,6 @@
 #include "sound_volume_limit.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 namespace SoundVolumeLimit {
     typedef signed char (APIENTRY *FSOUND_SetVolume_fn)(int channel, int volume);
@@ -10,7 +10,7 @@ namespace SoundVolumeLimit {
     static FSOUND_IsPlaying_fn FSOUND_IsPlaying_ = nullptr;
 
     static std::unordered_map<int, void*> g_channelSounds;
-    static std::mutex g_soundLimitMutex;
+    static WinMutex g_soundLimitMutex;
     static bool g_enabled = true;
 
     bool Init() {
@@ -30,7 +30,7 @@ namespace SoundVolumeLimit {
     void LimitChannelVolume(int channel, void* sptr) {
         if (!g_enabled || channel < 0 || !sptr || !FSOUND_SetVolume_ || !FSOUND_IsPlaying_) return;
 
-        std::lock_guard<std::mutex> lock(g_soundLimitMutex);
+        WinLockGuard lock(g_soundLimitMutex);
         
         // Update the sound playing on this channel
         g_channelSounds[channel] = sptr;

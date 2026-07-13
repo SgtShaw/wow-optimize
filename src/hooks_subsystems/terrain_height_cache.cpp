@@ -1,6 +1,5 @@
 #include "terrain_height_cache.h"
 #include <cmath>
-#include <mutex>
 
 namespace TerrainHeightCache {
     struct CacheEntry {
@@ -12,7 +11,7 @@ namespace TerrainHeightCache {
 
     static constexpr int CACHE_SIZE = 512;
     static CacheEntry g_cache[CACHE_SIZE];
-    static std::mutex g_cacheMutex;
+    static SRWLOCK g_cacheLock = SRWLOCK_INIT;
     static bool g_enabled = true;
 
     bool Init() {
@@ -25,10 +24,11 @@ namespace TerrainHeightCache {
     }
 
     void Clear() {
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        AcquireSRWLockExclusive(&g_cacheLock);
         for (int i = 0; i < CACHE_SIZE; ++i) {
             g_cache[i].valid = false;
         }
+        ReleaseSRWLockExclusive(&g_cacheLock);
     }
 
     inline unsigned int GetHash(float x, float y) {
@@ -40,25 +40,28 @@ namespace TerrainHeightCache {
     bool GetCachedHeight(float x, float y, float& outZ) {
         if (!g_enabled) return false;
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        AcquireSRWLockExclusive(&g_cacheLock);
         unsigned int idx = GetHash(x, y);
+        bool found = false;
         if (g_cache[idx].valid) {
             if (std::abs(g_cache[idx].x - x) < 0.05f && std::abs(g_cache[idx].y - y) < 0.05f) {
                 outZ = g_cache[idx].z;
-                return true;
+                found = true;
             }
         }
-        return false;
+        ReleaseSRWLockExclusive(&g_cacheLock);
+        return found;
     }
 
     void AddToCache(float x, float y, float z) {
         if (!g_enabled) return;
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        AcquireSRWLockExclusive(&g_cacheLock);
         unsigned int idx = GetHash(x, y);
         g_cache[idx].x = x;
         g_cache[idx].y = y;
         g_cache[idx].z = z;
         g_cache[idx].valid = true;
+        ReleaseSRWLockExclusive(&g_cacheLock);
     }
 }

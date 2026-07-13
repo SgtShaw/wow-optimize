@@ -1,7 +1,7 @@
 #include "anim_blend_cache.h"
 #include "MinHook.h"
 #include <cmath>
-#include <mutex>
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -16,7 +16,7 @@ namespace AnimBlendCache {
 
     static constexpr int CACHE_SIZE = 1024;
     static CacheEntry g_cache[CACHE_SIZE];
-    static std::mutex g_cacheMutex;
+    static WinMutex g_cacheMutex;
     static bool g_enabled = true;
 
     // Hooking 0x005F91E0 (UpdateBones) in WotLK 3.3.5a
@@ -52,7 +52,7 @@ namespace AnimBlendCache {
     }
 
     void Clear() {
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         for (int i = 0; i < CACHE_SIZE; ++i) {
             g_cache[i].valid = false;
         }
@@ -67,7 +67,7 @@ namespace AnimBlendCache {
     bool GetCachedMatrix(void* model, int boneIndex, float animTime, float* outMatrix) {
         if (!g_enabled) return false;
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         unsigned int idx = GetHash(model, boneIndex, animTime);
         if (g_cache[idx].valid && g_cache[idx].model == model && g_cache[idx].boneIndex == boneIndex) {
             if (std::abs(g_cache[idx].animTime - animTime) < 0.01f) {
@@ -81,7 +81,7 @@ namespace AnimBlendCache {
     void AddToCache(void* model, int boneIndex, float animTime, const float* matrix) {
         if (!g_enabled) return;
 
-        std::lock_guard<std::mutex> lock(g_cacheMutex);
+        WinLockGuard lock(g_cacheMutex);
         unsigned int idx = GetHash(model, boneIndex, animTime);
         g_cache[idx].model = model;
         g_cache[idx].boneIndex = boneIndex;

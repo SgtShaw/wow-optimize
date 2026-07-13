@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 #include <thread>
-#include <mutex>
+#include "win_mutex.h"
 #include <unordered_map>
 #include "version.h"
 
@@ -16,7 +16,7 @@ struct CachedFile {
 };
 
 static std::unordered_map<std::string, CachedFile> g_fileCache;
-static std::mutex g_cacheMutex;
+static WinMutex g_cacheMutex;
 static std::vector<HANDLE> g_preloadThreads;
 static void PreloadWorker(std::string filePath);
 static DWORD WINAPI PreloadWorkerThread(LPVOID lpParam) {
@@ -39,7 +39,7 @@ void PreloadWorker(std::string filePath) {
         std::vector<char> buffer(size);
         DWORD readBytes = 0;
         if (ReadFile(hFile, buffer.data(), size, &readBytes, NULL)) {
-            std::lock_guard<std::mutex> lock(g_cacheMutex);
+            WinLockGuard lock(g_cacheMutex);
             g_fileCache[filePath] = { std::string(buffer.data(), readBytes), true };
         }
     }
@@ -47,7 +47,7 @@ void PreloadWorker(std::string filePath) {
 }
 
 void QueuePreload(const std::string& filePath) {
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    WinLockGuard lock(g_cacheMutex);
     if (g_fileCache.find(filePath) != g_fileCache.end()) return; // Already queued or loaded
     g_fileCache[filePath] = { "", false };
     
@@ -61,7 +61,7 @@ void QueuePreload(const std::string& filePath) {
 }
 
 bool GetPreloadedContent(const std::string& filePath, std::string* outContent) {
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    WinLockGuard lock(g_cacheMutex);
     auto it = g_fileCache.find(filePath);
     if (it != g_fileCache.end() && it->second.loaded) {
         *outContent = it->second.content;
@@ -85,7 +85,7 @@ void Shutdown() {
         }
     }
     g_preloadThreads.clear();
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    WinLockGuard lock(g_cacheMutex);
     g_fileCache.clear();
 }
 

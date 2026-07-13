@@ -1,5 +1,5 @@
 #include "aura_update_dedup.h"
-#include <mutex>
+#include "win_mutex.h"
 #include <unordered_map>
 
 namespace AuraUpdateDedup {
@@ -12,7 +12,7 @@ namespace AuraUpdateDedup {
 
     static constexpr int HASH_SIZE = 1024;
     static AuraState g_states[HASH_SIZE] = {};
-    static std::mutex g_stateMutex;
+    static WinMutex g_stateMutex;
     static bool g_enabled = true;
 
     bool Init() {
@@ -29,7 +29,7 @@ namespace AuraUpdateDedup {
         size_t hash = ((size_t)unitGuid ^ (size_t)spellId) % HASH_SIZE;
         DWORD now = GetTickCount();
 
-        std::lock_guard<std::mutex> lock(g_stateMutex);
+        WinLockGuard lock(g_stateMutex);
         if (g_states[hash].guid == unitGuid && g_states[hash].spellId == spellId && g_states[hash].applied == isApplied) {
             if (now - g_states[hash].timestamp < 100) { // Coalesce identical updates within 100ms
                 return true; 

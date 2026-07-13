@@ -1,7 +1,6 @@
 #include "movement_smoothing.h"
 #include "MinHook.h"
 #include <unordered_map>
-#include <mutex>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -13,7 +12,7 @@ namespace MovementSmoothing {
     };
 
     static std::unordered_map<void*, PositionHistory> g_history;
-    static std::mutex g_smoothingMutex;
+    static SRWLOCK g_smoothingLock = SRWLOCK_INIT;
     static bool g_enabled = true;
 
     // Hook CGUnit_C::SetPosition at 0x00613E90 in WotLK 3.3.5a
@@ -35,8 +34,9 @@ namespace MovementSmoothing {
     }
 
     bool Init() {
-        std::lock_guard<std::mutex> lock(g_smoothingMutex);
+        AcquireSRWLockExclusive(&g_smoothingLock);
         g_history.clear();
+        ReleaseSRWLockExclusive(&g_smoothingLock);
 
         // Install hook on 0x00613E90
         void* target = reinterpret_cast<void*>(0x00613E90);
@@ -54,14 +54,15 @@ namespace MovementSmoothing {
         void* target = reinterpret_cast<void*>(0x00613E90);
         MH_DisableHook(target);
         
-        std::lock_guard<std::mutex> lock(g_smoothingMutex);
+        AcquireSRWLockExclusive(&g_smoothingLock);
         g_history.clear();
+        ReleaseSRWLockExclusive(&g_smoothingLock);
     }
 
     void SmoothPosition(void* entity, float* x, float* y, float* z) {
         if (!g_enabled || !entity || !x || !y || !z) return;
 
-        std::lock_guard<std::mutex> lock(g_smoothingMutex);
+        AcquireSRWLockExclusive(&g_smoothingLock);
         DWORD now = GetTickCount();
 
         auto it = g_history.find(entity);
@@ -75,6 +76,7 @@ namespace MovementSmoothing {
             hist.targetZ = *z;
             hist.lastUpdateTime = now;
             g_history[entity] = hist;
+            ReleaseSRWLockExclusive(&g_smoothingLock);
             return;
         }
 
@@ -98,5 +100,6 @@ namespace MovementSmoothing {
         *x = hist.lastX + (hist.targetX - hist.lastX) * t;
         *y = hist.lastY + (hist.targetY - hist.lastY) * t;
         *z = hist.lastZ + (hist.targetZ - hist.lastZ) * t;
+        ReleaseSRWLockExclusive(&g_smoothingLock);
     }
 }

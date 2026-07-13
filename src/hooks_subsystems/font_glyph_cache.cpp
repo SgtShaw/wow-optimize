@@ -1,6 +1,6 @@
 #include <windows.h>
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 #include "MinHook.h"
 #include "version.h"
 #include "font_glyph_cache.h"
@@ -40,7 +40,7 @@ struct GlyphCacheEntry {
 };
 
 static std::unordered_map<GlyphKey, GlyphCacheEntry, GlyphKeyHash> g_glyphCache;
-static std::mutex g_cacheMutex;
+static WinMutex g_cacheMutex;
 static uint64_t g_hits = 0;
 static uint64_t g_misses = 0;
 
@@ -58,7 +58,7 @@ static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, in
         
         // Fast thread-safe cache lookup
         {
-            std::lock_guard<std::mutex> lock(g_cacheMutex);
+            WinLockGuard lock(g_cacheMutex);
             auto it = g_glyphCache.find(key);
             if (it != g_glyphCache.end()) {
                 g_hits++;
@@ -86,7 +86,7 @@ static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, in
         uint32_t textureSize = *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(outStruct) + 4);
         
         if (textureData && textureSize > 0 && textureSize < 1048576) { // sanity bound: size < 1MB
-            std::lock_guard<std::mutex> lock(g_cacheMutex);
+            WinLockGuard lock(g_cacheMutex);
             g_misses++;
             
             // Allocate a local buffer copy of the texture data for our cache
@@ -134,7 +134,7 @@ bool Init() {
 void Shutdown() {
     MH_DisableHook((void*)0x006C8CC0);
     
-    std::lock_guard<std::mutex> lock(g_cacheMutex);
+    WinLockGuard lock(g_cacheMutex);
     for (auto& pair : g_glyphCache) {
         if (pair.second.textureCopy) {
             free(pair.second.textureCopy);

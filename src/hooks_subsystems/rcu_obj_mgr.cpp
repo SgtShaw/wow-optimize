@@ -4,7 +4,7 @@
 #include "version.h"
 #include <windows.h>
 #include <atomic>
-#include <mutex>
+#include "win_mutex.h"
 #include <intrin.h>
 
 extern "C" void Log(const char* fmt, ...);

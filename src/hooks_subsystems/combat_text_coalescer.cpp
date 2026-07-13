@@ -1,7 +1,7 @@
 #include <windows.h>
 #include <string>
 #include <vector>
-#include <mutex>
+#include "win_mutex.h"
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
@@ -15,12 +15,12 @@ struct MessageEntry {
 };
 
 static std::vector<MessageEntry> g_history;
-static std::mutex g_historyMutex;
+static WinMutex g_historyMutex;
 static uint64_t g_coalescedCount = 0;
 
 // Returns true if message should be coalesced / skipped
 bool ProcessMessage(const std::string& text, std::string& outNewText) {
-    std::lock_guard<std::mutex> lock(g_historyMutex);
+    WinLockGuard lock(g_historyMutex);
     DWORD now = GetTickCount();
 
     // Clean up history older than 500ms
@@ -58,7 +58,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_historyMutex);
+    WinLockGuard lock(g_historyMutex);
     g_history.clear();
     Log("[CombatTextCoalescer] Stats: Coalesced %lld combat text messages", g_coalescedCount);
 }

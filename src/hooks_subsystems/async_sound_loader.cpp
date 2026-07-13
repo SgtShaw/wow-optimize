@@ -13,9 +13,8 @@
 #include <string>
 #include <vector>
 #include <thread>
-#include <mutex>
+#include "win_mutex.h"
 #include <queue>
-#include <condition_variable>
 #include <atomic>
 #include <unordered_map>
 
@@ -29,13 +28,13 @@ struct SoundBuffer {
 };
 
 static std::unordered_map<std::string, SoundBuffer> g_soundCache;
-static std::mutex g_soundMutex;
+static WinMutex g_soundMutex;
 static bool g_active = false;
 static uint64_t g_preloads = 0;
 
 static std::queue<std::string> g_preloadQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static HANDLE g_workerThread = nullptr;
 static void SoundWorkerProc();
 static DWORD WINAPI SoundWorkerThreadProc(LPVOID) {
@@ -72,7 +71,7 @@ static void* APIENTRY Hooked_FSOUND_Sample_Load(int index, const void* name_or_d
         const void* memData = nullptr;
         size_t memSize = 0;
         {
-            std::lock_guard<std::mutex> lock(g_soundMutex);
+            WinLockGuard lock(g_soundMutex);
             auto it = g_soundCache.find(normPath);
             if (it != g_soundCache.end() && it->second.ready) {
                 memData = it->second.data.data();
@@ -100,7 +99,7 @@ static void* APIENTRY Hooked_FSOUND_Stream_OpenFile(const char *filename, unsign
         const char* memData = nullptr;
         size_t memSize = 0;
         {
-            std::lock_guard<std::mutex> lock(g_soundMutex);
+            WinLockGuard lock(g_soundMutex);
             auto it = g_soundCache.find(normPath);
             if (it != g_soundCache.end() && it->second.ready) {
                 memData = (const char*)it->second.data.data();
@@ -132,7 +131,7 @@ void SoundLoadWorker(std::string filePath) {
             std::vector<uint8_t> buffer(size);
             DWORD readBytes = 0;
             if (pSFileReadFile(hFile, buffer.data(), size, &readBytes, NULL) && readBytes == size) {
-                std::lock_guard<std::mutex> lock(g_soundMutex);
+                WinLockGuard lock(g_soundMutex);
                 g_soundCache[normPath] = { std::move(buffer), true };
             }
         }
@@ -144,7 +143,7 @@ static void SoundWorkerProc() {
     while (!g_workerShutdown.load(std::memory_order_relaxed)) {
         std::string filePath;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait(lock, [] {
                 return !g_preloadQueue.empty() || g_workerShutdown.load();
             });
@@ -167,13 +166,13 @@ void PreloadSound(const std::string& filePath) {
     }
 
     {
-        std::lock_guard<std::mutex> lock(g_soundMutex);
+        WinLockGuard lock(g_soundMutex);
         if (g_soundCache.find(normPath) != g_soundCache.end()) return;
         g_soundCache[normPath] = { {}, false };
     }
     
     {
-        std::lock_guard<std::mutex> lock(g_queueMutex);
+        WinLockGuard lock(g_queueMutex);
         g_preloadQueue.push(filePath);
     }
     g_queueCv.notify_one();
@@ -247,7 +246,7 @@ void Shutdown() {
         CloseHandle(g_workerThread);
         g_workerThread = nullptr;
     }
-    std::lock_guard<std::mutex> lock(g_soundMutex);
+    WinLockGuard lock(g_soundMutex);
     g_soundCache.clear();
     Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects.", g_preloads);
 }

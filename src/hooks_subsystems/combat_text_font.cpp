@@ -1,6 +1,6 @@
 #include "combat_text_font.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 namespace CombatTextFont {
 
@@ -20,7 +20,7 @@ struct FontKeyHash {
 };
 
 static std::unordered_map<FontKey, void*, FontKeyHash> g_fontCache;
-static std::mutex g_fontMutex;
+static WinMutex g_fontMutex;
 static uint64_t g_hits = 0;
 
 bool Init() {
@@ -28,7 +28,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_fontMutex);
+    WinLockGuard lock(g_fontMutex);
     g_fontCache.clear();
 }
 
@@ -38,7 +38,7 @@ void* LookupCombatFont(const std::string& fontName, int size) {
     // Only cache combat log / floating text fonts (typically fonts containing 'damage' or 'combat' or default names like 'arial')
     if (fontName.find("DAMAGE") != std::string::npos || fontName.find("Friz") != std::string::npos) {
         FontKey key = { fontName, size };
-        std::lock_guard<std::mutex> lock(g_fontMutex);
+        WinLockGuard lock(g_fontMutex);
         auto it = g_fontCache.find(key);
         if (it != g_fontCache.end()) {
             g_hits++;

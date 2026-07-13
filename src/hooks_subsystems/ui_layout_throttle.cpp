@@ -1,12 +1,12 @@
 #include "ui_layout_throttle.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
 namespace UILayoutThrottle {
     static std::unordered_map<void*, int> g_frameUpdateCounts;
-    static std::mutex g_throttleMutex;
+    static WinMutex g_throttleMutex;
     static bool g_enabled = true;
     static unsigned int g_throttledCount = 0;
 
@@ -15,14 +15,14 @@ namespace UILayoutThrottle {
     }
 
     void Shutdown() {
-        std::lock_guard<std::mutex> lock(g_throttleMutex);
+        WinLockGuard lock(g_throttleMutex);
         g_frameUpdateCounts.clear();
     }
 
     bool ShouldThrottle(void* frame) {
         if (!g_enabled || !frame) return false;
 
-        std::lock_guard<std::mutex> lock(g_throttleMutex);
+        WinLockGuard lock(g_throttleMutex);
         int count = ++g_frameUpdateCounts[frame];
         
         // If a frame updates its layout more than 200 times in a single game frame,
@@ -40,7 +40,7 @@ namespace UILayoutThrottle {
     }
 
     void ResetFrameCounter() {
-        std::lock_guard<std::mutex> lock(g_throttleMutex);
+        WinLockGuard lock(g_throttleMutex);
         g_frameUpdateCounts.clear();
     }
 }

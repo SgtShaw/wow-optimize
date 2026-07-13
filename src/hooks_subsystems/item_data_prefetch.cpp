@@ -1,6 +1,6 @@
 #include "item_data_prefetch.h"
 #include <queue>
-#include <mutex>
+#include "win_mutex.h"
 
 namespace ItemDataPrefetch {
     // Function pointer to the client's internal GetItemInfo/QueryItem function
@@ -9,7 +9,7 @@ namespace ItemDataPrefetch {
     static GetItemInfo_fn GetItemInfo_ = nullptr;
 
     static std::queue<unsigned int> g_prefetchQueue;
-    static std::mutex g_prefetchMutex;
+    static WinMutex g_prefetchMutex;
     static HANDLE g_prefetchThread = nullptr;
     static HANDLE g_prefetchEvent = nullptr;
     static bool g_shutdown = false;
@@ -23,7 +23,7 @@ namespace ItemDataPrefetch {
             bool gotItem = false;
 
             {
-                std::lock_guard<std::mutex> lock(g_prefetchMutex);
+                WinLockGuard lock(g_prefetchMutex);
                 if (!g_prefetchQueue.empty()) {
                     itemId = g_prefetchQueue.front();
                     g_prefetchQueue.pop();
@@ -75,7 +75,7 @@ namespace ItemDataPrefetch {
     void PrefetchItem(unsigned int itemId) {
         if (!g_enabled || itemId == 0) return;
 
-        std::lock_guard<std::mutex> lock(g_prefetchMutex);
+        WinLockGuard lock(g_prefetchMutex);
         if (g_prefetchQueue.size() < 100) { // Limit queue size to prevent network spam
             g_prefetchQueue.push(itemId);
             if (g_prefetchEvent) {

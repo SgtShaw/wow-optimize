@@ -1,13 +1,6 @@
-// ============================================================================
-// Module: world_state_coalesce.cpp
-// Description: Coalescing network/field updates to reduce redundant UI redraws.
-// Safety & Threading: Thread-safe, queues updates and flushes on main thread.
-// ============================================================================
-
 #include "world_state_coalesce.h"
 #include "version.h"
 #include <windows.h>
-#include <mutex>
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -23,22 +16,24 @@ struct QueuedUpdate {
 static constexpr int MAX_QUEUED_UPDATES = 1024;
 static QueuedUpdate g_queue[MAX_QUEUED_UPDATES];
 static int g_queueCount = 0;
-static std::mutex g_lock;
+static SRWLOCK g_coalesceLock = SRWLOCK_INIT;
 static void* g_origOnFieldUpdate = nullptr;
 
 bool Init() {
-    std::lock_guard<std::mutex> lock(g_lock);
+    AcquireSRWLockExclusive(&g_coalesceLock);
     g_queueCount = 0;
     for (int i = 0; i < MAX_QUEUED_UPDATES; i++) {
         g_queue[i].active = false;
     }
+    ReleaseSRWLockExclusive(&g_coalesceLock);
     Log("[WorldStateCoalesce] Active - Coalesced World State updates system ready.");
     return true;
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_lock);
+    AcquireSRWLockExclusive(&g_coalesceLock);
     g_queueCount = 0;
+    ReleaseSRWLockExclusive(&g_coalesceLock);
 }
 
 typedef void (__fastcall *OnFieldUpdate_fn)(void* This, void* unused, int fieldId, int value);
@@ -57,8 +52,11 @@ void OnFrame() {
     int count = 0;
     QueuedUpdate localQueue[MAX_QUEUED_UPDATES];
     {
-        std::lock_guard<std::mutex> lock(g_lock);
-        if (g_queueCount == 0) return;
+        AcquireSRWLockExclusive(&g_coalesceLock);
+        if (g_queueCount == 0) {
+            ReleaseSRWLockExclusive(&g_coalesceLock);
+            return;
+        }
 
         for (int i = 0; i < MAX_QUEUED_UPDATES; i++) {
             if (g_queue[i].active) {
@@ -67,6 +65,7 @@ void OnFrame() {
             }
         }
         g_queueCount = 0;
+        ReleaseSRWLockExclusive(&g_coalesceLock);
     }
 
     // Flush all coalesced updates once on main thread
@@ -89,12 +88,13 @@ bool ProcessFieldUpdate(void* unit, int fieldId, int value, void* orig_func) {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(g_lock);
+    AcquireSRWLockExclusive(&g_coalesceLock);
 
     // Look for existing update for same unit and fieldId
     for (int i = 0; i < MAX_QUEUED_UPDATES; i++) {
         if (g_queue[i].active && g_queue[i].unit == unit && g_queue[i].fieldId == fieldId) {
             g_queue[i].value = value; // Update with latest value
+            ReleaseSRWLockExclusive(&g_coalesceLock);
             return true;
         }
     }
@@ -107,10 +107,12 @@ bool ProcessFieldUpdate(void* unit, int fieldId, int value, void* orig_func) {
             g_queue[i].value = value;
             g_queue[i].active = true;
             g_queueCount++;
+            ReleaseSRWLockExclusive(&g_coalesceLock);
             return true;
         }
     }
 
+    ReleaseSRWLockExclusive(&g_coalesceLock);
     return false; // Queue full, let caller process immediately
 #endif
 }

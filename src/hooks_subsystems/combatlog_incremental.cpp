@@ -8,7 +8,7 @@
 #include "version.h"
 #include <windows.h>
 #include <vector>
-#include <mutex>
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -19,7 +19,7 @@ struct StoredEvent {
 };
 
 static std::vector<StoredEvent> g_eventQueue;
-static std::mutex g_queueMutex;
+static WinMutex g_queueMutex;
 static int g_eventsThisFrame = 0;
 static constexpr int MAX_SYNC_EVENTS_PER_FRAME = 16;
 static constexpr int MAX_DEFERRED_PROCESS_PER_FRAME = 8;
@@ -32,7 +32,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_queueMutex);
+    WinLockGuard lock(g_queueMutex);
     g_eventQueue.clear();
 }
 
@@ -76,7 +76,7 @@ void OnFrame(int luaState) {
 
     std::vector<StoredEvent> toProcess;
     {
-        std::lock_guard<std::mutex> lock(g_queueMutex);
+        WinLockGuard lock(g_queueMutex);
         if (g_eventQueue.empty()) return;
 
         int count = (int)g_eventQueue.size();
@@ -103,7 +103,7 @@ bool ShouldDefer(void* This, int luaState, void* orig_func) {
     }
 
     // Queue the event and defer it
-    std::lock_guard<std::mutex> lock(g_queueMutex);
+    WinLockGuard lock(g_queueMutex);
     if (g_eventQueue.size() < 1024) {
         StoredEvent ev;
         memcpy(ev.data, This, 128);

@@ -1,6 +1,6 @@
 #include "cdatastore_buffering.h"
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 
 namespace CDataStoreBuffering {
 
@@ -10,7 +10,7 @@ struct BuffState {
 };
 
 static std::unordered_map<void*, BuffState> g_datastoreCache;
-static std::mutex g_dsMutex;
+static WinMutex g_dsMutex;
 static uint64_t g_hits = 0;
 
 bool Init() {
@@ -18,14 +18,14 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_dsMutex);
+    WinLockGuard lock(g_dsMutex);
     g_datastoreCache.clear();
 }
 
 void* GetBufferedData(void* dataStore, uint32_t offset) {
     if (!dataStore) return nullptr;
     
-    std::lock_guard<std::mutex> lock(g_dsMutex);
+    WinLockGuard lock(g_dsMutex);
     auto it = g_datastoreCache.find(dataStore);
     if (it != g_datastoreCache.end()) {
         if (offset < it->second.size) {

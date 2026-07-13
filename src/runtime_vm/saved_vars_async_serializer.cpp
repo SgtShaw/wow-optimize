@@ -11,9 +11,8 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 #include <thread>
-#include <condition_variable>
 #include <queue>
 #include <fstream>
 
@@ -73,7 +72,7 @@ struct SavedVarNode {
 
 // Map file descriptors to filenames
 static std::unordered_map<int, std::string> g_openFiles;
-static std::mutex g_filesMutex;
+static WinMutex g_filesMutex;
 
 // Pending variables list per filename
 struct PendingFileWrite {
@@ -85,16 +84,16 @@ struct PendingFileWrite {
     std::vector<VarEntry> variables;
 };
 static std::unordered_map<std::string, PendingFileWrite> g_pendingWrites;
-static std::mutex g_pendingMutex;
+static WinMutex g_pendingMutex;
 
 // Background worker thread state
 static std::thread g_workerThread;
 static std::queue<PendingFileWrite> g_taskQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static bool g_shutdown = false;
 static std::string g_activeWritingFile;
-static std::mutex g_activeFileMutex;
+static WinMutex g_activeFileMutex;
 
 // Function detours
 typedef int (__cdecl *FileOpen_fn)(const char* filename, int access, int share, int create, int flags);
@@ -230,7 +229,7 @@ static void WorkerThreadProc() {
     while (true) {
         PendingFileWrite task;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait(lock, [] { return !g_taskQueue.empty() || g_shutdown; });
             if (g_shutdown && g_taskQueue.empty()) break;
             task = std::move(g_taskQueue.front());
@@ -246,7 +245,7 @@ static void WorkerThreadProc() {
         }
         
         {
-            std::lock_guard<std::mutex> lock(g_activeFileMutex);
+            WinLockGuard lock(g_activeFileMutex);
             g_activeWritingFile = task.filename;
         }
         
@@ -260,7 +259,7 @@ static void WorkerThreadProc() {
         }
 
         {
-            std::lock_guard<std::mutex> lock(g_activeFileMutex);
+            WinLockGuard lock(g_activeFileMutex);
             g_activeWritingFile.clear();
         }
     }
@@ -273,7 +272,7 @@ static int __cdecl Hooked_FileOpen(const char* filename, int access, int share, 
     }
     int fd = orig_FileOpen(filename, access, share, create, flags);
     if (fd != -1 && ContainsWTF(filename)) {
-        std::lock_guard<std::mutex> lock(g_filesMutex);
+        WinLockGuard lock(g_filesMutex);
         g_openFiles[fd] = filename;
     }
     return fd;
@@ -283,7 +282,7 @@ static int __cdecl Hooked_FileOpen(const char* filename, int access, int share, 
 static int __cdecl Hooked_SaveVariable(int fd, const char* varName) {
     std::string filename;
     {
-        std::lock_guard<std::mutex> lock(g_filesMutex);
+        WinLockGuard lock(g_filesMutex);
         auto it = g_openFiles.find(fd);
         if (it != g_openFiles.end()) {
             filename = it->second;
@@ -301,7 +300,7 @@ static int __cdecl Hooked_SaveVariable(int fd, const char* varName) {
                 lua_settop_(L, -2);
                 
                 // Save it to pending list
-                std::lock_guard<std::mutex> lock(g_pendingMutex);
+                WinLockGuard lock(g_pendingMutex);
                 auto& pending = g_pendingWrites[NormalizePath(filename)];
                 pending.filename = filename;
                 pending.variables.push_back({varName, root});
@@ -318,7 +317,7 @@ static int __cdecl Hooked_SaveVariable(int fd, const char* varName) {
 static int __cdecl Hooked_FileClose(int fd) {
     std::string filename;
     {
-        std::lock_guard<std::mutex> lock(g_filesMutex);
+        WinLockGuard lock(g_filesMutex);
         auto it = g_openFiles.find(fd);
         if (it != g_openFiles.end()) {
             filename = it->second;
@@ -328,11 +327,11 @@ static int __cdecl Hooked_FileClose(int fd) {
     
     if (!filename.empty()) {
         // Retrieve and hand over task to the background thread
-        std::lock_guard<std::mutex> lock(g_pendingMutex);
+        WinLockGuard lock(g_pendingMutex);
         auto it = g_pendingWrites.find(NormalizePath(filename));
         if (it != g_pendingWrites.end()) {
             {
-                std::lock_guard<std::mutex> qLock(g_queueMutex);
+                WinLockGuard qLock(g_queueMutex);
                 g_taskQueue.push(std::move(it->second));
                 g_queueCv.notify_one();
             }

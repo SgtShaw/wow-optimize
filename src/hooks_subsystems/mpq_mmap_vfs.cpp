@@ -13,10 +13,9 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
-#include <mutex>
+#include "win_mutex.h"
 #include <thread>
 #include <queue>
-#include <condition_variable>
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
@@ -54,7 +53,7 @@ static std::vector<MpqMapping> g_mpqMappings;
 
 // ---- VFS Memory Cache ----
 static std::unordered_map<std::string, std::vector<uint8_t>> g_vfsCache;
-static std::mutex g_vfsCacheMutex;
+static WinMutex g_vfsCacheMutex;
 
 // ---- Virtual Handle Manager ----
 struct VirtualFile {
@@ -63,7 +62,7 @@ struct VirtualFile {
     size_t offset;
 };
 static std::unordered_map<HANDLE, VirtualFile*> g_virtualHandles;
-static std::mutex g_handlesMutex;
+static WinMutex g_handlesMutex;
 static HANDLE g_nextVirtualHandle = (HANDLE)0xFEED0000;
 
 // ---- Worker Thread Pool ----
@@ -75,8 +74,8 @@ static DWORD WINAPI DecompressorThreadProc(LPVOID lpParam) {
     return 0;
 }
 static std::queue<std::string> g_preloadQueue;
-static std::mutex g_queueMutex;
-static std::condition_variable g_queueCv;
+static WinMutex g_queueMutex;
+static WinCondVar g_queueCv;
 static std::atomic<bool> g_shutdown{false};
 static std::atomic<DWORD> g_workerThreadId1{0};
 static std::atomic<DWORD> g_workerThreadId2{0};
@@ -162,7 +161,7 @@ BOOL APIENTRY Hooked_SFileOpenFileEx(HANDLE hArchive, const char* szFileName, DW
             vf->data = std::move(texData);
             vf->offset = 0;
 
-            std::lock_guard<std::mutex> hLock(g_handlesMutex);
+            WinLockGuard hLock(g_handlesMutex);
             HANDLE hVirtual = g_nextVirtualHandle;
             g_nextVirtualHandle = (HANDLE)((uintptr_t)g_nextVirtualHandle + 1);
             g_virtualHandles[hVirtual] = vf;
@@ -175,7 +174,7 @@ BOOL APIENTRY Hooked_SFileOpenFileEx(HANDLE hArchive, const char* szFileName, DW
         }
 
         // 2. Check general VFS Cache
-        std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+        WinLockGuard lock(g_vfsCacheMutex);
         auto it = g_vfsCache.find(normPath);
         if (it != g_vfsCache.end()) {
             VirtualFile* vf = new VirtualFile();
@@ -183,7 +182,7 @@ BOOL APIENTRY Hooked_SFileOpenFileEx(HANDLE hArchive, const char* szFileName, DW
             vf->data = it->second;
             vf->offset = 0;
 
-            std::lock_guard<std::mutex> hLock(g_handlesMutex);
+            WinLockGuard hLock(g_handlesMutex);
             HANDLE hVirtual = g_nextVirtualHandle;
             g_nextVirtualHandle = (HANDLE)((uintptr_t)g_nextVirtualHandle + 1);
             g_virtualHandles[hVirtual] = vf;
@@ -208,7 +207,7 @@ BOOL APIENTRY Hooked_SFileReadFile(HANDLE hFile, void* lpBuffer, DWORD nNumberOf
 
     VirtualFile* vf = nullptr;
     {
-        std::lock_guard<std::mutex> hLock(g_handlesMutex);
+        WinLockGuard hLock(g_handlesMutex);
         auto it = g_virtualHandles.find(hFile);
         if (it != g_virtualHandles.end()) {
             vf = it->second;
@@ -240,7 +239,7 @@ BOOL APIENTRY Hooked_SFileCloseFile(HANDLE hFile) {
     }
 
     {
-        std::lock_guard<std::mutex> hLock(g_handlesMutex);
+        WinLockGuard hLock(g_handlesMutex);
         auto it = g_virtualHandles.find(hFile);
         if (it != g_virtualHandles.end()) {
             VirtualFile* vf = it->second;
@@ -263,7 +262,7 @@ static void DecompressorProc(int threadIdx) {
     while (!g_shutdown.load()) {
         std::string filename;
         {
-            std::unique_lock<std::mutex> lock(g_queueMutex);
+            WinUniqueLock lock(g_queueMutex);
             g_queueCv.wait_for(lock, std::chrono::milliseconds(50), [&] {
                 return !g_preloadQueue.empty() || g_shutdown.load();
             });
@@ -279,7 +278,7 @@ static void DecompressorProc(int threadIdx) {
 
         // Check if already in cache
         {
-            std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+            WinLockGuard lock(g_vfsCacheMutex);
             if (g_vfsCache.count(normPath)) continue;
         }
 
@@ -305,7 +304,7 @@ static void DecompressorProc(int threadIdx) {
 
                     // Add to VFS cache
                     {
-                        std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+                        WinLockGuard lock(g_vfsCacheMutex);
                         g_vfsCache[normPath] = std::move(decompressedData);
                     }
                     g_filesCached++;
@@ -475,11 +474,11 @@ void Shutdown() {
 
     // Free cache
     {
-        std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+        WinLockGuard lock(g_vfsCacheMutex);
         g_vfsCache.clear();
     }
     {
-        std::lock_guard<std::mutex> lock(g_handlesMutex);
+        WinLockGuard lock(g_handlesMutex);
         for (auto& pair : g_virtualHandles) {
             delete pair.second;
         }
@@ -498,7 +497,7 @@ Stats GetStats() {
     s.cacheMisses = g_cacheMisses.load();
     s.totalLoadTimeMs = g_totalLoadTimeMs.load();
 
-    std::lock_guard<std::mutex> lock(g_queueMutex);
+    WinLockGuard lock(g_queueMutex);
     s.queueDepth = (long)g_preloadQueue.size();
 
     return s;
@@ -509,18 +508,18 @@ void QueueFilePreload(const std::string& filename) {
     
     std::string normPath = NormalizePath(filename);
     {
-        std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+        WinLockGuard lock(g_vfsCacheMutex);
         if (g_vfsCache.count(normPath)) return;
     }
 
-    std::lock_guard<std::mutex> lock(g_queueMutex);
+    WinLockGuard lock(g_queueMutex);
     g_preloadQueue.push(filename);
     g_queueCv.notify_one();
 }
 
 bool GetCachedFileData(const std::string& path, std::vector<uint8_t>& outData) {
     std::string normPath = NormalizePath(path);
-    std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+    WinLockGuard lock(g_vfsCacheMutex);
     auto it = g_vfsCache.find(normPath);
     if (it != g_vfsCache.end()) {
         outData = it->second;
@@ -531,7 +530,7 @@ bool GetCachedFileData(const std::string& path, std::vector<uint8_t>& outData) {
 
 void AddCachedFile(const std::string& path, std::vector<uint8_t>&& data) {
     std::string normPath = NormalizePath(path);
-    std::lock_guard<std::mutex> lock(g_vfsCacheMutex);
+    WinLockGuard lock(g_vfsCacheMutex);
     g_vfsCache[normPath] = std::move(data);
     g_filesCached++;
 }

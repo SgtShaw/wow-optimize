@@ -10,8 +10,7 @@
 #include <windows.h>
 #include <atomic>
 #include <thread>
-#include <condition_variable>
-#include <mutex>
+#include "win_mutex.h"
 #include <queue>
 #include <vector>
 #include <unordered_map>
@@ -48,8 +47,8 @@ static DWORD WINAPI NetPacketOffloadWorkerThread(LPVOID lpParam) {
     return 0;
 }
 static std::atomic<bool> g_shutdown{false};
-static std::mutex g_cvMutex;
-static std::condition_variable g_cv;
+static WinMutex g_cvMutex;
+static WinCondVar g_cv;
 
 // O(1) Fast lookup cache structures
 static std::unordered_map<int, void*> g_criteriaCache;
@@ -108,7 +107,7 @@ static bool PerformDecompress(const std::vector<uint8_t>& src, std::vector<uint8
 // Background thread loop
 static void WorkerProc(int threadId) {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
-        std::unique_lock<std::mutex> lock(g_cvMutex);
+        WinUniqueLock lock(g_cvMutex);
         g_cv.wait(lock, [] {
             return g_head.load(std::memory_order_relaxed) != g_tail.load(std::memory_order_acquire) || g_shutdown.load();
         });
