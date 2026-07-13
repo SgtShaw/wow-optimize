@@ -27,7 +27,6 @@ static memchr_fn orig_memchr = nullptr;
 static void* __cdecl Hooked_memchr(const void* ptr, int value, size_t num) {
     CrashDumper::RecordHookCall("CRT_memchr", (uintptr_t)_ReturnAddress());
     if (!ptr || num == 0) goto fallback;
-    if (((uintptr_t)ptr & 0xFFF) > 0xFF0) goto fallback;
     __try {
         const unsigned char* p = (const unsigned char*)ptr;
         unsigned char c = (unsigned char)value;
@@ -38,7 +37,7 @@ static void* __cdecl Hooked_memchr(const void* ptr, int value, size_t num) {
         if (num == 0) { InterlockedIncrement64(&g_memchrHits); return nullptr; }
         __m128i cmpv = _mm_set1_epi8((char)c);
         while (num >= 16) {
-            __m128i v = _mm_loadu_si128((__m128i*)p);
+            __m128i v = _mm_loadu_si128((const __m128i*)p);
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, cmpv));
             if (mask) {
                 unsigned long idx; _BitScanForward(&idx, mask);
@@ -63,19 +62,21 @@ static char* __cdecl Hooked_strchr(const char* str, int value) {
     __try {
         unsigned char c = (unsigned char)value;
         const char* p = str;
-        while (((uintptr_t)p & 15) && *p) {
+        uintptr_t addr = (uintptr_t)p;
+        size_t prefix = (16 - (addr & 15)) & 15;
+        for (size_t i = 0; i < prefix; i++) {
             if ((unsigned char)*p == c) { InterlockedIncrement64(&g_strchrHits); return (char*)p; }
+            if (*p == '\0') {
+                InterlockedIncrement64(&g_strchrHits);
+                return (c == 0) ? (char*)p : nullptr;
+            }
             p++;
         }
-        if (!*p) { InterlockedIncrement64(&g_strchrHits); return (c == 0) ? (char*)p : nullptr; }
         
         __m128i cmpv = _mm_set1_epi8((char)c);
         __m128i zero = _mm_setzero_si128();
         for (;;) {
-            // Page-boundary guard inside the loop
-            if (((uintptr_t)p & 0xFFF) > 0xFF0) { goto fallback; }
-            
-            __m128i v = _mm_loadu_si128((__m128i*)p);
+            __m128i v = _mm_load_si128((const __m128i*)p);
             __m128i eq = _mm_cmpeq_epi8(v, cmpv);
             __m128i end = _mm_cmpeq_epi8(v, zero);
             int mask = _mm_movemask_epi8(_mm_or_si128(eq, end));
@@ -83,9 +84,8 @@ static char* __cdecl Hooked_strchr(const char* str, int value) {
                 unsigned long idx; _BitScanForward(&idx, mask);
                 unsigned char found = (unsigned char)p[idx];
                 InterlockedIncrement64(&g_strchrHits);
-                if (found == 0) return (c == 0 ? (char*)(p + idx) : nullptr);
                 if (found == c) return (char*)(p + idx);
-                return (c == 0) ? (char*)(p + idx) : nullptr;
+                return (c == 0 && found == 0) ? (char*)(p + idx) : nullptr;
             }
             p += 16;
         }

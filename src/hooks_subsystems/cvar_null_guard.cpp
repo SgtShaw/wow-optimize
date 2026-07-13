@@ -32,10 +32,13 @@ static char __fastcall Hooked_7668C0(void* ecx, void* edx, char* Str1, char a3, 
     if (ecx && Str1) {
         const char* name = *(const char**)((char*)ecx + 20);
         if (name && (uintptr_t)name >= 0x10000 && (uintptr_t)name <= 0xFFE00000) {
-            if (_stricmp(name, "timingMethod") == 0) {
-                Str1 = (char*)"2";
-            } else if (_stricmp(name, "timingTestError") == 0) {
-                Str1 = (char*)"0";
+            char c0 = name[0];
+            if (c0 == 't' || c0 == 'T') {
+                if (_stricmp(name, "timingMethod") == 0) {
+                    Str1 = (char*)"2";
+                } else if (_stricmp(name, "timingTestError") == 0) {
+                    Str1 = (char*)"0";
+                }
             }
         }
     }
