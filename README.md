@@ -404,6 +404,7 @@ The optimization suite is compatible with any standard or customized WotLK 3.3.5
 * **EZ WoW**
 * **WoW Sirus** (supporting `Sirus.exe` or custom `run.exe` launches)
 * **UWow** / **Firestorm** (supporting `run.exe` launches)
+* **ChromieCraft 3.3.5a** 
 
 1. Install the `!LuaBoost` addon into `Interface\AddOns\`.
 2. **Disable conflicting addons:** Remove or disable any third-party GC optimizers (`GarbageProtector`, `GarbageCollector`, `SmartGC`, etc.) and combat log fixes (`CombatLogFix`, etc.). The DLL handles these natively; running both causes duplicate hooks, memory corruption, or crashes.
