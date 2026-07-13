@@ -32,26 +32,12 @@ int __stdcall Hooked_CrtFree(void* block, int, int, int) {
 }
 
 bool InstallCrtFreeHook() {
-    void* target = (void*)0x0076E5A0;
-
-    if (MH_CreateHook(target, (void*)Hooked_CrtFree, (void**)&g_orig) != MH_OK) {
-        Log("[CrtFree] Failed to create hook at 0x0076E5A0");
-        return false;
-    }
-
-    if (MH_EnableHook(target) != MH_OK) {
-        Log("[CrtFree] Failed to enable hook");
-        MH_RemoveHook(target);
-        return false;
-    }
-
-    Log("[CrtFree] Installed: free wrapper (2901 callers, _msize elided)");
+    Log("[CrtFree] Bypassed for stability (standard CRT free wrapper is optimal).");
     return true;
 }
 
 void UninstallCrtFreeHook() {
-    MH_DisableHook((void*)0x0076E5A0);
-    MH_RemoveHook((void*)0x0076E5A0);
+    // No-op
 }
 
 void GetCrtFreeStats(uint64_t* hits, uint64_t* total) {

@@ -1061,7 +1061,7 @@ static recalloc_fn orig_recalloc = nullptr;
 static constexpr size_t ALLOCATOR_REDIRECT_THRESHOLD = 131072; // 128KB - avoids redirecting network/socket buffers to prevent LAA pointer bugs
 
 static void* __cdecl hooked_malloc(size_t size) {
-    if (size >= ALLOCATOR_REDIRECT_THRESHOLD) {
+    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
         return mi_malloc(size);
     }
     return orig_malloc(size);
@@ -1080,10 +1080,10 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
     if (size == 0) { hooked_free(ptr); return nullptr; }
     
     if (mi_is_in_heap_region(ptr)) {
-        if (size >= ALLOCATOR_REDIRECT_THRESHOLD) {
+        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
             return mi_realloc(ptr, size);
         } else {
-            // Shrinking below threshold: migrate block out of mimalloc to stock CRT.
+            // Shrinking below threshold or reallocating on a background thread: migrate block out of mimalloc to stock CRT.
             void* np = orig_malloc(size);
             if (np) {
                 size_t old_size = mi_usable_size(ptr);
@@ -1094,10 +1094,8 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
             return nullptr;
         }
     } else {
-        if (size < ALLOCATOR_REDIRECT_THRESHOLD) {
-            return orig_realloc(ptr, size);
-        } else {
-            // Growing above threshold: migrate block from stock CRT to mimalloc.
+        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
+            // Growing above threshold on the main thread: migrate block from stock CRT to mimalloc.
             void* np = mi_malloc(size);
             if (np) {
                 if (orig_msize) {
@@ -1110,6 +1108,8 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
                 return np;
             }
             return nullptr;
+        } else {
+            return orig_realloc(ptr, size);
         }
     }
 }
@@ -1117,7 +1117,7 @@ static void* __cdecl hooked_realloc(void* ptr, size_t size) {
 static void* __cdecl hooked_calloc(size_t count, size_t size) {
     if (size != 0 && count > (size_t)-1 / size) return nullptr;
     size_t total = count * size;
-    if (total >= ALLOCATOR_REDIRECT_THRESHOLD) {
+    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
         return mi_calloc(count, size);
     }
     return orig_calloc(count, size);
@@ -1133,13 +1133,13 @@ static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
     if (size != 0 && count > (size_t)-1 / size) return nullptr;
     size_t total = count * size;
     if (!ptr) {
-        if (total >= ALLOCATOR_REDIRECT_THRESHOLD) return mi_calloc(count, size);
+        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) return mi_calloc(count, size);
         return orig_calloc(count, size);
     }
     if (size == 0) { hooked_free(ptr); return nullptr; }
     
     if (mi_is_in_heap_region(ptr)) {
-        if (total >= ALLOCATOR_REDIRECT_THRESHOLD) {
+        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
             return mi_recalloc(ptr, count, size);
         } else {
             // Migrate out of mimalloc
@@ -1153,9 +1153,7 @@ static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
             return nullptr;
         }
     } else {
-        if (total < ALLOCATOR_REDIRECT_THRESHOLD) {
-            return orig_recalloc(ptr, count, size);
-        } else {
+        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
             // Migrate to mimalloc
             void* np = mi_calloc(count, size);
             if (np) {
@@ -1169,6 +1167,8 @@ static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
                 return np;
             }
             return nullptr;
+        } else {
+            return orig_recalloc(ptr, count, size);
         }
     }
 }

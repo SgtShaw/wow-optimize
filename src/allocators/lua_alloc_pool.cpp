@@ -129,52 +129,12 @@ static void* __cdecl Hooked_LuaAlloc(void* ud, void* ptr, size_t osize, size_t n
 }
 
 bool Init() {
-    void* target = (void*)0x008558E0;
-    
-    unsigned char prologue[3];
-    __try {
-        memcpy(prologue, target, 3);
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[LuaAllocPool] Target 0x008558E0 not readable.");
-        return true;
-    }
-
-    // __cdecl prologue: 55 8B EC
-    if (prologue[0] != 0x55 || prologue[1] != 0x8B || prologue[2] != 0xEC) {
-        Log("[LuaAllocPool] Bad prologue at 0x008558E0. Skipping hook.");
-        return true;
-    }
-
-    if (MH_CreateHook(target, (void*)Hooked_LuaAlloc, (void**)&orig_LuaAlloc) == MH_OK) {
-        if (MH_EnableHook(target) == MH_OK) {
-            Log("[LuaAllocPool] Detour active at 0x008558E0.");
-            return true;
-        }
-        MH_RemoveHook(target);
-    }
-
-    Log("[LuaAllocPool] Active - Lua VM Thread-Local Allocator Pool initialized.");
+    Log("[LuaAllocPool] Bypassed for stability.");
     return true;
 }
 
 void Shutdown() {
-    void* target = (void*)0x008558E0;
-    MH_DisableHook(target);
-    
-    // Clean up current thread cache
-    if (t_cache) {
-        for (int b = 0; b < 6; b++) {
-            void* block = t_cache->free_lists[b];
-            while (block) {
-                void* next = *(void**)block;
-                // Free back to standard heap
-                orig_LuaAlloc(nullptr, block, GetBucketSize(b), 0);
-                block = next;
-            }
-        }
-        HeapFree(GetProcessHeap(), 0, t_cache);
-        t_cache = nullptr;
-    }
+    // No-op
 }
 
 } // namespace LuaAllocPool
