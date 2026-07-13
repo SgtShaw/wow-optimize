@@ -6746,6 +6746,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[LuaObjLen] DISABLED via TEST_DISABLE_OBJLEN_INLINE");
 #endif
 
+    Log("--- luaH_getn Table Length Optimization ---");
+    bool getnOk = Config::g_settings.OptLuaOpcache && InstallLuaGetnFast();
+
     Log("--- luaD_precall Dispatch Cache ---");
 #if !TEST_DISABLE_LUA_INLINE_BATCH
     // --- DG1: allocation / complex ---
@@ -9502,6 +9505,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #if !TEST_DISABLE_LUAS_NEWLSTR_SSE2
             LuaSNewlstr::Shutdown();
 #endif
+            UninstallLuaGetnFast();
             LuaOpt::Shutdown();
             if (g_flushSkipped > 0)
                 Log("FlushFileBuffers: %ld MPQ flushes skipped", g_flushSkipped);

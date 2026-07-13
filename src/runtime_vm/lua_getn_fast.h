@@ -25,3 +25,4 @@
 
 
 bool InstallLuaGetnFast();
+void UninstallLuaGetnFast();
