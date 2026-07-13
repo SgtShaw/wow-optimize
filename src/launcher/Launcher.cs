@@ -426,7 +426,7 @@ namespace WowOptimizeLauncher {
 
             // Footer Version Info Label
             versionText = new TextBlock {
-                Text = "v3.16.0-Release",
+                Text = "v3.16.1-Release",
                 FontSize = 9,
                 Foreground = new SolidColorBrush(Color.FromRgb(90, 90, 110)),
                 Margin = new Thickness(2, 5, 0, 0),
@@ -924,7 +924,7 @@ namespace WowOptimizeLauncher {
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
-                            Version current = new Version("3.16.0");
+                            Version current = new Version("3.16.1");
 
                             if (latest > current) {
                                 Dispatcher.BeginInvoke(new Action(() => {

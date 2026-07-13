@@ -14,7 +14,7 @@ The current public build is focused on real frametime stability, long-session sm
 ---
 
 ## Table of Contents
-* [What's New in the Upcoming Update (v3.16.0)](#whats-new-in-the-upcoming-update-v3160)
+* [What's New in the Latest Update (v3.16.1)](#whats-new-in-the-latest-update-v3161)
 * [Reviews & Acknowledgments](#reviews)
 * [Current Feature Set](#current-feature-set)
 * [Installation](#installation)
@@ -27,9 +27,18 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in the Upcoming Update (v3.16.0)
+## What's New in the Latest Update (v3.16.1)
 
-This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. Over 106 optimization features have been verified, stabilized, and dynamically gated at runtime, resulting in a smoother and stutter-free experience.
+This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. 
+
+### Stability & Connection Fixes (v3.16.1)
+- **Thread-Filtered Allocator Redirection** — Restructured the static CRT allocator redirection (`mimalloc`) to only intercept allocations originating from the main game thread. Background socket, database, and audio threads bypass the redirect and allocate from the native CRT heap, resolving Large Address Aware (LAA) pointer conflicts (>2GB) with third-party socket filter drivers (e.g. ExitLag).
+- **Fast-Kill Exit Handler** — Configured the `ExitProcess` hook to immediately terminate the game using `TerminateProcess(GetCurrentProcess(), uExitCode)`. This avoids deadlocks during CRT/OS teardown caused by background worker threads holding abandoned locks, preventing zombie `wow.exe` hangs.
+- **Deactivated Unstable Network/Winsock Hooks** — Removed all hooks on Winsock APIs (`connect`, `send`, `recv`, and `WSARecv`) to avoid socket thread-local error state corruption and prevent login/connection drops.
+- **Deactivated Redundant ThreadId Caching** — Disabled GetCurrentThreadId/GetCurrentThread caching hooks, which caused thread pool scheduling deadlocks inside Winsock's APC queue.
+- **Deactivated Redundant HeapRedirect safety bridge** — Disabled HeapFree/HeapReAlloc safety bridge hooks, avoiding heap-walk crashes.
+- **Deactivated Leaky Lua VM Allocator Pool** — Disabled the custom thread-local Lua VM allocator pool hook to prevent memory leaks during relogs/UI reloads.
+- **Config-Gated Allocator Hooks** — Gated static CRT allocator detours by the runtime ini configuration (`Config::g_settings.OptAllocators`) to properly respect the launcher toggle.
 
 ### Modular Configurator Launcher (v3.16.0)
 - **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 106 optimization features via a C# WPF UI (no DLL recompiles required).
