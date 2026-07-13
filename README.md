@@ -14,7 +14,7 @@ The current public build is focused on real frametime stability, long-session sm
 ---
 
 ## Table of Contents
-* [What's New in the Latest Update (v3.16.1)](#whats-new-in-the-latest-update-v3161)
+* [What's New in the Latest Update (v3.16.2)](#whats-new-in-the-latest-update-v3162)
 * [Reviews & Acknowledgments](#reviews)
 * [Current Feature Set](#current-feature-set)
 * [Installation](#installation)
@@ -27,9 +27,11 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in the Latest Update (v3.16.1)
+## What's New in the Latest Update (v3.16.2)
 
-This release marks a significant milestone, bringing together substantial performance restorations, stability updates, runtime enhancements, and a unified desktop dashboard manager. 
+### Wine/Proton Compatibility Update (v3.16.2)
+- **Native Thread Management** — Replaced all occurrences of `std::thread` with native Windows API `CreateThread` across all background subsystems (combat log, sound/texture loaders, MPQ/VFS readers, packet offloader, etc.). This bypasses the buggy and non-thread-safe C++ runtime thread initialization thunk inside `MSVCP140.dll` under Wine/Proton, resolving the 100% launch-crash issue.
+- **Launcher GUI Wine Software Rendering** — Implemented a registry-level override that automatically disables hardware acceleration (`DisableHWAcceleration` set to `1` in `HKCU\Software\Microsoft\Avalon.Graphics`) when running the C# launcher under Wine, fixing black screen and black mouseover tooltip issues.
 
 ### Stability & Connection Fixes (v3.16.1)
 - **Thread-Filtered Allocator Redirection** — Restructured the static CRT allocator redirection (`mimalloc`) to only intercept allocations originating from the main game thread. Background socket, database, and audio threads bypass the redirect and allocate from the native CRT heap, resolving Large Address Aware (LAA) pointer conflicts (>2GB) with third-party socket filter drivers (e.g. ExitLag).
