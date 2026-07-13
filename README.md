@@ -31,7 +31,8 @@ The current public build is focused on real frametime stability, long-session sm
 
 ### Wine/Proton Compatibility Update (v3.16.2)
 - **Native Thread Management** — Replaced all occurrences of `std::thread` with native Windows API `CreateThread` across all background subsystems (combat log, sound/texture loaders, MPQ/VFS readers, packet offloader, etc.). This bypasses the buggy and non-thread-safe C++ runtime thread initialization thunk inside `MSVCP140.dll` under Wine/Proton, resolving the 100% launch-crash issue.
-- **Launcher GUI Wine Software Rendering** — Implemented a registry-level override that automatically disables hardware acceleration (`DisableHWAcceleration` set to `1` in `HKCU\Software\Microsoft\Avalon.Graphics`) when running the C# launcher under Wine, fixing black screen and black mouseover tooltip issues.
+- **SRWLOCK Mutex Replacement** — Completely eliminated C++ runtime dynamic mutexes (`std::mutex` and `std::condition_variable`) across all 41 subsystems, replacing them with a custom zero-initialization wrapper (`win_mutex.h`) built on native Windows `SRWLOCK` and `CONDITION_VARIABLE` APIs. This avoids the `MSVCP140.dll!_Mtx_lock` NULL dereference crash under Wine where static constructors fail to run in the correct order.
+- **WinForms Launcher GUI** — Rewrote the C# launcher dashboard from WPF to WinForms to run natively via GDI rendering instead of Direct3D. This completely fixes the black screen rendering issue and black tooltip boxes under Wine. Includes dynamic "ENABLE ALL" / "DISABLE ALL" button toggles and instant, lag-free list scroll rendering updates.
 
 ### Stability & Connection Fixes (v3.16.1)
 - **Thread-Filtered Allocator Redirection** — Restructured the static CRT allocator redirection (`mimalloc`) to only intercept allocations originating from the main game thread. Background socket, database, and audio threads bypass the redirect and allocate from the native CRT heap, resolving Large Address Aware (LAA) pointer conflicts (>2GB) with third-party socket filter drivers (e.g. ExitLag).
@@ -134,7 +135,7 @@ See what other players say: [Reviews and Testimonials](https://github.com/suprep
 This project wouldn't exist without the community. Every crash report, every bisection test, every "hey this broke my addon" message directly shaped the release. 
 
 Special thanks to:
-Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), Keoo, UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus, szopachink17
+Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_oldq`), Keoo, UNOB, DarkRockDemon, Raymond, Vandal, Mantork, Falcon, Muus, szopachink17, Shandrax, pathetic-lynx, txtsd
 
 </details>
 
