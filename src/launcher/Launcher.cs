@@ -36,7 +36,16 @@ namespace WowOptimizeLauncher {
         [STAThread]
         public static void Main() {
             if (IsRunningOnWine()) {
-                System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+                try {
+                    System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
+                    using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Avalon.Graphics")) {
+                        if (key != null) {
+                            key.SetValue("DisableHWAcceleration", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                        }
+                    }
+                } catch {
+                    // Ignore
+                }
             }
             App app = new App();
             app.Run(new MainWindow());
