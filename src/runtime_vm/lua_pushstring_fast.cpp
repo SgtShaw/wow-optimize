@@ -53,6 +53,12 @@ static int __cdecl hook(uintptr_t L, const char* s) {
 
         size_t len = my_strlen(s);
 
+        // Write taint into the slot BEFORE calling luaS_newlstr.
+        // The original (sub_84E300) does: v3[3] = taint, then calls luaS_newlstr.
+        // This matters because luaS_newlstr reads this slot to determine the taint
+        // of the newly created string, preventing UI frame taint blocks.
+        *(uint32_t*)(top + 12) = *(uint32_t*)0x00D4139C;
+
         // Intern string — may trigger GC → may reallocate the Lua stack.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);
         uintptr_t ts = ((newlstr_fn)0x00856C80)(L, s, len);
