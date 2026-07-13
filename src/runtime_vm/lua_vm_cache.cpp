@@ -102,6 +102,7 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
     uint64_t combined = ((uint64_t)(uint32_t)t << 32) | (uint32_t)k;
     uint32_t hash = (uint32_t)((t ^ (t >> 16) ^ k ^ (k >> 14)) & CACHE_MASK);
 
+    // Cache hit: return cached result
     AcquireSRWLockShared(&g_cacheLock);
     if (g_cache[hash].combined == combined) {
         uint32_t tp = g_cache[hash].type_tag;
@@ -115,37 +116,29 @@ static void __cdecl Hooked_luaV_gettable(lua_State* L, void* table, void* key, v
     }
     ReleaseSRWLockShared(&g_cacheLock);
 
-    // Cache miss: use standard engine getstr (0x0085C430) to resolve
-    typedef uintptr_t(__cdecl *getstr_fn)(uintptr_t, uintptr_t);
-    uintptr_t node = ((getstr_fn)0x0085C430)(t, k);
-    if (node < 0x10000 || node == 0x00A46F78) {
-        orig_luaV_gettable(L, table, key, result);
-        return;
-    }
-
-    int node_tt = *(int*)(node + 8);
-    // Only cache GC-safe primitive types; nil(0) is excluded to allow proper metatable fallback
-    if (node_tt == 0 || node_tt > 4) {
-        orig_luaV_gettable(L, table, key, result);
-        return;
-    }
-
     InterlockedIncrement64(&g_misses);
 
-    // Copy to result
-    *(uint32_t*)((char*)result)      = *(uint32_t*)(node);
-    *(uint32_t*)((char*)result + 4)  = *(uint32_t*)(node + 4);
-    *(uint32_t*)((char*)result + 8)  = node_tt;
-    *(uint32_t*)((char*)result + 12) = *(uint32_t*)(node + 12);
+    // Cache miss: ALWAYS call the original luaV_gettable which properly
+    // traverses the metatable __index chain. The previous code called
+    // luaH_getstr directly which bypassed metamethods, causing "Unknown tag"
+    // errors in WoW's UI frame system and wrong values for camera settings.
+    orig_luaV_gettable(L, table, key, result);
 
-    // Save to cache
-    AcquireSRWLockExclusive(&g_cacheLock);
-    g_cache[hash].combined  = combined;
-    g_cache[hash].value.lo  = *(uint32_t*)((char*)result);
-    g_cache[hash].value.hi  = *(uint32_t*)((char*)result + 4);
-    g_cache[hash].type_tag  = node_tt;
-    g_cache[hash].taint     = *(uint32_t*)((char*)result + 12);
-    ReleaseSRWLockExclusive(&g_cacheLock);
+    // After the original resolves the value (including metatable chain),
+    // cache the result if it's a cacheable primitive type (boolean, lightuserdata,
+    // number, string). Don't cache nil (needs metatable fallback) or GC objects
+    // like tables/functions (could be collected and become stale pointers).
+    TValue* tv_result = (TValue*)result;
+    int result_tt = tv_result->tt;
+    if (result_tt >= 1 && result_tt <= 4) {
+        AcquireSRWLockExclusive(&g_cacheLock);
+        g_cache[hash].combined  = combined;
+        g_cache[hash].value.lo  = *(uint32_t*)((char*)result);
+        g_cache[hash].value.hi  = *(uint32_t*)((char*)result + 4);
+        g_cache[hash].type_tag  = result_tt;
+        g_cache[hash].taint     = *(uint32_t*)((char*)result + 12);
+        ReleaseSRWLockExclusive(&g_cacheLock);
+    }
 }
 
 extern "C" void InvalidateTableCacheSlot(void* table, void* key_str) {
