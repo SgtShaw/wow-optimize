@@ -3198,28 +3198,8 @@ static HANDLE WINAPI hooked_GetCurrentThread(void) {
 }
 
 static bool InstallThreadIdCacheHook() {
-    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
-    if (!hK32) return false;
-
-    int ok = 0;
-
-    void* pTid = (void*)GetProcAddress(hK32, "GetCurrentThreadId");
-    if (pTid) {
-        if (MH_CreateHook(pTid, (void*)hooked_GetCurrentThreadId, (void**)&orig_GetCurrentThreadId) == MH_OK)
-            if (WO_EnableHook(pTid) == MH_OK) ok++;
-    }
-
-    void* pTh = (void*)GetProcAddress(hK32, "GetCurrentThread");
-    if (pTh) {
-        if (MH_CreateHook(pTh, (void*)hooked_GetCurrentThread, (void**)&orig_GetCurrentThread) == MH_OK)
-            if (WO_EnableHook(pTh) == MH_OK) ok++;
-    }
-
-    if (ok > 0) {
-        Log("ThreadId cache: ACTIVE (%d/2 hooks, TLS-cached)", ok);
-        return true;
-    }
-    return false;
+    Log("ThreadId cache: DISABLED for stability (native GetCurrentThreadId is optimal).");
+    return true;
 }
 
 // ================================================================
@@ -6224,14 +6204,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Memory Allocator (early, pre-load) ---");
 #if !TEST_DISABLE_ALLOCATOR_REDIRECT && !TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
-    // Redirect WoW's STATIC CRT allocator to mimalloc to defragment the 32-bit VA
-    // space (the prior failure hooked the dynamic CRT exports WoW doesn't use; see
-    // InstallAllocatorHooks). Closed set, atomic activation, transition-guarded.
-    // Installed BEFORE the 5s Sleep so mimalloc backs the entire login + world-load
-    // allocation stream — all the MPQ data, world assets, and UI setup that dominate
-    // the startup VA footprint and cause the early-fragmentation wall.
-    bool allocOk = InstallAllocatorHooks();
-    if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
+    bool allocOk = false;
+    if (Config::g_settings.OptAllocators) {
+        allocOk = InstallAllocatorHooks();
+        if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
+    } else {
+        Log("[Allocator] Redirect disabled via configuration (wow_opt.ini)");
+    }
 #elif TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
     bool allocOk = false;
     Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH (crash bisection)");
