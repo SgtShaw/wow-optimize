@@ -459,9 +459,12 @@ static void WINAPI Hooked_ExitProcess(UINT uExitCode) {
         Log("!!! PROCESS EXIT (code=%u) — abnormal termination !!!", uExitCode);
         Log("!!!   TID=%lu", GetCurrentThreadId());
         LogFlushImmediate();
+    } else {
+        Log("[Exit] Normal termination. Killing process via TerminateProcess to avoid background thread deadlocks.");
+        LogFlushImmediate();
     }
 
-    orig_ExitProcess(uExitCode);
+    TerminateProcess(GetCurrentProcess(), uExitCode);
 }
 
 // ================================================================
