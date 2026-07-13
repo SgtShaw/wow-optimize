@@ -224,8 +224,7 @@ namespace WowOptimizeLauncher {
     public class DoubleBufferedPanel : Panel {
         public DoubleBufferedPanel() {
             DoubleBuffered = true;
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.ResizeRedraw, true);
         }
     }
 
@@ -235,13 +234,7 @@ namespace WowOptimizeLauncher {
     public class DoubleBufferedFlowPanel : FlowLayoutPanel {
         public DoubleBufferedFlowPanel() {
             DoubleBuffered = true;
-            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
-                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        }
-
-        protected override void OnPaint(PaintEventArgs e) {
-            // Default FlowLayoutPanel painting
-            base.OnPaint(e);
+            SetStyle(ControlStyles.ResizeRedraw, true);
         }
     }
 
@@ -880,6 +873,16 @@ namespace WowOptimizeLauncher {
             scrollPanel.Dock = DockStyle.Fill;
             scrollPanel.AutoScroll = true;
             scrollPanel.BackColor = DarkBg;
+
+            scrollPanel.Scroll += delegate(object sender, ScrollEventArgs e) {
+                scrollPanel.Invalidate(true);
+                scrollPanel.Update();
+            };
+
+            scrollPanel.MouseWheel += delegate(object sender, MouseEventArgs e) {
+                scrollPanel.Invalidate(true);
+                scrollPanel.Update();
+            };
 
             DoubleBufferedFlowPanel flow = new DoubleBufferedFlowPanel();
             flow.FlowDirection = FlowDirection.TopDown;
