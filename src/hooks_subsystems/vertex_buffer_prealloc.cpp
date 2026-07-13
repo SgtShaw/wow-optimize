@@ -1,6 +1,5 @@
 #include "vertex_buffer_prealloc.h"
 #include "version.h"
-#include <mutex>
 #include <vector>
 
 extern "C" void Log(const char* fmt, ...);
@@ -13,12 +12,18 @@ static constexpr size_t CHUNK_SIZE = 65536; // 64KB chunks for vertex buffers
 static uint8_t* g_poolBuffer = nullptr;
 static void* g_freeChunks[POOL_SIZE];
 static size_t g_freeCount = 0;
-static std::mutex g_poolMutex;
+static SRWLOCK g_poolLock = SRWLOCK_INIT;
 static uint64_t g_allocations = 0;
 static uint64_t g_poolHits = 0;
 
+struct SRWLockGuard {
+    SRWLOCK* lock;
+    SRWLockGuard(SRWLOCK* l) : lock(l) { AcquireSRWLockExclusive(lock); }
+    ~SRWLockGuard() { ReleaseSRWLockExclusive(lock); }
+};
+
 bool Init() {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    SRWLockGuard lock(&g_poolLock);
     g_poolBuffer = (uint8_t*)VirtualAlloc(nullptr, POOL_SIZE * CHUNK_SIZE, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (g_poolBuffer) {
         g_freeCount = POOL_SIZE;
@@ -32,7 +37,7 @@ bool Init() {
 }
 
 void Shutdown() {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    SRWLockGuard lock(&g_poolLock);
     if (g_poolBuffer) {
         VirtualFree(g_poolBuffer, 0, MEM_RELEASE);
         g_poolBuffer = nullptr;
@@ -41,7 +46,7 @@ void Shutdown() {
 }
 
 void* AllocateBuffer(size_t size) {
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    SRWLockGuard lock(&g_poolLock);
     g_allocations++;
     if (size <= CHUNK_SIZE && g_freeCount > 0) {
         g_poolHits++;
@@ -53,7 +58,7 @@ void* AllocateBuffer(size_t size) {
 
 void FreeBuffer(void* ptr) {
     if (!ptr) return;
-    std::lock_guard<std::mutex> lock(g_poolMutex);
+    SRWLockGuard lock(&g_poolLock);
     if (g_poolBuffer && ptr >= g_poolBuffer && ptr < g_poolBuffer + POOL_SIZE * CHUNK_SIZE) {
         g_freeChunks[g_freeCount++] = ptr;
         return;
