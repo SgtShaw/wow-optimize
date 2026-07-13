@@ -134,47 +134,8 @@ int __cdecl Hooked_4D4DB0(__int64 a1, int a2)
     return result;
 }
 
-bool InstallTlsCache()
-{
-    if (g_hookInstalled) {
-        return true;
-    }
-
-    void* targetAddr = (void*)0x004D3790;
-
-    // Don't check prologue - this function is tiny (43 bytes) with no stack frame
-    // Just install the hook directly
-
-    if (MH_CreateHook(targetAddr,
-                      (void*)Hooked_TlsAccessor,
-                      (void**)&g_originalTlsAccessor) != MH_OK)
-    {
-        Log("[TLSCache] Failed to create hook at 0x004D3790");
-        return false;
-    }
-
-    if (MH_EnableHook(targetAddr) != MH_OK) {
-        Log("[TLSCache] Failed to enable hook");
-        MH_RemoveHook(targetAddr);
-        return false;
-    }
-
-    g_hookInstalled = true;
-    Log("[TLSCache] Hook installed: sub_4D3790 @ 0x004D3790 (200+ callers, TEB caching)");
-
-    // ObjGuidCache (sub_4D4DB0 / ClntObjMgrObjectPtr) is permanently disabled.
-    // World-exit teardown (sub_528C30 -> sub_5D9D90) resolves each object via this
-    // function and immediately does a virtual call through the returned pointer.
-    // During teardown objects are unlinked from the manager (the real function then
-    // returns 0) BEFORE their stored GUID dwords are scrubbed, so a cached pointer to
-    // a half-destructed object still passes GUID content-validation -> we hand back a
-    // dangling pointer -> virtual call on a freed vtable -> deterministic ACCESS_VIOLATION
-    // at 0x5D9DD1 on every logout. Caching this function is unsound: it must always
-    // reflect live manager membership, which a content check on the object alone cannot.
-    (void)&Hooked_4D4DB0;
-    Log("[ObjGuidCache] DISABLED: caching ClntObjMgrObjectPtr returns stale object "
-        "pointers during world-exit teardown (crash at 0x5D9DD1 on logout)");
-
+bool InstallTlsCache() {
+    Log("[TLSCache] Bypassed for stability (native TLS accessor is optimal).");
     return true;
 }
 

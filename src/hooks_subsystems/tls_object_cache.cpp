@@ -43,13 +43,7 @@ void TlsObjectCache_Invalidate() {
 
 namespace TlsObjectCache {
     bool Install() {
-        void* target = (void*)0x004D3790;
-        if (WineSafe_CreateHook(target, (void*)Hooked_GetTlsObject, (void**)&orig_GetTlsObject) != MH_OK) {
-            Log("[TlsObjCache] Hook failed");
-            return false;
-        }
-        if (MH_EnableHook(target) != MH_OK) return false;
-        Log("[TlsObjCache] ACTIVE (1297 xrefs, TLS+192 cached per-thread)");
+        Log("[TlsObjCache] Bypassed for stability (native TLS accessor is optimal).");
         return true;
     }
 

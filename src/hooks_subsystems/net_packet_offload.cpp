@@ -157,45 +157,6 @@ extern "C" void FlushCoalescedPackets() {
 
 // Hooked packet processor
 static int __cdecl Hooked_ProcessMessage(int a1, int a2, int a3, int a4, int a5, int a6, int a7, int a8, char a9, int a10, int a11, int a12, int a13, int a14, int a15, int a16, int a17, int a18) {
-    uint32_t opcode = (uint32_t)a3;
-
-    #if !TEST_DISABLE_NET_PACKET_COALESCE
-    // Coalesce non-critical movement/update packets (0x1F6, 0x0A6, 0x0DD, 0x2A6)
-    bool isDeferrable = (opcode == 0x1F6 || opcode == 0x0A6 || opcode == 0x0DD || opcode == 0x2A6);
-    if (g_coalescePackets && isDeferrable && g_packetQueueCount < PACKET_QUEUE_CAPACITY) {
-        BufferedPacket& pkt = g_packetQueue[g_packetQueueCount++];
-        pkt.args[0] = a1; pkt.args[1] = a2; pkt.args[2] = a3; pkt.args[3] = a4;
-        pkt.args[4] = a5; pkt.args[5] = a6; pkt.args[6] = a7; pkt.args[7] = a8;
-        pkt.arg9 = a9;
-        pkt.args[9] = a10; pkt.args[10] = a11; pkt.args[11] = a12; pkt.args[12] = a13;
-        pkt.args[13] = a14; pkt.args[14] = a15; pkt.args[15] = a16; pkt.args[16] = a17;
-        pkt.args[17] = a18;
-        return 1;
-    }
-    #endif
-
-    // Fast path: O(1) criteria lookup optimization to bypass slow linear loops
-    void** pHead = (void**)0x00ACFDC4;
-    if (pHead && *pHead) {
-        int* handler = (int*)FindCriteriaHandlerFast(a3);
-        if (handler) {
-            void* origHead = *pHead;
-            int origNext = handler[1];
-            
-            // Slice linked list dynamically to single element
-            handler[1] = 0; // nullptr termination
-            *pHead = handler;
-            
-            int result = orig_ProcessMessage(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18);
-            
-            // Restore linked list
-            handler[1] = origNext;
-            *pHead = origHead;
-            
-            return result;
-        }
-    }
-
     return orig_ProcessMessage(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10, a11, a12, a13, a14, a15, a16, a17, a18);
 }
 
