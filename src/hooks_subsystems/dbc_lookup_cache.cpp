@@ -149,3 +149,25 @@ void UninstallDbcLookupCache()
             total, g_hits, g_misses, 100.0 * g_hits / total);
     }
 }
+
+extern "C" void ClearDbcLookupCache()
+{
+    for (int i = 0; i < CACHE_SIZE; i++) {
+        DbcRowEntry* e = &g_cache[i];
+        while (true) {
+            uint32_t s = e->seq.load(std::memory_order_relaxed);
+            if ((s & 1) == 0) {
+                if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
+                    e->storePtr = 0;
+                    e->recordId = 0;
+                    e->recordPtr = nullptr;
+                    e->seq.store(s + 2, std::memory_order_release);
+                    break;
+                }
+            } else {
+                // If another thread is currently writing, yield CPU and try again
+                Sleep(0);
+            }
+        }
+    }
+}

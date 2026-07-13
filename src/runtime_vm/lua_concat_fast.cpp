@@ -25,7 +25,10 @@ typedef int(__cdecl *concat_fn)(uintptr_t L, int total, int last);
 static concat_fn orig = nullptr;
 static volatile long g_hits = 0, g_misses = 0;
 
+#include "../allocators/loading_defrag.h"
+
 static int __cdecl hook(uintptr_t L, int total, int last) {
+    if (LoadingDefrag::IsLoadingActive()) { g_misses++; return orig(L, total, last); }
     if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, total, last); }
 
     __try {
@@ -65,6 +68,9 @@ static int __cdecl hook(uintptr_t L, int total, int last) {
         *(uint32_t*)(new_s1_tv + 4) = 0;
         *(uint32_t*)(new_s1_tv + 8) = LUA_TSTRING;
         *(uint32_t*)(new_s1_tv + 12) = taint;
+
+        // Balance the stack: set top to point to slot after result
+        *(uintptr_t*)(L + 0x0C) = new_base + (uintptr_t)(last - total + 2) * 16;
 
         g_hits++;
         return 1;

@@ -161,7 +161,7 @@ static DWORD WINAPI DefragWorkerThread(LPVOID) {
             Log("[LoadingDefrag] Defragmenter loop active (loading screen phase)");
             int compactionCount = 0;
             
-            while (g_loadingActive.load(std::memory_order_relaxed) && 
+            while (g_loadingActive.load(std::memory_order_acquire) && 
                    !g_shutdown.load(std::memory_order_relaxed)) 
             {
                 Sleep(1000); // Check every 1000ms (was 200ms) to reduce CPU/lock overhead
@@ -231,18 +231,21 @@ void Shutdown() {
     Log("[LoadingDefrag] Module shutdown complete");
 }
 
+extern "C" void ClearDbcLookupCache();
+
 void NotifyLoadingState(bool isLoading) {
     if (isLoading) {
-        g_loadingActive.store(true);
+        g_loadingActive.store(true, std::memory_order_release);
         SetEvent(g_defragEvent);
         ApiCache::ClearCache();
+        ClearDbcLookupCache();
     } else {
-        g_loadingActive.store(false);
+        g_loadingActive.store(false, std::memory_order_release);
     }
 }
 
 bool IsLoadingActive() {
-    return g_loadingActive.load(std::memory_order_relaxed);
+    return g_loadingActive.load(std::memory_order_acquire);
 }
 
 // Helper to check if string matches GetStackTopFast / SetStackTopFast definitions
@@ -315,7 +318,7 @@ void OnFrame() {
     #if !TEST_DISABLE_DEFRAG_LF
     DWORD now = GetTickCount();
     static DWORD lastCollect = 0;
-    if (g_loadingActive.load(std::memory_order_relaxed)) {
+    if (g_loadingActive.load(std::memory_order_acquire)) {
         if (now - lastCollect >= 500) {
             mi_collect(true);
             lastCollect = now;

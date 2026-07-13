@@ -23,8 +23,11 @@ extern "C" void Log(const char* fmt, ...);
 // WoW taint cell
 #define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
+#include "../allocators/loading_defrag.h"
+
 // Teardown state helper
 static inline bool IsTeardownState() {
+    if (LoadingDefrag::IsLoadingActive()) return true;
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
     return (gL < 0x10000 || gL > 0xFFE00000);
 }

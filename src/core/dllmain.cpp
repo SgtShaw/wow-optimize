@@ -666,6 +666,11 @@ static void __fastcall Hooked_OnFieldUpdate(void* This, void* unused, int fieldI
             return orig_OnFieldUpdate(This, fieldId, value);
         }
 
+        // Process display, mount, and scale fields immediately to prevent model stretching/flickering
+        if (fieldId == 70 || fieldId == 71 || fieldId == 74 || fieldId == 75 || fieldId == 117) {
+            return orig_OnFieldUpdate(This, fieldId, value);
+        }
+
         AcquireSRWLockExclusive(&g_fieldQueueLock);
         LONG tail = g_fieldTail;
         LONG nextTail = (tail + 1) & FIELD_QUEUE_MASK;
@@ -1354,6 +1359,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
                 ClearCombatLogCache();
                 ClearTableCache();
                 ClearLuaPushStringCache();
+                ClearDbcLookupCache();
                 g_lastLState = currentL;
             }
 

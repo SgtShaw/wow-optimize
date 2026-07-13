@@ -1,4 +1,5 @@
 #include "lua_jit_compiler.h"
+#include "../allocators/loading_defrag.h"
 #include "MinHook.h"
 #include "version.h"
 #include "core/config.h"
@@ -85,7 +86,11 @@ void* CompileFunction(void* proto) {
 typedef int (__cdecl* luaD_precall_fn)(void* L, void* func, int nresults);
 static luaD_precall_fn g_orig_luaD_precall = nullptr;
 
+
 static int __cdecl Hooked_luaD_precall(void* L, void* func, int nresults) {
+    if (LoadingDefrag::IsLoadingActive()) {
+        return g_orig_luaD_precall(L, func, nresults);
+    }
     static volatile long local_calls = 0;
     long current_call = InterlockedIncrement(&local_calls);
     

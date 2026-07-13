@@ -40,8 +40,11 @@ static const uintptr_t NIL_OBJECT = 0x00A46F78;
 
 // Teardown guard: if the lua_State global is zero, the Lua VM is
 // being torn down and stack pointers are stale.
+#include "../allocators/loading_defrag.h"
+
 extern "C" bool LuaOpt_IsTeardown();
 static inline bool IsTeardownState() {
+    if (LoadingDefrag::IsLoadingActive()) return true;
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
     return (gL < 0x10000 || gL > 0xFFE00000);
 }

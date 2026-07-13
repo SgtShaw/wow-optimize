@@ -27,7 +27,10 @@ static size_t my_strlen(const char* s) {
     return (size_t)(p - s);
 }
 
+#include "../allocators/loading_defrag.h"
+
 static int __cdecl hook(uintptr_t L, const char* s) {
+    if (LoadingDefrag::IsLoadingActive()) { g_misses++; return orig(L, s); }
     if (L < 0x10000 || L > 0xFFE00000) { g_misses++; return orig(L, s); }
 
     // NULL string → push nil — defer to original
@@ -49,12 +52,6 @@ static int __cdecl hook(uintptr_t L, const char* s) {
         if (top < 0x10000 || top > 0xFFE00000) { g_misses++; return orig(L, s); }
 
         size_t len = my_strlen(s);
-
-        // Write taint into the slot BEFORE calling luaS_newlstr.
-        // The original (sub_84E300) does: v3[3] = taint, then calls luaS_newlstr.
-        // This matters because luaS_newlstr may itself trigger GC/stack realloc.
-        // If we wrote taint after, the slot ptr would be stale.
-        *(uint32_t*)(top + 12) = *(uint32_t*)0x00D4139C;
 
         // Intern string — may trigger GC → may reallocate the Lua stack.
         typedef uintptr_t(__cdecl *newlstr_fn)(uintptr_t, const char*, size_t);

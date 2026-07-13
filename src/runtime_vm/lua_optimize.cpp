@@ -5,6 +5,7 @@
 // ============================================================================
 
 #include "lua_optimize.h"
+#include "../allocators/loading_defrag.h"
 #include "combatlog_optimize.h"
 #include "ui_cache.h"
 #include "api_cache.h"
@@ -1983,12 +1984,18 @@ Stats GetStats() {
     return s;
 }
 
+
 bool LuaOpt::IsLoadingMode() {
-    return Config.isLoading;
+    return Config.isLoading || LoadingDefrag::IsLoadingActive();
 }
 
-bool IsReloading() { return g_isReloading.load(std::memory_order_acquire); }
-bool IsSwapping()  { return g_isSwapping.load(std::memory_order_acquire); }
+bool IsReloading() {
+    return g_isReloading.load(std::memory_order_acquire) || LoadingDefrag::IsLoadingActive();
+}
+
+bool IsSwapping()  {
+    return g_isSwapping.load(std::memory_order_acquire) || LoadingDefrag::IsLoadingActive();
+}
 DWORD GetLastSwapTick() { return g_lastLuaSwapTick; }
 bool IsInitialized() { return State.initialized; }
 

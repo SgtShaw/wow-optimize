@@ -27,3 +27,4 @@
 
 bool InstallDbcLookupCache();
 void UninstallDbcLookupCache();
+extern "C" void ClearDbcLookupCache();

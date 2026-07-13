@@ -39,15 +39,16 @@ static lua_rawgeti_fn g_orig_rawgeti = nullptr;
 // ----------------------------------------------------------------
 // Optimized replacement — SAFE (no pointer caching)
 // ----------------------------------------------------------------
+#include "../allocators/loading_defrag.h"
+
 static int __cdecl Optimized_RawGetI(int L, int idx, int n)
 {
     ++g_total_calls;
     bool processed = false;
     int res_val = 0;
 
-    // Bail out during lua_State swap — L->base and L->top become garbage
-    // when WoW destroys the old Lua VM during UI reload/logout.
-    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+    // Bail out during lua_State swap or active loading
+    if (LuaOpt::IsReloading() || LuaOpt::IsSwapping() || LoadingDefrag::IsLoadingActive()) {
         return g_orig_rawgeti(L, idx, n);
     }
 
