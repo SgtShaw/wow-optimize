@@ -67,12 +67,14 @@ void CvarWatchdog_Check()
         (int)(sizeof(g_watch)/sizeof(g_watch[0])));
 
     int fixed = 0;
+    bool anyCorrupt = false;
     for (size_t i = 0; i < sizeof(g_watch)/sizeof(g_watch[0]); i++) {
         CvarWatchEntry& e = g_watch[i];
         uintptr_t val = *(uintptr_t*)e.addr;
 
         if (e.isPointer) {
             if (val < 0x10000) {
+                anyCorrupt = true;
                 Log("[CvarWatchdog] CORRUPT: %s is NULL (0x%08X) — "
                     "dependent code may crash", e.name, e.addr);
                 if (e.safeValue != 0) {
@@ -82,6 +84,7 @@ void CvarWatchdog_Check()
             }
         } else {
             if (val == 0 || val == 0xFFFFFFFF || val == 0xCDCDCDCD) {
+                anyCorrupt = true;
                 Log("[CvarWatchdog] CORRUPT: %s = 0x%08X at 0x%08X",
                     e.name, (unsigned)val, (unsigned)e.addr);
                 if (e.safeValue != 0) {
@@ -94,6 +97,8 @@ void CvarWatchdog_Check()
 
     if (fixed > 0) {
         Log("[CvarWatchdog] Fixed %d corrupted CVars", fixed);
+    } else if (anyCorrupt) {
+        Log("[CvarWatchdog] Scan completed: corrupted CVars found (reported above).");
     } else {
         Log("[CvarWatchdog] All CVars OK");
     }
