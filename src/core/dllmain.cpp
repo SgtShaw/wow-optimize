@@ -1620,32 +1620,8 @@ static int WINAPI hooked_WSARecv(SOCKET s, LPWSABUF lpBuffers, DWORD dwBufferCou
 }
 
 static bool InstallNetworkHooks() {
-    HMODULE h = GetModuleHandleA("ws2_32.dll");
-    if (!h) h = LoadLibraryA("ws2_32.dll");
-    if (!h) return false;
-
-    void* pConnect = (void*)GetProcAddress(h, "connect");
-    void* pSend    = (void*)GetProcAddress(h, "send");
-    void* pRecv    = (void*)GetProcAddress(h, "recv");
-    void* pWSARecv = (void*)GetProcAddress(h, "WSARecv");
-    if (!pConnect) return false;
-
-    int ok = 0;
-
-    if (MH_CreateHook(pConnect, (void*)hooked_connect, (void**)&orig_connect) == MH_OK)
-        if (WO_EnableHook(pConnect) == MH_OK) ok++;
-
-    if (pSend && MH_CreateHook(pSend, (void*)hooked_send, (void**)&orig_send) == MH_OK)
-        if (WO_EnableHook(pSend) == MH_OK) ok++;
-
-    if (pRecv && MH_CreateHook(pRecv, (void*)hooked_recv, (void**)&orig_recv) == MH_OK)
-        if (WO_EnableHook(pRecv) == MH_OK) ok++;
-
-    if (pWSARecv && MH_CreateHook(pWSARecv, (void*)hooked_WSARecv, (void**)&orig_WSARecv) == MH_OK)
-        if (WO_EnableHook(pWSARecv) == MH_OK) ok++;
-
-    Log("Network hook: ACTIVE (%d/4 hooks, NODELAY+ACK+QoS+KA+recv, buffers auto-tuned)", ok);
-    return ok > 0;
+    Log("Network hook: DISABLED for stability (native socket layer is optimal)");
+    return true;
 }
 
 // ================================================================
