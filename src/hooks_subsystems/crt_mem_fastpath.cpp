@@ -46,19 +46,26 @@ static strncmp_fn orig_strncmp = nullptr;
 // ================================================================
 // strlen - SSE2 null-terminator scan with in-loop page boundary guard
 // ================================================================
+// ================================================================
+// strlen - SSE2 aligned null-terminator scan (no page checks in loop)
+// ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
     if (!g_crtReady || !orig_strlen) goto fallback;
     if (!s) goto fallback;
     __try {
         const __m128i zero = _mm_setzero_si128();
         size_t len = 0;
-        while (true) {
-            if (PAGE_NEAR_BOUNDARY(s + len)) {
-                // Resume scanning using the original strlen function
-                g_crtStrlenFallbacks++;
-                return len + orig_strlen(s + len);
+        uintptr_t addr = (uintptr_t)s;
+        size_t prefix = (16 - (addr & 15)) & 15;
+        for (size_t i = 0; i < prefix; i++) {
+            if (s[len] == '\0') {
+                g_crtStrlenHits++;
+                return len;
             }
-            __m128i v = _mm_loadu_si128((const __m128i*)(s + len));
+            len++;
+        }
+        while (true) {
+            __m128i v = _mm_load_si128((const __m128i*)(s + len));
             int mask = _mm_movemask_epi8(_mm_cmpeq_epi8(v, zero));
             if (mask) {
                 unsigned long idx;
@@ -89,7 +96,6 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
         size_t i = 0;
         while (true) {
             if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
-                // Resume comparison using original strcmp
                 g_crtStrcmpFallbacks++;
                 return orig_strcmp(s1 + i, s2 + i);
             }
@@ -144,7 +150,6 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
         size_t i = 0;
         while (i + 16 <= n) {
             if (PAGE_NEAR_BOUNDARY(s1 + i) || PAGE_NEAR_BOUNDARY(s2 + i)) {
-                // Resume comparison using original strncmp with remaining limit
                 return orig_strncmp(s1 + i, s2 + i, n - i);
             }
             __m128i a = _mm_loadu_si128((const __m128i*)(s1 + i));
@@ -193,7 +198,7 @@ fallback:
 }
 
 // ================================================================
-// memcmp - SSE2 vectorized comparison with per-chunk page guard
+// memcmp - SSE2 vectorized comparison without page checks
 // ================================================================
 static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     if (!g_crtReady || !orig_memcmp) goto fallback;
@@ -204,11 +209,6 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
         const unsigned char* p2 = (const unsigned char*)s2;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            if (PAGE_NEAR_BOUNDARY(p1 + i) || PAGE_NEAR_BOUNDARY(p2 + i)) {
-                // Resume comparison using original memcmp
-                g_crtMemcmpFallbacks++;
-                return orig_memcmp(p1 + i, p2 + i, n - i);
-            }
             __m128i a = _mm_loadu_si128((const __m128i*)(p1 + i));
             __m128i b = _mm_loadu_si128((const __m128i*)(p2 + i));
             int eq = _mm_movemask_epi8(_mm_cmpeq_epi8(a, b));
@@ -239,7 +239,7 @@ fallback:
 }
 
 // ================================================================
-// memcpy - SSE2 unaligned copy with per-chunk page guard
+// memcpy - SSE2 copy without page checks
 // ================================================================
 static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     if (!g_crtReady || !orig_memcpy) goto fallback;
@@ -251,12 +251,6 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
         const unsigned char* s = (const unsigned char*)src;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            if (PAGE_NEAR_BOUNDARY(s + i) || PAGE_NEAR_BOUNDARY(d + i)) {
-                // Resume copy using original memcpy
-                g_crtMemcpyFallbacks++;
-                orig_memcpy(d + i, s + i, n - i);
-                return dst;
-            }
             _mm_storeu_si128((__m128i*)(d + i), _mm_loadu_si128((const __m128i*)(s + i)));
         }
         for (size_t j = i; j < n; j++) d[j] = s[j];
@@ -278,7 +272,7 @@ fallback:
 }
 
 // ================================================================
-// memset - SSE2 byte broadcast with per-chunk page guard
+// memset - SSE2 byte broadcast without page checks
 // ================================================================
 static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     if (!g_crtReady || !orig_memset) goto fallback;
@@ -289,12 +283,6 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
         unsigned char* d = (unsigned char*)dst;
         size_t i = 0;
         for (; i + 16 <= n; i += 16) {
-            if (PAGE_NEAR_BOUNDARY(d + i)) {
-                // Resume fill using original memset
-                g_crtMemsetFallbacks++;
-                orig_memset(d + i, c, n - i);
-                return dst;
-            }
             _mm_storeu_si128((__m128i*)(d + i), val);
         }
         for (size_t j = i; j < n; j++) d[j] = (unsigned char)c;
