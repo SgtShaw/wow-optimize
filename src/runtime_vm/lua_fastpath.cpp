@@ -783,7 +783,7 @@ static int __cdecl Hooked_StrFind(lua_State* L) {
     size_t sLen = 0, pLen = 0;
     const char* s = lua_tolstring_(L, 1, &sLen);
     const char* p = lua_tolstring_(L, 2, &pLen);
-    if (!s || !p) return orig_str_find(L);
+    if (!s || !p || HasEmbeddedNul(s, sLen) || HasEmbeddedNul(p, pLen)) return orig_str_find(L);
 
     // Fast path applies when the caller passed plain=true, OR the pattern has no
     // Lua magic characters. A magic-free pattern matches exactly the same span as
@@ -894,6 +894,12 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
         p[3] == '^' && p[4] == '%' && p[5] == 's' &&
         p[6] == ']' && p[7] == '+' && p[8] == ')') {
         
+        if (init != 1) {
+            lua_pushnil_(L);
+            g_matchHits++;
+            return 1;
+        }
+        
         // Find first whitespace character (ASCII <= 32 covers space, tab, newline, etc.)
         size_t end = 0;
         while (end < sLen && (unsigned char)s[end] > 32) {
@@ -924,6 +930,12 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
         p[0] == '^' && p[1] == '(' && p[2] == '.' &&
         p[3] == '-' && p[4] == ')' && p[5] == '%' &&
         p[6] == 's' && p[7] == '*' && p[8] == '$') {
+        
+        if (init != 1) {
+            lua_pushnil_(L);
+            g_matchHits++;
+            return 1;
+        }
         
         // Find last non-whitespace character
         int last = (int)sLen - 1;
@@ -994,10 +1006,10 @@ static int __cdecl Hooked_StrMatch(lua_State* L) {
     }
 
 
-    // Case 3: captured class (%d+), (%w+)
+    // Case 3: captured class (%d+), (%w+) - ONLY anchored (^%w+, ^%d+) is supported for safety (non-anchored requires scanning)
     if (pLen >= 5 && pLen <= 6 && p[pLen-2] == '%' && p[pLen-1] == '+') {
         int off = (p[0] == '^') ? 1 : 0;
-        if ((pLen - off) == 5 && p[off] == '(' && p[off+4] == ')') {
+        if (off == 1 && (pLen - off) == 5 && p[off] == '(' && p[off+4] == ')') {
             char cls = p[off+2];
             if (cls == 'd' || cls == 'a' || cls == 'w' || cls == 'l' || cls == 'u') {
                 if (off && init != 1) { lua_pushnil_(L); g_matchHits++; return 1; }
