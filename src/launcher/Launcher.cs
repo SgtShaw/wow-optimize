@@ -4,53 +4,12 @@ using System.Diagnostics;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
+using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.Windows.Forms;
+using System.Reflection;
 
 namespace WowOptimizeLauncher {
-    public class App : Application {
-        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
-        private static extern IntPtr GetModuleHandle(string lpModuleName);
-
-        [DllImport("kernel32.dll", CharSet = CharSet.Ansi, ExactSpelling = true)]
-        private static extern IntPtr GetProcAddress(IntPtr hModule, string procName);
-
-        private static bool IsRunningOnWine() {
-            try {
-                IntPtr hNtdll = GetModuleHandle("ntdll.dll");
-                if (hNtdll != IntPtr.Zero) {
-                    IntPtr pFunc = GetProcAddress(hNtdll, "wine_get_version");
-                    if (pFunc != IntPtr.Zero) {
-                        return true;
-                    }
-                }
-            } catch {
-                // Ignore
-            }
-            return false;
-        }
-
-        [STAThread]
-        public static void Main() {
-            if (IsRunningOnWine()) {
-                try {
-                    System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
-                    using (Microsoft.Win32.RegistryKey key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Avalon.Graphics")) {
-                        if (key != null) {
-                            key.SetValue("DisableHWAcceleration", 1, Microsoft.Win32.RegistryValueKind.DWord);
-                        }
-                    }
-                } catch {
-                    // Ignore
-                }
-            }
-            App app = new App();
-            app.Run(new MainWindow());
-        }
-    }
 
     public class SettingItem {
         public string Section;
@@ -70,40 +29,267 @@ namespace WowOptimizeLauncher {
         }
     }
 
-    public class MainWindow : Window {
+    // ───────────────────────────────────────────────────────────────
+    //  Owner-drawn dark-themed CheckBox
+    // ───────────────────────────────────────────────────────────────
+    public class DarkCheckBox : CheckBox {
+        private static readonly Color CyanAccent = Color.FromArgb(0, 229, 255);
+        private static readonly Color BorderIdle = Color.FromArgb(100, 110, 140);
+        private static readonly Color BoxBg = Color.FromArgb(18, 18, 28);
+
+        public DarkCheckBox() {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9.75f, FontStyle.Regular);
+            Cursor = Cursors.Hand;
+            Margin = new Padding(5, 5, 5, 12);
+            AutoSize = true;
+        }
+
+        protected override void OnPaint(PaintEventArgs e) {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.HighQuality;
+            g.Clear(Parent != null ? Parent.BackColor : Color.FromArgb(15, 15, 22));
+
+            // Checkbox square (16x16)
+            int boxSize = 16;
+            int boxY = (Height - boxSize) / 2;
+            Rectangle boxRect = new Rectangle(0, boxY, boxSize, boxSize);
+
+            using (SolidBrush bgBrush = new SolidBrush(BoxBg)) {
+                g.FillRectangle(bgBrush, boxRect);
+            }
+
+            Color borderColor = (Checked || ClientRectangle.Contains(PointToClient(MousePosition))) ? CyanAccent : BorderIdle;
+            using (Pen borderPen = new Pen(borderColor, 1.5f)) {
+                g.DrawRectangle(borderPen, boxRect);
+            }
+
+            // Inner cyan square when checked (8x8 centered)
+            if (Checked) {
+                int innerSize = 8;
+                int innerX = (boxSize - innerSize) / 2;
+                int innerY = boxY + (boxSize - innerSize) / 2;
+                using (SolidBrush cyanBrush = new SolidBrush(CyanAccent)) {
+                    g.FillRectangle(cyanBrush, innerX, innerY, innerSize, innerSize);
+                }
+            }
+
+            // Text
+            using (SolidBrush textBrush = new SolidBrush(ForeColor)) {
+                g.DrawString(Text, Font, textBrush, boxSize + 8, (Height - Font.Height) / 2f);
+            }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) {
+            base.OnMouseEnter(e);
+            Invalidate();
+        }
+
+        protected override void OnMouseLeave(EventArgs e) {
+            base.OnMouseLeave(e);
+            Invalidate();
+        }
+
+        public override Size GetPreferredSize(Size proposedSize) {
+            using (Graphics g = CreateGraphics()) {
+                SizeF textSize = g.MeasureString(Text, Font);
+                return new Size(16 + 8 + (int)Math.Ceiling(textSize.Width) + 4, Math.Max(20, (int)Math.Ceiling(textSize.Height) + 4));
+            }
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    //  Owner-drawn dark-themed Button with hover effect
+    // ───────────────────────────────────────────────────────────────
+    public class DarkButton : Button {
+        private bool _hovering;
+        private Color _accentColor;
+        private bool _highlight;
+
+        public DarkButton(Color accentColor, bool highlight) {
+            _accentColor = accentColor;
+            _highlight = highlight;
+
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            FlatStyle = FlatStyle.Flat;
+            FlatAppearance.BorderSize = 0;
+            Cursor = Cursors.Hand;
+            Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            Height = 30;
+            Margin = new Padding(0, 0, 0, 6);
+        }
+
+        protected override void OnPaint(PaintEventArgs e) {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.HighQuality;
+
+            Color bgColor;
+            Color fgColor;
+
+            if (_hovering) {
+                bgColor = _accentColor;
+                fgColor = Color.Black;
+            } else if (_highlight) {
+                bgColor = _accentColor;
+                fgColor = Color.Black;
+            } else {
+                bgColor = Color.FromArgb(20, 20, 28);
+                fgColor = _accentColor;
+            }
+
+            using (SolidBrush bgBrush = new SolidBrush(bgColor)) {
+                g.FillRectangle(bgBrush, ClientRectangle);
+            }
+
+            using (Pen borderPen = new Pen(_accentColor, 1.5f)) {
+                g.DrawRectangle(borderPen, 0, 0, Width - 1, Height - 1);
+            }
+
+            TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter;
+            TextRenderer.DrawText(g, Text, Font, ClientRectangle, fgColor, flags);
+        }
+
+        protected override void OnMouseEnter(EventArgs e) {
+            _hovering = true;
+            Invalidate();
+            base.OnMouseEnter(e);
+        }
+
+        protected override void OnMouseLeave(EventArgs e) {
+            _hovering = false;
+            Invalidate();
+            base.OnMouseLeave(e);
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    //  Owner-drawn dark-themed TabControl
+    // ───────────────────────────────────────────────────────────────
+    public class DarkTabControl : TabControl {
+        private static readonly Color BgColor = Color.FromArgb(15, 15, 22);
+        private static readonly Color CyanAccent = Color.FromArgb(0, 229, 255);
+        private static readonly Color TabIdle = Color.FromArgb(90, 90, 110);
+
+        public DarkTabControl() {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer, true);
+            DrawMode = TabDrawMode.OwnerDrawFixed;
+            SizeMode = TabSizeMode.Fixed;
+            ItemSize = new Size(110, 28);
+            Padding = new Point(0, 0);
+        }
+
+        protected override void OnPaint(PaintEventArgs e) {
+            Graphics g = e.Graphics;
+            g.Clear(BgColor);
+
+            // Draw tab headers
+            for (int i = 0; i < TabCount; i++) {
+                Rectangle tabRect = GetTabRect(i);
+                bool selected = (SelectedIndex == i);
+
+                Color textColor = selected ? CyanAccent : TabIdle;
+                using (Font tabFont = new Font("Segoe UI", 8f, FontStyle.Bold)) {
+                    TextFormatFlags flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter;
+                    TextRenderer.DrawText(g, TabPages[i].Text, tabFont, tabRect, textColor, flags);
+                }
+
+                if (selected) {
+                    using (Pen underline = new Pen(CyanAccent, 2f)) {
+                        g.DrawLine(underline, tabRect.Left + 4, tabRect.Bottom - 1, tabRect.Right - 4, tabRect.Bottom - 1);
+                    }
+                }
+            }
+
+            // Draw tab page area border
+            if (TabCount > 0) {
+                Rectangle pageArea = new Rectangle(0, ItemSize.Height, Width - 1, Height - ItemSize.Height - 1);
+                using (Pen borderPen = new Pen(Color.FromArgb(30, 30, 45), 1f)) {
+                    g.DrawRectangle(borderPen, pageArea);
+                }
+            }
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e) {
+            // Handled in OnPaint
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    //  Double-buffered Panel for flicker-free drawing
+    // ───────────────────────────────────────────────────────────────
+    public class DoubleBufferedPanel : Panel {
+        public DoubleBufferedPanel() {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    //  Double-buffered FlowLayoutPanel for scroll content
+    // ───────────────────────────────────────────────────────────────
+    public class DoubleBufferedFlowPanel : FlowLayoutPanel {
+        public DoubleBufferedFlowPanel() {
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        protected override void OnPaint(PaintEventArgs e) {
+            // Default FlowLayoutPanel painting
+            base.OnPaint(e);
+        }
+    }
+
+    // ───────────────────────────────────────────────────────────────
+    //  Main Form
+    // ───────────────────────────────────────────────────────────────
+    public class MainForm : Form {
         private string iniPath;
         private Dictionary<string, SettingItem> settingsMap;
 
-        // Custom UI Controls
-        private StackPanel generalPanel;
-        private StackPanel uiLuaPanel;
-        private StackPanel combatNetPanel;
-        private StackPanel graphicsSoundPanel;
-        private StackPanel recentNewPanel;
-        private TabControl tabs;
-        private TextBlock versionText;
-        private TextBlock activeModulesText;
-        private System.Windows.Documents.Run activeCountRun;
-        private Grid progressBarGrid;
+        // UI references
+        private Label versionLabel;
+        private Label activeCountLabel;
+        private DoubleBufferedPanel progressBarPanel;
+        private DarkTabControl tabs;
+        private ToolTip toolTip;
 
-        public MainWindow() {
+        // Background image
+        private Image backgroundImage;
+
+        // Drag support
+        private bool dragging;
+        private Point dragStart;
+
+        // Colors
+        private static readonly Color DarkBg = Color.FromArgb(15, 15, 22);
+        private static readonly Color DarkerBg = Color.FromArgb(12, 12, 18);
+        private static readonly Color CyanAccent = Color.FromArgb(0, 229, 255);
+        private static readonly Color PanelBg = Color.FromArgb(18, 18, 28);
+        private static readonly Color SeparatorColor = Color.FromArgb(30, 30, 45);
+        private static readonly Color SubtextColor = Color.FromArgb(150, 150, 180);
+        private static readonly Color SubHeaderColor = Color.FromArgb(150, 150, 180);
+
+        public MainForm() {
             // Setup Paths
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            iniPath = System.IO.Path.Combine(exeDir, "wow_opt.ini");
+            iniPath = Path.Combine(exeDir, "wow_opt.ini");
 
-            // Window Setup
-            Title = "WoW-Optimize Launcher";
-            Width = 920;
-            Height = 650;
-            WindowStartupLocation = WindowStartupLocation.CenterScreen;
-            Background = new SolidColorBrush(Color.FromRgb(15, 15, 22));
-            Foreground = Brushes.White;
-            FontFamily = new FontFamily("Segoe UI, Roboto, sans-serif");
-            ResizeMode = ResizeMode.NoResize;
-            WindowStyle = WindowStyle.None;
-            AllowsTransparency = true;
+            // Tooltip component
+            toolTip = new ToolTip();
+            toolTip.OwnerDraw = true;
+            toolTip.InitialDelay = 250;
+            toolTip.AutoPopDelay = 30000;
+            toolTip.ReshowDelay = 100;
+            toolTip.Draw += ToolTip_Draw;
+            toolTip.Popup += ToolTip_Popup;
 
-            // Define settings mapping using the SettingItem helper class
+            // Define settings mapping
             settingsMap = new Dictionary<string, SettingItem>() {
                 // General
                 { "Precise Sleep Frame Pacing", new SettingItem("General", "SleepPrecision", true, null, "Enforces millisecond-accurate frame-rate sleep pacing to reduce input lag and stabilize frame delivery.") },
@@ -225,557 +411,529 @@ namespace WowOptimizeLauncher {
                 { "Non-Vital Combat Event Screener", new SettingItem("Combat_Net", "CombatEventLimit", false, null, "[NEW] Dynamically filters minor combat events when active client rendering FPS is low.") }
             };
 
-            // Build GUI Layout
+            // Window Setup
+            Text = "WoW-Optimize Launcher";
+            ClientSize = new Size(920, 650);
+            StartPosition = FormStartPosition.CenterScreen;
+            FormBorderStyle = FormBorderStyle.None;
+            BackColor = DarkBg;
+            ForeColor = Color.White;
+            Font = new Font("Segoe UI", 9f);
+            MaximizeBox = false;
+            DoubleBuffered = true;
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+
+            // Load background image
+            LoadBackgroundImage();
+
+            // Build GUI
             InitializeLayout();
 
             // Load Settings from INI
             LoadSettings();
 
-            // Check for Updates in the background
+            // Check for Updates
             CheckForUpdatesAsync();
         }
 
-        private void InitializeLayout() {
-            // Main Window Grid
-            Grid rootGrid = new Grid();
-            AddChild(rootGrid);
-
-            // Background Card (WotLK image background with fallback solid color)
-            Border backgroundBorder = new Border {
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(30, 30, 45)),
-                CornerRadius = new CornerRadius(0) // Strict square edges
-            };
-
-            // Attempt to load background image:
-            // 1. First check if a custom file exists on disk
-            // 2. Fallback to loading the embedded resource image
+        private void LoadBackgroundImage() {
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            string bgImagePath = System.IO.Path.Combine(exeDir, "wotlk_background.jpg");
-            bool loadedBg = false;
+            string bgImagePath = Path.Combine(exeDir, "wotlk_background.jpg");
 
             if (File.Exists(bgImagePath)) {
                 try {
-                    ImageBrush ib = new ImageBrush();
-                    ib.ImageSource = new BitmapImage(new Uri(bgImagePath));
-                    ib.Stretch = Stretch.UniformToFill;
-                    backgroundBorder.Background = ib;
-                    loadedBg = true;
+                    backgroundImage = Image.FromFile(bgImagePath);
+                    return;
                 } catch {
-                    // Fail over to resource
+                    // fall through to resource
                 }
             }
 
-            if (!loadedBg) {
-                try {
-                    System.Reflection.Assembly asm = System.Reflection.Assembly.GetExecutingAssembly();
-                    using (Stream stream = asm.GetManifestResourceStream("wotlk_background.jpg")) {
-                        if (stream != null) {
-                            BitmapImage bitmap = new BitmapImage();
-                            bitmap.BeginInit();
-                            bitmap.StreamSource = stream;
-                            bitmap.CacheOption = BitmapCacheOption.OnLoad; // Allow closing the stream
-                            bitmap.EndInit();
+            try {
+                Assembly asm = Assembly.GetExecutingAssembly();
+                Stream stream = asm.GetManifestResourceStream("wotlk_background.jpg");
+                if (stream != null) {
+                    backgroundImage = Image.FromStream(stream);
+                }
+            } catch {
+                // fallback to solid color — backgroundImage stays null
+            }
+        }
 
-                            ImageBrush ib = new ImageBrush();
-                            ib.ImageSource = bitmap;
-                            ib.Stretch = Stretch.UniformToFill;
-                            backgroundBorder.Background = ib;
-                            loadedBg = true;
-                        }
-                    }
-                } catch {
-                    // Fail over to solid color
+        protected override void OnPaintBackground(PaintEventArgs e) {
+            Graphics g = e.Graphics;
+
+            if (backgroundImage != null) {
+                // Draw background image scaled to fill (UniformToFill equivalent)
+                float scaleX = (float)ClientSize.Width / backgroundImage.Width;
+                float scaleY = (float)ClientSize.Height / backgroundImage.Height;
+                float scale = Math.Max(scaleX, scaleY);
+                int drawW = (int)(backgroundImage.Width * scale);
+                int drawH = (int)(backgroundImage.Height * scale);
+                int drawX = (ClientSize.Width - drawW) / 2;
+                int drawY = (ClientSize.Height - drawH) / 2;
+                g.DrawImage(backgroundImage, drawX, drawY, drawW, drawH);
+
+                // Dark overlay (alpha ~235/255 of RGB 12,12,18)
+                using (SolidBrush overlay = new SolidBrush(Color.FromArgb(235, 12, 12, 18))) {
+                    g.FillRectangle(overlay, ClientRectangle);
+                }
+            } else {
+                using (SolidBrush bgBrush = new SolidBrush(DarkerBg)) {
+                    g.FillRectangle(bgBrush, ClientRectangle);
                 }
             }
 
-            if (!loadedBg) {
-                backgroundBorder.Background = new SolidColorBrush(Color.FromRgb(12, 12, 18));
+            // Outer border
+            using (Pen borderPen = new Pen(SeparatorColor, 1f)) {
+                g.DrawRectangle(borderPen, 0, 0, ClientSize.Width - 1, ClientSize.Height - 1);
             }
-            rootGrid.Children.Add(backgroundBorder);
+        }
 
-            // Dark semi-transparent flat overlay to keep text highly legible (no gradient)
-            Border overlayBorder = new Border {
-                Background = new SolidColorBrush(Color.FromArgb(235, 12, 12, 18)),
-                CornerRadius = new CornerRadius(0)
+        // ── Drag support ─────────────────────────────────────────
+        protected override void OnMouseDown(MouseEventArgs e) {
+            if (e.Button == MouseButtons.Left) {
+                dragging = true;
+                dragStart = new Point(e.X, e.Y);
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e) {
+            if (dragging) {
+                Point p = PointToScreen(e.Location);
+                Location = new Point(p.X - dragStart.X, p.Y - dragStart.Y);
+            }
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e) {
+            dragging = false;
+            base.OnMouseUp(e);
+        }
+
+        // ── Tooltip owner-draw ───────────────────────────────────
+        private void ToolTip_Popup(object sender, PopupEventArgs e) {
+            string text = toolTip.GetToolTip(e.AssociatedControl);
+            using (Graphics g = e.AssociatedControl.CreateGraphics()) {
+                using (Font f = new Font("Segoe UI", 9f)) {
+                    SizeF sz = g.MeasureString(text, f, 350);
+                    e.ToolTipSize = new Size((int)Math.Ceiling(sz.Width) + 16, (int)Math.Ceiling(sz.Height) + 12);
+                }
+            }
+        }
+
+        private void ToolTip_Draw(object sender, DrawToolTipEventArgs e) {
+            using (SolidBrush bgBrush = new SolidBrush(Color.FromArgb(20, 20, 30))) {
+                e.Graphics.FillRectangle(bgBrush, e.Bounds);
+            }
+            using (Pen borderPen = new Pen(CyanAccent, 1f)) {
+                e.Graphics.DrawRectangle(borderPen, 0, 0, e.Bounds.Width - 1, e.Bounds.Height - 1);
+            }
+            using (SolidBrush textBrush = new SolidBrush(Color.White)) {
+                using (Font f = new Font("Segoe UI", 9f)) {
+                    e.Graphics.DrawString(e.ToolTipText, f, textBrush, new RectangleF(8, 6, e.Bounds.Width - 16, e.Bounds.Height - 12));
+                }
+            }
+        }
+
+        // ── Layout ───────────────────────────────────────────────
+        private void InitializeLayout() {
+            SuspendLayout();
+
+            // ── LEFT PANEL ──────────────────────────────────────
+            DoubleBufferedPanel leftPanel = new DoubleBufferedPanel();
+            leftPanel.Location = new Point(10, 10);
+            leftPanel.Size = new Size(280, ClientSize.Height - 20);
+            leftPanel.BackColor = Color.Transparent;
+            leftPanel.AutoScroll = false;
+
+            int y = 10;
+
+            // Title
+            Label headerLabel = new Label();
+            headerLabel.Text = "WOW OPTIMIZE";
+            headerLabel.Font = new Font("Segoe UI", 18f, FontStyle.Bold);
+            headerLabel.ForeColor = CyanAccent;
+            headerLabel.AutoSize = true;
+            headerLabel.Location = new Point(15, y);
+            headerLabel.BackColor = Color.Transparent;
+            leftPanel.Controls.Add(headerLabel);
+            y += headerLabel.PreferredHeight + 0;
+
+            // Dev subtitle
+            Label devLabel = new Label();
+            devLabel.Text = "by Suprematist";
+            devLabel.Font = new Font("Segoe UI", 8.5f, FontStyle.Italic);
+            devLabel.ForeColor = CyanAccent;
+            devLabel.AutoSize = true;
+            devLabel.Location = new Point(17, y);
+            devLabel.BackColor = Color.Transparent;
+            leftPanel.Controls.Add(devLabel);
+            y += devLabel.PreferredHeight + 2;
+
+            // Subheader
+            Label subHeaderLabel = new Label();
+            subHeaderLabel.Text = "MOD CONFIGURATOR & LAUNCHER";
+            subHeaderLabel.Font = new Font("Segoe UI", 7.5f, FontStyle.Regular);
+            subHeaderLabel.ForeColor = SubHeaderColor;
+            subHeaderLabel.AutoSize = true;
+            subHeaderLabel.Location = new Point(17, y);
+            subHeaderLabel.BackColor = Color.Transparent;
+            leftPanel.Controls.Add(subHeaderLabel);
+            y += subHeaderLabel.PreferredHeight + 18;
+
+            // ── Master Buttons ──────────────────────────────────
+            int btnWidth = 248;
+
+            DarkButton btnEnableAll = new DarkButton(CyanAccent, false);
+            btnEnableAll.Text = "ENABLE ALL FEATURES";
+            btnEnableAll.Size = new Size(btnWidth, 30);
+            btnEnableAll.Location = new Point(15, y);
+            btnEnableAll.Click += delegate { ToggleAll(true); };
+            leftPanel.Controls.Add(btnEnableAll);
+            y += 36;
+
+            DarkButton btnDisableAll = new DarkButton(Color.FromArgb(255, 23, 68), false);
+            btnDisableAll.Text = "DISABLE ALL (VANILLA)";
+            btnDisableAll.Size = new Size(btnWidth, 30);
+            btnDisableAll.Location = new Point(15, y);
+            btnDisableAll.Click += delegate { ToggleAll(false); };
+            leftPanel.Controls.Add(btnDisableAll);
+            y += 36;
+
+            DarkButton btnDefaults = new DarkButton(Color.FromArgb(100, 110, 140), false);
+            btnDefaults.Text = "RESTORE SAFE DEFAULTS";
+            btnDefaults.Size = new Size(btnWidth, 30);
+            btnDefaults.Location = new Point(15, y);
+            btnDefaults.Click += delegate { RestoreDefaults(); };
+            leftPanel.Controls.Add(btnDefaults);
+            y += 36;
+
+            DarkButton btnSaveProfile = new DarkButton(CyanAccent, false);
+            btnSaveProfile.Text = "SAVE PROFILE...";
+            btnSaveProfile.Size = new Size(btnWidth, 30);
+            btnSaveProfile.Location = new Point(15, y);
+            btnSaveProfile.Click += delegate { SaveProfile(); };
+            leftPanel.Controls.Add(btnSaveProfile);
+            y += 36;
+
+            DarkButton btnLoadProfile = new DarkButton(CyanAccent, false);
+            btnLoadProfile.Text = "LOAD PROFILE...";
+            btnLoadProfile.Size = new Size(btnWidth, 30);
+            btnLoadProfile.Location = new Point(15, y);
+            btnLoadProfile.Click += delegate { LoadProfile(); };
+            leftPanel.Controls.Add(btnLoadProfile);
+            y += 36;
+
+            DarkButton btnShareProfile = new DarkButton(Color.FromArgb(255, 179, 0), false);
+            btnShareProfile.Text = "SHARE WITH DEVELOPER";
+            btnShareProfile.Size = new Size(btnWidth, 30);
+            btnShareProfile.Location = new Point(15, y);
+            btnShareProfile.Click += delegate { ShareProfileWithDev(); };
+            leftPanel.Controls.Add(btnShareProfile);
+            y += 36;
+
+            // ── Separator ───────────────────────────────────────
+            DoubleBufferedPanel separator = new DoubleBufferedPanel();
+            separator.Size = new Size(btnWidth, 1);
+            separator.Location = new Point(15, y + 4);
+            separator.BackColor = SeparatorColor;
+            leftPanel.Controls.Add(separator);
+            y += 18;
+
+            // ── DLL Status Card ─────────────────────────────────
+            DoubleBufferedPanel statusCard = new DoubleBufferedPanel();
+            statusCard.Size = new Size(btnWidth, 54);
+            statusCard.Location = new Point(15, y);
+            statusCard.BackColor = PanelBg;
+            statusCard.BorderStyle = BorderStyle.None;
+            statusCard.Paint += delegate(object sender, PaintEventArgs pe) {
+                using (Pen bp = new Pen(Color.FromArgb(35, 35, 50), 1f)) {
+                    pe.Graphics.DrawRectangle(bp, 0, 0, statusCard.Width - 1, statusCard.Height - 1);
+                }
             };
-            rootGrid.Children.Add(overlayBorder);
 
-            // Layout columns: Left Panel (Dashboard), Right Panel (Tabs)
-            Grid mainGrid = new Grid { Margin = new Thickness(10) };
-            mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(280) });
-            mainGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            rootGrid.Children.Add(mainGrid);
+            Label statusTitle = new Label();
+            statusTitle.Text = "MODULE STATUS:";
+            statusTitle.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
+            statusTitle.ForeColor = Color.FromArgb(140, 140, 170);
+            statusTitle.AutoSize = true;
+            statusTitle.Location = new Point(10, 6);
+            statusTitle.BackColor = Color.Transparent;
+            statusCard.Controls.Add(statusTitle);
 
-            // --- LEFT PANEL (CONTROL DASHBOARD) ---
-            StackPanel leftPanel = new StackPanel {
-                Margin = new Thickness(15, 10, 15, 10),
-                VerticalAlignment = VerticalAlignment.Stretch
-            };
-            Grid.SetColumn(leftPanel, 0);
-            mainGrid.Children.Add(leftPanel);
+            string exeDir = AppDomain.CurrentDomain.BaseDirectory;
+            bool dllActive = File.Exists(Path.Combine(exeDir, "version.dll")) &&
+                             File.Exists(Path.Combine(exeDir, "wow_optimize.dll"));
 
-            // Title Header
-            TextBlock headerText = new TextBlock {
-                Text = "WOW OPTIMIZE",
-                FontWeight = FontWeights.Bold,
-                FontSize = 24,
-                Foreground = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                Margin = new Thickness(0, 10, 0, 0)
-            };
-            leftPanel.Children.Add(headerText);
+            Label statusVal = new Label();
+            statusVal.Text = dllActive ? "OPTIMIZER ACTIVE (version.dll)" : "NOT LOADED / MISSING DLLs";
+            statusVal.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            statusVal.ForeColor = dllActive ? Color.FromArgb(0, 230, 118) : Color.FromArgb(255, 145, 0);
+            statusVal.AutoSize = true;
+            statusVal.Location = new Point(10, 26);
+            statusVal.BackColor = Color.Transparent;
+            statusCard.Controls.Add(statusVal);
 
-            // Developer Signature Subtitle
-            TextBlock devText = new TextBlock {
-                Text = "by Suprematist",
-                FontStyle = FontStyles.Italic,
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                Margin = new Thickness(2, 0, 0, 4)
-            };
-            leftPanel.Children.Add(devText);
+            leftPanel.Controls.Add(statusCard);
+            y += 64;
 
-            TextBlock subHeaderText = new TextBlock {
-                Text = "MOD CONFIGURATOR & LAUNCHER",
-                FontWeight = FontWeights.Medium,
-                FontSize = 10,
-                Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 180)),
-                Margin = new Thickness(2, 0, 0, 20)
-            };
-            leftPanel.Children.Add(subHeaderText);
+            // ── Active Modules Counter ──────────────────────────
+            activeCountLabel = new Label();
+            activeCountLabel.Font = new Font("Segoe UI", 8.5f, FontStyle.Regular);
+            activeCountLabel.ForeColor = SubtextColor;
+            activeCountLabel.AutoSize = true;
+            activeCountLabel.Location = new Point(17, y);
+            activeCountLabel.BackColor = Color.Transparent;
+            activeCountLabel.Text = "Active modules: 0/" + settingsMap.Count.ToString();
+            leftPanel.Controls.Add(activeCountLabel);
+            y += 20;
 
-            // Master Control Buttons
-            Button btnEnableAll = CreateStyledButton("ENABLE ALL FEATURES", Color.FromRgb(0, 229, 255), false);
-            btnEnableAll.Click += (s, e) => ToggleAll(true);
-            leftPanel.Children.Add(btnEnableAll);
+            // ── Progress Bar ────────────────────────────────────
+            progressBarPanel = new DoubleBufferedPanel();
+            progressBarPanel.Size = new Size(btnWidth, 4);
+            progressBarPanel.Location = new Point(17, y);
+            progressBarPanel.BackColor = SeparatorColor;
+            progressBarPanel.Paint += ProgressBar_Paint;
+            leftPanel.Controls.Add(progressBarPanel);
+            y += 16;
 
-            Button btnDisableAll = CreateStyledButton("DISABLE ALL (VANILLA)", Color.FromRgb(255, 23, 68), false);
-            btnDisableAll.Click += (s, e) => ToggleAll(false);
-            leftPanel.Children.Add(btnDisableAll);
+            // ── LAUNCH WOW Button ───────────────────────────────
+            DarkButton btnLaunch = new DarkButton(CyanAccent, true);
+            btnLaunch.Text = "LAUNCH WOW";
+            btnLaunch.Size = new Size(btnWidth, 45);
+            btnLaunch.Font = new Font("Segoe UI", 11f, FontStyle.Bold);
+            btnLaunch.Location = new Point(15, y);
+            btnLaunch.Click += delegate { LaunchWow(); };
+            leftPanel.Controls.Add(btnLaunch);
+            y += 51;
 
-            Button btnDefaults = CreateStyledButton("RESTORE SAFE DEFAULTS", Color.FromRgb(100, 110, 140), false);
-            btnDefaults.Click += (s, e) => RestoreDefaults();
-            leftPanel.Children.Add(btnDefaults);
+            // ── EXIT Button ─────────────────────────────────────
+            DarkButton btnExit = new DarkButton(Color.FromArgb(60, 60, 70), false);
+            btnExit.Text = "EXIT LAUNCHER";
+            btnExit.Size = new Size(btnWidth, 30);
+            btnExit.Location = new Point(15, y);
+            btnExit.Click += delegate { Close(); };
+            leftPanel.Controls.Add(btnExit);
+            y += 36;
 
-            // Profile Buttons
-            Button btnSaveProfile = CreateStyledButton("SAVE PROFILE...", Color.FromRgb(0, 229, 255), false);
-            btnSaveProfile.Click += (s, e) => SaveProfile();
-            leftPanel.Children.Add(btnSaveProfile);
+            // ── Version Label ───────────────────────────────────
+            versionLabel = new Label();
+            versionLabel.Text = "v3.16.3-Release";
+            versionLabel.Font = new Font("Segoe UI", 7f, FontStyle.Regular);
+            versionLabel.ForeColor = Color.FromArgb(90, 90, 110);
+            versionLabel.AutoSize = true;
+            versionLabel.Location = new Point(17, y);
+            versionLabel.BackColor = Color.Transparent;
+            leftPanel.Controls.Add(versionLabel);
 
-            Button btnLoadProfile = CreateStyledButton("LOAD PROFILE...", Color.FromRgb(0, 229, 255), false);
-            btnLoadProfile.Click += (s, e) => LoadProfile();
-            leftPanel.Children.Add(btnLoadProfile);
+            Controls.Add(leftPanel);
 
-            // Share Preset Configuration Button
-            Button btnShareProfile = CreateStyledButton("SHARE WITH DEVELOPER", Color.FromRgb(255, 179, 0), false);
-            btnShareProfile.Click += (s, e) => ShareProfileWithDev();
-            leftPanel.Children.Add(btnShareProfile);
+            // ── RIGHT PANEL ─────────────────────────────────────
+            int rightX = 300;
+            int rightW = ClientSize.Width - rightX - 10;
 
-            // Fill space
-            Border separator = new Border {
-                Height = 1,
-                Background = new SolidColorBrush(Color.FromRgb(30, 30, 45)),
-                Margin = new Thickness(0, 10, 0, 10)
-            };
-            leftPanel.Children.Add(separator);
+            // Tip label
+            Label tipLabel = new Label();
+            tipLabel.Text = "Tip: Hover over any optimization feature to view a detailed description of its behavior.";
+            tipLabel.Font = new Font("Segoe UI", 8.5f, FontStyle.Italic);
+            tipLabel.ForeColor = CyanAccent;
+            tipLabel.AutoSize = false;
+            tipLabel.Size = new Size(rightW, 20);
+            tipLabel.Location = new Point(rightX, 15);
+            tipLabel.BackColor = Color.Transparent;
+            Controls.Add(tipLabel);
 
-            // DLL Status Card
-            Border statusCard = new Border {
-                Background = new SolidColorBrush(Color.FromRgb(18, 18, 28)),
-                BorderThickness = new Thickness(1),
-                BorderBrush = new SolidColorBrush(Color.FromRgb(35, 35, 50)),
-                CornerRadius = new CornerRadius(0), // Flat square corners
-                Padding = new Thickness(12),
-                Margin = new Thickness(0, 0, 0, 10)
-            };
-            StackPanel statusPanel = new StackPanel();
-            TextBlock statusLabel = new TextBlock {
-                Text = "MODULE STATUS:",
-                FontSize = 10,
-                FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 170)),
-                Margin = new Thickness(0, 0, 0, 4)
-            };
-            statusPanel.Children.Add(statusLabel);
+            // TabControl
+            tabs = new DarkTabControl();
+            tabs.Location = new Point(rightX, 40);
+            tabs.Size = new Size(rightW, ClientSize.Height - 55);
 
-            bool dllActive = File.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.dll")) &&
-                            File.Exists(System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "wow_optimize.dll"));
+            // Create tab pages
+            TabPage tpGeneral = CreateTabPage("GENERAL");
+            TabPage tpUiLua = CreateTabPage("UI & LUA");
+            TabPage tpCombatNet = CreateTabPage("COMBAT & NET");
+            TabPage tpGraphicsSound = CreateTabPage("GRAPHICS & SOUND");
+            TabPage tpRecentNew = CreateTabPage("RECENT & NEW");
 
-            TextBlock statusVal = new TextBlock {
-                Text = dllActive ? "OPTIMIZER ACTIVE (version.dll)" : "NOT LOADED / MISSING DLLs",
-                FontSize = 12,
-                FontWeight = FontWeights.Bold,
-                Foreground = dllActive ? new SolidColorBrush(Color.FromRgb(0, 230, 118)) : new SolidColorBrush(Color.FromRgb(255, 145, 0))
-            };
-            statusPanel.Children.Add(statusVal);
-            statusCard.Child = statusPanel;
-            leftPanel.Children.Add(statusCard);
+            tabs.TabPages.Add(tpGeneral);
+            tabs.TabPages.Add(tpUiLua);
+            tabs.TabPages.Add(tpCombatNet);
+            tabs.TabPages.Add(tpGraphicsSound);
+            tabs.TabPages.Add(tpRecentNew);
 
-            // Active Modules Counter
-            activeModulesText = new TextBlock {
-                Margin = new Thickness(2, 5, 2, 2),
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(150, 150, 180))
-            };
-            activeModulesText.Inlines.Add(new System.Windows.Documents.Run("Active modules: "));
-            activeCountRun = new System.Windows.Documents.Run("0") {
-                Foreground = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                FontWeight = FontWeights.Bold
-            };
-            activeModulesText.Inlines.Add(activeCountRun);
-            activeModulesText.Inlines.Add(new System.Windows.Documents.Run("/" + settingsMap.Count));
-            leftPanel.Children.Add(activeModulesText);
+            // Get the scroll panels from each tab page
+            FlowLayoutPanel generalFlow = (FlowLayoutPanel)((Panel)tpGeneral.Controls[0]).Controls[0];
+            FlowLayoutPanel uiLuaFlow = (FlowLayoutPanel)((Panel)tpUiLua.Controls[0]).Controls[0];
+            FlowLayoutPanel combatNetFlow = (FlowLayoutPanel)((Panel)tpCombatNet.Controls[0]).Controls[0];
+            FlowLayoutPanel graphicsSoundFlow = (FlowLayoutPanel)((Panel)tpGraphicsSound.Controls[0]).Controls[0];
+            FlowLayoutPanel recentNewFlow = (FlowLayoutPanel)((Panel)tpRecentNew.Controls[0]).Controls[0];
 
-            // Thin square progress bar
-            progressBarGrid = new Grid {
-                Height = 4,
-                Margin = new Thickness(2, 4, 2, 12),
-                Background = new SolidColorBrush(Color.FromRgb(30, 30, 45)) // Dark track
-            };
-            progressBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(0, GridUnitType.Star) }); // Filled
-            progressBarGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Unfilled
+            // Add "ENABLE ALL IN ..." buttons at top of each flow
+            DarkButton btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
+            btnEnableGeneral.Click += delegate { ToggleTabFeatures("General", true); };
+            generalFlow.Controls.Add(btnEnableGeneral);
 
-            Border progressFill = new Border {
-                Background = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                HorizontalAlignment = HorizontalAlignment.Stretch
-            };
-            Grid.SetColumn(progressFill, 0);
-            progressBarGrid.Children.Add(progressFill);
-            leftPanel.Children.Add(progressBarGrid);
+            DarkButton btnEnableUiLua = CreateCategoryButton("ENABLE ALL IN UI & LUA");
+            btnEnableUiLua.Click += delegate { ToggleTabFeatures("UI_Lua", true); };
+            uiLuaFlow.Controls.Add(btnEnableUiLua);
 
-            // LAUNCH BUTTON
-            Button btnLaunch = CreateStyledButton("LAUNCH WOW", Color.FromRgb(0, 229, 255), true);
-            btnLaunch.Height = 45;
-            btnLaunch.FontSize = 15;
-            btnLaunch.FontWeight = FontWeights.Bold;
-            btnLaunch.Click += (s, e) => LaunchWow();
-            leftPanel.Children.Add(btnLaunch);
+            DarkButton btnEnableCombatNet = CreateCategoryButton("ENABLE ALL IN COMBAT & NET");
+            btnEnableCombatNet.Click += delegate { ToggleTabFeatures("Combat_Net", true); };
+            combatNetFlow.Controls.Add(btnEnableCombatNet);
 
-            // Exit application button
-            Button btnExit = CreateStyledButton("EXIT LAUNCHER", Color.FromRgb(60, 60, 70), false);
-            btnExit.Margin = new Thickness(0, 5, 0, 0);
-            btnExit.Click += (s, e) => Close();
-            leftPanel.Children.Add(btnExit);
+            DarkButton btnEnableGfx = CreateCategoryButton("ENABLE ALL IN GRAPHICS & SOUND");
+            btnEnableGfx.Click += delegate { ToggleTabFeatures("Graphics_Sound", true); };
+            graphicsSoundFlow.Controls.Add(btnEnableGfx);
 
-            // Footer Version Info Label
-            versionText = new TextBlock {
-                Text = "v3.16.2-Release",
-                FontSize = 9,
-                Foreground = new SolidColorBrush(Color.FromRgb(90, 90, 110)),
-                Margin = new Thickness(2, 5, 0, 0),
-                HorizontalAlignment = HorizontalAlignment.Left
-            };
-            leftPanel.Children.Add(versionText);
-
-
-            // --- RIGHT PANEL (SCROLLABLE TAB CONTENT) ---
-            Grid rightPanelGrid = new Grid();
-            rightPanelGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            rightPanelGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            Grid.SetColumn(rightPanelGrid, 1);
-            mainGrid.Children.Add(rightPanelGrid);
-
-            // Top Tip Label (Description Info)
-            TextBlock hoverTipText = new TextBlock {
-                Text = "Tip: Hover over any optimization feature to view a detailed description of its behavior.",
-                FontSize = 11,
-                Foreground = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                Margin = new Thickness(10, 15, 10, 5),
-                FontStyle = FontStyles.Italic
-            };
-            Grid.SetRow(hoverTipText, 0);
-            rightPanelGrid.Children.Add(hoverTipText);
-
-            tabs = new TabControl {
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Margin = new Thickness(10, 5, 15, 15)
-            };
-            Grid.SetRow(tabs, 1);
-            rightPanelGrid.Children.Add(tabs);
-
-            // Tab Panels
-            generalPanel = new StackPanel();
-            Button btnEnableGeneral = CreateStyledButton("ENABLE ALL IN GENERAL", Color.FromRgb(0, 229, 255), false);
-            btnEnableGeneral.Margin = new Thickness(5, 5, 5, 15);
-            btnEnableGeneral.Height = 28;
-            btnEnableGeneral.FontSize = 10;
-            btnEnableGeneral.Click += (s, e) => ToggleTabFeatures("General", true);
-            generalPanel.Children.Add(btnEnableGeneral);
-
-            uiLuaPanel = new StackPanel();
-            Button btnEnableUiLua = CreateStyledButton("ENABLE ALL IN UI & LUA", Color.FromRgb(0, 229, 255), false);
-            btnEnableUiLua.Margin = new Thickness(5, 5, 5, 15);
-            btnEnableUiLua.Height = 28;
-            btnEnableUiLua.FontSize = 10;
-            btnEnableUiLua.Click += (s, e) => ToggleTabFeatures("UI_Lua", true);
-            uiLuaPanel.Children.Add(btnEnableUiLua);
-
-            combatNetPanel = new StackPanel();
-            Button btnEnableCombatNet = CreateStyledButton("ENABLE ALL IN COMBAT & NET", Color.FromRgb(0, 229, 255), false);
-            btnEnableCombatNet.Margin = new Thickness(5, 5, 5, 15);
-            btnEnableCombatNet.Height = 28;
-            btnEnableCombatNet.FontSize = 10;
-            btnEnableCombatNet.Click += (s, e) => ToggleTabFeatures("Combat_Net", true);
-            combatNetPanel.Children.Add(btnEnableCombatNet);
-
-            graphicsSoundPanel = new StackPanel();
-            Button btnEnableGraphicsSound = CreateStyledButton("ENABLE ALL IN GRAPHICS & SOUND", Color.FromRgb(0, 229, 255), false);
-            btnEnableGraphicsSound.Margin = new Thickness(5, 5, 5, 15);
-            btnEnableGraphicsSound.Height = 28;
-            btnEnableGraphicsSound.FontSize = 10;
-            btnEnableGraphicsSound.Click += (s, e) => ToggleTabFeatures("Graphics_Sound", true);
-            graphicsSoundPanel.Children.Add(btnEnableGraphicsSound);
-
-            recentNewPanel = new StackPanel();
-            Button btnEnableRecentNew = CreateStyledButton("ENABLE ALL NEW FEATURES", Color.FromRgb(0, 229, 255), false);
-            btnEnableRecentNew.Margin = new Thickness(5, 5, 5, 15);
-            btnEnableRecentNew.Height = 28;
-            btnEnableRecentNew.FontSize = 10;
-            btnEnableRecentNew.Click += (s, e) => {
-                foreach (var item in settingsMap.Values) {
+            DarkButton btnEnableRecent = CreateCategoryButton("ENABLE ALL NEW FEATURES");
+            btnEnableRecent.Click += delegate {
+                foreach (SettingItem item in settingsMap.Values) {
                     if (item.RecentCtrl != null) {
-                        item.RecentCtrl.IsChecked = true;
+                        item.RecentCtrl.Checked = true;
                     }
                 }
             };
-            recentNewPanel.Children.Add(btnEnableRecentNew);
+            recentNewFlow.Controls.Add(btnEnableRecent);
 
-            tabs.Items.Add(CreateTabItem("GENERAL", generalPanel));
-            tabs.Items.Add(CreateTabItem("UI & LUA", uiLuaPanel));
-            tabs.Items.Add(CreateTabItem("COMBAT & NET", combatNetPanel));
-            tabs.Items.Add(CreateTabItem("GRAPHICS & SOUND", graphicsSoundPanel));
-            tabs.Items.Add(CreateTabItem("RECENT & NEW", recentNewPanel));
+            // Populate checkboxes
+            foreach (KeyValuePair<string, SettingItem> pair in settingsMap) {
+                string name = pair.Key;
+                SettingItem data = pair.Value;
+                DarkCheckBox chk = CreateStyledCheckBox(name, data.Tooltip);
 
-            // Populate Checkboxes into Panels
-            foreach (var item in settingsMap) {
-                string name = item.Key;
-                SettingItem data = item.Value;
-                CheckBox chk = CreateStyledCheckBox(name, data.Tooltip);
-
-                // Update setting item to reference its created Control
                 data.Ctrl = chk;
 
-                chk.Checked += (s, e) => UpdateActiveModulesCount();
-                chk.Unchecked += (s, e) => UpdateActiveModulesCount();
+                chk.CheckedChanged += delegate { UpdateActiveModulesCount(); };
 
-                // Add to appropriate Panel
                 switch (data.Section) {
                     case "General":
-                        generalPanel.Children.Add(chk);
+                        generalFlow.Controls.Add(chk);
                         break;
                     case "UI_Lua":
-                        uiLuaPanel.Children.Add(chk);
+                        uiLuaFlow.Controls.Add(chk);
                         break;
                     case "Combat_Net":
-                        combatNetPanel.Children.Add(chk);
+                        combatNetFlow.Controls.Add(chk);
                         break;
                     case "Graphics_Sound":
-                        graphicsSoundPanel.Children.Add(chk);
+                        graphicsSoundFlow.Controls.Add(chk);
                         break;
                 }
 
-                // If feature is new, create a duplicate checkbox in the RECENT & NEW tab and sync them
+                // If feature is new, create synced duplicate in RECENT & NEW tab
                 if (data.Tooltip.StartsWith("[NEW]")) {
-                    CheckBox recentChk = CreateStyledCheckBox(name, data.Tooltip);
+                    DarkCheckBox recentChk = CreateStyledCheckBox(name, data.Tooltip);
                     data.RecentCtrl = recentChk;
 
-                    bool isSyncing = false;
-                    chk.Checked += (s, ev) => {
-                        if (!isSyncing) {
-                            isSyncing = true;
-                            recentChk.IsChecked = true;
-                            isSyncing = false;
-                        }
-                    };
-                    chk.Unchecked += (s, ev) => {
-                        if (!isSyncing) {
-                            isSyncing = true;
-                            recentChk.IsChecked = false;
-                            isSyncing = false;
-                        }
-                    };
-                    recentChk.Checked += (s, ev) => {
-                        if (!isSyncing) {
-                            isSyncing = true;
-                            chk.IsChecked = true;
-                            isSyncing = false;
-                        }
-                    };
-                    recentChk.Unchecked += (s, ev) => {
-                        if (!isSyncing) {
-                            isSyncing = true;
-                            chk.IsChecked = false;
-                            isSyncing = false;
-                        }
-                    };
+                    // Use a helper object to avoid closure capture issues with C# 5
+                    SyncHelper helper = new SyncHelper(chk, recentChk);
+                    chk.CheckedChanged += helper.OnMainChanged;
+                    recentChk.CheckedChanged += helper.OnRecentChanged;
 
-                    recentNewPanel.Children.Add(recentChk);
+                    recentNewFlow.Controls.Add(recentChk);
+                }
+            }
+
+            Controls.Add(tabs);
+            ResumeLayout(false);
+        }
+
+        // Helper class for checkbox syncing (avoids C# 5 closure issues)
+        private class SyncHelper {
+            private CheckBox main;
+            private CheckBox recent;
+            private bool syncing;
+
+            public SyncHelper(CheckBox mainChk, CheckBox recentChk) {
+                main = mainChk;
+                recent = recentChk;
+            }
+
+            public void OnMainChanged(object sender, EventArgs e) {
+                if (!syncing) {
+                    syncing = true;
+                    recent.Checked = main.Checked;
+                    syncing = false;
+                }
+            }
+
+            public void OnRecentChanged(object sender, EventArgs e) {
+                if (!syncing) {
+                    syncing = true;
+                    main.Checked = recent.Checked;
+                    syncing = false;
                 }
             }
         }
 
-        private TabItem CreateTabItem(string header, StackPanel innerPanel) {
-            ScrollViewer scroll = new ScrollViewer {
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = innerPanel,
-                Margin = new Thickness(0, 15, 0, 0)
-            };
+        private TabPage CreateTabPage(string title) {
+            TabPage tp = new TabPage(title);
+            tp.BackColor = DarkBg;
+            tp.ForeColor = Color.White;
+            tp.Padding = new Padding(0);
 
-            TabItem item = new TabItem {
-                Header = header,
-                Foreground = Brushes.Gray,
-                FontSize = 12,
-                FontWeight = FontWeights.Bold,
-                BorderThickness = new Thickness(0),
-                Background = Brushes.Transparent,
-                Content = scroll
-            };
+            // Scrollable container panel
+            Panel scrollPanel = new Panel();
+            scrollPanel.Dock = DockStyle.Fill;
+            scrollPanel.AutoScroll = true;
+            scrollPanel.BackColor = DarkBg;
 
-            return item;
+            DoubleBufferedFlowPanel flow = new DoubleBufferedFlowPanel();
+            flow.FlowDirection = FlowDirection.TopDown;
+            flow.WrapContents = false;
+            flow.AutoSize = true;
+            flow.AutoSizeMode = AutoSizeMode.GrowOnly;
+            flow.BackColor = DarkBg;
+            flow.Padding = new Padding(5, 10, 5, 10);
+            flow.Width = tabs.Width - 40;
+
+            scrollPanel.Controls.Add(flow);
+            tp.Controls.Add(scrollPanel);
+            return tp;
         }
 
-        private Button CreateStyledButton(string text, Color color, bool highlight) {
-            Button btn = new Button {
-                Content = text,
-                Height = 30,
-                Margin = new Thickness(0, 0, 0, 6),
-                Background = highlight ? new SolidColorBrush(color) : new SolidColorBrush(Color.FromRgb(20, 20, 28)),
-                BorderBrush = new SolidColorBrush(color),
-                BorderThickness = new Thickness(1.5),
-                Foreground = highlight ? Brushes.Black : new SolidColorBrush(color),
-                Cursor = Cursors.Hand,
-                FontWeight = FontWeights.SemiBold,
-                FontSize = 11
-            };
-
-            // Setup Custom Control Template to force strict square corners
-            ControlTemplate template = new ControlTemplate(typeof(Button));
-            FrameworkElementFactory borderFactory = new FrameworkElementFactory(typeof(Border));
-            borderFactory.Name = "border";
-            borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
-            borderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(color));
-            borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(0)); // STRICT SQUARE
-            borderFactory.SetValue(Border.BackgroundProperty, btn.Background);
-
-            FrameworkElementFactory contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
-            contentPresenter.SetValue(ContentPresenter.HorizontalAlignmentProperty, HorizontalAlignment.Center);
-            contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-            borderFactory.AppendChild(contentPresenter);
-
-            template.VisualTree = borderFactory;
-            btn.Template = template;
-
-            // Simple Hover Styling via Events (manipulating the template border)
-            btn.MouseEnter += (s, e) => {
-                btn.ApplyTemplate();
-                Border b = btn.Template.FindName("border", btn) as Border;
-                if (b != null) {
-                    b.Background = new SolidColorBrush(color);
-                    btn.Foreground = Brushes.Black;
-                }
-            };
-
-            btn.MouseLeave += (s, e) => {
-                btn.ApplyTemplate();
-                Border b = btn.Template.FindName("border", btn) as Border;
-                if (b != null) {
-                    b.Background = highlight ? new SolidColorBrush(color) : new SolidColorBrush(Color.FromRgb(20, 20, 28));
-                    btn.Foreground = highlight ? Brushes.Black : new SolidColorBrush(color);
-                }
-            };
-
+        private DarkButton CreateCategoryButton(string text) {
+            DarkButton btn = new DarkButton(CyanAccent, false);
+            btn.Text = text;
+            btn.Size = new Size(tabs.Width - 60, 28);
+            btn.Font = new Font("Segoe UI", 7.5f, FontStyle.Bold);
+            btn.Margin = new Padding(5, 5, 5, 12);
             return btn;
         }
 
-        private CheckBox CreateStyledCheckBox(string name, string tooltipText) {
-            CheckBox chk = new CheckBox {
-                Content = name,
-                Foreground = Brushes.White,
-                FontSize = 13,
-                Margin = new Thickness(5, 5, 5, 12),
-                Cursor = Cursors.Hand,
-                ToolTip = new ToolTip {
-                    Content = new TextBlock {
-                        Text = tooltipText,
-                        MaxWidth = 350,
-                        TextWrapping = TextWrapping.Wrap
-                    },
-                    Background = new SolidColorBrush(Color.FromRgb(20, 20, 30)),
-                    Foreground = Brushes.White,
-                    BorderBrush = new SolidColorBrush(Color.FromRgb(0, 229, 255)),
-                    BorderThickness = new Thickness(1)
-                }
-            };
-            ToolTipService.SetInitialShowDelay(chk, 250);
-            ToolTipService.SetShowDuration(chk, 30000);
-
-            // Custom CheckBox template for flat square look
-            ControlTemplate template = new ControlTemplate(typeof(CheckBox));
-            FrameworkElementFactory gridFactory = new FrameworkElementFactory(typeof(Grid));
-            gridFactory.SetValue(Grid.BackgroundProperty, Brushes.Transparent);
-
-            // Columns: Checkbox border (col 0), Content (col 1)
-            FrameworkElementFactory col1 = new FrameworkElementFactory(typeof(ColumnDefinition));
-            col1.SetValue(ColumnDefinition.WidthProperty, new GridLength(20));
-            FrameworkElementFactory col2 = new FrameworkElementFactory(typeof(ColumnDefinition));
-            col2.SetValue(ColumnDefinition.WidthProperty, new GridLength(1, GridUnitType.Star));
-            gridFactory.AppendChild(col1);
-            gridFactory.AppendChild(col2);
-
-            // Outer box border (strictly square)
-            FrameworkElementFactory borderFactory = new FrameworkElementFactory(typeof(Border));
-            borderFactory.Name = "checkBoxBorder";
-            borderFactory.SetValue(Border.WidthProperty, 16.0);
-            borderFactory.SetValue(Border.HeightProperty, 16.0);
-            borderFactory.SetValue(Border.BorderThicknessProperty, new Thickness(1.5));
-            borderFactory.SetValue(Border.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(100, 110, 140)));
-            borderFactory.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(18, 18, 28)));
-            borderFactory.SetValue(Border.CornerRadiusProperty, new CornerRadius(0)); // STRICT SQUARE
-            borderFactory.SetValue(Border.HorizontalAlignmentProperty, HorizontalAlignment.Left);
-            borderFactory.SetValue(Border.VerticalAlignmentProperty, VerticalAlignment.Center);
-
-            // Check indicator (inner solid flat cyan square)
-            FrameworkElementFactory checkIndicator = new FrameworkElementFactory(typeof(Border));
-            checkIndicator.Name = "checkMark";
-            checkIndicator.SetValue(Border.WidthProperty, 8.0);
-            checkIndicator.SetValue(Border.HeightProperty, 8.0);
-            checkIndicator.SetValue(Border.BackgroundProperty, new SolidColorBrush(Color.FromRgb(0, 229, 255)));
-            checkIndicator.SetValue(Border.CornerRadiusProperty, new CornerRadius(0)); // STRICT SQUARE
-            checkIndicator.SetValue(Border.VisibilityProperty, Visibility.Collapsed);
-            borderFactory.AppendChild(checkIndicator);
-
-            gridFactory.AppendChild(borderFactory);
-
-            // ContentPresenter for checkbox label
-            FrameworkElementFactory contentPresenter = new FrameworkElementFactory(typeof(ContentPresenter));
-            contentPresenter.SetValue(ContentPresenter.ContentProperty, new TemplateBindingExtension(CheckBox.ContentProperty));
-            contentPresenter.SetValue(ContentPresenter.MarginProperty, new Thickness(8, 0, 0, 0));
-            contentPresenter.SetValue(ContentPresenter.VerticalAlignmentProperty, VerticalAlignment.Center);
-            contentPresenter.SetValue(Grid.ColumnProperty, 1);
-            gridFactory.AppendChild(contentPresenter);
-
-            template.VisualTree = gridFactory;
-
-            // Trigger for Checked state
-            Trigger checkedTrigger = new Trigger { Property = CheckBox.IsCheckedProperty, Value = true };
-            checkedTrigger.Setters.Add(new Setter { TargetName = "checkMark", Property = Border.VisibilityProperty, Value = Visibility.Visible });
-            checkedTrigger.Setters.Add(new Setter { TargetName = "checkBoxBorder", Property = Border.BorderBrushProperty, Value = new SolidColorBrush(Color.FromRgb(0, 229, 255)) });
-            template.Triggers.Add(checkedTrigger);
-
-            // Trigger for MouseOver state
-            Trigger mouseOverTrigger = new Trigger { Property = CheckBox.IsMouseOverProperty, Value = true };
-            mouseOverTrigger.Setters.Add(new Setter { TargetName = "checkBoxBorder", Property = Border.BorderBrushProperty, Value = new SolidColorBrush(Color.FromRgb(0, 229, 255)) });
-            template.Triggers.Add(mouseOverTrigger);
-
-            chk.Template = template;
+        private DarkCheckBox CreateStyledCheckBox(string name, string tooltipText) {
+            DarkCheckBox chk = new DarkCheckBox();
+            chk.Text = name;
+            toolTip.SetToolTip(chk, tooltipText);
             return chk;
         }
+
+        private void ProgressBar_Paint(object sender, PaintEventArgs e) {
+            if (settingsMap == null) return;
+            int activeCount = 0;
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.Ctrl != null && item.Ctrl.Checked) {
+                    activeCount++;
+                }
+            }
+            int totalCount = settingsMap.Count;
+            if (totalCount == 0) return;
+
+            int fillWidth = (int)((float)activeCount / totalCount * progressBarPanel.Width);
+            using (SolidBrush cyanBrush = new SolidBrush(CyanAccent)) {
+                e.Graphics.FillRectangle(cyanBrush, 0, 0, fillWidth, progressBarPanel.Height);
+            }
+        }
+
+        // ── Settings Logic ───────────────────────────────────────
 
         private void ToggleAll(bool enabled) {
             foreach (SettingItem item in settingsMap.Values) {
                 if (item.Ctrl != null) {
-                    item.Ctrl.IsChecked = enabled;
+                    item.Ctrl.Checked = enabled;
                 }
             }
         }
@@ -783,7 +941,7 @@ namespace WowOptimizeLauncher {
         private void ToggleTabFeatures(string section, bool enabled) {
             foreach (SettingItem item in settingsMap.Values) {
                 if (item.Section == section && item.Ctrl != null) {
-                    item.Ctrl.IsChecked = enabled;
+                    item.Ctrl.Checked = enabled;
                 }
             }
         }
@@ -791,7 +949,7 @@ namespace WowOptimizeLauncher {
         private void RestoreDefaults() {
             foreach (SettingItem item in settingsMap.Values) {
                 if (item.Ctrl != null) {
-                    item.Ctrl.IsChecked = item.DefaultVal;
+                    item.Ctrl.Checked = item.DefaultVal;
                 }
             }
         }
@@ -825,14 +983,14 @@ namespace WowOptimizeLauncher {
                     SettingItem data = settingsMap[name];
                     string val;
                     if (currentSettings.TryGetValue(data.Key, out val)) {
-                        data.Ctrl.IsChecked = (val == "1" || val.ToLower() == "true");
+                        data.Ctrl.Checked = (val == "1" || val.ToLower() == "true");
                     } else {
-                        data.Ctrl.IsChecked = data.DefaultVal;
+                        data.Ctrl.Checked = data.DefaultVal;
                     }
                 }
                 UpdateActiveModulesCount();
             } catch (Exception ex) {
-                MessageBox.Show("Error loading config profile: " + ex.Message, "Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error loading config profile: " + ex.Message, "Load Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 RestoreDefaults();
             }
         }
@@ -843,13 +1001,11 @@ namespace WowOptimizeLauncher {
 
         private void SaveSettingsToPath(string path) {
             try {
-                // Ensure directory exists
-                string dir = System.IO.Path.GetDirectoryName(path);
+                string dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir)) {
                     Directory.CreateDirectory(dir);
                 }
 
-                // Compile into categories
                 Dictionary<string, List<string>> sections = new Dictionary<string, List<string>>() {
                     { "General", new List<string>() },
                     { "UI_Lua", new List<string>() },
@@ -858,17 +1014,16 @@ namespace WowOptimizeLauncher {
                 };
 
                 foreach (SettingItem item in settingsMap.Values) {
-                    string val = (item.Ctrl != null && item.Ctrl.IsChecked == true) ? "1" : "0";
+                    string val = (item.Ctrl != null && item.Ctrl.Checked) ? "1" : "0";
                     sections[item.Section].Add(item.Key + "=" + val);
                 }
 
-                // Write INI file
                 using (StreamWriter sw = new StreamWriter(path, false, Encoding.UTF8)) {
                     sw.WriteLine("; WoW-Optimize Mod Configuration Profile");
                     sw.WriteLine("; Generated by Launcher");
                     sw.WriteLine();
 
-                    foreach (var section in sections) {
+                    foreach (KeyValuePair<string, List<string>> section in sections) {
                         sw.WriteLine("[" + section.Key + "]");
                         foreach (string line in section.Value) {
                             sw.WriteLine(line);
@@ -877,34 +1032,33 @@ namespace WowOptimizeLauncher {
                     }
                 }
             } catch (Exception ex) {
-                MessageBox.Show("Error saving config profile: " + ex.Message, "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Error saving config profile: " + ex.Message, "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private void SaveProfile() {
-            Microsoft.Win32.SaveFileDialog sfd = new Microsoft.Win32.SaveFileDialog();
+            SaveFileDialog sfd = new SaveFileDialog();
             sfd.Filter = "Configuration Profiles (*.ini)|*.ini";
             sfd.FileName = "wow_opt_profile.ini";
             sfd.Title = "Save Configuration Profile";
-            if (sfd.ShowDialog() == true) {
+            if (sfd.ShowDialog() == DialogResult.OK) {
                 SaveSettingsToPath(sfd.FileName);
-                MessageBox.Show("Profile successfully saved to:\n" + sfd.FileName, "Profile Saved", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Profile successfully saved to:\n" + sfd.FileName, "Profile Saved", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
         private void LoadProfile() {
-            Microsoft.Win32.OpenFileDialog ofd = new Microsoft.Win32.OpenFileDialog();
+            OpenFileDialog ofd = new OpenFileDialog();
             ofd.Filter = "Configuration Profiles (*.ini)|*.ini";
             ofd.Title = "Load Configuration Profile";
-            if (ofd.ShowDialog() == true) {
+            if (ofd.ShowDialog() == DialogResult.OK) {
                 LoadSettingsFromPath(ofd.FileName);
-                MessageBox.Show("Profile successfully loaded from:\n" + ofd.FileName, "Profile Loaded", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("Profile successfully loaded from:\n" + ofd.FileName, "Profile Loaded", MessageBoxButtons.OK, MessageBoxIcon.Information);
             }
         }
 
         private void ShareProfileWithDev() {
             try {
-                // Compile active settings into a single string
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("; SUGGESTED SAFE PROFILE PRESET");
                 sb.AppendLine("; Submit to Suprematist");
@@ -918,11 +1072,11 @@ namespace WowOptimizeLauncher {
                 };
 
                 foreach (SettingItem item in settingsMap.Values) {
-                    string val = (item.Ctrl != null && item.Ctrl.IsChecked == true) ? "1" : "0";
+                    string val = (item.Ctrl != null && item.Ctrl.Checked) ? "1" : "0";
                     sections[item.Section].Add(item.Key + "=" + val);
                 }
 
-                foreach (var section in sections) {
+                foreach (KeyValuePair<string, List<string>> section in sections) {
                     sb.AppendLine("[" + section.Key + "]");
                     foreach (string line in section.Value) {
                         sb.AppendLine(line);
@@ -930,39 +1084,34 @@ namespace WowOptimizeLauncher {
                     sb.AppendLine();
                 }
 
-                // Copy to Clipboard
                 Clipboard.SetText(sb.ToString());
 
-                // Inform player
                 MessageBox.Show(
                     "Your current profile settings have been copied to the clipboard!\n\n" +
                     "Please paste and share them with the developer (Suprematist) via Discord or GitHub Issues " +
                     "to suggest making this profile safe by default in future updates.",
                     "Profile Copied to Clipboard",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information
                 );
             } catch (Exception ex) {
-                MessageBox.Show("Failed to copy profile to clipboard: " + ex.Message, "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Failed to copy profile to clipboard: " + ex.Message, "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private void CheckForUpdatesAsync() {
-            System.Threading.ThreadPool.QueueUserWorkItem((state) => {
+            System.Threading.ThreadPool.QueueUserWorkItem(delegate {
                 try {
                     using (System.Net.WebClient wc = new System.Net.WebClient()) {
                         wc.Headers.Add("User-Agent", "WoW-Optimize-Launcher");
-                        // Fetch latest version from developer release version file (with cache-busting timestamp to bypass raw GitHub CDN caching)
-                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt?t=" + DateTime.UtcNow.Ticks);
+                        string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt?t=" + DateTime.UtcNow.Ticks.ToString());
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
-                            Version current = new Version("3.16.2");
+                            Version current = new Version("3.16.3");
 
                             if (latest > current) {
-                                Dispatcher.BeginInvoke(new Action(() => {
-                                    ShowUpdateAlert(cleanVer);
-                                }));
+                                BeginInvoke(new Action(delegate { ShowUpdateAlert(cleanVer); }));
                             }
                         }
                     }
@@ -973,13 +1122,13 @@ namespace WowOptimizeLauncher {
         }
 
         private void ShowUpdateAlert(string latestVer) {
-            if (versionText != null) {
-                versionText.Text = "UPDATE AVAILABLE: v" + latestVer;
-                versionText.Foreground = new SolidColorBrush(Color.FromRgb(0, 230, 118)); // Bright neon green
-                versionText.FontWeight = FontWeights.Bold;
-                versionText.Cursor = Cursors.Hand;
-                versionText.ToolTip = "Click to open GitHub releases page for upgrade!";
-                versionText.MouseLeftButtonDown += (s, e) => {
+            if (versionLabel != null) {
+                versionLabel.Text = "UPDATE AVAILABLE: v" + latestVer;
+                versionLabel.ForeColor = Color.FromArgb(0, 230, 118);
+                versionLabel.Font = new Font("Segoe UI", 7f, FontStyle.Bold);
+                versionLabel.Cursor = Cursors.Hand;
+                toolTip.SetToolTip(versionLabel, "Click to open GitHub releases page for upgrade!");
+                versionLabel.Click += delegate {
                     try {
                         Process.Start("https://github.com/suprepupre/wow-optimize/releases");
                     } catch {
@@ -995,13 +1144,12 @@ namespace WowOptimizeLauncher {
 
             // 2. Locate target executable
             string exeDir = AppDomain.CurrentDomain.BaseDirectory;
-            string wowPath = System.IO.Path.Combine(exeDir, "wow.exe");
+            string wowPath = Path.Combine(exeDir, "wow.exe");
 
             if (!File.Exists(wowPath)) {
-                // Check common private server names
                 string[] alternateNames = { "Ascension.exe", "run.exe", "WoWCircle.exe", "wow-64.exe", "Sirus.exe" };
                 foreach (string altName in alternateNames) {
-                    string altPath = System.IO.Path.Combine(exeDir, altName);
+                    string altPath = Path.Combine(exeDir, altName);
                     if (File.Exists(altPath)) {
                         wowPath = altPath;
                         break;
@@ -1014,7 +1162,7 @@ namespace WowOptimizeLauncher {
                 try {
                     string[] files = Directory.GetFiles(exeDir, "*.exe");
                     foreach (string file in files) {
-                        string name = System.IO.Path.GetFileName(file).ToLower();
+                        string name = Path.GetFileName(file).ToLower();
                         if (name != "wow_optimize_launcher.exe" && name != "wow_loader.exe" && 
                             (name.Contains("wow") || name.Contains("ascension") || name.Contains("circle") || name.Contains("sirus"))) {
                             wowPath = file;
@@ -1027,50 +1175,49 @@ namespace WowOptimizeLauncher {
             }
 
             if (!File.Exists(wowPath)) {
-                MessageBox.Show("Could not find wow.exe, Ascension.exe, or another valid game executable in the current directory: " + exeDir + "\n\nPlease place the launcher in your World of Warcraft directory.", "Execution Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                MessageBox.Show("Could not find wow.exe, Ascension.exe, or another valid game executable in the current directory: " + exeDir + "\n\nPlease place the launcher in your World of Warcraft directory.", "Execution Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
 
             try {
-                ProcessStartInfo psi = new ProcessStartInfo {
-                    FileName = wowPath,
-                    WorkingDirectory = exeDir
-                };
+                ProcessStartInfo psi = new ProcessStartInfo();
+                psi.FileName = wowPath;
+                psi.WorkingDirectory = exeDir;
                 Process.Start(psi);
 
                 // Exit launcher on launch
                 Close();
             } catch (Exception ex) {
-                MessageBox.Show("Failed to launch " + System.IO.Path.GetFileName(wowPath) + ": " + ex.Message, "Execution Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show("Failed to launch " + Path.GetFileName(wowPath) + ": " + ex.Message, "Execution Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
         private void UpdateActiveModulesCount() {
             if (settingsMap == null) return;
             int activeCount = 0;
-            foreach (var item in settingsMap.Values) {
-                if (item.Ctrl != null && item.Ctrl.IsChecked == true) {
+            foreach (SettingItem item in settingsMap.Values) {
+                if (item.Ctrl != null && item.Ctrl.Checked) {
                     activeCount++;
                 }
             }
-            if (activeCountRun != null) {
-                activeCountRun.Text = activeCount.ToString();
+            if (activeCountLabel != null) {
+                activeCountLabel.Text = "Active modules: " + activeCount.ToString() + "/" + settingsMap.Count.ToString();
             }
-            if (progressBarGrid != null) {
-                int totalCount = settingsMap.Count;
-                progressBarGrid.ColumnDefinitions[0].Width = new GridLength(activeCount, GridUnitType.Star);
-                progressBarGrid.ColumnDefinitions[1].Width = new GridLength(totalCount - activeCount, GridUnitType.Star);
+            if (progressBarPanel != null) {
+                progressBarPanel.Invalidate();
             }
         }
+    }
 
-        // Dragging window support
-        protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e) {
-            base.OnMouseLeftButtonDown(e);
-            try {
-                DragMove();
-            } catch {
-                // Ignore drag exceptions
-            }
+    // ───────────────────────────────────────────────────────────────
+    //  Application Entry Point
+    // ───────────────────────────────────────────────────────────────
+    public static class Program {
+        [STAThread]
+        public static void Main() {
+            Application.EnableVisualStyles();
+            Application.SetCompatibleTextRenderingDefault(false);
+            Application.Run(new MainForm());
         }
     }
 }
