@@ -1058,7 +1058,7 @@ static calloc_fn   orig_calloc   = nullptr;
 static msize_fn    orig_msize    = nullptr;
 static recalloc_fn orig_recalloc = nullptr;
 
-static constexpr size_t ALLOCATOR_REDIRECT_THRESHOLD = 16384;
+static constexpr size_t ALLOCATOR_REDIRECT_THRESHOLD = 131072; // 128KB - avoids redirecting network/socket buffers to prevent LAA pointer bugs
 
 static void* __cdecl hooked_malloc(size_t size) {
     if (size >= ALLOCATOR_REDIRECT_THRESHOLD) {
@@ -2739,42 +2739,8 @@ static BOOL WINAPI hooked_HeapValidate(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMe
 }
 
 static bool InstallHeapRedirectToMimalloc() {
-    g_processHeap = GetProcessHeap();
-    if (!g_processHeap) return false;
-
-    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
-    if (!hK32) return false;
-
-    int ok = 0;
-    void* p;
-
-    // NOTE: We DO NOT hook HeapAlloc here anymore because returning mimalloc blocks
-    // directly from HeapAlloc causes crashes in third-party DLLs/Win32 APIs that
-    // perform heap validation/walks. Instead, we only hook HeapFree/HeapReAlloc/HeapSize/HeapValidate
-    // as a safety bridge: if they receive a mimalloc pointer (allocated by WoW static CRT),
-    // they delegate to mimalloc. Standard heap pointers pass through to kernel32.
-
-    p = (void*)GetProcAddress(hK32, "HeapFree");
-    if (p && MH_CreateHook(p, (void*)hooked_HeapFree, (void**)&orig_HeapFree) == MH_OK) ok++;
-    p = (void*)GetProcAddress(hK32, "HeapReAlloc");
-    if (p && MH_CreateHook(p, (void*)hooked_HeapReAlloc, (void**)&orig_HeapReAlloc) == MH_OK) ok++;
-    p = (void*)GetProcAddress(hK32, "HeapSize");
-    if (p && MH_CreateHook(p, (void*)hooked_HeapSize, (void**)&orig_HeapSize) == MH_OK) ok++;
-    p = (void*)GetProcAddress(hK32, "HeapValidate");
-    if (p && MH_CreateHook(p, (void*)hooked_HeapValidate, (void**)&orig_HeapValidate) == MH_OK) ok++;
-
-    if (ok == 4) {
-        // Enable individually through WO_EnableHook so they batch with the rest of
-        // MainThread's init sequence instead of flushing the queue prematurely.
-        WO_EnableHook((void*)GetProcAddress(hK32, "HeapFree"));
-        WO_EnableHook((void*)GetProcAddress(hK32, "HeapReAlloc"));
-        WO_EnableHook((void*)GetProcAddress(hK32, "HeapSize"));
-        WO_EnableHook((void*)GetProcAddress(hK32, "HeapValidate"));
-        Log("Heap safety redirect bridge: ACTIVE (4/4 hooks, catching external HeapFree on mimalloc blocks)");
-        return true;
-    }
-    Log("Heap safety redirect bridge: FAILED (%d/4 hooks installed)", ok);
-    return false;
+    Log("Heap safety redirect bridge: DISABLED for stability (HeapAlloc redirection is inactive)");
+    return true;
 }
 
 // ================================================================
