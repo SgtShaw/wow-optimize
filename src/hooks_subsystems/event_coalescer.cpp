@@ -66,7 +66,13 @@ static bool ShouldCoalesce(const char* name) {
     if (!name) return false;
     if (strcmp(name, "BAG_UPDATE") == 0 ||
         strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0 ||
-        strcmp(name, "UNIT_POWER") == 0) {
+        strcmp(name, "UNIT_POWER") == 0 ||
+        strcmp(name, "UNIT_AURA") == 0 ||
+        strcmp(name, "UNIT_HEALTH") == 0 ||
+        strcmp(name, "UNIT_MAXHEALTH") == 0 ||
+        strcmp(name, "UNIT_MAXPOWER") == 0 ||
+        strcmp(name, "SPELL_UPDATE_USABLE") == 0 ||
+        strcmp(name, "SPELL_UPDATE_CHARGES") == 0) {
         return true;
     }
     return false;
