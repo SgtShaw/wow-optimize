@@ -258,6 +258,13 @@ namespace WowOptimizeLauncher {
         private DarkButton btnEnableGfx;
         private DarkButton btnEnableRecent;
 
+        private FlowLayoutPanel generalFlow;
+        private FlowLayoutPanel uiLuaFlow;
+        private FlowLayoutPanel combatNetFlow;
+        private FlowLayoutPanel graphicsSoundFlow;
+        private FlowLayoutPanel recentNewFlow;
+        private TextBox searchBox;
+
         // Background image
         private Image backgroundImage;
 
@@ -740,15 +747,41 @@ namespace WowOptimizeLauncher {
             tipLabel.Font = new Font("Segoe UI", 8.5f, FontStyle.Italic);
             tipLabel.ForeColor = CyanAccent;
             tipLabel.AutoSize = false;
-            tipLabel.Size = new Size(rightW, 20);
+            tipLabel.Size = new Size(rightW - 270, 20);
             tipLabel.Location = new Point(rightX, 15);
             tipLabel.BackColor = Color.Transparent;
             Controls.Add(tipLabel);
+
+            // Search Label
+            Label searchLabel = new Label();
+            searchLabel.Text = "Search:";
+            searchLabel.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            searchLabel.ForeColor = Color.White;
+            searchLabel.AutoSize = true;
+            searchLabel.Location = new Point(rightX + rightW - 260, 15);
+            searchLabel.BackColor = Color.Transparent;
+            Controls.Add(searchLabel);
+
+            // Search TextBox
+            searchBox = new TextBox();
+            searchBox.Font = new Font("Segoe UI", 9f, FontStyle.Regular);
+            searchBox.BackColor = Color.FromArgb(20, 20, 30);
+            searchBox.ForeColor = Color.White;
+            searchBox.BorderStyle = BorderStyle.FixedSingle;
+            searchBox.Location = new Point(rightX + rightW - 200, 12);
+            searchBox.Size = new Size(190, 20);
+            searchBox.TextChanged += delegate { FilterFeatures(searchBox.Text); };
+            Controls.Add(searchBox);
 
             // TabControl
             tabs = new DarkTabControl();
             tabs.Location = new Point(rightX, 40);
             tabs.Size = new Size(rightW, ClientSize.Height - 55);
+            tabs.SelectedIndexChanged += delegate {
+                if (searchBox != null) {
+                    FilterFeatures(searchBox.Text);
+                }
+            };
 
             // Create tab pages
             TabPage tpGeneral = CreateTabPage("GENERAL");
@@ -764,11 +797,11 @@ namespace WowOptimizeLauncher {
             tabs.TabPages.Add(tpRecentNew);
 
             // Get the scroll panels from each tab page
-            FlowLayoutPanel generalFlow = (FlowLayoutPanel)((Panel)tpGeneral.Controls[0]).Controls[0];
-            FlowLayoutPanel uiLuaFlow = (FlowLayoutPanel)((Panel)tpUiLua.Controls[0]).Controls[0];
-            FlowLayoutPanel combatNetFlow = (FlowLayoutPanel)((Panel)tpCombatNet.Controls[0]).Controls[0];
-            FlowLayoutPanel graphicsSoundFlow = (FlowLayoutPanel)((Panel)tpGraphicsSound.Controls[0]).Controls[0];
-            FlowLayoutPanel recentNewFlow = (FlowLayoutPanel)((Panel)tpRecentNew.Controls[0]).Controls[0];
+            generalFlow = (FlowLayoutPanel)((Panel)tpGeneral.Controls[0]).Controls[0];
+            uiLuaFlow = (FlowLayoutPanel)((Panel)tpUiLua.Controls[0]).Controls[0];
+            combatNetFlow = (FlowLayoutPanel)((Panel)tpCombatNet.Controls[0]).Controls[0];
+            graphicsSoundFlow = (FlowLayoutPanel)((Panel)tpGraphicsSound.Controls[0]).Controls[0];
+            recentNewFlow = (FlowLayoutPanel)((Panel)tpRecentNew.Controls[0]).Controls[0];
 
             // Add "ENABLE ALL IN ..." buttons at top of each flow
             btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
@@ -832,6 +865,83 @@ namespace WowOptimizeLauncher {
 
             Controls.Add(tabs);
             ResumeLayout(false);
+        }
+
+        private void FilterFeatures(string query) {
+            query = (query ?? "").Trim().ToLower();
+            bool hasSearch = !string.IsNullOrEmpty(query);
+
+            TabPage activeTab = (tabs != null) ? tabs.SelectedTab : null;
+            FlowLayoutPanel activeFlow = null;
+            if (activeTab != null && activeTab.Controls.Count > 0) {
+                Control scrollPanel = activeTab.Controls[0];
+                if (scrollPanel.Controls.Count > 0) {
+                    activeFlow = scrollPanel.Controls[0] as FlowLayoutPanel;
+                }
+            }
+
+            if (generalFlow == null || uiLuaFlow == null || combatNetFlow == null || 
+                graphicsSoundFlow == null || recentNewFlow == null) {
+                return;
+            }
+
+            // Temporarily clear all flow panels
+            generalFlow.Controls.Clear();
+            uiLuaFlow.Controls.Clear();
+            combatNetFlow.Controls.Clear();
+            graphicsSoundFlow.Controls.Clear();
+            recentNewFlow.Controls.Clear();
+
+            // Category buttons visibility
+            if (btnEnableGeneral != null) btnEnableGeneral.Visible = !hasSearch;
+            if (btnEnableUiLua != null) btnEnableUiLua.Visible = !hasSearch;
+            if (btnEnableCombatNet != null) btnEnableCombatNet.Visible = !hasSearch;
+            if (btnEnableGfx != null) btnEnableGfx.Visible = !hasSearch;
+            if (btnEnableRecent != null) btnEnableRecent.Visible = !hasSearch;
+
+            // Put category buttons back if not searching
+            if (!hasSearch) {
+                generalFlow.Controls.Add(btnEnableGeneral);
+                uiLuaFlow.Controls.Add(btnEnableUiLua);
+                combatNetFlow.Controls.Add(btnEnableCombatNet);
+                graphicsSoundFlow.Controls.Add(btnEnableGfx);
+                recentNewFlow.Controls.Add(btnEnableRecent);
+            }
+
+            foreach (KeyValuePair<string, SettingItem> pair in settingsMap) {
+                string name = pair.Key;
+                SettingItem data = pair.Value;
+
+                // Match only by name (case-insensitive)
+                bool isMatch = !hasSearch || name.ToLower().Contains(query);
+
+                if (hasSearch) {
+                    if (isMatch && data.Ctrl != null && activeFlow != null) {
+                        data.Ctrl.Visible = true;
+                        activeFlow.Controls.Add(data.Ctrl);
+                    } else if (data.Ctrl != null) {
+                        data.Ctrl.Visible = false;
+                    }
+                    if (data.RecentCtrl != null) {
+                        data.RecentCtrl.Visible = false;
+                    }
+                } else {
+                    // Restore to original tab flows
+                    if (data.Ctrl != null) {
+                        data.Ctrl.Visible = true;
+                        switch (data.Section) {
+                            case "General": generalFlow.Controls.Add(data.Ctrl); break;
+                            case "UI_Lua": uiLuaFlow.Controls.Add(data.Ctrl); break;
+                            case "Combat_Net": combatNetFlow.Controls.Add(data.Ctrl); break;
+                            case "Graphics_Sound": graphicsSoundFlow.Controls.Add(data.Ctrl); break;
+                        }
+                    }
+                    if (data.RecentCtrl != null && data.Tooltip != null && data.Tooltip.StartsWith("[NEW]")) {
+                        data.RecentCtrl.Visible = true;
+                        recentNewFlow.Controls.Add(data.RecentCtrl);
+                    }
+                }
+            }
         }
 
         // Helper class for checkbox syncing (avoids C# 5 closure issues)
