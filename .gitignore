@@ -27,3 +27,4 @@ desktop.ini
 tools/*.py
 tools/
 src/disabled_features/
+scratch/

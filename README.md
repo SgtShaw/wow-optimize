@@ -29,10 +29,12 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in the Latest Update (v3.16.2)
 
-### Wine/Proton Compatibility Update (v3.16.2)
-- **Native Thread Management** — Replaced all occurrences of `std::thread` with native Windows API `CreateThread` across all background subsystems (combat log, sound/texture loaders, MPQ/VFS readers, packet offloader, etc.). This bypasses the buggy and non-thread-safe C++ runtime thread initialization thunk inside `MSVCP140.dll` under Wine/Proton, resolving the 100% launch-crash issue.
-- **SRWLOCK Mutex Replacement** — Completely eliminated C++ runtime dynamic mutexes (`std::mutex` and `std::condition_variable`) across all 41 subsystems, replacing them with a custom zero-initialization wrapper (`win_mutex.h`) built on native Windows `SRWLOCK` and `CONDITION_VARIABLE` APIs. This avoids the `MSVCP140.dll!_Mtx_lock` NULL dereference crash under Wine where static constructors fail to run in the correct order.
-- **WinForms Launcher GUI** — Rewrote the C# launcher dashboard from WPF to WinForms to run natively via GDI rendering instead of Direct3D. This completely fixes the black screen rendering issue and black tooltip boxes under Wine. Includes dynamic "ENABLE ALL" / "DISABLE ALL" button toggles and instant, lag-free list scroll rendering updates.
+### Stability, Wine/Proton Compatibility, & Lua VM Fixes (v3.16.2)
+- **Native Thread Management** — Replaced all C++ standard library `std::thread` usage with native Windows API `CreateThread` across all background operations, bypassing C++ runtime crashes inside `MSVCP140.dll` under Wine/Proton environments.
+- **SRWLOCK Mutex Replacement** — Eliminated dynamic `std::mutex` across all 41 subsystems in favor of native Windows `SRWLOCK`, resolving startup race conditions and NULL dereference crashes.
+- **WinForms Launcher & Live Search** — Rewrote the launcher from WPF to WinForms for perfect GDI compatibility under Linux. Added a powerful global **Live Search Filter** that dynamically filters features by name across all tabs as you type.
+- **Lua VM & Compiler Fixes** — Fixed critical offset errors in `table.concat` fast paths and table `lsizenode` boundaries. This resolves corrupted AST generation, compiler syntax crashes (`unexpected symbol near ';'`), and assertion errors for addons like LibDogTag-3.0 and LibGroupTalents.
+- **Lock-Free Cache & Loading Bypasses** — Fixed sequence-lock concurrency bugs in DBC caches, added loading-screen checks to bypass deferred unit visual updates (fixing stretched textures), and safely invalidated caches across zone boundaries.
 
 ### Stability & Connection Fixes (v3.16.1)
 - **Thread-Filtered Allocator Redirection** — Restructured the static CRT allocator redirection (`mimalloc`) to only intercept allocations originating from the main game thread. Background socket, database, and audio threads bypass the redirect and allocate from the native CRT heap, resolving Large Address Aware (LAA) pointer conflicts (>2GB) with third-party socket filter drivers (e.g. ExitLag).
@@ -480,7 +482,6 @@ Output:
 - `build\Release\version.dll`
 - `build\Release\wow_loader.exe`
 - `build\Release\wow_optimize_launcher.exe`
-- `build\Release\wotlk_background.jpg`
 
 ### macOS (cross-compile to Win32)
 
