@@ -2940,7 +2940,7 @@ static int Hooked_TableSort_Internal(lua_State* L) {
     if (!tablePtr) return -1;
 
     // Reject if table has a metatable
-    void* metatable = *(void**)((char*)tablePtr + 8);
+    void* metatable = *(void**)((char*)tablePtr + 12);
     if (metatable) return -1;
 
     // Reject if table has any hash nodes (must be a pure array)

@@ -4780,8 +4780,8 @@ static int __cdecl hooked_table_concat(int L) {
         if (tt == 4) { // String
             int ts = val[0];
             if (!ts) return orig_table_concat(L);
-            s = (const char*)(ts + 16);
-            len = *(int*)(ts + 8);
+            s = (const char*)(ts + 20);
+            len = *(int*)(ts + 16);
         } else if (tt == 3) { // Number
             double n = *(double*)val;
             // Fast integer check
