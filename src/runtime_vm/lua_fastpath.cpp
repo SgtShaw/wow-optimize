@@ -2944,8 +2944,8 @@ static int Hooked_TableSort_Internal(lua_State* L) {
     if (metatable) return -1;
 
     // Reject if table has any hash nodes (must be a pure array)
-    unsigned char lsizenode = *(unsigned char*)((char*)tablePtr + 11);
-    if (lsizenode > 0) return -1;
+    uintptr_t node = *(uintptr_t*)((char*)tablePtr + 20);
+    if (node != 0x00A48280) return -1;
 
     int sizearray = *(int*)((char*)tablePtr + 32);
     if (sizearray < 2 || sizearray > 100000) return -1;

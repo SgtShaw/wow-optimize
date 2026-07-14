@@ -30,15 +30,15 @@ static int __cdecl Hooked_luaH_getn(uintptr_t table) {
     __try {
         int sizearray = *(int*)(table + 32);
         int* array = *(int**)(table + 16);
-        unsigned char lsizenode = *(unsigned char*)(table + 11);
+        uintptr_t node = *(uintptr_t*)(table + 20); // table->node
 
         // Fast path 1: Table has array elements
         if (sizearray > 0 && array && (uintptr_t)array >= 0x10000 && (uintptr_t)array <= 0xFFE00000) {
             // TValue is 16 bytes (4 ints), type tt is at offset 8 (index 2)
             int last_tt = array[(sizearray - 1) * 4 + 2];
             if (last_tt != 0) { // 0 is LUA_TNIL
-                // If hash part is empty (lsizenode == 0), length is exactly sizearray
-                if (lsizenode == 0) {
+                // If hash part is empty (node == dummynode), length is exactly sizearray
+                if (node == 0x00A48280) {
                     g_getnFast++;
                     return sizearray;
                 }
@@ -55,8 +55,8 @@ static int __cdecl Hooked_luaH_getn(uintptr_t table) {
                 g_getnFast++;
                 return i;
             }
-        } else if (sizearray == 0 && lsizenode == 0) {
-            // Empty table
+        } else if (sizearray == 0 && node == 0x00A48280) {
+            // Empty table (no array part, empty hash part)
             g_getnFast++;
             return 0;
         }

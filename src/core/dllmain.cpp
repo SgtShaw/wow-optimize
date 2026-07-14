@@ -4741,17 +4741,28 @@ static int __cdecl hooked_table_concat(int L) {
         return orig_table_concat(L);
     }
 
+    uintptr_t top = *(uintptr_t*)(L + 0x0C);
+    uintptr_t base_ptr = *(uintptr_t*)(L + 0x10);
+    int top_idx = (top - base_ptr) / 16;
+
     // Arg 3: i (default 1)
     int i = 1;
-    if (base[10] == 3) i = (int)*(double*)(base + 8);
-    else if (base[10] != 0) return orig_table_concat(L);
+    if (top_idx >= 3) {
+        if (base[10] == 3) i = (int)*(double*)(base + 8);
+        else if (base[10] != 0) return orig_table_concat(L);
+    }
 
-    // Arg 4: j (default sizearray)
+    // Arg 4: j (default #t)
+    int j = 0;
+    if (top_idx >= 4) {
+        if (base[14] == 3) j = (int)*(double*)(base + 12);
+        else if (base[14] != 0) return orig_table_concat(L);
+    } else {
+        typedef unsigned int (__cdecl *luaH_getn_fn)(int table);
+        j = ((luaH_getn_fn)0x0085C690)(table);
+    }
+
     int sizearray = *(int*)(table + 32);
-    int j = sizearray;
-    if (base[14] == 3) j = (int)*(double*)(base + 12);
-    else if (base[14] != 0) return orig_table_concat(L);
-
     if (i < 1) i = 1;
     if (j > sizearray) return orig_table_concat(L); // Hash part fallback
     if (i > j) {
