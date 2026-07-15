@@ -503,7 +503,7 @@ namespace WowPerfHooks {
             {(void*)0x00879390, (void*)Hooked_SoundStop,         (void**)&orig_SoundStop,         "P15 sound stop"},
             {(void*)0x0087F7A0, (void*)Hooked_AmbientSoundMgr,   (void**)&orig_AmbientSoundMgr,   "P16 ambient sound mgr"},
             {(void*)0x004CB580, (void*)Hooked_MusicTrackSelect,  (void**)&orig_MusicTrackSelect,  "P17 music track select"},
-            {(void*)0x004C5990, (void*)Hooked_SfxPriorityCalc,   (void**)&orig_SfxPriorityCalc,   "P18 SFX priority calc"},
+            // {(void*)0x004C5990, (void*)Hooked_SfxPriorityCalc,   (void**)&orig_SfxPriorityCalc,   "P18 SFX priority calc"},
             {(void*)0x00879A60, (void*)Hooked_SoundKitLookup,    (void**)&orig_SoundKitLookup,    "P19 sound kit lookup"},
             {(void*)0x00878590, (void*)Hooked_SoundSysTick,      (void**)&orig_SoundSysTick,      "P20 sound sys tick"},
         };
