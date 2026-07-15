@@ -305,79 +305,75 @@ static int __fastcall Hooked_BufferValid(void* This, void* unused) {
 // W14: sub_878760 - Sound volume lookup (called by sub_4C6A40)
 // Cache volume values to avoid repeated CVAR lookups.
 // ================================================================
-typedef float (__cdecl *VolumeLookup_fn)(int);
+typedef int (__fastcall *VolumeLookup_fn)(void*, void*, float);
 static VolumeLookup_fn orig_VolumeLookup = nullptr;
 static volatile float g_w14Cache[16] = {};
-static volatile int g_w14Keys[16] = {};
+static volatile uintptr_t g_w14Keys[16] = {};
 
-static float __cdecl Hooked_VolumeLookup(int channel) {
+static int __fastcall Hooked_VolumeLookup(void* self, void* dummyEDX, float volume) {
     _InterlockedIncrement(&g_w14Calls);
-    int idx = channel & 15;
-    if (g_w14Keys[idx] == channel && channel != 0) {
+    uintptr_t key = (uintptr_t)self;
+    int idx = ((int)key) & 15;
+    if (g_w14Keys[idx] == key && g_w14Cache[idx] == volume && key != 0) {
         _InterlockedIncrement(&g_w14Fast);
-        return g_w14Cache[idx];
+        return (int)self;
     }
-    float result = orig_VolumeLookup(channel);
-    g_w14Keys[idx] = channel;
-    g_w14Cache[idx] = result;
+    int result = orig_VolumeLookup(self, dummyEDX, volume);
+    g_w14Keys[idx] = key;
+    g_w14Cache[idx] = volume;
     return result;
 }
 
 // ================================================================
-// W15: sub_8799E0 - Sound channel allocator (called by sub_4C6A40)
-// Cache last allocated channel to speed up sequential allocations.
+// W15: sub_8799E0 - Sound channel deallocator (called by sub_4C6A40)
+// SKIPPED/DISABLED: This is a deallocator; skipping it causes channel leaks.
 // ================================================================
-typedef int (__cdecl *ChannelAlloc_fn)(int);
-static ChannelAlloc_fn orig_ChannelAlloc = nullptr;
-static volatile int g_w15LastChannel = -1;
-
-static int __cdecl Hooked_ChannelAlloc(int priority) {
-    _InterlockedIncrement(&g_w15Calls);
-    int result = orig_ChannelAlloc(priority);
-    if (result >= 0) {
-        g_w15LastChannel = result;
-        _InterlockedIncrement(&g_w15Cached);
-    }
-    return result;
-}
 
 // ================================================================
 // W16: sub_878610 - Sound mix/update (called every frame by sound system)
 // Skip mix update when no sounds are playing.
 // ================================================================
-typedef void (__cdecl *SoundMix_fn)(int);
+typedef int (__fastcall *SoundMix_fn)(void*, void*, float);
 static SoundMix_fn orig_SoundMix = nullptr;
-static volatile int g_w16ActiveSounds = 0;
+static volatile float g_w16Cache[16] = {};
+static volatile uintptr_t g_w16Keys[16] = {};
 
-static void __cdecl Hooked_SoundMix(int param) {
+static int __fastcall Hooked_SoundMix(void* self, void* dummyEDX, float a2) {
     _InterlockedIncrement(&g_w16Calls);
-    // Always call original but track for stats
-    orig_SoundMix(param);
-    _InterlockedIncrement(&g_w16Optimized);
+    uintptr_t key = (uintptr_t)self;
+    int idx = ((int)key) & 15;
+    if (g_w16Keys[idx] == key && g_w16Cache[idx] == a2 && key != 0) {
+        _InterlockedIncrement(&g_w16Optimized);
+        return (int)self;
+    }
+    int result = orig_SoundMix(self, dummyEDX, a2);
+    g_w16Keys[idx] = key;
+    g_w16Cache[idx] = a2;
+    return result;
 }
 
 // ================================================================
 // W17: sub_879390 - Sound stop/fadeout (called on zone transitions)
 // Batch stop calls to reduce per-sound overhead.
 // ================================================================
-typedef void (__cdecl *SoundStop_fn)(float, float);
+typedef int (__fastcall *SoundStop_fn)(void*, void*, float, float);
 static SoundStop_fn orig_SoundStop = nullptr;
 
-static void __cdecl Hooked_SoundStop(float f1, float f2) {
+static int __fastcall Hooked_SoundStop(void* self, void* dummyEDX, float f1, float f2) {
     _InterlockedIncrement(&g_w17Calls);
     _InterlockedIncrement(&g_w17Fast);
-    orig_SoundStop(f1, f2);
+    return orig_SoundStop(self, dummyEDX, f1, f2);
 }
 
 // ================================================================
 // W18: sub_87F7A0 - Ambient sound manager (called every frame)
 // Skip ambient update when player is indoors/loading.
 // ================================================================
-typedef int (__cdecl *AmbientMgr_fn)(int, void*, int, int, int, int, int, int, int, int);
+typedef int (__fastcall *AmbientMgr_fn)(void*, void*, void*, int, int, int, int, int, int, int, int);
 static AmbientMgr_fn orig_AmbientMgr = nullptr;
 static volatile DWORD g_w18LastAmbientTick = 0;
 
-static int __cdecl Hooked_AmbientMgr(int a1, void* a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
+static int __fastcall Hooked_AmbientMgr(void* self, void* dummyEDX, void* a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
     _InterlockedIncrement(&g_w18Calls);
     DWORD now = GetTickCount();
     // Throttle ambient updates to max 10/sec
@@ -386,25 +382,27 @@ static int __cdecl Hooked_AmbientMgr(int a1, void* a2, int a3, int a4, int a5, i
         return 1; // Return success/true to skip processing without triggering cleanups
     }
     g_w18LastAmbientTick = now;
-    return orig_AmbientMgr(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
+    return orig_AmbientMgr(self, dummyEDX, a2, a3, a4, a5, a6, a7, a8, a9, a10);
 }
 
 // ================================================================
 // W19: sub_4CB580 - Music track selector (called by sub_4C6A40)
 // Cache selected music track to avoid re-selection on volume changes.
 // ================================================================
-typedef int (__cdecl *MusicSelect_fn)(int, int, void*, void*, int, int, int, int, int);
+typedef int (__fastcall *MusicSelect_fn)(void*, void*, int, void*, void*, int, int, int, int, int);
 static MusicSelect_fn orig_MusicSelect = nullptr;
+static volatile uintptr_t g_w19LastSelf = 0;
 static volatile int g_w19LastZone = 0;
 static volatile int g_w19LastTrack = 0;
 
-static int __cdecl Hooked_MusicSelect(int zoneId, int a2, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
+static int __fastcall Hooked_MusicSelect(void* self, void* dummyEDX, int zoneId, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
     _InterlockedIncrement(&g_w19Calls);
-    if (zoneId == g_w19LastZone && zoneId != 0) {
+    if ((uintptr_t)self == g_w19LastSelf && zoneId == g_w19LastZone && zoneId != 0) {
         _InterlockedIncrement(&g_w19Cached);
         return g_w19LastTrack;
     }
-    int result = orig_MusicSelect(zoneId, a2, a3, a4, a5, a6, a7, a8, a9);
+    int result = orig_MusicSelect(self, dummyEDX, zoneId, a3, a4, a5, a6, a7, a8, a9);
+    g_w19LastSelf = (uintptr_t)self;
     g_w19LastZone = zoneId;
     g_w19LastTrack = result;
     return result;
@@ -443,7 +441,7 @@ namespace WowOptHooks {
             {(void*)0x0047C240, (void*)Hooked_AllocWrapper,    (void**)&orig_AllocWrapper,    "W12 alloc batch"},
             {(void*)0x0047C0F0, (void*)Hooked_BufferValid,     (void**)&orig_BufferValid,     "W13 buffer valid inline"},
             {(void*)0x00878760, (void*)Hooked_VolumeLookup,    (void**)&orig_VolumeLookup,    "W14 volume cache"},
-            {(void*)0x008799E0, (void*)Hooked_ChannelAlloc,    (void**)&orig_ChannelAlloc,    "W15 channel cache"},
+            // W15 skipped - channel deallocator function (skipping it causes channel leak)
             {(void*)0x00878610, (void*)Hooked_SoundMix,        (void**)&orig_SoundMix,        "W16 sound mix opt"},
             {(void*)0x00879390, (void*)Hooked_SoundStop,       (void**)&orig_SoundStop,       "W17 sound stop batch"},
             {(void*)0x0087F7A0, (void*)Hooked_AmbientMgr,      (void**)&orig_AmbientMgr,      "W18 ambient throttle"},
