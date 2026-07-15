@@ -18,9 +18,12 @@ struct GlyphKey {
     void* fontObj;
     unsigned int charCode;
     int fontSize;
+    int a4;
+    int a6;
+    int a7;
 
     bool operator==(const GlyphKey& o) const {
-        return fontObj == o.fontObj && charCode == o.charCode && fontSize == o.fontSize;
+        return fontObj == o.fontObj && charCode == o.charCode && fontSize == o.fontSize && a4 == o.a4 && a6 == o.a6 && a7 == o.a7;
     }
 };
 
@@ -29,6 +32,9 @@ struct GlyphKeyHash {
         size_t h = std::hash<void*>{}(k.fontObj);
         h ^= std::hash<unsigned int>{}(k.charCode) + 0x9e3779b9 + (h << 6) + (h >> 2);
         h ^= std::hash<int>{}(k.fontSize) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(k.a4) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(k.a6) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int>{}(k.a7) + 0x9e3779b9 + (h << 6) + (h >> 2);
         return h;
     }
 };
@@ -54,7 +60,7 @@ static fn_GxuLoadGlyph_t orig_GxuLoadGlyph = nullptr;
 
 static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, int fontSize, int a4, void* outStruct, int a6, int a7) {
     if (fontObj && charCode && outStruct && !IsTeardownState()) {
-        GlyphKey key = { fontObj, charCode, fontSize };
+        GlyphKey key = { fontObj, charCode, fontSize, a4, a6, a7 };
         
         // Fast thread-safe cache lookup
         {
@@ -80,7 +86,7 @@ static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, in
     // Cache miss: compile/rasterize glyph outline normally
     char result = orig_GxuLoadGlyph(fontObj, charCode, fontSize, a4, outStruct, a6, a7);
     if (result && fontObj && charCode && outStruct && !IsTeardownState()) {
-        GlyphKey key = { fontObj, charCode, fontSize };
+        GlyphKey key = { fontObj, charCode, fontSize, a4, a6, a7 };
         
         void* textureData = *reinterpret_cast<void**>(outStruct);
         uint32_t textureSize = *reinterpret_cast<uint32_t*>(reinterpret_cast<uintptr_t>(outStruct) + 4);

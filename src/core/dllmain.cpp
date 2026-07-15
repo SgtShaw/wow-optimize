@@ -1267,11 +1267,6 @@ static LARGE_INTEGER g_lastSleepTime = {};
 static double g_lastFrameMs = 0.0;
 
 static void WINAPI hooked_Sleep(DWORD ms) {
-    if (ms == 0) {
-        orig_Sleep(0);
-        return;
-    }
-
     if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId) {
         UpdateMainThreadActivity();
 
@@ -1391,12 +1386,22 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #endif
         }
 
+        if (ms == 0) {
+            orig_Sleep(0);
+            return;
+        }
+
         if (Config::g_settings.OptSleepPrecision && ms <= 3) {
             if (!LuaOpt::IsInitialized() || LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
                 orig_Sleep(ms);
                 return;
             }
             PreciseSleep((double)ms);
+            return;
+        }
+    } else {
+        if (ms == 0) {
+            orig_Sleep(0);
             return;
         }
     }
@@ -2987,38 +2992,8 @@ static HGLOBAL WINAPI hooked_GlobalReAlloc(HGLOBAL hMem, SIZE_T dwBytes, UINT uF
 }
 
 static bool InstallGlobalAllocHooks() {
-#if CRASH_TEST_DISABLE_GLOBALALLOC
-    Log("GlobalAlloc hooks: DISABLED (crash isolation)");
+    Log("GlobalAlloc hooks: DISABLED for stability (prevents connection errors and heap mismatches)");
     return false;
-#else
-    HMODULE hK32 = GetModuleHandleA("kernel32.dll");
-    if (!hK32) return false;
-
-    int ok = 0;
-
-    void* pA = (void*)GetProcAddress(hK32, "GlobalAlloc");
-    if (pA && MH_CreateHook(pA, (void*)hooked_GlobalAlloc, (void**)&orig_GlobalAlloc) == MH_OK)
-        if (WO_EnableHook(pA) == MH_OK) ok++;
-
-    void* pF = (void*)GetProcAddress(hK32, "GlobalFree");
-    if (pF && MH_CreateHook(pF, (void*)hooked_GlobalFree, (void**)&orig_GlobalFree) == MH_OK)
-        if (WO_EnableHook(pF) == MH_OK) ok++;
-
-    void* pS = (void*)GetProcAddress(hK32, "GlobalSize");
-    if (pS && MH_CreateHook(pS, (void*)hooked_GlobalSize, (void**)&orig_GlobalSize) == MH_OK)
-        if (WO_EnableHook(pS) == MH_OK) ok++;
-
-    void* pR = (void*)GetProcAddress(hK32, "GlobalReAlloc");
-    if (pR && MH_CreateHook(pR, (void*)hooked_GlobalReAlloc, (void**)&orig_GlobalReAlloc) == MH_OK)
-        if (WO_EnableHook(pR) == MH_OK) ok++;
-
-    if (ok == 4) {
-        Log("GlobalAlloc hooks: ACTIVE (4/4, mimalloc for GMEM_FIXED)");
-        return true;
-    }
-    Log("GlobalAlloc hooks: FAILED (%d/4 installed)", ok);
-    return false;
-#endif
 }
 
 // ================================================================
