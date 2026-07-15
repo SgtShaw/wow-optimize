@@ -133,10 +133,10 @@ static void* __stdcall Hooked_MallocWrapper(int size, int a2, DWORD a3, char fla
 // ================================================================
 typedef int (__thiscall *DsLookup_fn)(void* This, int index, void* outBuf);
 static DsLookup_fn orig_DsLookup = nullptr;
-static volatile void* g_p4LastThis = nullptr;
-static volatile int g_p4LastIndex = -1;
-static unsigned char g_p4CachedData[680] = {};
-static volatile LONG g_p4CacheValid = 0;
+thread_local void* g_p4LastThis = nullptr;
+thread_local int g_p4LastIndex = -1;
+thread_local unsigned char g_p4CachedData[680] = {};
+thread_local LONG g_p4CacheValid = 0;
 
 static int __fastcall Hooked_DsLookup(void* This, void* unused, int index, void* outBuf) {
     _InterlockedIncrement(&g_p4Calls);
@@ -151,9 +151,9 @@ static int __fastcall Hooked_DsLookup(void* This, void* unused, int index, void*
         g_p4LastThis = This;
         g_p4LastIndex = index;
         memcpy(g_p4CachedData, outBuf, 680);
-        InterlockedExchange(&g_p4CacheValid, 1);
+        g_p4CacheValid = 1;
     } else {
-        InterlockedExchange(&g_p4CacheValid, 0);
+        g_p4CacheValid = 0;
     }
     return result;
 }
@@ -314,9 +314,9 @@ static void __cdecl Hooked_DelCSWrapper(LPCRITICAL_SECTION cs) {
 // ================================================================
 typedef float (__cdecl *SoundVolumeLookup_fn)(int);
 static SoundVolumeLookup_fn orig_SoundVolumeLookup = nullptr;
-static volatile float g_p12VolCache[16] = {};
-static volatile int g_p12VolKeys[16] = {};
-static volatile DWORD g_p12VolTick = 0;
+thread_local float g_p12VolCache[16] = {};
+thread_local int g_p12VolKeys[16] = {};
+thread_local DWORD g_p12VolTick = 0;
 
 static float __cdecl Hooked_SoundVolumeLookup(int channel) {
     _InterlockedIncrement(&g_p12Calls);
@@ -324,7 +324,7 @@ static float __cdecl Hooked_SoundVolumeLookup(int channel) {
     // Invalidate cache every 1 second (volume can change via UI)
     if ((now - g_p12VolTick) > 1000) {
         memset((void*)g_p12VolKeys, 0, sizeof(g_p12VolKeys));
-        InterlockedExchange(&g_p12VolTick, now);
+        g_p12VolTick = now;
     }
     int idx = channel & 15;
     if (g_p12VolKeys[idx] == channel && channel != 0) {
@@ -445,8 +445,8 @@ static int __cdecl Hooked_SfxPriorityCalc(int soundType) {
 // ================================================================
 typedef int (__cdecl *SoundKitLookup_fn)(int);
 static SoundKitLookup_fn orig_SoundKitLookup = nullptr;
-static volatile int g_p19LastKit = 0;
-static volatile int g_p19LastResult = 0;
+thread_local int g_p19LastKit = 0;
+thread_local int g_p19LastResult = 0;
 
 static int __cdecl Hooked_SoundKitLookup(int kitId) {
     _InterlockedIncrement(&g_p19Calls);
@@ -486,8 +486,9 @@ namespace WowPerfHooks {
 
         HookDef hooks[] = {
             {(void*)0x0084E350, (void*)Hooked_LuaPushString,     (void**)&orig_LuaPushString,     "P1 lua_pushstring (1008 xrefs)"},
-            {(void*)0x0076E5A0, (void*)Hooked_FreeWrapper,       (void**)&orig_FreeWrapper,       "P2 free wrapper (2901 xrefs)"},
-            {(void*)0x0076E540, (void*)Hooked_MallocWrapper,     (void**)&orig_MallocWrapper,     "P3 malloc wrapper (1764 xrefs)"},
+            // P2 and P3 memory allocator hooks disabled to prevent custom WoW allocator metadata corruption/conflicts
+            // {(void*)0x0076E5A0, (void*)Hooked_FreeWrapper,       (void**)&orig_FreeWrapper,       "P2 free wrapper (2901 xrefs)"},
+            // {(void*)0x0076E540, (void*)Hooked_MallocWrapper,     (void**)&orig_MallocWrapper,     "P3 malloc wrapper (1764 xrefs)"},
             {(void*)0x004CFD20, (void*)Hooked_DsLookup,          (void**)&orig_DsLookup,          "P4 data store lookup (345 xrefs)"},
             {(void*)0x0084DEB0, (void*)Hooked_LuaType,           (void**)&orig_LuaType,           "P5 lua_type (229 xrefs)"},
             {(void*)0x00422910, (void*)Hooked_ObjDestroyChain,   (void**)&orig_ObjDestroyChain,   "P6 obj destroy chain (513 xrefs)"},

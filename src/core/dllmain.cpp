@@ -7317,8 +7317,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool wowOptOk = false; // WowOptHooks::InstallAll();
 
     Log("--- WoW.exe Performance Hooks (20 hooks) ---");
-    Log("[WowPerf] DISABLED: crash isolation");
-    bool wowPerfOk = false; // WowPerfHooks::InstallAll();
+    bool wowPerfOk = WowPerfHooks::InstallAll();
 
     Log("--- WoW.exe Extended Hooks (40 features) ---");
     Log("[Extended] DISABLED: crash isolation");
