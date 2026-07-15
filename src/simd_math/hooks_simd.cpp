@@ -49,18 +49,22 @@ void SSE2_MatrixMultiply(const float* __restrict a,
 static const float kQuatNormEps = 0.00000023841858f;
 
 void SSE2_QuatNormalize(float* q) {
-    double qx = q[0];
-    double qy = q[1];
-    double qz = q[2];
-    double qw = q[3];
-
-    double mag2 = qx * qx + qy * qy + qz * qz + qw * qw;
-    if (mag2 > 0.00000023841858) {
-        double inv = 1.0 / sqrt(mag2);
-        q[0] = (float)(qx * inv);
-        q[1] = (float)(qy * inv);
-        q[2] = (float)(qz * inv);
-        q[3] = (float)(qw * inv);
+    __m128 v = _mm_loadu_ps(q);
+    __m128 v2 = _mm_mul_ps(v, v);
+    
+    // Horizontal sum of elements [x^2+y^2+z^2+w^2] across all 4 lanes
+    __m128 shuf1 = _mm_shuffle_ps(v2, v2, _MM_SHUFFLE(2, 3, 0, 1));
+    __m128 sum1 = _mm_add_ps(v2, shuf1);
+    __m128 shuf2 = _mm_shuffle_ps(sum1, sum1, _MM_SHUFFLE(1, 0, 3, 2));
+    __m128 sum2 = _mm_add_ps(sum1, shuf2);
+    
+    float mag2;
+    _mm_store_ss(&mag2, sum2);
+    
+    if (mag2 > 0.00000023841858f) {
+        __m128 scale = _mm_div_ps(_mm_set1_ps(1.0f), _mm_sqrt_ps(sum2));
+        __m128 res = _mm_mul_ps(v, scale);
+        _mm_storeu_ps(q, res);
     }
 }
 
