@@ -198,6 +198,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/cvar_null_guard.h
     src/hooks_subsystems/d3d_evict_patch.cpp
     src/hooks_subsystems/d3d_evict_patch.h
+    src/hooks_subsystems/dxvk_bridge.cpp
+    src/hooks_subsystems/dxvk_bridge.h
     src/hooks_subsystems/strncmp_null_guard.cpp
     src/hooks_subsystems/strncmp_null_guard.h
     src/hooks_subsystems/frame_throttle.cpp

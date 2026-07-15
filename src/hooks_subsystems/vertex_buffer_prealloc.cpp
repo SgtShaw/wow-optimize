@@ -52,8 +52,8 @@ void* AllocateBuffer(size_t size) {
         g_poolHits++;
         return g_freeChunks[--g_freeCount];
     }
-    // Fallback to standard heap malloc
-    return malloc(size);
+    // Fallback to 16-byte aligned malloc
+    return _aligned_malloc(size, 16);
 }
 
 void FreeBuffer(void* ptr) {
@@ -63,7 +63,7 @@ void FreeBuffer(void* ptr) {
         g_freeChunks[g_freeCount++] = ptr;
         return;
     }
-    free(ptr);
+    _aligned_free(ptr);
 }
 
 } // namespace VertexBufferPrealloc

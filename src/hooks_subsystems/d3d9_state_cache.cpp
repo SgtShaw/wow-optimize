@@ -11,6 +11,8 @@
 #include <d3d9.h>
 #include "d3d9_render_thread.h"
 #include "config.h"
+#include "dxvk_bridge.h"
+#include "vertex_buffer_prealloc.h"
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
@@ -133,7 +135,7 @@ static std::atomic<long> g_vsConstantSkips{0};
 static void CleanVBCache() {
     for (int i = 0; i < VB_CACHE_SIZE; i++) {
         if (g_vbCache[i].valid && g_vbCache[i].data) {
-            _aligned_free(g_vbCache[i].data);
+            VertexBufferPrealloc::FreeBuffer(g_vbCache[i].data);
             g_vbCache[i].data = nullptr;
             g_vbCache[i].valid = false;
         }
@@ -207,6 +209,9 @@ static HRESULT WINAPI Hooked_SetViewport(IDirect3DDevice9* device, const D3DVIEW
 
 static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLock, UINT SizeToLock, void** ppbData, DWORD Flags) {
     D3D9RenderThread::PipelineFlush();
+    if (DXVKBridge::IsActive()) {
+        return orig_VB_Lock(vb, OffsetToLock, SizeToLock, ppbData, Flags);
+    }
     #if !TEST_DISABLE_D3D9_VB_CACHE
     if (vb && ppbData && (Flags & D3DLOCK_DISCARD)) {
         unsigned int slot = HashVB(vb);
@@ -221,7 +226,7 @@ static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLo
             // Recycled pointer check: make sure the cached size matches the active vertex buffer
             D3DVERTEXBUFFER_DESC desc;
             if (FAILED(vb->GetDesc(&desc)) || desc.Size != e->size) {
-                if (e->data) _aligned_free(e->data);
+                if (e->data) VertexBufferPrealloc::FreeBuffer(e->data);
                 e->valid = false;
                 e->data = nullptr;
             }
@@ -232,7 +237,7 @@ static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLo
             if (SUCCEEDED(vb->GetDesc(&desc))) {
                 e->vb = vb;
                 e->size = desc.Size;
-                e->data = _aligned_malloc(desc.Size, 16);
+                e->data = VertexBufferPrealloc::AllocateBuffer(desc.Size);
                 e->valid = true;
             }
         }
@@ -249,6 +254,9 @@ static HRESULT WINAPI Hooked_VB_Lock(IDirect3DVertexBuffer9* vb, UINT OffsetToLo
 
 static HRESULT WINAPI Hooked_VB_Unlock(IDirect3DVertexBuffer9* vb) {
     D3D9RenderThread::PipelineFlush();
+    if (DXVKBridge::IsActive()) {
+        return orig_VB_Unlock(vb);
+    }
     #if !TEST_DISABLE_D3D9_VB_CACHE
     if (vb) {
         unsigned int slot = HashVB(vb);
