@@ -4303,7 +4303,12 @@ static int __cdecl hooked_MsgPump(void* a1, int* a2, DWORD* a3, void* a4, void* 
     int result = orig_MsgPump(a1, a2, a3, a4, a5);
 
     if (result == 0) {
-        if (LoadingDefrag::IsLoadingActive()) {
+        uint64_t playerGuid = 0;
+        __try {
+            playerGuid = *(uint64_t*)0x00BD07A0;
+        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+
+        if (playerGuid == 0 || LoadingDefrag::IsLoadingActive()) {
             return result;
         }
         // Original would exit the render loop (no messages pending).
@@ -6750,7 +6755,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
     // --- DG3: strings / refs / metamethods ---
 #if !TEST_DISABLE_LUA_BATCH_DG3
-    bool concatFastOk = Config::g_settings.OptLuaOpcache && InstallLuaConcatFast();
+    // Disable table.concat fast path completely due to 0xC0000005 crashes
+    bool concatFastOk = false;
     bool luaRegisterFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRegisterFast();
     bool luaRefFastOk = Config::g_settings.OptLuaOpcache && InstallLuaRefFast();
     bool luaUnrefFastOk = Config::g_settings.OptLuaOpcache && InstallLuaUnrefFast();
@@ -9302,6 +9308,10 @@ vf_fallback:
 }
 
 static bool InstallVAArena() {
+    if (IsWine()) {
+        Log("VA Arena: DISABLED on Wine (prevents socket issues & exit crashes)");
+        return false;
+    }
 #if CRASH_TEST_DISABLE_VA_ARENA
     Log("VA Arena: DISABLED (crash isolation)");
     return false;

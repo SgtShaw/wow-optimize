@@ -14,6 +14,7 @@
 #include "version.h"
 
 #include "runtime_vm/lua_gc_governor.h"
+#include "core/config.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -64,8 +65,7 @@ static const char* GetEventName(int eventId) {
 
 static bool ShouldCoalesce(const char* name) {
     if (!name) return false;
-    if (strcmp(name, "BAG_UPDATE") == 0 ||
-        strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0 ||
+    if (strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0 ||
         strcmp(name, "UNIT_POWER") == 0 ||
         strcmp(name, "UNIT_AURA") == 0 ||
         strcmp(name, "UNIT_HEALTH") == 0 ||
@@ -141,7 +141,7 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
         } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
             LuaGCGovernor::g_isLoading = false;
         }
-        return ShouldCoalesce(eventName);
+        return Config::g_settings.OptEventCoalescer && ShouldCoalesce(eventName);
     }
 
     if (!s_coalesceChecked[eventId]) {
@@ -159,7 +159,7 @@ extern "C" bool __fastcall TryQueueEvent(int eventId, const char* format, void* 
             } else if (strcmp(eventName, "PLAYER_ENTERING_WORLD") == 0) {
                 LuaGCGovernor::g_isLoading = false;
                 s_combatStateEvents[eventId] = true;
-            } else if (ShouldCoalesce(eventName)) {
+            } else if (Config::g_settings.OptEventCoalescer && ShouldCoalesce(eventName)) {
                 s_coalesceCache[eventId] = true;
             }
         }

@@ -86,7 +86,12 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
                             if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
                                 e->storePtr = storeKey;
                                 e->recordId = (uint32_t)recordId;
-                                memcpy(e->rowData, rptr, 0x2A8); // Store actual row data
+                                if (*(unsigned char*)0x00C5DEA0) {
+                                    typedef void* (__cdecl *rle_decompress_fn)(const void*, int, void*);
+                                    ((rle_decompress_fn)0x004CFBB0)(rptr, 0x2A8, e->rowData);
+                                } else {
+                                    memcpy(e->rowData, rptr, 0x2A8); // Store actual row data
+                                }
                                 e->valid = true;
                                 e->seq.store(s + 2, std::memory_order_release); // Even: write complete
                             }
