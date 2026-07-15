@@ -99,18 +99,18 @@ static void __cdecl Hooked_ErrorHandler(unsigned int code) {
 // W4: sub_424B50 - File read dispatcher (21 callers, texture/model loads)
 // Cache last successful file read result to avoid re-reading same data.
 // ================================================================
-typedef int (__stdcall *FileReadDispatch_fn)(void*, void*);
+typedef int (__stdcall *FileReadDispatch_fn)(void*, void*, int, int);
 static FileReadDispatch_fn orig_FileReadDispatch = nullptr;
 static volatile void* g_w4LastSrc = nullptr;
 static volatile int g_w4LastResult = 0;
 
-static int __stdcall Hooked_FileReadDispatch(void* src, void* dst) {
+static int __stdcall Hooked_FileReadDispatch(void* src, void* dst, int a3, int Block) {
     _InterlockedIncrement(&g_w4Calls);
     if (src == (void*)g_w4LastSrc && g_w4LastSrc != nullptr) {
         _InterlockedIncrement(&g_w4Fast);
         return g_w4LastResult;
     }
-    int result = orig_FileReadDispatch(src, dst);
+    int result = orig_FileReadDispatch(src, dst, a3, Block);
     g_w4LastSrc = src;
     g_w4LastResult = result;
     return result;
@@ -264,11 +264,11 @@ static int __cdecl Hooked_ItemNameResolve(int itemPtr) {
 // W12: sub_47C240 - Memory allocator wrapper (called by SysMessage)
 // Batch small allocations to reduce allocator overhead.
 // ================================================================
-typedef void* (__cdecl *AllocWrapper_fn)(int, int);
+typedef void* (__stdcall *AllocWrapper_fn)(int, int);
 static AllocWrapper_fn orig_AllocWrapper = nullptr;
 static volatile LONG g_w12BatchCount = 0;
 
-static void* __cdecl Hooked_AllocWrapper(int size, int flags) {
+static void* __stdcall Hooked_AllocWrapper(int size, int flags) {
     _InterlockedIncrement(&g_w12Calls);
     // For small allocations (<64 bytes), use mimalloc directly
     if (size > 0 && size <= 64) {
@@ -360,53 +360,51 @@ static void __cdecl Hooked_SoundMix(int param) {
 // W17: sub_879390 - Sound stop/fadeout (called on zone transitions)
 // Batch stop calls to reduce per-sound overhead.
 // ================================================================
-typedef void (__cdecl *SoundStop_fn)(int);
+typedef void (__cdecl *SoundStop_fn)(float, float);
 static SoundStop_fn orig_SoundStop = nullptr;
 
-static void __cdecl Hooked_SoundStop(int handle) {
+static void __cdecl Hooked_SoundStop(float f1, float f2) {
     _InterlockedIncrement(&g_w17Calls);
-    if (handle > 0) {
-        _InterlockedIncrement(&g_w17Fast);
-    }
-    orig_SoundStop(handle);
+    _InterlockedIncrement(&g_w17Fast);
+    orig_SoundStop(f1, f2);
 }
 
 // ================================================================
 // W18: sub_87F7A0 - Ambient sound manager (called every frame)
 // Skip ambient update when player is indoors/loading.
 // ================================================================
-typedef void (__cdecl *AmbientMgr_fn)(int);
+typedef int (__cdecl *AmbientMgr_fn)(int, void*, int, int, int, int, int, int, int, int);
 static AmbientMgr_fn orig_AmbientMgr = nullptr;
 static volatile DWORD g_w18LastAmbientTick = 0;
 
-static void __cdecl Hooked_AmbientMgr(int param) {
+static int __cdecl Hooked_AmbientMgr(int a1, void* a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
     _InterlockedIncrement(&g_w18Calls);
     DWORD now = GetTickCount();
     // Throttle ambient updates to max 10/sec
     if ((now - g_w18LastAmbientTick) < 100) {
         _InterlockedIncrement(&g_w18Skipped);
-        return;
+        return 1; // Return success/true to skip processing without triggering cleanups
     }
     g_w18LastAmbientTick = now;
-    orig_AmbientMgr(param);
+    return orig_AmbientMgr(a1, a2, a3, a4, a5, a6, a7, a8, a9, a10);
 }
 
 // ================================================================
 // W19: sub_4CB580 - Music track selector (called by sub_4C6A40)
 // Cache selected music track to avoid re-selection on volume changes.
 // ================================================================
-typedef int (__cdecl *MusicSelect_fn)(int);
+typedef int (__cdecl *MusicSelect_fn)(int, int, void*, void*, int, int, int, int, int);
 static MusicSelect_fn orig_MusicSelect = nullptr;
 static volatile int g_w19LastZone = 0;
 static volatile int g_w19LastTrack = 0;
 
-static int __cdecl Hooked_MusicSelect(int zoneId) {
+static int __cdecl Hooked_MusicSelect(int zoneId, int a2, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
     _InterlockedIncrement(&g_w19Calls);
     if (zoneId == g_w19LastZone && zoneId != 0) {
         _InterlockedIncrement(&g_w19Cached);
         return g_w19LastTrack;
     }
-    int result = orig_MusicSelect(zoneId);
+    int result = orig_MusicSelect(zoneId, a2, a3, a4, a5, a6, a7, a8, a9);
     g_w19LastZone = zoneId;
     g_w19LastTrack = result;
     return result;
@@ -414,23 +412,10 @@ static int __cdecl Hooked_MusicSelect(int zoneId) {
 
 // ================================================================
 // W20: sub_4C5990 - Sound effect priority calculator (called by sub_4C6A40)
-// Inline fast path for common priority values.
+// DISABLED: 0x4C5990 is a camera/audio properties constructor with a signature of
+// BOOL __thiscall sub_4C5990(float *this), not an SFX priority calculator.
+// Hooking it as a cdecl function causes registers (ECX) to be clobbered.
 // ================================================================
-typedef int (__cdecl *SfxPriority_fn)(int);
-static SfxPriority_fn orig_SfxPriority = nullptr;
-
-static int __cdecl Hooked_SfxPriority(int soundType) {
-    _InterlockedIncrement(&g_w20Calls);
-    // Fast path: common sound types have known priorities
-    switch (soundType) {
-        case 0: _InterlockedIncrement(&g_w20Fast); return 1;  // Normal SFX
-        case 1: _InterlockedIncrement(&g_w20Fast); return 2;  // Spell
-        case 5: _InterlockedIncrement(&g_w20Fast); return 3;  // UI
-        case 6: _InterlockedIncrement(&g_w20Fast); return 0;  // Ambience (lowest)
-        default: break;
-    }
-    return orig_SfxPriority(soundType);
-}
 
 // ================================================================
 // Installation / Shutdown / Stats
@@ -463,7 +448,7 @@ namespace WowOptHooks {
             {(void*)0x00879390, (void*)Hooked_SoundStop,       (void**)&orig_SoundStop,       "W17 sound stop batch"},
             {(void*)0x0087F7A0, (void*)Hooked_AmbientMgr,      (void**)&orig_AmbientMgr,      "W18 ambient throttle"},
             {(void*)0x004CB580, (void*)Hooked_MusicSelect,     (void**)&orig_MusicSelect,     "W19 music select cache"},
-            {(void*)0x004C5990, (void*)Hooked_SfxPriority,     (void**)&orig_SfxPriority,     "W20 sfx priority fast"},
+            // W20 skipped - 0x004C5990 is camera constructor, not SFX priority
         };
 
         for (auto& h : hooks) {

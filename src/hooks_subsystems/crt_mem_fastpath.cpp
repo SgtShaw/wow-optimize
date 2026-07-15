@@ -44,15 +44,12 @@ static memset_fn  orig_memset  = nullptr;
 static strncmp_fn orig_strncmp = nullptr;
 
 // ================================================================
-// strlen - SSE2 null-terminator scan with in-loop page boundary guard
-// ================================================================
-// ================================================================
 // strlen - SSE2 aligned null-terminator scan (no page checks in loop)
 // ================================================================
 static size_t __cdecl hooked_strlen(const char* s) {
     if (!g_crtReady || !orig_strlen) goto fallback;
     if (!s) goto fallback;
-    __try {
+    {
         const __m128i zero = _mm_setzero_si128();
         size_t len = 0;
         uintptr_t addr = (uintptr_t)s;
@@ -76,7 +73,7 @@ static size_t __cdecl hooked_strlen(const char* s) {
             }
             len += 16;
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     g_crtStrlenFallbacks++;
     if (orig_strlen) return orig_strlen(s);
@@ -91,7 +88,7 @@ fallback:
 static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
     if (!g_crtReady || !orig_strcmp) goto fallback;
     if (!s1 || !s2) goto fallback;
-    __try {
+    {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
         while (true) {
@@ -129,7 +126,7 @@ static int __cdecl hooked_strcmp(const char* s1, const char* s2) {
             }
             i += 16;
         }
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     g_crtStrcmpFallbacks++;
     if (orig_strcmp) return orig_strcmp(s1, s2);
@@ -145,7 +142,7 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
     if (!g_crtReady || !orig_strncmp) goto fallback;
     if (!s1 || !s2) goto fallback;
     if (n == 0) return 0;
-    __try {
+    {
         const __m128i zero = _mm_setzero_si128();
         size_t i = 0;
         while (i + 16 <= n) {
@@ -187,7 +184,7 @@ static int __cdecl hooked_strncmp(const char* s1, const char* s2, size_t n) {
             i++;
         }
         return 0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     if (orig_strncmp) return orig_strncmp(s1, s2, n);
     if (n == 0) return 0;
@@ -204,7 +201,7 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
     if (!g_crtReady || !orig_memcmp) goto fallback;
     if (!s1 || !s2) goto fallback;
     if (n == 0) return 0;
-    __try {
+    {
         const unsigned char* p1 = (const unsigned char*)s1;
         const unsigned char* p2 = (const unsigned char*)s2;
         size_t i = 0;
@@ -226,7 +223,7 @@ static int __cdecl hooked_memcmp(const void* s1, const void* s2, size_t n) {
         }
         g_crtMemcmpHits++;
         return 0;
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     g_crtMemcmpFallbacks++;
     if (orig_memcmp) return orig_memcmp(s1, s2, n);
@@ -245,8 +242,14 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
     if (!g_crtReady || !orig_memcpy) goto fallback;
     if (!dst || !src) goto fallback;
     if (n == 0) return dst;
-    if (src < dst && (const char*)src + n > (char*)dst) goto fallback;
-    __try {
+    
+    // Generic overlap check: fall back to original memmove-safe memcpy if they overlap
+    {
+        uintptr_t diff = ((uintptr_t)src > (uintptr_t)dst) ? ((uintptr_t)src - (uintptr_t)dst) : ((uintptr_t)dst - (uintptr_t)src);
+        if (diff < n) goto fallback;
+    }
+
+    {
         unsigned char* d = (unsigned char*)dst;
         const unsigned char* s = (const unsigned char*)src;
         size_t i = 0;
@@ -257,7 +260,7 @@ static void* __cdecl hooked_memcpy(void* dst, const void* src, size_t n) {
 
         g_crtMemcpyHits++;
         return dst;
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     g_crtMemcpyFallbacks++;
     if (orig_memcpy) return orig_memcpy(dst, src, n);
@@ -278,7 +281,7 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
     if (!g_crtReady || !orig_memset) goto fallback;
     if (!dst) goto fallback;
     if (n == 0) return dst;
-    __try {
+    {
         __m128i val = _mm_set1_epi8((char)c);
         unsigned char* d = (unsigned char*)dst;
         size_t i = 0;
@@ -289,7 +292,7 @@ static void* __cdecl hooked_memset(void* dst, int c, size_t n) {
 
         g_crtMemsetHits++;
         return dst;
-    } __except(EXCEPTION_EXECUTE_HANDLER) {}
+    }
 fallback:
     g_crtMemsetFallbacks++;
     if (orig_memset) return orig_memset(dst, c, n);

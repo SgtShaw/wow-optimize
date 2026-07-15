@@ -585,6 +585,10 @@ target_compile_definitions(wow_optimize PRIVATE
     _WINSOCK_DEPRECATED_NO_WARNINGS
 )
 
+set_source_files_properties(src/hooks_subsystems/crt_mem_fastpath.cpp PROPERTIES
+    COMPILE_FLAGS "/GS-"
+)
+
 # --- LTO / PGO (opt-in; see header block) ---
 if(WO_ENABLE_LTO AND MSVC)
     target_compile_options(wow_optimize PRIVATE $<$<CONFIG:Release>:/GL>)

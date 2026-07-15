@@ -37,7 +37,7 @@
 // ================================================================
 
 // GetItemInfo cache - breaks Aux / WCollections / ElvUI
-#define TEST_DISABLE_GETITEMINFO_CACHE  1
+#define TEST_DISABLE_GETITEMINFO_CACHE  0
 // GetSpellInfo hook also disabled below.
 #define TEST_DISABLE_ALL_APICACHE       0
 
@@ -54,7 +54,7 @@
 // this hooks the static set as a closed group with a mi_is_in_heap_region transition
 // guard so blocks allocated before install free through the original CRT. ENABLED by
 // default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
 
 // Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
 // separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
@@ -62,14 +62,14 @@
 // allocator redirect entirely for crash bisection; suspected #1 root cause of
 // the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
 // MUST be 1 to disable VA allocator redirect completely.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         1
+#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
 // Hooking it as lua_error causes all 50 logged entries to show <unable to read>
 // (the L parameter is actually a size_t) and fills the log with noise.
 // Set to 1 to disable until the correct lua_error address is found.
-#define TEST_DISABLE_LUA_ERROR_DIAG         1
+#define TEST_DISABLE_LUA_ERROR_DIAG         0
 
 // Redirect process-heap HeapAlloc/HeapFree/HeapReAlloc/HeapSize to mimalloc.
 // Catches allocations from Win32 APIs (D3D, WinMM, crypto, shell, OLE) that
@@ -154,7 +154,7 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
@@ -252,7 +252,7 @@
 // DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
 // reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
 // Same page-boundary bug class as CRT_MEM_FASTPATHS.
-#define TEST_DISABLE_CRT_CHAR_SSE2       1
+#define TEST_DISABLE_CRT_CHAR_SSE2       0
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -287,7 +287,7 @@
 #define TEST_DISABLE_NETWORK_GUID_SSE2         0
 
 // StreamBuffer read/write fast-path (sub_47B3C0/sub_47B0A0)
-#define TEST_DISABLE_STREAM_FASTPATH         1
+#define TEST_DISABLE_STREAM_FASTPATH         0
 // shipped MatVec3Mul). Pointer-validated + SEH-guarded with fallback. Completes
 // SSE2 coverage of the transform library. Set to 1 to revert to FPU scalar.
 #define TEST_DISABLE_MATRIX_EXT_SSE2         0
@@ -641,7 +641,7 @@
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
 // Reduces FrameScript_GetObject overhead on UI updates. Set to 1 to disable.
-#define TEST_DISABLE_UI_ACCESSOR_FAST         1  // disabled: UIFrame accessor hooks
+#define TEST_DISABLE_UI_ACCESSOR_FAST         0  // enabled: UIFrame accessor hooks
 
 // Fast FontString metrics hooks (GetStringWidth at 0x0048DE90, GetStringHeight at 0x0048DF00).
 // Directly queries internal C++ metrics structures bypassing full stack setup and type checking.

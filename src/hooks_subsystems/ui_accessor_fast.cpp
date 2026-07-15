@@ -67,9 +67,9 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
     uintptr_t nodes = *(uintptr_t*)(t + 0x14); // t->node
     if (!IsValidPtr(nodes)) return nullptr;
 
-    int size = 1 << *(unsigned char*)(t + 9); // 1 << t->lsizes
+    int size = 1 << *(unsigned char*)(t + 11); // 1 << t->lsizes
     for (int i = 0; i < size; i++) {
-        uintptr_t node = nodes + i * 32; // sizeof(Node) is 32
+        uintptr_t node = nodes + i * 40; // sizeof(Node) is 40
         int key_tt = *(int*)(node + 24); // TKey.tt
         if (key_tt == 3) { // LUA_TNUMBER
             double key_val = *(double*)(node + 16); // TKey.value

@@ -43,33 +43,8 @@ static int __stdcall Hooked_SFileDataRead(void* a1, char* path, void* a3, int* a
     return result;
 }
 
-// ================================================================
-// U2: sub_4B8910 - Texture create from BLP (critical render path)
-// Prefetch texture header before decode.
-// ================================================================
-typedef int (__cdecl *TexCreateBLP_fn)(char*, int, int);
-static TexCreateBLP_fn orig_TexCreateBLP = nullptr;
-
-static int __cdecl Hooked_TexCreateBLP(char* path, int flags, int a3) {
-    _InterlockedIncrement(&g_u[1]);
-    if (path) _mm_prefetch(path, _MM_HINT_T0);
-    _InterlockedIncrement(&g_h[1]);
-    return orig_TexCreateBLP(path, flags, a3);
-}
-
-// ================================================================
-// U3: sub_4B8A50 - Texture create with cache check
-// Skip redundant cache lookups for recently loaded textures.
-// ================================================================
-typedef int (__cdecl *TexCreateCached_fn)(void*, char*, unsigned int, int);
-static TexCreateCached_fn orig_TexCreateCached = nullptr;
-static volatile DWORD g_u3LastTick = 0;
-
-static int __cdecl Hooked_TexCreateCached(void* a1, char* path, unsigned int flags, int a4) {
-    _InterlockedIncrement(&g_u[2]);
-    _InterlockedIncrement(&g_h[2]);
-    return orig_TexCreateCached(a1, path, flags, a4);
-}
+// ================================================================// U2 skipped (__usercall)
+// U3 skipped (__usercall)
 
 // ================================================================
 // U4: sub_4BBB20 - Model blob load
@@ -307,8 +282,8 @@ namespace WowSubsystemHooks {
 
         HookDef hooks[] = {
             {(void*)0x00424E80, (void*)Hooked_SFileDataRead,  (void**)&orig_SFileDataRead,  "U1 SFile2 data read (23 callers)"},
-            {(void*)0x004B8910, (void*)Hooked_TexCreateBLP,   (void**)&orig_TexCreateBLP,   "U2 texture BLP create"},
-            {(void*)0x004B8A50, (void*)Hooked_TexCreateCached,(void**)&orig_TexCreateCached,"U3 texture cached create"},
+            // U2 skipped (__usercall)
+            // U3 skipped (__usercall)
             {(void*)0x004BBB20, (void*)Hooked_ModelBlobLoad,  (void**)&orig_ModelBlobLoad,  "U4 model blob load"},
             {(void*)0x004052F0, (void*)Hooked_DBCLoader,      (void**)&orig_DBCLoader,      "U5 DBC file loader"},
         };

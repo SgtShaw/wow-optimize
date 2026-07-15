@@ -7284,23 +7284,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Infra API (50 features) ---");
     bool infraPatchOk = Config::g_settings.OptDbcLookupCache && InfraPatch::InstallAll();
 
-    // ALL WoW.exe internal hooks DISABLED for crash isolation.
-    // Crash at 0x009E4F24 shows ASCII strings executed as code = corrupted vtable/fnptr.
-    // These hooks patch WoW's internal functions and may corrupt adjacent memory.
     Log("--- WoW.exe Optimization Hooks (20 hooks) ---");
-    Log("[WowOpt] DISABLED: crash isolation (corrupts WoW fnptrs at 0x009E4F24)");
-    bool wowOptOk = false; // WowOptHooks::InstallAll();
+    bool wowOptOk = WowOptHooks::InstallAll();
 
     Log("--- WoW.exe Performance Hooks (20 hooks) ---");
     bool wowPerfOk = WowPerfHooks::InstallAll();
 
     Log("--- WoW.exe Extended Hooks (40 features) ---");
-    Log("[Extended] DISABLED: crash isolation");
-    bool wowExtendedOk = false; // WowExtendedHooks::InstallAll();
+    bool wowExtendedOk = WowExtendedHooks::InstallAll();
 
     Log("--- WoW.exe Subsystem Hooks (100 features) ---");
-    Log("[Subsystem] DISABLED: crash isolation");
-    bool wowSubsystemOk = false; // WowSubsystemHooks::InstallAll();
+    bool wowSubsystemOk = WowSubsystemHooks::InstallAll();
 
     Log("--- Memory Optimizations: LAA + Async + MemOpt ---");
     bool memoryOptLAA = WowMemoryOpt::EnableLargeAddressAware();
@@ -7855,13 +7849,14 @@ static void* __fastcall hooked_StreamRead(void* This, void* edx, void* out) {
 #else
     __try {
         uintptr_t t = (uintptr_t)This;
-        uint32_t cursor = *(uint32_t*)(t + 0x14);   // this+5 (in dwords: offset 0x14)
+        uint32_t cursor = *(uint32_t*)(t + 0x14);   // this+5 (m_readCursor)
+        uint32_t writeCursor = *(uint32_t*)(t + 0x10); // this+4 (m_writeCursor)
         uint32_t base   = *(uint32_t*)(t + 0x04);   // this+1
         uint32_t delta  = *(uint32_t*)(t + 0x08);   // this+2
         uint32_t size   = *(uint32_t*)(t + 0x0C);   // this+3
 
-        // Fast bounds: cursor within [delta, delta+size) (relative to committed region)
-        if (cursor + 4 <= delta + size && cursor >= delta) {
+        // Correct fast bounds: cursor within writeCursor and allocated region
+        if (cursor + 4 <= writeCursor && cursor >= delta && cursor + 4 <= delta + size) {
             uintptr_t addr = cursor - delta + base;
             if (addr > 0x10000 && addr < 0xFFE00000) {
                 *(uint32_t*)out = *(uint32_t*)addr;

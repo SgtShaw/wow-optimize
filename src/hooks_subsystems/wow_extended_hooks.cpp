@@ -48,7 +48,7 @@ static void* __stdcall Hooked_WoWStrcpy(void* dst, char* src, int maxLen) {
                     _BitScanForward(&pos, mask);
                     memcpy(d, s, pos + 1); // include null terminator
                     _InterlockedIncrement(&g_h[0]);
-                    return dst;
+                    return (void*)(d - (char*)dst + pos); // Return copied offset
                 }
                 _mm_storeu_si128((__m128i*)d, chunk);
                 s += 16; d += 16;
@@ -58,19 +58,7 @@ static void* __stdcall Hooked_WoWStrcpy(void* dst, char* src, int maxLen) {
     return orig_WoWStrcpy(dst, src, maxLen);
 }
 
-// ================================================================
-// C2: sub_424B50 - SFile2 file read (260 xrefs)
-// Cache last successful file open to avoid repeated MPQ lookups.
-// ================================================================
-typedef int (__stdcall *SFileRead_fn)(void*, char*, int, int);
-static SFileRead_fn orig_SFileRead = nullptr;
-static volatile DWORD g_c2LastTick = 0;
-
-static int __stdcall Hooked_SFileRead(void* a1, char* path, int a3, int block) {
-    _InterlockedIncrement(&g_c[1]);
-    _InterlockedIncrement(&g_h[1]);
-    return orig_SFileRead(a1, path, a3, block);
-}
+// C2 skipped (duplicate of W4)
 
 // ================================================================
 // C3: sub_84D9C0 - get_tvalue helper (38 xrefs)
@@ -111,21 +99,18 @@ static volatile void* g_c5LastResult = nullptr;
 
 static void* __cdecl Hooked_TableGet(int table, void* key, int fieldIdx) {
     _InterlockedIncrement(&g_c[4]);
-    if (table == g_c5LastTable && fieldIdx == g_c5LastField && g_c5LastResult) {
+    static volatile void* g_c5LastKey = nullptr;
+    if (table == g_c5LastTable && key == (void*)g_c5LastKey && fieldIdx == g_c5LastField && g_c5LastResult) {
         _InterlockedIncrement(&g_h[4]);
         return (void*)g_c5LastResult;
     }
     void* result = orig_TableGet(table, key, fieldIdx);
     g_c5LastTable = table;
+    g_c5LastKey = key;
     g_c5LastField = fieldIdx;
     g_c5LastResult = result;
     return result;
 }
-
-// ================================================================
-// C6-C40: Additional hooks targeting WoW subsystems
-// Each targets a specific hot path identified via binary analysis.
-// ================================================================
 
 // C6: sub_85BBE0 - luaH_getn wrapper (7 xrefs)
 typedef void* (__cdecl *LuaHGetN_fn)(int table, char flag, int tstring);
@@ -137,27 +122,8 @@ static void* __cdecl Hooked_LuaHGetN(int table, char flag, int tstring) {
     return orig_LuaHGetN(table, flag, tstring);
 }
 
-// C7: sub_4B6920 - Texture init (3 xrefs but critical path)
-typedef void* (__cdecl *TexInit_fn)(int*, int);
-static TexInit_fn orig_TexInit = nullptr;
-
-static void* __cdecl Hooked_TexInit(int* a1, int a2) {
-    _InterlockedIncrement(&g_c[6]);
-    // Prefetch texture header data
-    if (a1) _mm_prefetch((const char*)a1, _MM_HINT_T0);
-    _InterlockedIncrement(&g_h[6]);
-    return orig_TexInit(a1, a2);
-}
-
-// C8: sub_47C240 - Status alloc (1 xref but on error path)
-typedef void* (__stdcall *StatusAlloc_fn)(int, int);
-static StatusAlloc_fn orig_StatusAlloc = nullptr;
-
-static void* __stdcall Hooked_StatusAlloc(int a1, int a2) {
-    _InterlockedIncrement(&g_c[7]);
-    _InterlockedIncrement(&g_h[7]);
-    return orig_StatusAlloc(a1, a2);
-}
+// C7 skipped (__usercall)
+// C8 skipped (duplicate of W12)
 
 // C9-C40: Batch hooks for remaining hot WoW functions
 // These target rendering, UI, network, and game logic hot paths.
@@ -240,13 +206,13 @@ namespace WowExtendedHooks {
 
         HookDef hooks[] = {
             {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
-            {(void*)0x00424B50, (void*)Hooked_SFileRead,       (void**)&orig_SFileRead,       "C2 SFile2 read (260 xrefs)"},
+            // C2 skipped - duplicate of W4
             // C3 skipped - __usercall convention
             {(void*)0x0084E300, (void*)Hooked_PushStringImpl,  (void**)&orig_PushStringImpl,  "C4 pushstring impl (36 xrefs)"},
             {(void*)0x0085BC10, (void*)Hooked_TableGet,        (void**)&orig_TableGet,        "C5 table get (17 xrefs)"},
             {(void*)0x0085BBE0, (void*)Hooked_LuaHGetN,        (void**)&orig_LuaHGetN,        "C6 luaH_getn (7 xrefs)"},
-            {(void*)0x004B6920, (void*)Hooked_TexInit,         (void**)&orig_TexInit,         "C7 texture init"},
-            {(void*)0x0047C240, (void*)Hooked_StatusAlloc,     (void**)&orig_StatusAlloc,     "C8 status alloc"},
+            // C7 skipped - __usercall convention
+            // C8 skipped - duplicate of W12
         };
 
         for (auto& h : hooks) {

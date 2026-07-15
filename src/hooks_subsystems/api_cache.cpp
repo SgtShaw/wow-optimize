@@ -484,9 +484,13 @@ static int __cdecl Hooked_GetItemInfo(lua_State* L) {
         RawTValue* res1 = &base[topBefore];
         RawTValue* res2 = &base[topBefore + 1];
         if (res1->tt == LUA_TSTRING && res2->tt == LUA_TSTRING) {
-            AcquireSRWLockExclusive(&g_itemCacheLock);
-            CaptureItemReturnValues(L, e, keyHash, topBefore, pushed, keyType1, keyNum1, keyStr1);
-            ReleaseSRWLockExclusive(&g_itemCacheLock);
+            RawTValue* res4 = &base[topBefore + 3];
+            bool isLoaded = (res4->tt == LUA_TNUMBER && ReadTNumberDirect(res4) >= 1.0);
+            if (isLoaded) {
+                AcquireSRWLockExclusive(&g_itemCacheLock);
+                CaptureItemReturnValues(L, e, keyHash, topBefore, pushed, keyType1, keyNum1, keyStr1);
+                ReleaseSRWLockExclusive(&g_itemCacheLock);
+            }
         }
     }
 
