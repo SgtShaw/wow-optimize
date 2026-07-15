@@ -615,7 +615,7 @@
 
 // luaH_getstr inline bucket-index cache (16384 entries) — verified against disassembly.
 // Content-validates keys on every hit; offsets match stock luaH_getstr exactly.
-#define TEST_DISABLE_GETSTR_INLINE    1
+#define TEST_DISABLE_GETSTR_INLINE    0
 
 // lua_pushnumber direct stack write (sub_84E2A0).
 #define TEST_DISABLE_PUSHNUMBER_FAST         0
