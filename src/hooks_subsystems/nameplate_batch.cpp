@@ -149,7 +149,7 @@ static bool QueueNameplateTask(const NameplateMT::NameplateTask* task) {
     LONG tail = g_inputTail;
     LONG head = g_inputHead;
     
-    if (((tail - head) & 0x7FFFFFFF) >= QUEUE_SIZE) {
+    if (((uint32_t)tail - (uint32_t)head) >= (uint32_t)QUEUE_SIZE) {
         InterlockedIncrement(&g_tasksDropped);
         return false;
     }
@@ -161,7 +161,7 @@ static bool QueueNameplateTask(const NameplateMT::NameplateTask* task) {
     InterlockedIncrement(&g_tasksQueued);
     
     // Update queue depth statistics
-    LONG depth = (tail - head + 1) & 0x7FFFFFFF;
+    LONG depth = (LONG)((uint32_t)tail - (uint32_t)head + 1);
     InterlockedExchange(&g_inputQueueDepth, depth);
     if (depth > g_maxInputQueueDepth) {
         InterlockedExchange(&g_maxInputQueueDepth, depth);
@@ -194,7 +194,7 @@ static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
     LONG tail = g_outputTail;
     LONG head = g_outputHead;
     
-    if (((tail - head) & 0x7FFFFFFF) >= QUEUE_SIZE) {
+    if (((uint32_t)tail - (uint32_t)head) >= (uint32_t)QUEUE_SIZE) {
         InterlockedIncrement(&g_tasksDropped);
         return false;
     }
@@ -205,7 +205,7 @@ static bool QueueNameplateResult(const NameplateMT::NameplateResult* result) {
     g_outputTail++;
     
     // Update queue depth statistics
-    LONG depth = (tail - head + 1) & 0x7FFFFFFF;
+    LONG depth = (LONG)((uint32_t)tail - (uint32_t)head + 1);
     InterlockedExchange(&g_outputQueueDepth, depth);
     if (depth > g_maxOutputQueueDepth) {
         InterlockedExchange(&g_maxOutputQueueDepth, depth);
@@ -710,7 +710,7 @@ void OnFrame(DWORD mainThreadId) {
                     if (healthBar && IsReadable((uintptr_t)healthBar)) {
                         uintptr_t* vtable = *(uintptr_t**)healthBar;
                         if (vtable && IsReadable((uintptr_t)vtable)) {
-                            typedef void (__stdcall *CSimpleStatusBar_SetValue_fn)(void* thisPtr, float value);
+                            typedef void (__thiscall *CSimpleStatusBar_SetValue_fn)(void* thisPtr, float value);
                             CSimpleStatusBar_SetValue_fn SetValue = (CSimpleStatusBar_SetValue_fn)vtable[57];
                             if (SetValue && IsExecutable((uintptr_t)SetValue)) {
                                 SetValue(healthBar, result.healthPercent);

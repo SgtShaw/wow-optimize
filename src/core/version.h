@@ -485,7 +485,7 @@
 // Worker thread pool (2 threads), lock-free queues (4096 entries each)
 // Priority system: Target > Focus > Nearby > Distant
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
-#define TEST_DISABLE_NAMEPLATE_MT       1
+#define TEST_DISABLE_NAMEPLATE_MT       0
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
 // DISABLED again: suppresses whitelisted events and re-emits them a frame later from
