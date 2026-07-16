@@ -154,12 +154,12 @@
 // The 87% memcpy fallback rate (from page-boundary guard) also suggests
 // the guard is too aggressive, causing double-work on fallback. Keep
 // disabled until the TLS recursion root cause is fully diagnosed.
-#define TEST_DISABLE_CRT_MEM_FASTPATHS  0
+#define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
 // Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
 // Stale object pointers corrupt hash table state → infinite probe loop
 // Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // RE-ENABLED (was disabled for race condition crash). v2 fixes:
@@ -173,7 +173,7 @@
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
-#define TEST_DISABLE_HARDWARE_CURSOR    0
+#define TEST_DISABLE_HARDWARE_CURSOR    1
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE         0
@@ -248,11 +248,7 @@
 // CRT strstr SSE2 replacement - Boyer-Moore-Horspool, algorithmic
 #define TEST_DISABLE_STRSTR_SSE2         0
 
-// CRT memchr + strchr SSE2 - 16-byte SIMD byte scan
-// DISABLED: re-enabled in 3.11.0-session alongside CRT_MEM_FASTPATHS but
-// reverted due to instant crash at game start (see CRT_MEM_FASTPATHS note).
-// Same page-boundary bug class as CRT_MEM_FASTPATHS.
-#define TEST_DISABLE_CRT_CHAR_SSE2       0
+#define TEST_DISABLE_CRT_CHAR_SSE2       1
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -336,12 +332,7 @@
 // On multi-client setups with shared disk, set to 1 to avoid I/O contention.
 #define TEST_DISABLE_LUA_PRECOMPILE      1
 
-// CQuaternion::Normalize SSE2 (sub_979110). DISABLED: the SSE2 horizontal
-// reduction has a verified lane-splat bug (lanes 0/1 stuck at 2*(x^2+y^2)
-// → x,y mis-normalized), and the missing mag^2>2^-22 guard produces
-// rsqrt(0)=Inf → NaN on degenerate bone quats. NaN quats poison the camera
-// transform → instant first-person zoom on camera movement.
-#define TEST_DISABLE_QUAT_NORMALIZE         0
+#define TEST_DISABLE_QUAT_NORMALIZE         1
 
 // Addon file RAM-disk - interferes with WoW file I/O
 #define TEST_DISABLE_ADDON_PRELOAD      1
