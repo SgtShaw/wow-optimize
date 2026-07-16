@@ -433,7 +433,8 @@ namespace WowOptHooks {
             // W4 and W5 skipped to prevent login crashes due to recycled Storm file handles
             // {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
             // {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
-            {(void*)0x00422530, (void*)Hooked_BlockCopy,       (void**)&orig_BlockCopy,       "W6 block copy prefetch"},
+            // W6 skipped to prevent calling convention mismatch stack corruption (SFileReadFile is __stdcall, not __cdecl)
+            // {(void*)0x00422530, (void*)Hooked_BlockCopy,       (void**)&orig_BlockCopy,       "W6 block copy prefetch"},
             {(void*)0x004C6A40, (void*)Hooked_SoundPlay,       (void**)&orig_SoundPlay,       "W7 sound play coalesce"},
             {(void*)0x004B9DE0, (void*)Hooked_AsyncReadDestroy,(void**)&orig_AsyncReadDestroy,"W8 async destroy fast"},
             {(void*)0x004B4F90, (void*)Hooked_SysMsgHandler,   (void**)&orig_SysMsgHandler,   "W9 sysmsg dedup"},
