@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <d3d9.h>
 #include "d3d9_state_manager.h"
+#include "font_glyph_cache.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -44,15 +45,16 @@ enum {
     V_SETPIXELSHADER       = 107,
     V_SETVERTEXSHADER      = 92,
     V_SETTEXTURE           = 65,
+    V_RESET                = 16,
 };
 
-static constexpr int NUM_HOOKS = 14;
+static constexpr int NUM_HOOKS = 15;
 static int g_vtableIndices[NUM_HOOKS] = {
     V_SETRENDERSTATE, V_SETTEXTURESTAGESTATE, V_SETSAMPLERSTATE,
     V_SETTEXTURE, V_SETTRANSFORM, V_SETMATERIAL,
     V_SETVIEWPORT, V_SETSCISSORRECT, V_SETSTREAMSOURCE,
     V_SETINDICES, V_SETVERTEXDECLARATION, V_SETFVF,
-    V_SETVERTEXSHADER, V_SETPIXELSHADER
+    V_SETVERTEXSHADER, V_SETPIXELSHADER, V_RESET
 };
 
 static void* g_vtableOriginals[NUM_HOOKS] = {};
@@ -71,7 +73,7 @@ static const char* g_statNames[NUM_HOOKS] = {
     "SetTexture", "SetTransform", "SetMaterial",
     "SetViewport", "SetScissorRect", "SetStreamSource",
     "SetIndices", "SetVertexDeclaration", "SetFVF",
-    "SetVertexShader", "SetPixelShader"
+    "SetVertexShader", "SetPixelShader", "Reset"
 };
 
 static volatile LONG64 g_totalFrames = 0;
@@ -109,6 +111,8 @@ static void*  g_vs = nullptr;
 static bool   g_vsValid = false;
 static void*  g_ps = nullptr;
 static bool   g_psValid = false;
+
+static void InvalidateAllCaches();
 
 // ================================================================
 // Fast matrix/material hash functions
@@ -176,6 +180,9 @@ static SetVertexShader_t g_orig_SetVertexShader = nullptr;
 
 typedef HRESULT (__stdcall *SetPixelShader_t)(void* dev, void* ps);
 static SetPixelShader_t g_orig_SetPixelShader = nullptr;
+
+typedef HRESULT (__stdcall *Reset_t)(void* dev, D3DPRESENT_PARAMETERS* params);
+static Reset_t g_orig_Reset = nullptr;
 
 // ================================================================
 // Hooked functions
@@ -372,6 +379,19 @@ static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
     return g_orig_SetPixelShader(dev, ps);
 }
 
+static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) {
+    InterlockedIncrement64(&g_statCalls[14]);
+    Log("[D3D9State] Device Reset detected! Invalidating all caches...");
+    InvalidateAllCaches();
+    
+    // Clear font glyph cache
+    #ifndef TEST_DISABLE_FONT_METRICS_FAST
+    FontGlyphCache::ClearCache();
+    #endif
+
+    return g_orig_Reset(dev, params);
+}
+
 // ================================================================
 // VTable patching
 // ================================================================
@@ -389,7 +409,8 @@ static void* g_hookFuncs[NUM_HOOKS] = {
     (void*)Hooked_SetVertexDeclaration,
     (void*)Hooked_SetFVF,
     (void*)Hooked_SetVertexShader,
-    (void*)Hooked_SetPixelShader
+    (void*)Hooked_SetPixelShader,
+    (void*)Hooked_Reset
 };
 
 static void SetHookOrigin(int idx, void* orig) {
@@ -408,6 +429,7 @@ static void SetHookOrigin(int idx, void* orig) {
         case 11: g_orig_SetFVF                = (SetFVF_t)orig; break;
         case 12: g_orig_SetVertexShader       = (SetVertexShader_t)orig; break;
         case 13: g_orig_SetPixelShader        = (SetPixelShader_t)orig; break;
+        case 14: g_orig_Reset                 = (Reset_t)orig; break;
         default: break;
     }
 }
