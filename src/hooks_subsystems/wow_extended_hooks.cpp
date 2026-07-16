@@ -218,7 +218,8 @@ namespace WowExtendedHooks {
         };
 
         HookDef hooks[] = {
-            {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
+            // C1 strcpy SSE2 hook disabled temporarily for diagnostic test
+            // {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
             // C2 skipped - duplicate of W4
             // C3 skipped - __usercall convention
             {(void*)0x0084E300, (void*)Hooked_PushStringImpl,  (void**)&orig_PushStringImpl,  "C4 pushstring impl (36 xrefs)"},
