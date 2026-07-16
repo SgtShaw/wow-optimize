@@ -1410,9 +1410,19 @@ namespace WowOptimizeLauncher {
     public static class Program {
         [STAThread]
         public static void Main() {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.Run(new MainForm());
+            try {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new MainForm());
+            } catch (Exception ex) {
+                try {
+                    string crashPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "launcher_crash.txt");
+                    File.WriteAllText(crashPath, ex.ToString());
+                } catch {
+                    // Ignore secondary logging failures
+                }
+                MessageBox.Show("Fatal launcher error:\n" + ex.Message + "\n\nDetails saved to launcher_crash.txt", "Fatal Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
     }
 }
