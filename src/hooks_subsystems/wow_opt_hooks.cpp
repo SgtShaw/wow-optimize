@@ -117,13 +117,11 @@ volatile int g_w4LastResult = 0;
 
 static int __stdcall Hooked_FileReadDispatch(void* src, void* dst, int a3, int Block) {
     _InterlockedIncrement(&g_w4Calls);
-    if (src == (void*)g_w4LastSrc && g_w4LastSrc != nullptr) {
-        _InterlockedIncrement(&g_w4Fast);
-        return g_w4LastResult;
-    }
+    // File read dispatch caching is unsafe: it skips writing actual data to the
+    // destination buffer 'dst' on cache hits, and sequential reads from the same
+    // stream expect different file offsets. Always call original.
     int result = orig_FileReadDispatch(src, dst, a3, Block);
-    g_w4LastSrc = src;
-    g_w4LastResult = result;
+    if (result) _InterlockedIncrement(&g_w4Fast);
     return result;
 }
 
@@ -442,7 +440,7 @@ namespace WowOptHooks {
             {(void*)0x004CFBB0, (void*)Hooked_Memcpy680,      (void**)&orig_Memcpy680,      "W1 memcpy680 prefetch"},
             {(void*)0x00422910, (void*)Hooked_ObjDestroy,      (void**)&orig_ObjDestroy,      "W2 obj destroy prefetch"},
             {(void*)0x00771870, (void*)Hooked_ErrorHandler,    (void**)&orig_ErrorHandler,    "W3 error handler skip"},
-            {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
+            {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read passthrough"},
             {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
             {(void*)0x004C6A40, (void*)Hooked_SoundPlay,       (void**)&orig_SoundPlay,       "W7 sound play coalesce"},
             {(void*)0x004B9DE0, (void*)Hooked_AsyncReadDestroy,(void**)&orig_AsyncReadDestroy,"W8 async destroy fast"},
