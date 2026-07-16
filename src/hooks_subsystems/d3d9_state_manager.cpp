@@ -610,6 +610,13 @@ void OnFrameD3D9StateManager(DWORD mainThreadId) {
                 if (pDevice != g_pDevice) {
                     Log("[D3D9State] Device pointer changed from %p to %p. Re-patching.", g_pDevice, pDevice);
                     UnpatchDeviceVTable();
+                    
+                    // Clear font glyph cache and flush textures when device is destroyed/replaced!
+                    #ifndef TEST_DISABLE_FONT_METRICS_FAST
+                    FontGlyphCache::ClearCache();
+                    #endif
+                    TextureUnloadDelay::Flush();
+
                     if (pDevice && IsReadable((uintptr_t)pDevice)) {
                         PatchDeviceVTable(pDevice);
                     }
