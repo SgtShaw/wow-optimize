@@ -1344,6 +1344,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             AsyncTexLoader::OnFrame();
 #endif
             TextureUnloadDelay::OnFrame();
+            SpellEffectCulling::OnFrame();
 #if !TEST_DISABLE_NAMEPLATE_MT
             NameplateMT::OnFrame(g_mainThreadId);
 #endif

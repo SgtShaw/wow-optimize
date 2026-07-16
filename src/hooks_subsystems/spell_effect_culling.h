@@ -4,5 +4,5 @@
 namespace SpellEffectCulling {
     bool Init();
     void Shutdown();
-    bool ShouldCullEffect(unsigned int effectId);
+    void OnFrame();
 }
