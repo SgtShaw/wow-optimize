@@ -440,9 +440,10 @@ static int __cdecl Hooked_SfxPriorityCalc(int soundType) {
 }
 
 // ================================================================
-// P19: sub_879A60 - Sound kit lookup
-// Cache sound kit data to avoid repeated DB lookups.
+// P19 REMOVED: sub_879A60 is actually __thiscall (takes object pointer in ECX),
+// not __cdecl with int argument. Hooking it would corrupt registers and crash.
 // ================================================================
+/*
 typedef int (__cdecl *SoundKitLookup_fn)(int);
 static SoundKitLookup_fn orig_SoundKitLookup = nullptr;
 thread_local int g_p19LastKit = 0;
@@ -459,6 +460,7 @@ static int __cdecl Hooked_SoundKitLookup(int kitId) {
     g_p19LastResult = result;
     return result;
 }
+*/
 
 // ================================================================
 // P20: sub_878590 - Sound system update tick
@@ -512,7 +514,8 @@ namespace WowPerfHooks {
             // P17 REMOVED: 0x4CB580 already hooked by W19 (wow_opt_hooks). Duplicate = MH_ERROR_ALREADY_CREATED.
             // {(void*)0x004CB580, (void*)Hooked_MusicTrackSelect,  (void**)&orig_MusicTrackSelect,  "P17 music track select"},
             // {(void*)0x004C5990, (void*)Hooked_SfxPriorityCalc,   (void**)&orig_SfxPriorityCalc,   "P18 SFX priority calc"},
-            {(void*)0x00879A60, (void*)Hooked_SoundKitLookup,    (void**)&orig_SoundKitLookup,    "P19 sound kit lookup"},
+            // P19 REMOVED: sub_879A60 is actually __thiscall, hooking it as __cdecl causes crashes.
+            // {(void*)0x00879A60, (void*)Hooked_SoundKitLookup,    (void**)&orig_SoundKitLookup,    "P19 sound kit lookup"},
             {(void*)0x00878590, (void*)Hooked_SoundSysTick,      (void**)&orig_SoundSysTick,      "P20 sound sys tick"},
         };
 
