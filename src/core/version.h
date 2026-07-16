@@ -169,7 +169,7 @@
 // - InvalidateDeferredFieldUpdatesFor uses CAS correctly
 // - SEH + pointer range validation guards against freed units
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
-#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 0
+#define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
 // Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
 // DISABLED - mouse movement triggers 0xC0000005 crash (diag)
@@ -315,7 +315,7 @@
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
 // Set to 1 to revert to original FPU scalar implementation.
-#define TEST_DISABLE_FRUSTUM_CULL        0
+#define TEST_DISABLE_FRUSTUM_CULL        1
 
 // SSE2 Ray-Triangle Intersection (sub_9836B0 / sub_983490).
 // Vectorized Möller-Trumbore intersection using SSE2 cross/dot products.
@@ -487,7 +487,7 @@
 // unintended point in the frame. Unvalidated across the in-world -> glue teardown
 // where the char-switch crashes occur. Stability outranks the dedup win until a
 // tester can confirm it in-game (see CONTEXT spellbook-desync lesson).
-#define TEST_DISABLE_EVENT_COALESCER    0
+#define TEST_DISABLE_EVENT_COALESCER    1
 
 // Fast SSE2 network GUID unpacking (CDataStore::GetWowGUID at 0x0076DC20) - controlled above
 
@@ -532,7 +532,7 @@
 #define TEST_DISABLE_D3D_STATE_CACHE            0
 #define TEST_DISABLE_DBC_LOOKUP_CACHE           0
 #define TEST_DISABLE_SAVEDVARS_ASYNC            0
-#define TEST_DISABLE_WORLD_STATE_COALESCE       0
+#define TEST_DISABLE_WORLD_STATE_COALESCE       1
 #define TEST_DISABLE_HW_SKINNING                1
 #define TEST_DISABLE_SOUND_MIXER_OPT           0  // enabled: sound mixer thread scheduling tuning
 #define TEST_DISABLE_FONT_METRICS_LOCK_FREE    0  // enabled: lock-free font metrics cache
@@ -541,7 +541,7 @@
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control
-#define TEST_DISABLE_UNIT_AURA_COALESCE         0  // enabled: Unit Aura Coalescer
+#define TEST_DISABLE_UNIT_AURA_COALESCE         1  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // disabled: D3D9 VB Shadow Cache
 #define TEST_DISABLE_ADDON_TICK_GOVERNOR        0  // enabled: Addon Tick Governor
 #define TEST_DISABLE_D3D9_VS_CONSTANT_CACHE     1  // disabled: D3D9 VS Constant Cache
@@ -662,7 +662,7 @@
 // IsSphereVisible DISABLED: second-pass _MM_TRANSPOSE4_PS mixes zeros into plane
 // normals (only 2 of 4 inputs are actual planes), corrupting frustum culling for
 // planes 4-5 and causing camera to clip through player character (zoom-in bug).
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
 #define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //
