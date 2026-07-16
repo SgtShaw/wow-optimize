@@ -205,11 +205,13 @@ namespace WowExtendedHooks {
         };
 
         HookDef hooks[] = {
-            {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
+            // C1 strcpy SSE2 hook disabled to prevent page-boundary and calling convention crashes
+            // {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
             // C2 skipped - duplicate of W4
             // C3 skipped - __usercall convention
             {(void*)0x0084E300, (void*)Hooked_PushStringImpl,  (void**)&orig_PushStringImpl,  "C4 pushstring impl (36 xrefs)"},
-            {(void*)0x0085BC10, (void*)Hooked_TableGet,        (void**)&orig_TableGet,        "C5 table get (17 xrefs)"},
+            // C5 table get hook disabled to prevent stale/wild pointer crashes when Lua tables modify/grow
+            // {(void*)0x0085BC10, (void*)Hooked_TableGet,        (void**)&orig_TableGet,        "C5 table get (17 xrefs)"},
             {(void*)0x0085BBE0, (void*)Hooked_LuaHGetN,        (void**)&orig_LuaHGetN,        "C6 luaH_getn (7 xrefs)"},
             // C7 skipped - __usercall convention
             // C8 skipped - duplicate of W12
