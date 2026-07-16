@@ -108,29 +108,9 @@ namespace TextureUnloadDelay {
     }
 
     bool Init() {
-        g_enabled = Config::g_settings.OptTextureUnloadDelay;
-        if (!g_enabled) {
-            Log("[TextureUnloadDelay] Disabled via configuration");
-            return true;
-        }
-        
-        void* target_Delete = (void*)0x004B91D0;
-        void* target_Lookup = (void*)0x004B6FA0;
-        
-        orig_Texture_Insert = (Texture_Insert_fn)0x004B9480;
-        orig_Texture_AddRef = (Texture_AddRef_fn)0x0047BF50;
-        
-        if (MH_CreateHook(target_Delete, (void*)Hooked_Texture_Delete, (void**)&orig_Texture_Delete) == MH_OK &&
-            MH_CreateHook(target_Lookup, (void*)Hooked_Texture_Lookup, (void**)&orig_Texture_Lookup) == MH_OK) {
-            
-            MH_EnableHook(target_Delete);
-            MH_EnableHook(target_Lookup);
-            Log("[TextureUnloadDelay] Active - Texture Smart Unload Delay hooks installed successfully");
-            return true;
-        }
-        
-        Log("[TextureUnloadDelay] Failed to install Texture Smart Unload Delay hooks");
-        return false;
+        g_enabled = false;
+        Log("[TextureUnloadDelay] DISABLED permanently for stability");
+        return true;
     }
 
     void Shutdown() {

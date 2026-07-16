@@ -230,17 +230,8 @@ static HRESULT __stdcall Hooked_SetSamplerState(void* dev, DWORD sampler, DWORD 
 
 static HRESULT __stdcall Hooked_SetTexture(void* dev, DWORD stage, void* tex) {
     InterlockedIncrement64(&g_statCalls[3]);
-
-    if (stage < 8 && g_texValid[stage] && g_texCache[stage] == tex) {
-        InterlockedIncrement64(&g_statSkipped[3]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetTexture(dev, stage, tex);
-    if (SUCCEEDED(hr) && stage < 8) {
-        g_texCache[stage] = tex;
-        g_texValid[stage] = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetTexture(dev, stage, tex);
 }
 
 static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void* matrix) {
@@ -338,49 +329,20 @@ static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
 
 static HRESULT __stdcall Hooked_SetStreamSource(void* dev, UINT stream, void* vb, UINT offset, UINT stride) {
     InterlockedIncrement64(&g_statCalls[8]);
-
-    if (stream < 16 && g_streamValid[stream] && g_streamBuf[stream] == vb && g_streamOffset[stream] == offset && g_streamStride[stream] == stride) {
-        InterlockedIncrement64(&g_statSkipped[8]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetStreamSource(dev, stream, vb, offset, stride);
-    if (SUCCEEDED(hr) && stream < 16) {
-        g_streamBuf[stream] = vb;
-        g_streamOffset[stream] = offset;
-        g_streamStride[stream] = stride;
-        g_streamValid[stream] = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetStreamSource(dev, stream, vb, offset, stride);
 }
 
 static HRESULT __stdcall Hooked_SetIndices(void* dev, void* ib) {
     InterlockedIncrement64(&g_statCalls[9]);
-
-    if (g_indexValid && g_indexBuf == ib) {
-        InterlockedIncrement64(&g_statSkipped[9]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetIndices(dev, ib);
-    if (SUCCEEDED(hr)) {
-        g_indexBuf = ib;
-        g_indexValid = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetIndices(dev, ib);
 }
 
 static HRESULT __stdcall Hooked_SetVertexDeclaration(void* dev, void* decl) {
     InterlockedIncrement64(&g_statCalls[10]);
-
-    if (g_vertDeclValid && g_vertDecl == decl) {
-        InterlockedIncrement64(&g_statSkipped[10]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetVertexDeclaration(dev, decl);
-    if (SUCCEEDED(hr)) {
-        g_vertDecl = decl;
-        g_vertDeclValid = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetVertexDeclaration(dev, decl);
 }
 
 static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
@@ -400,32 +362,14 @@ static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
 
 static HRESULT __stdcall Hooked_SetVertexShader(void* dev, void* vs) {
     InterlockedIncrement64(&g_statCalls[12]);
-
-    if (g_vsValid && g_vs == vs) {
-        InterlockedIncrement64(&g_statSkipped[12]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetVertexShader(dev, vs);
-    if (SUCCEEDED(hr)) {
-        g_vs = vs;
-        g_vsValid = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetVertexShader(dev, vs);
 }
 
 static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
     InterlockedIncrement64(&g_statCalls[13]);
-
-    if (g_psValid && g_ps == ps) {
-        InterlockedIncrement64(&g_statSkipped[13]);
-        return 0;
-    }
-    HRESULT hr = g_orig_SetPixelShader(dev, ps);
-    if (SUCCEEDED(hr)) {
-        g_ps = ps;
-        g_psValid = true;
-    }
-    return hr;
+    // Caching resource pointers is unsafe due to address recycling. Always call original.
+    return g_orig_SetPixelShader(dev, ps);
 }
 
 // ================================================================
