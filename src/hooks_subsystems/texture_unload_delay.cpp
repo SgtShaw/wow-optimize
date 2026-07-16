@@ -5,6 +5,8 @@
 #include <vector>
 #include <string>
 #include "win_mutex.h"
+#include "../allocators/loading_defrag.h"
+#include "../runtime_vm/lua_optimize.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -38,6 +40,35 @@ namespace TextureUnloadDelay {
     // Detour for Texture Release
     int __cdecl Hooked_Texture_Release(void* Block) {
         if (!Block) return 0;
+
+        bool bypass = false;
+        if (g_enabled) {
+            if (LoadingDefrag::IsLoadingActive() || 
+                LuaOpt::IsLoadingMode() || 
+                LuaOpt::IsReloading() || 
+                LuaOpt::IsSwapping()) {
+                bypass = true;
+            }
+        }
+
+        if (bypass) {
+            // Flush all delayed textures immediately during loading/zoning
+            // to prevent the game engine from deadlocking while waiting for old assets.
+            std::vector<void*> toRelease;
+            {
+                WinLockGuard lock(g_textureLock);
+                while (!g_delayedQueue.empty()) {
+                    toRelease.push_back(g_delayedQueue.back().ptr);
+                    g_delayedQueue.pop_back();
+                }
+            }
+            
+            for (void* ptr : toRelease) {
+                ReleaseTexture(ptr);
+            }
+            
+            return orig_Texture_Release(Block);
+        }
 
         if (g_enabled && !g_isReleasing) {
             // Check if reference count is exactly 1
