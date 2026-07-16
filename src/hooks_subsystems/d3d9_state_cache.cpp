@@ -382,14 +382,18 @@ static HRESULT WINAPI Hooked_SetTextureStageState(IDirect3DDevice9* device, DWOR
 }
 
 static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
+    Log("[D3D9StateCache] Device Reset requested. Flushing render pipeline...");
+    if (D3D9RenderThread::IsActive()) {
+        D3D9RenderThread::PipelineFlush();
+    }
+
     InvalidateCache();
     InvalidateLatencyQueries();
-    Log("[D3D9StateCache] Device reset detected - cache and latency queries invalidated");
-    if (D3D9RenderThread::IsActive() && GetCurrentThreadId() == g_mainThreadId) {
-        D3D9RenderThread::QueueReset(device, params);
-        return D3D_OK;
-    }
-    return orig_Reset(device, params);
+
+    Log("[D3D9StateCache] Executing Reset synchronously on main thread...");
+    HRESULT hr = orig_Reset(device, params);
+    Log("[D3D9StateCache] Device Reset result: 0x%08X", hr);
+    return hr;
 }
 
 static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, const RECT* dest, HWND window, const RGNDATA* dirty) {
