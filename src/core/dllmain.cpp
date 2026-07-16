@@ -6425,8 +6425,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // memset hook - 1108 callers
     bool hotFuncOk = Config::g_settings.OptStrStrSse2 && InstallHotFunctionOptimizations();
 
-    // SSE2 memcpy hook - 719 callers, 16-255B non-overlapping range
-    bool memcpyFastOk = Config::g_settings.OptStrStrSse2 && InstallMemcpyFast();
+    bool memcpyFastOk = false; // Config::g_settings.OptStrStrSse2 && InstallMemcpyFast();
 
     // FrameScript hash dispatch - 18 handlers, O(1) vs O(n)
 #if !TEST_DISABLE_FRAME_SCRIPT_DISPATCH

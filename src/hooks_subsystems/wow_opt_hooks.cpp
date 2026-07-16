@@ -448,7 +448,8 @@ namespace WowOptHooks {
             {(void*)0x004B4F90, (void*)Hooked_SysMsgHandler,   (void**)&orig_SysMsgHandler,   "W9 sysmsg dedup"},
             {(void*)0x00513660, (void*)Hooked_ContextGetter,   (void**)&orig_ContextGetter,   "W10 context cache"},
             {(void*)0x0061E3A0, (void*)Hooked_ItemNameResolve, (void**)&orig_ItemNameResolve, "W11 item name cache"},
-            {(void*)0x0047C240, (void*)Hooked_AllocWrapper,    (void**)&orig_AllocWrapper,    "W12 alloc batch"},
+            // W12 alloc batch hook disabled: factory construction sub_47C110 must not be bypassed
+            // {(void*)0x0047C240, (void*)Hooked_AllocWrapper,    (void**)&orig_AllocWrapper,    "W12 alloc batch"},
             {(void*)0x0047C0F0, (void*)Hooked_BufferValid,     (void**)&orig_BufferValid,     "W13 buffer valid inline"},
             {(void*)0x00878760, (void*)Hooked_VolumeLookup,    (void**)&orig_VolumeLookup,    "W14 volume cache"},
             // W15 skipped - channel deallocator function (skipping it causes channel leak)
