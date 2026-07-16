@@ -115,6 +115,18 @@ static bool   g_psValid = false;
 
 static void InvalidateAllCaches();
 
+static inline void CheckDeviceChange(void* dev) {
+    if (dev && dev != g_pDevice) {
+        Log("[D3D9State] Real-time Device pointer change detected (old: %p, new: %p). Invalidating caches.", g_pDevice, dev);
+        g_pDevice = dev;
+        InvalidateAllCaches();
+        #ifndef TEST_DISABLE_FONT_METRICS_FAST
+        FontGlyphCache::ClearCache();
+        #endif
+        TextureUnloadDelay::Flush();
+    }
+}
+
 // ================================================================
 // Fast matrix/material hash functions
 // ================================================================
@@ -190,6 +202,7 @@ static Reset_t g_orig_Reset = nullptr;
 // ================================================================
 
 static HRESULT __stdcall Hooked_SetRenderState(void* dev, DWORD state, DWORD value) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[0]);
     
     if (state < 256 && g_rsValid[state] && g_rsCache[state] == value) {
@@ -205,6 +218,7 @@ static HRESULT __stdcall Hooked_SetRenderState(void* dev, DWORD state, DWORD val
 }
 
 static HRESULT __stdcall Hooked_SetTextureStageState(void* dev, DWORD stage, DWORD type, DWORD value) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[1]);
 
     DWORD idx = (stage & 7) * 32 + (type & 31);
@@ -221,6 +235,7 @@ static HRESULT __stdcall Hooked_SetTextureStageState(void* dev, DWORD stage, DWO
 }
 
 static HRESULT __stdcall Hooked_SetSamplerState(void* dev, DWORD sampler, DWORD type, DWORD value) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[2]);
 
     DWORD idx = (sampler & 15) * 16 + (type & 15);
@@ -237,12 +252,14 @@ static HRESULT __stdcall Hooked_SetSamplerState(void* dev, DWORD sampler, DWORD 
 }
 
 static HRESULT __stdcall Hooked_SetTexture(void* dev, DWORD stage, void* tex) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[3]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetTexture(dev, stage, tex);
 }
 
 static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void* matrix) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[4]);
     
     if (!matrix) {
@@ -268,6 +285,7 @@ static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void*
 }
 
 static HRESULT __stdcall Hooked_SetMaterial(void* dev, const void* material) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[5]);
 
     if (!material) {
@@ -289,6 +307,7 @@ static HRESULT __stdcall Hooked_SetMaterial(void* dev, const void* material) {
 }
 
 static HRESULT __stdcall Hooked_SetViewport(void* dev, const DWORD* vp) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[6]);
 
     if (!vp) {
@@ -309,6 +328,7 @@ static HRESULT __stdcall Hooked_SetViewport(void* dev, const DWORD* vp) {
 }
 
 static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[7]);
 
     if (!rect) {
@@ -336,24 +356,28 @@ static HRESULT __stdcall Hooked_SetScissorRect(void* dev, const RECT* rect) {
 }
 
 static HRESULT __stdcall Hooked_SetStreamSource(void* dev, UINT stream, void* vb, UINT offset, UINT stride) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[8]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetStreamSource(dev, stream, vb, offset, stride);
 }
 
 static HRESULT __stdcall Hooked_SetIndices(void* dev, void* ib) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[9]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetIndices(dev, ib);
 }
 
 static HRESULT __stdcall Hooked_SetVertexDeclaration(void* dev, void* decl) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[10]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetVertexDeclaration(dev, decl);
 }
 
 static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[11]);
 
     if (g_fvfValid && g_fvf == fvf) {
@@ -369,18 +393,21 @@ static HRESULT __stdcall Hooked_SetFVF(void* dev, DWORD fvf) {
 }
 
 static HRESULT __stdcall Hooked_SetVertexShader(void* dev, void* vs) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[12]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetVertexShader(dev, vs);
 }
 
 static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[13]);
     // Caching resource pointers is unsafe due to address recycling. Always call original.
     return g_orig_SetPixelShader(dev, ps);
 }
 
 static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) {
+    CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[14]);
     Log("[D3D9State] Device Reset detected! Invalidating all caches and flushing delayed textures...");
     InvalidateAllCaches();
