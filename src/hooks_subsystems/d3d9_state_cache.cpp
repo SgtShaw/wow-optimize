@@ -12,6 +12,7 @@
 #include "d3d9_render_thread.h"
 #include "config.h"
 #include "dxvk_bridge.h"
+#include "font_glyph_cache.h"
 #include "vertex_buffer_prealloc.h"
 #include <atomic>
 
@@ -389,6 +390,7 @@ static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETE
 
     InvalidateCache();
     InvalidateLatencyQueries();
+    FontGlyphCache::ClearCache();
 
     Log("[D3D9StateCache] Executing Reset synchronously on main thread...");
     HRESULT hr = orig_Reset(device, params);

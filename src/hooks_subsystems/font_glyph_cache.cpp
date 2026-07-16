@@ -140,6 +140,13 @@ bool Init() {
 void Shutdown() {
     MH_DisableHook((void*)0x006C8CC0);
     
+    ClearCache();
+    
+    Log("[FontGlyphCache] Stats: %lld hits, %lld misses (%.1f%% hit rate)", 
+        g_hits, g_misses, (g_hits + g_misses) ? (100.0 * g_hits / (g_hits + g_misses)) : 0.0);
+}
+
+void ClearCache() {
     WinLockGuard lock(g_cacheMutex);
     for (auto& pair : g_glyphCache) {
         if (pair.second.textureCopy) {
@@ -147,9 +154,7 @@ void Shutdown() {
         }
     }
     g_glyphCache.clear();
-    
-    Log("[FontGlyphCache] Stats: %lld hits, %lld misses (%.1f%% hit rate)", 
-        g_hits, g_misses, (g_hits + g_misses) ? (100.0 * g_hits / (g_hits + g_misses)) : 0.0);
+    Log("[FontGlyphCache] Cache cleared (device reset or shutdown)");
 }
 
 } // namespace FontGlyphCache
