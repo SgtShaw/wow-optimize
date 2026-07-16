@@ -48,7 +48,7 @@ void Shutdown() {
 void* AllocateBuffer(size_t size) {
     SRWLockGuard lock(&g_poolLock);
     g_allocations++;
-    if (size <= CHUNK_SIZE && g_freeCount > 0) {
+    if (size <= CHUNK_SIZE && g_freeCount > 0 && g_freeCount <= POOL_SIZE) {
         g_poolHits++;
         return g_freeChunks[--g_freeCount];
     }
@@ -60,6 +60,17 @@ void FreeBuffer(void* ptr) {
     if (!ptr) return;
     SRWLockGuard lock(&g_poolLock);
     if (g_poolBuffer && ptr >= g_poolBuffer && ptr < g_poolBuffer + POOL_SIZE * CHUNK_SIZE) {
+        // Double-free and bounds-overflow guard
+        if (g_freeCount >= POOL_SIZE) {
+            Log("[VertexBufferPrealloc] WARNING: Pool overflow detected in FreeBuffer (g_freeCount=%d). Bypassing pool push.", g_freeCount);
+            return;
+        }
+        for (size_t i = 0; i < g_freeCount; i++) {
+            if (g_freeChunks[i] == ptr) {
+                Log("[VertexBufferPrealloc] WARNING: Double free detected for pointer %p", ptr);
+                return;
+            }
+        }
         g_freeChunks[g_freeCount++] = ptr;
         return;
     }
