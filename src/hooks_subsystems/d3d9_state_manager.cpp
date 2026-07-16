@@ -114,10 +114,21 @@ static void*  g_ps = nullptr;
 static bool   g_psValid = false;
 
 static void InvalidateAllCaches();
+static void UnpatchDeviceVTable();
 
 static inline void CheckDeviceChange(void* dev) {
     if (dev && dev != g_pDevice) {
         Log("[D3D9State] Real-time Device pointer change detected (old: %p, new: %p). Invalidating caches.", g_pDevice, dev);
+        
+        if (g_pDevice && IsReadable((uintptr_t)g_pDevice)) {
+            UnpatchDeviceVTable();
+        } else {
+            g_deviceHooked = false;
+            for (int i = 0; i < NUM_HOOKS; i++) {
+                g_vtablePatched[i] = false;
+            }
+        }
+
         g_pDevice = dev;
         InvalidateAllCaches();
         #ifndef TEST_DISABLE_FONT_METRICS_FAST
@@ -473,7 +484,7 @@ static bool PatchDeviceVTable(void* pDevice) {
     if (!pDevice || g_deviceHooked) return false;
 
     uintptr_t* vtable = *(uintptr_t**)pDevice;
-    if (!vtable) return false;
+    if (!vtable || !IsReadable((uintptr_t)vtable)) return false;
 
     int patched = 0;
     for (int i = 0; i < NUM_HOOKS; i++) {
@@ -483,6 +494,13 @@ static bool PatchDeviceVTable(void* pDevice) {
         uintptr_t origFunc = vtable[vtIndex];
         if (!IsReadable(origFunc)) {
             Log("[D3D9State] Skipping vtable[%d] — original not readable", vtIndex);
+            continue;
+        }
+
+        // Avoid infinite recursion: check if the vtable entry is already pointing to our hook
+        if (origFunc == (uintptr_t)g_hookFuncs[i]) {
+            g_vtablePatched[i] = true;
+            patched++;
             continue;
         }
 
@@ -515,17 +533,35 @@ static bool PatchDeviceVTable(void* pDevice) {
 static void UnpatchDeviceVTable() {
     if (!g_pDevice || !g_deviceHooked) return;
 
+    if (!IsReadable((uintptr_t)g_pDevice)) {
+        g_deviceHooked = false;
+        g_pDevice = nullptr;
+        return;
+    }
+
     uintptr_t* vtable = *(uintptr_t**)g_pDevice;
-    if (!vtable) { g_deviceHooked = false; g_pDevice = nullptr; return; }
+    if (!vtable || !IsReadable((uintptr_t)vtable)) { 
+        g_deviceHooked = false; 
+        g_pDevice = nullptr; 
+        return; 
+    }
 
     // Restore state hooks in reverse order
     for (int i = NUM_HOOKS - 1; i >= 0; i--) {
         if (!g_vtablePatched[i]) continue;
         int vtIndex = g_vtableIndices[i];
-        DWORD oldProtect;
-        if (VirtualProtect(&vtable[vtIndex], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-            vtable[vtIndex] = (uintptr_t)g_vtableOriginals[i];
-            VirtualProtect(&vtable[vtIndex], sizeof(void*), oldProtect, &oldProtect);
+        
+        // Safety: verify that the target vtable address is still readable
+        if (!IsReadable((uintptr_t)&vtable[vtIndex])) continue;
+
+        // Verify that the vtable currently points to our hook before restoring it,
+        // to prevent overwriting third-party hooks or crashing
+        if (vtable[vtIndex] == (uintptr_t)g_hookFuncs[i]) {
+            DWORD oldProtect;
+            if (VirtualProtect(&vtable[vtIndex], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                vtable[vtIndex] = (uintptr_t)g_vtableOriginals[i];
+                VirtualProtect(&vtable[vtIndex], sizeof(void*), oldProtect, &oldProtect);
+            }
         }
         g_vtablePatched[i] = false;
     }
