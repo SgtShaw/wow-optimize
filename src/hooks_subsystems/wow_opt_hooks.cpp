@@ -430,8 +430,9 @@ namespace WowOptHooks {
             {(void*)0x004CFBB0, (void*)Hooked_Memcpy680,      (void**)&orig_Memcpy680,      "W1 memcpy680 prefetch"},
             {(void*)0x00422910, (void*)Hooked_ObjDestroy,      (void**)&orig_ObjDestroy,      "W2 obj destroy prefetch"},
             {(void*)0x00771870, (void*)Hooked_ErrorHandler,    (void**)&orig_ErrorHandler,    "W3 error handler skip"},
-            {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
-            {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
+            // W4 and W5 skipped to prevent login crashes due to recycled Storm file handles
+            // {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
+            // {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
             {(void*)0x00422530, (void*)Hooked_BlockCopy,       (void**)&orig_BlockCopy,       "W6 block copy prefetch"},
             {(void*)0x004C6A40, (void*)Hooked_SoundPlay,       (void**)&orig_SoundPlay,       "W7 sound play coalesce"},
             {(void*)0x004B9DE0, (void*)Hooked_AsyncReadDestroy,(void**)&orig_AsyncReadDestroy,"W8 async destroy fast"},
