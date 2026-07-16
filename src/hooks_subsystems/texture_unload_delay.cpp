@@ -10,7 +10,7 @@ extern "C" void Log(const char* fmt, ...);
 
 namespace TextureUnloadDelay {
     static bool g_enabled = false;
-    static bool g_isReleasing = false;
+    static thread_local bool g_isReleasing = false;
     static WinMutex g_textureLock;
 
     struct DelayedTexture {
@@ -63,7 +63,7 @@ namespace TextureUnloadDelay {
                     entry.timestamp = GetTickCount();
                     g_delayedQueue.push_back(entry);
                     
-                    return 0; // Return without deleting
+                    return 0; // Return without deleting (keeps refcount at 1)
                 }
             }
         }
@@ -102,10 +102,16 @@ namespace TextureUnloadDelay {
         void* target_Release = (void*)0x0047BF30;
         MH_DisableHook(target_Release);
         
-        WinLockGuard lock(g_textureLock);
-        while (!g_delayedQueue.empty()) {
-            void* ptr = g_delayedQueue.back().ptr;
-            g_delayedQueue.pop_back();
+        std::vector<void*> toRelease;
+        {
+            WinLockGuard lock(g_textureLock);
+            while (!g_delayedQueue.empty()) {
+                toRelease.push_back(g_delayedQueue.back().ptr);
+                g_delayedQueue.pop_back();
+            }
+        }
+        
+        for (void* ptr : toRelease) {
             ReleaseTexture(ptr);
         }
         
@@ -116,23 +122,30 @@ namespace TextureUnloadDelay {
         if (!g_enabled) return;
         
         DWORD now = GetTickCount();
-        WinLockGuard lock(g_textureLock);
+        std::vector<void*> toRelease;
         
-        auto it = g_delayedQueue.begin();
-        while (it != g_delayedQueue.end()) {
-            // If the refcount was incremented by the engine in the meantime, it means the texture
-            // was looked up and reused. In this case, we remove it from the queue and let the engine own it.
-            int* refCount = (int*)((char*)it->ptr + 4);
-            if (*refCount > 1) {
-                // Engine reused it, remove from queue without releasing (refcount remains > 1)
-                it = g_delayedQueue.erase(it);
-            } else if (now - it->timestamp >= 5000) { // 5-second Grace Period
-                void* ptr = it->ptr;
-                it = g_delayedQueue.erase(it);
-                ReleaseTexture(ptr); // Release it (refcount drops to 0, destroying it)
-            } else {
-                ++it;
+        {
+            WinLockGuard lock(g_textureLock);
+            auto it = g_delayedQueue.begin();
+            while (it != g_delayedQueue.end()) {
+                // If the refcount was incremented by the engine in the meantime, it means the texture
+                // was looked up and reused. In this case, we remove it from the queue and let the engine own it.
+                int* refCount = (int*)((char*)it->ptr + 4);
+                if (*refCount > 1) {
+                    // Engine reused it, remove from queue without releasing (refcount remains > 1)
+                    it = g_delayedQueue.erase(it);
+                } else if (now - it->timestamp >= 5000) { // 5-second Grace Period
+                    toRelease.push_back(it->ptr);
+                    it = g_delayedQueue.erase(it);
+                } else {
+                    ++it;
+                }
             }
+        }
+        
+        // Release textures OUTSIDE of the lock to prevent deadlocks with background worker threads
+        for (void* ptr : toRelease) {
+            ReleaseTexture(ptr);
         }
     }
 }
