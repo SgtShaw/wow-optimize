@@ -61,13 +61,24 @@ static void __cdecl Hooked_Memcpy680(const void* src, size_t len, void* dst) {
 // ================================================================
 // W2: sub_422910 - Object cleanup/destroy (called everywhere)
 // Add prefetch of next object in cleanup chain before destroy.
+// In WoW 3.3.5a, this is SFileCloseFile which is __stdcall.
 // ================================================================
-typedef void (__cdecl *ObjDestroy_fn)(void*);
+typedef void (__stdcall *ObjDestroy_fn)(void*);
 static ObjDestroy_fn orig_ObjDestroy = nullptr;
 
-static void __cdecl Hooked_ObjDestroy(void* obj) {
+volatile void* g_w4LastSrc = nullptr;
+volatile void* g_w5LastPtr = nullptr;
+
+static void __stdcall Hooked_ObjDestroy(void* obj) {
     _InterlockedIncrement(&g_w2Calls);
     if (obj) {
+        // Invalidate recycled file handles from W4 and W5 caches
+        if (obj == g_w4LastSrc) {
+            g_w4LastSrc = nullptr;
+        }
+        if (obj == g_w5LastPtr) {
+            g_w5LastPtr = nullptr;
+        }
         __try {
             // Prefetch the object's vtable and first cache line
             _mm_prefetch((const char*)obj, _MM_HINT_NTA);
@@ -80,11 +91,12 @@ static void __cdecl Hooked_ObjDestroy(void* obj) {
 // ================================================================
 // W3: sub_771870 - Error/assert handler (called on every error path)
 // In production builds, skip non-critical error formatting.
+// sub_771870 is __stdcall.
 // ================================================================
-typedef void (__cdecl *ErrorHandler_fn)(unsigned int);
+typedef void (__stdcall *ErrorHandler_fn)(unsigned int);
 static ErrorHandler_fn orig_ErrorHandler = nullptr;
 
-static void __cdecl Hooked_ErrorHandler(unsigned int code) {
+static void __stdcall Hooked_ErrorHandler(unsigned int code) {
     _InterlockedIncrement(&g_w3Calls);
     // Skip benign error codes that don't need full processing
     // Code 0x57 = memory allocation warning, common during loading
@@ -101,8 +113,7 @@ static void __cdecl Hooked_ErrorHandler(unsigned int code) {
 // ================================================================
 typedef int (__stdcall *FileReadDispatch_fn)(void*, void*, int, int);
 static FileReadDispatch_fn orig_FileReadDispatch = nullptr;
-static volatile void* g_w4LastSrc = nullptr;
-static volatile int g_w4LastResult = 0;
+volatile int g_w4LastResult = 0;
 
 static int __stdcall Hooked_FileReadDispatch(void* src, void* dst, int a3, int Block) {
     _InterlockedIncrement(&g_w4Calls);
@@ -122,8 +133,7 @@ static int __stdcall Hooked_FileReadDispatch(void* src, void* dst, int a3, int B
 // ================================================================
 typedef int (__stdcall *DataSizeCalc_fn)(void*, void*);
 static DataSizeCalc_fn orig_DataSizeCalc = nullptr;
-static volatile void* g_w5LastPtr = nullptr;
-static volatile int g_w5LastSize = 0;
+volatile int g_w5LastSize = 0;
 
 static int __stdcall Hooked_DataSizeCalc(void* ptr, void* out) {
     _InterlockedIncrement(&g_w5Calls);
@@ -388,22 +398,23 @@ static int __fastcall Hooked_AmbientMgr(void* self, void* dummyEDX, void* a2, in
 // ================================================================
 // W19: sub_4CB580 - Music track selector (called by sub_4C6A40)
 // Cache selected music track to avoid re-selection on volume changes.
+// sub_4CB580 is __cdecl.
 // ================================================================
-typedef int (__fastcall *MusicSelect_fn)(void*, void*, int, void*, void*, int, int, int, int, int);
+typedef int (__cdecl *MusicSelect_fn)(int, int, void*, void*, int, int, int, int, int);
 static MusicSelect_fn orig_MusicSelect = nullptr;
-static volatile uintptr_t g_w19LastSelf = 0;
+static volatile int g_w19LastSelf = 0;
 static volatile int g_w19LastZone = 0;
 static volatile int g_w19LastTrack = 0;
 
-static int __fastcall Hooked_MusicSelect(void* self, void* dummyEDX, int zoneId, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
+static int __cdecl Hooked_MusicSelect(int a1, int a2, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
     _InterlockedIncrement(&g_w19Calls);
-    if ((uintptr_t)self == g_w19LastSelf && zoneId == g_w19LastZone && zoneId != 0) {
+    if (a1 == g_w19LastSelf && a2 == g_w19LastZone && a2 != 0) {
         _InterlockedIncrement(&g_w19Cached);
         return g_w19LastTrack;
     }
-    int result = orig_MusicSelect(self, dummyEDX, zoneId, a3, a4, a5, a6, a7, a8, a9);
-    g_w19LastSelf = (uintptr_t)self;
-    g_w19LastZone = zoneId;
+    int result = orig_MusicSelect(a1, a2, a3, a4, a5, a6, a7, a8, a9);
+    g_w19LastSelf = a1;
+    g_w19LastZone = a2;
     g_w19LastTrack = result;
     return result;
 }
@@ -430,11 +441,8 @@ namespace WowOptHooks {
             {(void*)0x004CFBB0, (void*)Hooked_Memcpy680,      (void**)&orig_Memcpy680,      "W1 memcpy680 prefetch"},
             {(void*)0x00422910, (void*)Hooked_ObjDestroy,      (void**)&orig_ObjDestroy,      "W2 obj destroy prefetch"},
             {(void*)0x00771870, (void*)Hooked_ErrorHandler,    (void**)&orig_ErrorHandler,    "W3 error handler skip"},
-            // W4 and W5 skipped to prevent login crashes due to recycled Storm file handles
-            // {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
-            // {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
-            // W6 skipped to prevent calling convention mismatch stack corruption (SFileReadFile is __stdcall, not __cdecl)
-            // {(void*)0x00422530, (void*)Hooked_BlockCopy,       (void**)&orig_BlockCopy,       "W6 block copy prefetch"},
+            {(void*)0x00424B50, (void*)Hooked_FileReadDispatch,(void**)&orig_FileReadDispatch,"W4 file read cache"},
+            {(void*)0x004218C0, (void*)Hooked_DataSizeCalc,    (void**)&orig_DataSizeCalc,    "W5 data size cache"},
             {(void*)0x004C6A40, (void*)Hooked_SoundPlay,       (void**)&orig_SoundPlay,       "W7 sound play coalesce"},
             {(void*)0x004B9DE0, (void*)Hooked_AsyncReadDestroy,(void**)&orig_AsyncReadDestroy,"W8 async destroy fast"},
             {(void*)0x004B4F90, (void*)Hooked_SysMsgHandler,   (void**)&orig_SysMsgHandler,   "W9 sysmsg dedup"},
