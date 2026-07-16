@@ -13,6 +13,7 @@
 #include <d3d9.h>
 #include "d3d9_state_manager.h"
 #include "font_glyph_cache.h"
+#include "texture_unload_delay.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -381,13 +382,16 @@ static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
 
 static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) {
     InterlockedIncrement64(&g_statCalls[14]);
-    Log("[D3D9State] Device Reset detected! Invalidating all caches...");
+    Log("[D3D9State] Device Reset detected! Invalidating all caches and flushing delayed textures...");
     InvalidateAllCaches();
     
     // Clear font glyph cache
     #ifndef TEST_DISABLE_FONT_METRICS_FAST
     FontGlyphCache::ClearCache();
     #endif
+
+    // Flush delayed textures
+    TextureUnloadDelay::Flush();
 
     return g_orig_Reset(dev, params);
 }

@@ -14,6 +14,7 @@
 #include "dxvk_bridge.h"
 #include "font_glyph_cache.h"
 #include "vertex_buffer_prealloc.h"
+#include "texture_unload_delay.h"
 #include <atomic>
 
 extern "C" void Log(const char* fmt, ...);
@@ -391,6 +392,7 @@ static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETE
     InvalidateCache();
     InvalidateLatencyQueries();
     FontGlyphCache::ClearCache();
+    TextureUnloadDelay::Flush();
 
     Log("[D3D9StateCache] Executing Reset synchronously on main thread...");
     HRESULT hr = orig_Reset(device, params);
