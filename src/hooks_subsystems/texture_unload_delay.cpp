@@ -31,7 +31,7 @@ namespace TextureUnloadDelay {
     typedef int (__cdecl *Texture_Insert_fn)(void* Block);
     static Texture_Insert_fn orig_Texture_Insert = nullptr;
 
-    typedef void* (__cdecl *Texture_AddRef_fn)(void* Block);
+    typedef void* (__stdcall *Texture_AddRef_fn)(void* Block);
     static Texture_AddRef_fn orig_Texture_AddRef = nullptr;
 
     static void DeleteTexture(void* ptr) {
