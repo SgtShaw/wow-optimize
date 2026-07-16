@@ -58,8 +58,35 @@ static const fn_GxuAlloc_t fn_GxuAlloc = (fn_GxuAlloc_t)0x0076E540;
 typedef char (__cdecl* fn_GxuLoadGlyph_t)(void* fontObj, unsigned int charCode, int fontSize, int a4, void* outStruct, int a6, int a7);
 static fn_GxuLoadGlyph_t orig_GxuLoadGlyph = nullptr;
 
+static bool IsReadable(uintptr_t addr) {
+    if (addr == 0) return false;
+    MEMORY_BASIC_INFORMATION mbi;
+    if (VirtualQuery((void*)addr, &mbi, sizeof(mbi)) == 0) return false;
+    if (mbi.State != MEM_COMMIT) return false;
+    return !(mbi.Protect & PAGE_NOACCESS) && !(mbi.Protect & PAGE_GUARD);
+}
+
 static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, int fontSize, int a4, void* outStruct, int a6, int a7) {
     if (fontObj && charCode && outStruct && !IsTeardownState()) {
+        // Real-time device change check inside GxuLoadGlyph itself!
+        static void* lastDevice = nullptr;
+        uintptr_t addr = 0x00C5DF88; // global CGxDeviceD3d*
+        void* currentDevice = nullptr;
+        if (addr && IsReadable(addr)) {
+            uintptr_t pGxDevice = *(uintptr_t*)addr;
+            if (pGxDevice && IsReadable(pGxDevice)) {
+                uintptr_t devicePtrAddr = pGxDevice + 0x397C;
+                if (IsReadable(devicePtrAddr)) {
+                    currentDevice = *(void**)devicePtrAddr;
+                }
+            }
+        }
+        if (currentDevice != lastDevice) {
+            Log("[FontGlyphCache] Device change detected inside GxuLoadGlyph (old: %p, new: %p). Clearing glyph cache.", lastDevice, currentDevice);
+            lastDevice = currentDevice;
+            ClearCache();
+        }
+
         GlyphKey key = { fontObj, charCode, fontSize, a4, a6, a7 };
         
         // Fast thread-safe cache lookup
