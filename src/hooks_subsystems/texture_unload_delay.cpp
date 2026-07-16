@@ -15,6 +15,7 @@ namespace TextureUnloadDelay {
     static bool g_enabled = false;
     static thread_local bool g_isReleasing = false;
     static WinMutex g_textureLock;
+    static volatile DWORD g_lastTransitionEndTick = 0;
 
     struct DelayedTexture {
         void* ptr;
@@ -47,10 +48,17 @@ namespace TextureUnloadDelay {
 
         bool bypass = false;
         if (g_enabled) {
+            DWORD now = GetTickCount();
+            bool postTransitionGrace = (g_lastTransitionEndTick != 0 && (now - g_lastTransitionEndTick) < 10000); // 10s grace period for loading screen cleanup
+            DWORD swapTick = LuaOpt::GetLastSwapTick();
+            bool postSwapGrace = (swapTick != 0 && (now - swapTick) < 10000); // 10s grace period for UI reload cleanup
+            
             if (LoadingDefrag::IsLoadingActive() || 
                 LuaOpt::IsLoadingMode() || 
                 LuaOpt::IsReloading() || 
-                LuaOpt::IsSwapping()) {
+                LuaOpt::IsSwapping() ||
+                postTransitionGrace ||
+                postSwapGrace) {
                 bypass = true;
             }
         }
@@ -133,6 +141,8 @@ namespace TextureUnloadDelay {
 
     void Flush() {
         if (!g_enabled) return;
+        
+        g_lastTransitionEndTick = GetTickCount(); // Track transition activity
         
         std::vector<void*> toRelease;
         {
