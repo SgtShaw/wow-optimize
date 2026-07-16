@@ -31,17 +31,7 @@ namespace AnimBlendCache {
     }
 
     bool Init() {
-        Clear();
-        
-        // Install hook on 0x005F91E0
-        void* target = reinterpret_cast<void*>(0x005F91E0);
-        if (MH_CreateHook(target, reinterpret_cast<void*>(&Hooked_UpdateBones), reinterpret_cast<void**>(&orig_UpdateBones)) == MH_OK) {
-            MH_EnableHook(target);
-            Log("[AnimBlendCache] Successfully hooked UpdateBones at 0x%p", target);
-            return true;
-        }
-        
-        Log("[AnimBlendCache] Failed to hook UpdateBones");
+        Log("[AnimBlendCache] DISABLED (target address mismatch)");
         return false;
     }
 

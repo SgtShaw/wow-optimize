@@ -26,7 +26,7 @@ static int APIENTRY Hooked_FSOUND_PlaySound(int channel, void* sptr) {
         auto it = g_playTimes.find(sptr);
         if (it != g_playTimes.end() && (now - it->second < 30)) {
             g_coalescedPlays++;
-            return 99; // Return a dummy channel index to skip actual play
+            return -1; // Return -1 (failure) to skip actual play safely
         }
         g_playTimes[sptr] = now;
     }
@@ -44,7 +44,7 @@ static int APIENTRY Hooked_FSOUND_PlaySoundEx(int channel, void* sptr, void* dsp
         auto it = g_playTimes.find(sptr);
         if (it != g_playTimes.end() && (now - it->second < 30)) {
             g_coalescedPlays++;
-            return 99; // Dummy channel
+            return -1; // Return -1 (failure) to skip actual play safely
         }
         g_playTimes[sptr] = now;
     }

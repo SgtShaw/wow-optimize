@@ -34,19 +34,7 @@ namespace MovementSmoothing {
     }
 
     bool Init() {
-        AcquireSRWLockExclusive(&g_smoothingLock);
-        g_history.clear();
-        ReleaseSRWLockExclusive(&g_smoothingLock);
-
-        // Install hook on 0x00613E90
-        void* target = reinterpret_cast<void*>(0x00613E90);
-        if (MH_CreateHook(target, reinterpret_cast<void*>(&Hooked_SetPosition), reinterpret_cast<void**>(&orig_SetPosition)) == MH_OK) {
-            MH_EnableHook(target);
-            Log("[MovementSmoothing] Successfully hooked CGUnit_C::SetPosition at 0x%p", target);
-            return true;
-        }
-
-        Log("[MovementSmoothing] Failed to hook CGUnit_C::SetPosition");
+        Log("[MovementSmoothing] DISABLED (target address mismatch)");
         return false;
     }
 
