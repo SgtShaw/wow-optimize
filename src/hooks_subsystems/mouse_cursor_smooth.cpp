@@ -49,12 +49,16 @@ void OnFrame() {
                 ClientToScreen(hwnd, &topLeft);
                 ClientToScreen(hwnd, &bottomRight);
                 
-                // If mouselook is active (detected by checking physical mouse buttons)
-                if ((GetKeyState(VK_LBUTTON) & 0x8000) || (GetKeyState(VK_RBUTTON) & 0x8000)) {
+                // Only lock/clip cursor if it's currently inside the client area of the active window
+                // (e.g. not on the title bar dragging, and not on window borders resizing).
+                bool insideClient = (pt.x >= topLeft.x && pt.x <= bottomRight.x &&
+                                     pt.y >= topLeft.y && pt.y <= bottomRight.y);
+
+                if (insideClient && ((GetKeyState(VK_LBUTTON) & 0x8000) || (GetKeyState(VK_RBUTTON) & 0x8000))) {
                     RECT clipRect = {topLeft.x + 10, topLeft.y + 10, bottomRight.x - 10, bottomRight.y - 10};
                     ClipCursor(&clipRect);
                 } else {
-                    ClipCursor(nullptr); // Release clip when not looking
+                    ClipCursor(nullptr); // Release clip when not looking or when dragging/resizing
                 }
             }
         }
