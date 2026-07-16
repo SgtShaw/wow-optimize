@@ -489,8 +489,8 @@ namespace WowPerfHooks {
             // P2 and P3 memory allocator hooks disabled to prevent custom WoW allocator metadata corruption/conflicts
             // {(void*)0x0076E5A0, (void*)Hooked_FreeWrapper,       (void**)&orig_FreeWrapper,       "P2 free wrapper (2901 xrefs)"},
             // {(void*)0x0076E540, (void*)Hooked_MallocWrapper,     (void**)&orig_MallocWrapper,     "P3 malloc wrapper (1764 xrefs)"},
-            // P4 data store lookup hook disabled to prevent stack corruption on tables smaller than 680 bytes
-            // {(void*)0x004CFD20, (void*)Hooked_DsLookup,          (void**)&orig_DsLookup,          "P4 data store lookup (345 xrefs)"},
+            // P4 data store lookup — safe: original sub_4CFD20 always copies exactly 680 (0x2A8) bytes
+            {(void*)0x004CFD20, (void*)Hooked_DsLookup,          (void**)&orig_DsLookup,          "P4 data store lookup (345 xrefs)"},
             {(void*)0x0084DEB0, (void*)Hooked_LuaType,           (void**)&orig_LuaType,           "P5 lua_type (229 xrefs)"},
             {(void*)0x00422910, (void*)Hooked_ObjDestroyChain,   (void**)&orig_ObjDestroyChain,   "P6 obj destroy chain (513 xrefs)"},
             {(void*)0x004C6A40, (void*)Hooked_SoundPlayDispatch, (void**)&orig_SoundPlayDispatch, "P7 sound play dispatch (98 xrefs)"},

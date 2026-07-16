@@ -1,82 +1,46 @@
+// ============================================================================
+// Module: anim_blend_cache.cpp
+// Description: Animation bone matrix caching for M2 model rendering.
+// Status: DISABLED — correct target address for CM2Model::UpdateBones has not
+//         been identified. The previously used address 0x5F91E0 is actually
+//         AddonStateList::Load (addon persistence), not an animation function.
+//         Hooking it would intercept addon state loading, corrupting saved
+//         addon data and causing crashes.
+//
+//         To implement this properly, one must:
+//         1. Find CM2Model::UpdateBones / CM2Model::CalcBoneMatrix in the
+//            binary (likely in the 0x7B0xxx-0x7B5xxx range near M2 code).
+//         2. Verify the calling convention and parameter layout.
+//         3. Implement cache invalidation keyed on (model_ptr, anim_id, time)
+//            with proper handling for model destruction/reload.
+// ============================================================================
+
 #include "anim_blend_cache.h"
 #include "MinHook.h"
-#include <cmath>
-#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
 namespace AnimBlendCache {
-    struct CacheEntry {
-        void* model;
-        int boneIndex;
-        float animTime;
-        float matrix[16];
-        bool valid;
-    };
-
-    static constexpr int CACHE_SIZE = 1024;
-    static CacheEntry g_cache[CACHE_SIZE];
-    static WinMutex g_cacheMutex;
-    static bool g_enabled = true;
-
-    // Hooking 0x005F91E0 (UpdateBones) in WotLK 3.3.5a
-    typedef void (__thiscall *UpdateBones_fn)(void* This, void* a2);
-    static UpdateBones_fn orig_UpdateBones = nullptr;
-
-    void __fastcall Hooked_UpdateBones(void* This, void* dummyEDX, void* a2) {
-        // Just call the original for safety, but this registers our hook presence
-        if (orig_UpdateBones) {
-            orig_UpdateBones(This, a2);
-        }
-    }
 
     bool Init() {
-        Log("[AnimBlendCache] DISABLED (target address mismatch)");
+        Log("[AnimBlendCache] DISABLED (correct UpdateBones address not identified; "
+            "0x5F91E0 is AddonStateList::Load, not UpdateBones)");
         return false;
     }
 
     void Shutdown() {
-        void* target = reinterpret_cast<void*>(0x005F91E0);
-        MH_DisableHook(target);
-        Clear();
+        // Nothing to clean up — hook was never installed
     }
 
     void Clear() {
-        WinLockGuard lock(g_cacheMutex);
-        for (int i = 0; i < CACHE_SIZE; ++i) {
-            g_cache[i].valid = false;
-        }
+        // Nothing to clear — cache was never populated
     }
 
-    inline unsigned int GetHash(void* model, int boneIndex, float animTime) {
-        uintptr_t ptrVal = reinterpret_cast<uintptr_t>(model);
-        int timeVal = static_cast<int>(animTime * 100.0f);
-        return (unsigned int)((ptrVal ^ boneIndex) * 16777619 ^ timeVal) % CACHE_SIZE;
-    }
-
-    bool GetCachedMatrix(void* model, int boneIndex, float animTime, float* outMatrix) {
-        if (!g_enabled) return false;
-
-        WinLockGuard lock(g_cacheMutex);
-        unsigned int idx = GetHash(model, boneIndex, animTime);
-        if (g_cache[idx].valid && g_cache[idx].model == model && g_cache[idx].boneIndex == boneIndex) {
-            if (std::abs(g_cache[idx].animTime - animTime) < 0.01f) {
-                memcpy(outMatrix, g_cache[idx].matrix, sizeof(float) * 16);
-                return true;
-            }
-        }
+    bool GetCachedMatrix(void* /*model*/, int /*boneIndex*/, float /*animTime*/, float* /*outMatrix*/) {
         return false;
     }
 
-    void AddToCache(void* model, int boneIndex, float animTime, const float* matrix) {
-        if (!g_enabled) return;
-
-        WinLockGuard lock(g_cacheMutex);
-        unsigned int idx = GetHash(model, boneIndex, animTime);
-        g_cache[idx].model = model;
-        g_cache[idx].boneIndex = boneIndex;
-        g_cache[idx].animTime = animTime;
-        memcpy(g_cache[idx].matrix, matrix, sizeof(float) * 16);
-        g_cache[idx].valid = true;
+    void AddToCache(void* /*model*/, int /*boneIndex*/, float /*animTime*/, const float* /*matrix*/) {
+        // Stub — not active
     }
 }

@@ -16,7 +16,10 @@ extern "C" void Log(const char* fmt, ...);
 
 #define TAINT_CELL ( *(uint32_t**)0x00D4139C )
 
+static bool g_inLuaShutdown = false;
+
 static inline bool IsTeardownState() {
+    if (g_inLuaShutdown) return true;
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
     return (gL < 0x10000 || gL > 0xFFE00000);
 }
@@ -474,6 +477,25 @@ static int __cdecl hook_Frame_GetFrameLevel(uintptr_t L) {
     return orig_Frame_GetFrameLevel(L);
 }
 
+// FrameScript Initialization/Shutdown Hooks for Safe Teardown State Detection
+typedef void* (__cdecl* FrameScript_Shutdown_t)();
+static FrameScript_Shutdown_t orig_FrameScript_Shutdown = nullptr;
+
+static void* __cdecl hook_FrameScript_Shutdown() {
+    g_inLuaShutdown = true;
+    void* res = orig_FrameScript_Shutdown();
+    return res;
+}
+
+typedef int (__cdecl* FrameScript_Initialize_t)(int a1);
+static FrameScript_Initialize_t orig_FrameScript_Initialize = nullptr;
+
+static int __cdecl hook_FrameScript_Initialize(int a1) {
+    g_inLuaShutdown = false;
+    int res = orig_FrameScript_Initialize(a1);
+    return res;
+}
+
 // Install / Shutdown
 bool InstallUIAccessorFast() {
     int installed = 0;
@@ -512,11 +534,13 @@ bool InstallUIAccessorFast() {
     // Layout accessor hooks (disassembly-verified __usercall)
     INSTALL_GATED(GetWidth_t,  orig_GetWidth,  naked_hook_GetWidth,  0x0049D3B0, "GetWidth",  TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
     INSTALL_GATED(GetHeight_t, orig_GetHeight, naked_hook_GetHeight, 0x0049D550, "GetHeight", TEST_DISABLE_LAYOUT_ACCESSOR_FAST);
+    INSTALL(FrameScript_Shutdown_t, orig_FrameScript_Shutdown, hook_FrameScript_Shutdown, 0x0081A9A0, "FrameScript_Shutdown");
+    INSTALL(FrameScript_Initialize_t, orig_FrameScript_Initialize, hook_FrameScript_Initialize, 0x00819BB0, "FrameScript_Initialize");
 
 #undef INSTALL_GATED
 #undef INSTALL
 
-    Log("[UIAccessorFast] %d/10 hooks installed", installed);
+    Log("[UIAccessorFast] %d/12 hooks installed", installed);
     return installed > 0;
 }
 
@@ -531,6 +555,8 @@ void ShutdownUIAccessorFast() {
     MH_DisableHook((void*)0x0049FE30);
     MH_DisableHook((void*)0x0049F980);
     MH_DisableHook((void*)0x0049E980);
+    MH_DisableHook((void*)0x0081A9A0);
+    MH_DisableHook((void*)0x00819BB0);
     Log("[UIAccessorFast] Stats: IsShown=%ld IsVisible=%ld GetAlpha=%ld GetScale=%ld GetWidth=%ld GetHeight=%ld FrameIsShown=%ld FrameIsVisible=%ld FrameGetAlpha=%ld FrameGetFrameLevel=%ld",
         g_isshown_calls, g_isvisible_calls, g_getalpha_calls, g_getscale_calls,
         g_getwidth_calls, g_getheight_calls, g_frame_isshown_calls, g_frame_isvisible_calls, g_frame_getalpha_calls, g_frame_getframelevel_calls);

@@ -9407,8 +9407,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 // teardown code doesn't run through our detours after DLL data is
                 // being freed. Without this, destructors like sub_47BF30 (refcount
                 // release) crash because hooks are still redirecting calls.
-                MH_DisableHook(MH_ALL_HOOKS);
-                MH_Uninitialize();
+                // Wrapped in SEH because MinHook's internal structures may have
+                // been partially freed during process teardown.
+                __try {
+                    MH_DisableHook(MH_ALL_HOOKS);
+                    MH_Uninitialize();
+                } __except(EXCEPTION_EXECUTE_HANDLER) {
+                    // Best-effort — if unhooking fails, process is terminating anyway
+                }
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
                 FlushSavedVarsAsyncSynchronously();
 #endif
