@@ -10,102 +10,65 @@ extern "C" void Log(const char* fmt, ...);
 
 namespace TextureUnloadDelay {
     static bool g_enabled = false;
-    static bool g_isDeleting = false;
+    static bool g_isReleasing = false;
     static WinMutex g_textureLock;
 
     struct DelayedTexture {
         void* ptr;
-        std::string path;
         DWORD timestamp;
     };
 
     static std::vector<DelayedTexture> g_delayedQueue;
 
     // Hook Target Types
-    typedef void* (__thiscall *Texture_Delete_fn)(void* This, char a2);
-    static Texture_Delete_fn orig_Texture_Delete = nullptr;
+    // Texture_Release (sub_47BF30) decrements refcount at offset 4
+    typedef int (__cdecl *Texture_Release_fn)(void* Block);
+    static Texture_Release_fn orig_Texture_Release = nullptr;
 
-    typedef void* (__cdecl *Texture_Lookup_fn)(const char* path, char* a2, int a3);
-    static Texture_Lookup_fn orig_Texture_Lookup = nullptr;
-
-    typedef int (__cdecl *Texture_Insert_fn)(void* Block);
-    static Texture_Insert_fn orig_Texture_Insert = nullptr;
-
-    typedef void* (__stdcall *Texture_AddRef_fn)(void* Block);
-    static Texture_AddRef_fn orig_Texture_AddRef = nullptr;
-
-    static void DeleteTexture(void* ptr) {
-        g_isDeleting = true;
+    static void ReleaseTexture(void* ptr) {
+        g_isReleasing = true;
         __try {
-            orig_Texture_Delete(ptr, 1);
+            orig_Texture_Release(ptr);
         } __except (EXCEPTION_EXECUTE_HANDLER) {
-            Log("[TextureUnloadDelay] Exception during texture deletion of 0x%p", ptr);
+            Log("[TextureUnloadDelay] Exception during texture release of 0x%p", ptr);
         }
-        g_isDeleting = false;
+        g_isReleasing = false;
     }
 
-    static void EvictOldest() {
-        if (g_delayedQueue.empty()) return;
-        void* ptr = g_delayedQueue.front().ptr;
-        g_delayedQueue.erase(g_delayedQueue.begin());
-        DeleteTexture(ptr);
-    }
+    // Detour for Texture Release
+    int __cdecl Hooked_Texture_Release(void* Block) {
+        if (!Block) return 0;
 
-    // Detour for HTEXTURE scalar deleting destructor
-    void* __fastcall Hooked_Texture_Delete(void* Block, void* dummyEDX, char a2) {
-        if (g_enabled && Block && a2 == 1) {
-            WinLockGuard lock(g_textureLock);
+        if (g_enabled && !g_isReleasing) {
+            // Check if reference count is exactly 1
+            // Refcount is at offset 4 in HTEXTURE
+            int* refCount = (int*)((char*)Block + 4);
             
-            if (g_isDeleting) {
-                return orig_Texture_Delete(Block, a2);
-            }
-            
-            // Limit delayed queue size to 512 entries to manage memory overhead
-            if (g_delayedQueue.size() >= 512) {
-                EvictOldest();
-            }
-
-            DelayedTexture entry;
-            entry.ptr = Block;
-            entry.path = (const char*)Block + 108; // File path is offset 108 in HTEXTURE
-            entry.timestamp = GetTickCount();
-            g_delayedQueue.push_back(entry);
-            
-            return Block;
-        }
-        return orig_Texture_Delete(Block, a2);
-    }
-
-    // Detour for Texture Lookup
-    void* __cdecl Hooked_Texture_Lookup(const char* path, char* a2, int a3) {
-        void* result = orig_Texture_Lookup(path, a2, a3);
-        if (result) {
-            return result;
-        }
-        
-        if (g_enabled && path) {
-            WinLockGuard lock(g_textureLock);
-            for (auto it = g_delayedQueue.begin(); it != g_delayedQueue.end(); ++it) {
-                if (_stricmp(it->path.c_str(), path) == 0) {
-                    void* Block = it->ptr;
-                    g_delayedQueue.erase(it);
-                    
-                    // Re-insert texture back into the game's active hash map
-                    orig_Texture_Insert(Block);
-                    
-                    // Increment reference count to prevent immediate destruction
-                    orig_Texture_AddRef(Block);
-                    
-                    if (a2) {
-                        *a2 = 46; // Signal a valid dot suffix (matches original lookup logic)
+            if (*refCount == 1) {
+                WinLockGuard lock(g_textureLock);
+                
+                // Check if already in queue to prevent duplicates
+                bool alreadyInQueue = false;
+                for (const auto& item : g_delayedQueue) {
+                    if (item.ptr == Block) {
+                        alreadyInQueue = true;
+                        break;
                     }
+                }
+                
+                if (!alreadyInQueue) {
+                    // Cache the texture and keep refcount at 1 (prevent destruction)
+                    DelayedTexture entry;
+                    entry.ptr = Block;
+                    entry.timestamp = GetTickCount();
+                    g_delayedQueue.push_back(entry);
                     
-                    return Block;
+                    return 0; // Return without deleting
                 }
             }
         }
         
-        return nullptr;
+        return orig_Texture_Release(Block);
     }
 
     bool Init() {
@@ -116,45 +79,34 @@ namespace TextureUnloadDelay {
 
         Log("[TextureUnloadDelay] Initializing Texture Smart Unload Delay...");
 
-        orig_Texture_Insert = (Texture_Insert_fn)0x004B9420;
-        orig_Texture_AddRef = (Texture_AddRef_fn)0x0047BF50;
+        void* target_Release = (void*)0x0047BF30;
 
-        void* target_Delete = (void*)0x004B91D0;
-        void* target_Lookup = (void*)0x004B6FA0;
-
-        if (WineSafe_CreateHook(target_Delete, (void*)Hooked_Texture_Delete, (void**)&orig_Texture_Delete) != MH_OK) {
-            Log("[TextureUnloadDelay] Failed to hook Texture Delete");
-            return false;
-        }
-        if (WineSafe_CreateHook(target_Lookup, (void*)Hooked_Texture_Lookup, (void**)&orig_Texture_Lookup) != MH_OK) {
-            Log("[TextureUnloadDelay] Failed to hook Texture Lookup");
+        if (WineSafe_CreateHook(target_Release, (void*)Hooked_Texture_Release, (void**)&orig_Texture_Release) != MH_OK) {
+            Log("[TextureUnloadDelay] Failed to hook Texture Release");
             return false;
         }
 
-        if (WO_EnableHook(target_Delete) != MH_OK || WO_EnableHook(target_Lookup) != MH_OK) {
+        if (WO_EnableHook(target_Release) != MH_OK) {
             Log("[TextureUnloadDelay] Failed to enable hooks");
             return false;
         }
 
         g_enabled = true;
-        Log("[TextureUnloadDelay] ACTIVE (Delayed culling queue, TTL: 5000ms)");
+        Log("[TextureUnloadDelay] ACTIVE (Delayed release queue, TTL: 5000ms)");
         return true;
     }
 
     void Shutdown() {
         if (!g_enabled) return;
         
-        void* target_Delete = (void*)0x004B91D0;
-        void* target_Lookup = (void*)0x004B6FA0;
-        
-        MH_DisableHook(target_Delete);
-        MH_DisableHook(target_Lookup);
+        void* target_Release = (void*)0x0047BF30;
+        MH_DisableHook(target_Release);
         
         WinLockGuard lock(g_textureLock);
         while (!g_delayedQueue.empty()) {
             void* ptr = g_delayedQueue.back().ptr;
             g_delayedQueue.pop_back();
-            DeleteTexture(ptr);
+            ReleaseTexture(ptr);
         }
         
         Log("[TextureUnloadDelay] Shutdown - All delayed textures cleaned up");
@@ -168,10 +120,16 @@ namespace TextureUnloadDelay {
         
         auto it = g_delayedQueue.begin();
         while (it != g_delayedQueue.end()) {
-            if (now - it->timestamp >= 5000) { // 5-second Grace Period (TTL)
+            // If the refcount was incremented by the engine in the meantime, it means the texture
+            // was looked up and reused. In this case, we remove it from the queue and let the engine own it.
+            int* refCount = (int*)((char*)it->ptr + 4);
+            if (*refCount > 1) {
+                // Engine reused it, remove from queue without releasing (refcount remains > 1)
+                it = g_delayedQueue.erase(it);
+            } else if (now - it->timestamp >= 5000) { // 5-second Grace Period
                 void* ptr = it->ptr;
                 it = g_delayedQueue.erase(it);
-                DeleteTexture(ptr);
+                ReleaseTexture(ptr); // Release it (refcount drops to 0, destroying it)
             } else {
                 ++it;
             }
