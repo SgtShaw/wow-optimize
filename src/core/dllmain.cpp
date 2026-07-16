@@ -9403,6 +9403,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             break;
         case DLL_PROCESS_DETACH:
             if (reserved != NULL) {
+                // Process is terminating — immediately unhook everything so WoW's
+                // teardown code doesn't run through our detours after DLL data is
+                // being freed. Without this, destructors like sub_47BF30 (refcount
+                // release) crash because hooks are still redirecting calls.
+                MH_DisableHook(MH_ALL_HOOKS);
+                MH_Uninitialize();
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
                 FlushSavedVarsAsyncSynchronously();
 #endif
@@ -9410,7 +9416,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 if (g_log) {
                     SYSTEMTIME st;
                     GetLocalTime(&st);
-                    fprintf(g_log, "[%02d:%02d:%02d.%03d] wow_optimize.dll: process terminating, skipping cleanup\n",
+                    fprintf(g_log, "[%02d:%02d:%02d.%03d] wow_optimize.dll: process terminating, hooks removed, skipping cleanup\n",
                         st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
                     fflush(g_log);
                     fclose(g_log);
