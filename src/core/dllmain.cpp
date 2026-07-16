@@ -9436,6 +9436,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
 #if !TEST_DISABLE_SAMPLING_PROFILER
             SamplingProfiler::Shutdown();
 #endif
+            TextureUnloadDelay::Shutdown();
             LuaFastPath::Shutdown();
             LuaInternals::Shutdown();
             LuaBytecodeCache::Shutdown();

@@ -1,5 +1,6 @@
 #include "texture_unload_delay.h"
 #include "MinHook.h"
+#include "version.h"
 #include "config.h"
 #include <vector>
 #include <string>
@@ -27,7 +28,7 @@ namespace TextureUnloadDelay {
     typedef void* (__cdecl *Texture_Lookup_fn)(const char* path, char* a2, int a3);
     static Texture_Lookup_fn orig_Texture_Lookup = nullptr;
 
-    typedef int (__cdecl *Texture_Insert_fn)(void* Block, int a2);
+    typedef int (__cdecl *Texture_Insert_fn)(void* Block);
     static Texture_Insert_fn orig_Texture_Insert = nullptr;
 
     typedef void* (__cdecl *Texture_AddRef_fn)(void* Block);
@@ -90,7 +91,7 @@ namespace TextureUnloadDelay {
                     g_delayedQueue.erase(it);
                     
                     // Re-insert texture back into the game's active hash map
-                    orig_Texture_Insert(Block, *(int*)((char*)Block + 88));
+                    orig_Texture_Insert(Block);
                     
                     // Increment reference count to prevent immediate destruction
                     orig_Texture_AddRef(Block);
@@ -108,8 +109,35 @@ namespace TextureUnloadDelay {
     }
 
     bool Init() {
-        g_enabled = false;
-        Log("[TextureUnloadDelay] DISABLED permanently for stability");
+        if (!Config::g_settings.OptTextureUnloadDelay) {
+            g_enabled = false;
+            return true;
+        }
+
+        Log("[TextureUnloadDelay] Initializing Texture Smart Unload Delay...");
+
+        orig_Texture_Insert = (Texture_Insert_fn)0x004B9420;
+        orig_Texture_AddRef = (Texture_AddRef_fn)0x0047BF50;
+
+        void* target_Delete = (void*)0x004B91D0;
+        void* target_Lookup = (void*)0x004B6FA0;
+
+        if (WineSafe_CreateHook(target_Delete, (void*)Hooked_Texture_Delete, (void**)&orig_Texture_Delete) != MH_OK) {
+            Log("[TextureUnloadDelay] Failed to hook Texture Delete");
+            return false;
+        }
+        if (WineSafe_CreateHook(target_Lookup, (void*)Hooked_Texture_Lookup, (void**)&orig_Texture_Lookup) != MH_OK) {
+            Log("[TextureUnloadDelay] Failed to hook Texture Lookup");
+            return false;
+        }
+
+        if (WO_EnableHook(target_Delete) != MH_OK || WO_EnableHook(target_Lookup) != MH_OK) {
+            Log("[TextureUnloadDelay] Failed to enable hooks");
+            return false;
+        }
+
+        g_enabled = true;
+        Log("[TextureUnloadDelay] ACTIVE (Delayed culling queue, TTL: 5000ms)");
         return true;
     }
 
