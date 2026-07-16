@@ -662,7 +662,7 @@
 // IsSphereVisible DISABLED: second-pass _MM_TRANSPOSE4_PS mixes zeros into plane
 // normals (only 2 of 4 inputs are actual planes), corrupting frustum culling for
 // planes 4-5 and causing camera to clip through player character (zoom-in bug).
-#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         1
+#define TEST_DISABLE_SPHERE_VISIBLE_SSE2         0
 #define TEST_DISABLE_FROM_ANGLE_AXIS_SSE2         0
 #define TEST_DISABLE_QUAT_SLERP_SSE2         0
 //

@@ -34,26 +34,39 @@ static void* __stdcall Hooked_WoWStrcpy(void* dst, char* src, int maxLen) {
     if (!dst || !src) return orig_WoWStrcpy(dst, src, maxLen);
     // SSE2 fast path for common case (maxLen == 0x7FFFFFFF = unlimited)
     if (maxLen == 0x7FFFFFFF) {
-        __try {
-            char* d = (char*)dst;
-            const char* s = src;
-            // Process 16 bytes at a time
-            while (true) {
-                __m128i chunk = _mm_loadu_si128((__m128i*)s);
-                __m128i zero = _mm_setzero_si128();
-                __m128i cmp = _mm_cmpeq_epi8(chunk, zero);
-                int mask = _mm_movemask_epi8(cmp);
-                if (mask) {
-                    unsigned long pos;
-                    _BitScanForward(&pos, mask);
-                    memcpy(d, s, pos + 1); // include null terminator
-                    _InterlockedIncrement(&g_h[0]);
-                    return (void*)(d - (char*)dst + pos); // Return copied offset
+        char* d = (char*)dst;
+        const char* s = src;
+        while (true) {
+            // Check if we are near a 4KB page boundary (last 16 bytes of the page)
+            if (((uintptr_t)s & 0xFFF) > 0xFF0) {
+                // Byte-by-byte copy until aligned or null terminator found
+                while (true) {
+                    char c = *s;
+                    *d = c;
+                    if (!c) {
+                        _InterlockedIncrement(&g_h[0]);
+                        return (void*)(d - (char*)dst);
+                    }
+                    s++; d++;
+                    if (((uintptr_t)s & 15) == 0) break; // Now 16-byte aligned
                 }
-                _mm_storeu_si128((__m128i*)d, chunk);
-                s += 16; d += 16;
             }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            
+            // Safe to load 16 bytes because s is not near page boundary
+            __m128i chunk = _mm_loadu_si128((const __m128i*)s);
+            __m128i zero = _mm_setzero_si128();
+            __m128i cmp = _mm_cmpeq_epi8(chunk, zero);
+            int mask = _mm_movemask_epi8(cmp);
+            if (mask) {
+                unsigned long pos;
+                _BitScanForward(&pos, mask);
+                memcpy(d, s, pos + 1); // include null terminator
+                _InterlockedIncrement(&g_h[0]);
+                return (void*)(d - (char*)dst + pos);
+            }
+            _mm_storeu_si128((__m128i*)d, chunk);
+            s += 16; d += 16;
+        }
     }
     return orig_WoWStrcpy(dst, src, maxLen);
 }
@@ -205,8 +218,7 @@ namespace WowExtendedHooks {
         };
 
         HookDef hooks[] = {
-            // C1 strcpy SSE2 hook disabled to prevent page-boundary and calling convention crashes
-            // {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
+            {(void*)0x0076ED20, (void*)Hooked_WoWStrcpy,       (void**)&orig_WoWStrcpy,       "C1 strcpy SSE2 (890 xrefs)"},
             // C2 skipped - duplicate of W4
             // C3 skipped - __usercall convention
             {(void*)0x0084E300, (void*)Hooked_PushStringImpl,  (void**)&orig_PushStringImpl,  "C4 pushstring impl (36 xrefs)"},

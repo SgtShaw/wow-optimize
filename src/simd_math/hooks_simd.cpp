@@ -920,43 +920,28 @@ static int __fastcall Hooked_IsSphereVisible(float* self, void* edx, float* sphe
             (uintptr_t)self > 0x10000 && (uintptr_t)self < 0xFFE00000 &&
             (uintptr_t)sphere > 0x10000 && (uintptr_t)sphere < 0xFFE00000) {
             
-            float* planes = (float*)self;
-            __m128 sx = _mm_set1_ps(sphere[0]);
-            __m128 sy = _mm_set1_ps(sphere[1]);
-            __m128 sz = _mm_set1_ps(sphere[2]);
-            __m128 sr = _mm_set1_ps(sphere[3]);
-
-            __m128 r0 = _mm_loadu_ps(planes + 0);
-            __m128 r1 = _mm_loadu_ps(planes + 4);
-            __m128 r2 = _mm_loadu_ps(planes + 8);
-            __m128 r3 = _mm_loadu_ps(planes + 12);
-
-            _MM_TRANSPOSE4_PS(r0, r1, r2, r3);
-
-            __m128 dp = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r0, sx), _mm_mul_ps(r1, sy)), 
-                                   _mm_add_ps(_mm_mul_ps(r2, sz), r3));
-
-            __m128 cull_mask = _mm_cmplt_ps(dp, _mm_sub_ps(_mm_setzero_ps(), sr));
-            if (_mm_movemask_ps(cull_mask) != 0) {
-                return 0;
+            float x = sphere[0];
+            float y = sphere[1];
+            float z = sphere[2];
+            float r = sphere[3];
+            
+            __m128 s_xyz = _mm_setr_ps(x, y, z, 0.0f);
+            __m128 minus_r = _mm_set1_ps(-r);
+            
+            for (int i = 0; i < 6; ++i) {
+                __m128 plane = _mm_loadu_ps(self + i * 4); // (nx, ny, nz, d)
+                __m128 dp = _mm_mul_ps(plane, s_xyz); // (nx*x, ny*y, nz*z, 0)
+                __m128 shuf1 = _mm_shuffle_ps(dp, dp, _MM_SHUFFLE(1, 1, 1, 1)); // ny*y
+                __m128 shuf2 = _mm_shuffle_ps(dp, dp, _MM_SHUFFLE(2, 2, 2, 2)); // nz*z
+                __m128 dot = _mm_add_ss(_mm_add_ss(dp, shuf1), shuf2); // nx*x + ny*y + nz*z
+                __m128 d = _mm_shuffle_ps(plane, plane, _MM_SHUFFLE(3, 3, 3, 3)); // d
+                __m128 val = _mm_add_ss(dot, d);
+                
+                if (_mm_comilt_ss(val, minus_r)) {
+                    return 0; // Culled
+                }
             }
-
-            __m128 r4 = _mm_loadu_ps(planes + 16);
-            __m128 r5 = _mm_loadu_ps(planes + 20);
-            __m128 r6 = _mm_setzero_ps();
-            __m128 r7 = _mm_setzero_ps();
-
-            _MM_TRANSPOSE4_PS(r4, r5, r6, r7);
-
-            __m128 dp2 = _mm_add_ps(_mm_add_ps(_mm_mul_ps(r4, sx), _mm_mul_ps(r5, sy)), 
-                                    _mm_add_ps(_mm_mul_ps(r6, sz), r7));
-
-            __m128 cull_mask2 = _mm_cmplt_ps(dp2, _mm_sub_ps(_mm_setzero_ps(), sr));
-            if ((_mm_movemask_ps(cull_mask2) & 3) != 0) {
-                return 0;
-            }
-
-            return 3;
+            return 3; // Visible
         }
     } __except (EXCEPTION_EXECUTE_HANDLER) {}
     return orig_IsSphereVisible(self, edx, sphere);
