@@ -428,8 +428,11 @@
 // D3D9 Render State Redundancy Cache
 #define TEST_DISABLE_D3D9_STATE_CACHE   0
 
-// Conflicting duplicate Render State Dedup hook
-#define TEST_DISABLE_RENDER_STATE_DEDUP 0
+// Conflicting duplicate Render State Dedup hook — DISABLED: conflicts with d3d9_state_cache
+// and d3d9_state_manager which also hook the same D3D9 vtable functions (SetRenderState,
+// SetTextureStageState, SetSamplerState). Triple-hooking causes stale cache state and
+// corrupts render state pointers, crashing at sub_685F50.
+#define TEST_DISABLE_RENDER_STATE_DEDUP 1
 
 // Lock-Free Addon SavedVariables Incremental Serializer
 #define TEST_DISABLE_SAVED_VARS_SERIALIZER 0
