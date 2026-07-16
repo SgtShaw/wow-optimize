@@ -83,7 +83,7 @@ namespace Config {
         // 20 new colossal features (Features 31-50)
         bool OptPacketProcessingThrottle = true;
         bool OptNameplateCulling = true;
-        bool OptTextureUnloadDelay = true;
+        bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = true;
         bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;

@@ -100,7 +100,7 @@ namespace Config {
             // 20 new colossal features defaults
             WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "1", iniPath.c_str());
@@ -201,7 +201,7 @@ namespace Config {
         // Parse Features 31-50
         g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 1, iniPath.c_str()) != 0;
         g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 1, iniPath.c_str()) != 0;
-        g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 1, iniPath.c_str()) != 0;
+        g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
         g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 1, iniPath.c_str()) != 0;
         g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 1, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 1, iniPath.c_str()) != 0;
