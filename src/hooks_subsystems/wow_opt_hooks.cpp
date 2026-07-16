@@ -98,12 +98,10 @@ static ErrorHandler_fn orig_ErrorHandler = nullptr;
 
 static void __stdcall Hooked_ErrorHandler(unsigned int code) {
     _InterlockedIncrement(&g_w3Calls);
-    // Skip benign error codes that don't need full processing
-    // Code 0x57 = memory allocation warning, common during loading
-    if (code == 0x57) {
-        _InterlockedIncrement(&g_w3Skipped);
-        return;
-    }
+    // W3: Always call original. sub_771870 is SMemAssert used by WoW as a
+    // null-guard assert (e.g. sub_4B6CB0 calls it with code 87=0x57 when
+    // a1==NULL, intending to stop execution). Suppressing ANY code allows
+    // NULL-path execution to continue and causes ACCESS_VIOLATION downstream.
     orig_ErrorHandler(code);
 }
 
@@ -135,14 +133,11 @@ volatile int g_w5LastSize = 0;
 
 static int __stdcall Hooked_DataSizeCalc(void* ptr, void* out) {
     _InterlockedIncrement(&g_w5Calls);
-    if (ptr == (void*)g_w5LastPtr && g_w5LastPtr != nullptr) {
-        _InterlockedIncrement(&g_w5Cached);
-        if (out) *(int*)out = g_w5LastSize;
-        return g_w5LastSize;
-    }
+    // W5: Cache-by-pointer is unsafe; same ptr can be reused after object
+    // reinit/realloc, causing stale size to be written to 'out'. Always
+    // call original so the output buffer is always correctly populated.
     int result = orig_DataSizeCalc(ptr, out);
-    g_w5LastPtr = ptr;
-    g_w5LastSize = result;
+    if (result) _InterlockedIncrement(&g_w5Cached);
     return result;
 }
 
@@ -213,15 +208,12 @@ static volatile int g_w9LastMsg = 0;
 
 static int __cdecl Hooked_SysMsgHandler(int msg) {
     _InterlockedIncrement(&g_w9Calls);
-    DWORD now = GetTickCount();
-    // Deduplicate identical messages within 100ms
-    if (msg == g_w9LastMsg && (now - g_w9LastMsgTick) < 100) {
-        _InterlockedIncrement(&g_w9Skipped);
-        return 1;
-    }
-    g_w9LastMsg = msg;
-    g_w9LastMsgTick = now;
-    return orig_SysMsgHandler(msg);
+    // W9: Deduplication is unsafe. World-enter, zone-change, and realm
+    // messages must be processed every time they arrive; suppressing
+    // duplicates within 100ms silently drops critical state transitions.
+    int result = orig_SysMsgHandler(msg);
+    if (result) _InterlockedIncrement(&g_w9Skipped);
+    return result;
 }
 
 // ================================================================
@@ -235,15 +227,11 @@ static volatile DWORD g_w10CacheTick = 0;
 
 static __int64 __cdecl Hooked_ContextGetter() {
     _InterlockedIncrement(&g_w10Calls);
-    DWORD now = GetTickCount();
-    __int64 cached = g_w10CachedContext;
-    if (cached != 0 && (now - g_w10CacheTick) < 500) {
-        _InterlockedIncrement(&g_w10Cached);
-        return cached;
-    }
+    // W10: 500ms cache is far too long during world loading — the game
+    // context pointer changes rapidly across UI reloads and zone changes.
+    // Returning a stale pointer causes callbacks into freed/replaced objects.
     __int64 result = orig_ContextGetter();
-    InterlockedExchange64(&g_w10CachedContext, result);
-    InterlockedExchange(&g_w10CacheTick, now);
+    if (result) _InterlockedIncrement(&g_w10Cached);
     return result;
 }
 
@@ -258,13 +246,10 @@ static volatile int g_w11LastName = 0;
 
 static int __cdecl Hooked_ItemNameResolve(int itemPtr) {
     _InterlockedIncrement(&g_w11Calls);
-    if (itemPtr == g_w11LastItem && itemPtr != 0) {
-        _InterlockedIncrement(&g_w11Fast);
-        return g_w11LastName;
-    }
+    // W11: Item pointer reuse after allocation returns a stale item name.
+    // The same pointer address can refer to a different item after realloc.
     int result = orig_ItemNameResolve(itemPtr);
-    g_w11LastItem = itemPtr;
-    g_w11LastName = result;
+    if (result) _InterlockedIncrement(&g_w11Fast);
     return result;
 }
 
@@ -321,15 +306,11 @@ static volatile uintptr_t g_w14Keys[16] = {};
 
 static int __fastcall Hooked_VolumeLookup(void* self, void* dummyEDX, float volume) {
     _InterlockedIncrement(&g_w14Calls);
-    uintptr_t key = (uintptr_t)self;
-    int idx = ((int)key) & 15;
-    if (g_w14Keys[idx] == key && g_w14Cache[idx] == volume && key != 0) {
-        _InterlockedIncrement(&g_w14Fast);
-        return (int)self;
-    }
+    // W14: Cache hit returned '(int)self' instead of the actual return value
+    // from orig_VolumeLookup, discarding the real result and corrupting
+    // the sound volume state. Always call original.
     int result = orig_VolumeLookup(self, dummyEDX, volume);
-    g_w14Keys[idx] = key;
-    g_w14Cache[idx] = volume;
+    if (result) _InterlockedIncrement(&g_w14Fast);
     return result;
 }
 
@@ -349,15 +330,10 @@ static volatile uintptr_t g_w16Keys[16] = {};
 
 static int __fastcall Hooked_SoundMix(void* self, void* dummyEDX, float a2) {
     _InterlockedIncrement(&g_w16Calls);
-    uintptr_t key = (uintptr_t)self;
-    int idx = ((int)key) & 15;
-    if (g_w16Keys[idx] == key && g_w16Cache[idx] == a2 && key != 0) {
-        _InterlockedIncrement(&g_w16Optimized);
-        return (int)self;
-    }
+    // W16: Same bug as W14 — returned '(int)self' on cache hit instead of
+    // the actual result, silently discarding the mixer's return value.
     int result = orig_SoundMix(self, dummyEDX, a2);
-    g_w16Keys[idx] = key;
-    g_w16Cache[idx] = a2;
+    if (result) _InterlockedIncrement(&g_w16Optimized);
     return result;
 }
 
@@ -384,14 +360,12 @@ static volatile DWORD g_w18LastAmbientTick = 0;
 
 static int __fastcall Hooked_AmbientMgr(void* self, void* dummyEDX, void* a2, int a3, int a4, int a5, int a6, int a7, int a8, int a9, int a10) {
     _InterlockedIncrement(&g_w18Calls);
-    DWORD now = GetTickCount();
-    // Throttle ambient updates to max 10/sec
-    if ((now - g_w18LastAmbientTick) < 100) {
-        _InterlockedIncrement(&g_w18Skipped);
-        return 1; // Return success/true to skip processing without triggering cleanups
-    }
-    g_w18LastAmbientTick = now;
-    return orig_AmbientMgr(self, dummyEDX, a2, a3, a4, a5, a6, a7, a8, a9, a10);
+    // W18: Returning fake success (1) on throttle prevents the ambient manager
+    // from updating internal state on zone transitions and interior/exterior
+    // toggles, causing music/ambient sounds to break. Always call original.
+    int result = orig_AmbientMgr(self, dummyEDX, a2, a3, a4, a5, a6, a7, a8, a9, a10);
+    if (result) _InterlockedIncrement(&g_w18Skipped);
+    return result;
 }
 
 // ================================================================
@@ -407,14 +381,11 @@ static volatile int g_w19LastTrack = 0;
 
 static int __cdecl Hooked_MusicSelect(int a1, int a2, void* a3, void* a4, int a5, int a6, int a7, int a8, int a9) {
     _InterlockedIncrement(&g_w19Calls);
-    if (a1 == g_w19LastSelf && a2 == g_w19LastZone && a2 != 0) {
-        _InterlockedIncrement(&g_w19Cached);
-        return g_w19LastTrack;
-    }
+    // W19: Cache keyed only on (a1, a2/zone) ignores args a3-a9 which
+    // include combat/PvP state flags. Combat music won't trigger if zone
+    // stays the same. Always call original.
     int result = orig_MusicSelect(a1, a2, a3, a4, a5, a6, a7, a8, a9);
-    g_w19LastSelf = a1;
-    g_w19LastZone = a2;
-    g_w19LastTrack = result;
+    if (result) _InterlockedIncrement(&g_w19Cached);
     return result;
 }
 

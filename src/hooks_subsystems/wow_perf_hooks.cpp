@@ -492,18 +492,25 @@ namespace WowPerfHooks {
             // P4 data store lookup — safe: original sub_4CFD20 always copies exactly 680 (0x2A8) bytes
             {(void*)0x004CFD20, (void*)Hooked_DsLookup,          (void**)&orig_DsLookup,          "P4 data store lookup (345 xrefs)"},
             {(void*)0x0084DEB0, (void*)Hooked_LuaType,           (void**)&orig_LuaType,           "P5 lua_type (229 xrefs)"},
-            {(void*)0x00422910, (void*)Hooked_ObjDestroyChain,   (void**)&orig_ObjDestroyChain,   "P6 obj destroy chain (513 xrefs)"},
-            {(void*)0x004C6A40, (void*)Hooked_SoundPlayDispatch, (void**)&orig_SoundPlayDispatch, "P7 sound play dispatch (98 xrefs)"},
+            // P6 REMOVED: 0x422910 already hooked by W2 (wow_opt_hooks). Duplicate = MH_ERROR_ALREADY_CREATED, orig_ stays null.
+            // {(void*)0x00422910, (void*)Hooked_ObjDestroyChain,   (void**)&orig_ObjDestroyChain,   "P6 obj destroy chain (513 xrefs)"},
+            // P7 REMOVED: 0x4C6A40 already hooked by W7 (wow_opt_hooks). Calling convention mismatch would corrupt stack.
+            // {(void*)0x004C6A40, (void*)Hooked_SoundPlayDispatch, (void**)&orig_SoundPlayDispatch, "P7 sound play dispatch (98 xrefs)"},
             {(void*)0x0047CC90, (void*)Hooked_MemStormDelete,    (void**)&orig_MemStormDelete,    "P8 memorystorm delete"},
             {(void*)0x0042E3B0, (void*)Hooked_MemStormBlockFree, (void**)&orig_MemStormBlockFree, "P9 memorystorm block free"},
             {(void*)0x004270F0, (void*)Hooked_VirtualDispatch,   (void**)&orig_VirtualDispatch,   "P10 virtual dispatch"},
             {(void*)0x004283D0, (void*)Hooked_DelCSWrapper,      (void**)&orig_DelCSWrapper,      "P11 deleteCS wrapper"},
-            {(void*)0x00878760, (void*)Hooked_SoundVolumeLookup, (void**)&orig_SoundVolumeLookup, "P12 sound volume lookup"},
-            {(void*)0x00878610, (void*)Hooked_SoundMixUpdate,    (void**)&orig_SoundMixUpdate,    "P13 sound mix update"},
+            // P12 REMOVED: 0x878760 already hooked by W14 (wow_opt_hooks). P12 uses __cdecl vs W14 __fastcall — wrong CC.
+            // {(void*)0x00878760, (void*)Hooked_SoundVolumeLookup, (void**)&orig_SoundVolumeLookup, "P12 sound volume lookup"},
+            // P13 REMOVED: 0x878610 already hooked by W16 (wow_opt_hooks). Duplicate = MH_ERROR_ALREADY_CREATED.
+            // {(void*)0x00878610, (void*)Hooked_SoundMixUpdate,    (void**)&orig_SoundMixUpdate,    "P13 sound mix update"},
             {(void*)0x008799E0, (void*)Hooked_SoundChannelAlloc, (void**)&orig_SoundChannelAlloc, "P14 sound channel alloc"},
-            {(void*)0x00879390, (void*)Hooked_SoundStop,         (void**)&orig_SoundStop,         "P15 sound stop"},
-            {(void*)0x0087F7A0, (void*)Hooked_AmbientSoundMgr,   (void**)&orig_AmbientSoundMgr,   "P16 ambient sound mgr"},
-            {(void*)0x004CB580, (void*)Hooked_MusicTrackSelect,  (void**)&orig_MusicTrackSelect,  "P17 music track select"},
+            // P15 REMOVED: 0x879390 already hooked by W17 (wow_opt_hooks). Duplicate = MH_ERROR_ALREADY_CREATED.
+            // {(void*)0x00879390, (void*)Hooked_SoundStop,         (void**)&orig_SoundStop,         "P15 sound stop"},
+            // P16 REMOVED: 0x87F7A0 already hooked by W18 (wow_opt_hooks). P16 uses __cdecl(int) vs W18 __fastcall(void*,void*,...) — wrong CC.
+            // {(void*)0x0087F7A0, (void*)Hooked_AmbientSoundMgr,   (void**)&orig_AmbientSoundMgr,   "P16 ambient sound mgr"},
+            // P17 REMOVED: 0x4CB580 already hooked by W19 (wow_opt_hooks). Duplicate = MH_ERROR_ALREADY_CREATED.
+            // {(void*)0x004CB580, (void*)Hooked_MusicTrackSelect,  (void**)&orig_MusicTrackSelect,  "P17 music track select"},
             // {(void*)0x004C5990, (void*)Hooked_SfxPriorityCalc,   (void**)&orig_SfxPriorityCalc,   "P18 SFX priority calc"},
             {(void*)0x00879A60, (void*)Hooked_SoundKitLookup,    (void**)&orig_SoundKitLookup,    "P19 sound kit lookup"},
             {(void*)0x00878590, (void*)Hooked_SoundSysTick,      (void**)&orig_SoundSysTick,      "P20 sound sys tick"},
