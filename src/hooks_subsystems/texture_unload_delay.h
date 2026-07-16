@@ -5,4 +5,5 @@ namespace TextureUnloadDelay {
     bool Init();
     void Shutdown();
     void OnFrame();
+    void Flush();
 }

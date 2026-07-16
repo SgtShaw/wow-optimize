@@ -9,6 +9,7 @@
 #include "../runtime_vm/lua_optimize.h"
 
 extern "C" void Log(const char* fmt, ...);
+extern DWORD g_mainThreadId;
 
 namespace TextureUnloadDelay {
     static bool g_enabled = false;
@@ -41,6 +42,9 @@ namespace TextureUnloadDelay {
     int __cdecl Hooked_Texture_Release(void* Block) {
         if (!Block) return 0;
 
+        DWORD curThread = GetCurrentThreadId();
+        bool isMain = (curThread == g_mainThreadId);
+
         bool bypass = false;
         if (g_enabled) {
             if (LoadingDefrag::IsLoadingActive() || 
@@ -52,25 +56,14 @@ namespace TextureUnloadDelay {
         }
 
         if (bypass) {
-            // Flush all delayed textures immediately during loading/zoning
-            // to prevent the game engine from deadlocking while waiting for old assets.
-            std::vector<void*> toRelease;
-            {
-                WinLockGuard lock(g_textureLock);
-                while (!g_delayedQueue.empty()) {
-                    toRelease.push_back(g_delayedQueue.back().ptr);
-                    g_delayedQueue.pop_back();
-                }
+            if (isMain) {
+                // Safely flush the queue on the main thread
+                Flush();
             }
-            
-            for (void* ptr : toRelease) {
-                ReleaseTexture(ptr);
-            }
-            
             return orig_Texture_Release(Block);
         }
 
-        if (g_enabled && !g_isReleasing) {
+        if (g_enabled && isMain && !g_isReleasing) {
             // Check if reference count is exactly 1
             // Refcount is at offset 4 in HTEXTURE
             int* refCount = (int*)((char*)Block + 4);
@@ -133,6 +126,14 @@ namespace TextureUnloadDelay {
         void* target_Release = (void*)0x0047BF30;
         MH_DisableHook(target_Release);
         
+        Flush();
+        
+        Log("[TextureUnloadDelay] Shutdown - All delayed textures cleaned up");
+    }
+
+    void Flush() {
+        if (!g_enabled) return;
+        
         std::vector<void*> toRelease;
         {
             WinLockGuard lock(g_textureLock);
@@ -145,8 +146,6 @@ namespace TextureUnloadDelay {
         for (void* ptr : toRelease) {
             ReleaseTexture(ptr);
         }
-        
-        Log("[TextureUnloadDelay] Shutdown - All delayed textures cleaned up");
     }
 
     void OnFrame() {

@@ -5672,6 +5672,7 @@ extern "C" void ReserveLoadingArena() {
         Log("[VA-Arena] Failed to reserve 256MB (VA fragmented - continuing)");
     }
     LoadingDefrag::NotifyLoadingState(true);
+    TextureUnloadDelay::Flush();
 }
 
 extern "C" void ReleaseLoadingArena() {
@@ -5683,6 +5684,7 @@ extern "C" void ReleaseLoadingArena() {
     }
     ReleaseSRWLockExclusive(&g_arenaLock);
     LoadingDefrag::NotifyLoadingState(false);
+    TextureUnloadDelay::Flush();
 }
 
 // ================================================================
