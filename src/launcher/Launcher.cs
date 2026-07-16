@@ -389,7 +389,6 @@ namespace WowOptimizeLauncher {
                 // 20 new colossal features (Features 31-50)
                 { "Network Packet Processing Throttle", new SettingItem("Combat_Net", "PacketProcessingThrottle", false, null, "[NEW] Limits processing rate of non-essential social/guild status packets in combat.") },
                 { "Nameplate Occlusion Culler", new SettingItem("Combat_Net", "NameplateCulling", false, null, "[NEW] Culls processing and drawing of nameplates that are behind obstacles or out of range.") },
-                { "Texture Smart Unload Delay", new SettingItem("Graphics_Sound", "TextureUnloadDelay", false, null, "[NEW] Delays texture unloading during camera turnarounds to prevent immediate load micro-stutters.") },
                 { "Minimap Refresh Rate Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", false, null, "[NEW] Caps minimap radar updates frequency to prevent client rendering overload during fast runs.") },
                 { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
                 { "Lua Fast String Compare", new SettingItem("UI_Lua", "LuaStringCompareFast", false, null, "[NEW] Accelerates Lua string comparison using hardware-inlined vector instructions.") },
