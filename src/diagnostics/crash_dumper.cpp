@@ -484,16 +484,20 @@ typedef void (WINAPI *ExitProcess_fn)(UINT uExitCode);
 static ExitProcess_fn orig_ExitProcess = nullptr;
 
 static void WINAPI Hooked_ExitProcess(UINT uExitCode) {
-    LogFlushImmediate();
+    __try {
+        LogFlushImmediate();
 
-    if (uExitCode != 0) {
-        Log("!!! PROCESS EXIT (code=%u) — abnormal termination !!!", uExitCode);
-        Log("!!!   TID=%lu  Caller=0x%08X", GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
-        LogFlushImmediate();
-    } else {
-        Log("[Exit] Normal termination (code=0). TID=%lu  Caller=0x%08X",
-            GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
-        LogFlushImmediate();
+        if (uExitCode != 0) {
+            Log("!!! PROCESS EXIT (code=%u) — abnormal termination !!!", uExitCode);
+            Log("!!!   TID=%lu  Caller=0x%08X", GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
+            LogFlushImmediate();
+        } else {
+            Log("[Exit] Normal termination (code=0). TID=%lu  Caller=0x%08X",
+                GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
+            LogFlushImmediate();
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        // Best-effort logging during exit — don't crash the exit path
     }
 
     // Chain to original ExitProcess (allows DLL_PROCESS_DETACH and proper cleanup)
@@ -539,6 +543,46 @@ static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
             }
         } __except(EXCEPTION_EXECUTE_HANDLER) {
             Log("!!! INSTRUCTIONS (EIP): (inaccessible)");
+        }
+
+        // Stack walk: dump return addresses from the stack to identify the call chain
+        // This is critical for EIP=0x00000000 crashes (NULL function pointer calls)
+        // where the return address at [ESP] reveals who made the bad call
+        __try {
+            DWORD* stack = (DWORD*)ctx->Esp;
+            Log("!!! STACK WALK (ESP=0x%08X):", ctx->Esp);
+            HMODULE hWow = GetModuleHandleA(NULL);
+            HMODULE hDll = NULL;
+            GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCSTR)&WowOpt_UnhandledExceptionFilter, &hDll);
+            for (int i = 0; i < 32; i++) {
+                if (IsBadReadPtr(stack + i, 4)) break;
+                DWORD val = stack[i];
+                // Filter: only log values that look like code addresses
+                if (val < 0x00401000 || val > 0x7FFE0000) continue;
+                HMODULE hMod = NULL;
+                if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                       GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                       (LPCSTR)val, &hMod)) {
+                    const char* label = "unknown";
+                    if (hMod == hWow) label = "WoW.exe";
+                    else if (hMod == hDll) label = "wow_optimize.dll";
+                    else {
+                        // For other modules, get the filename
+                        static char stackModName[MAX_PATH];
+                        if (GetModuleFileNameA(hMod, stackModName, MAX_PATH)) {
+                            // Extract just the filename
+                            char* lastSlash = strrchr(stackModName, '\\');
+                            label = lastSlash ? lastSlash + 1 : stackModName;
+                        }
+                    }
+                    Log("!!!   [ESP+0x%02X] = 0x%08X  (%s+0x%X)",
+                        i * 4, val, label, (unsigned)(val - (uintptr_t)hMod));
+                }
+            }
+        } __except(EXCEPTION_EXECUTE_HANDLER) {
+            Log("!!! STACK WALK: (failed to read stack)");
         }
     }
 
