@@ -145,13 +145,37 @@
 // disabled until the TLS recursion root cause is fully diagnosed.
 #define TEST_DISABLE_CRT_MEM_FASTPATHS  1
 
-// Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results
-// Stale object pointers corrupt hash table state → infinite probe loop
-// Cannot safely cache: WoW mutates object table within-frame, no synchronization point
-#define TEST_DISABLE_OBJ_VIS_CACHE      1
+// Object visibility cache - hooks sub_4D4BB0 to cache GUID->lookup results.
+// RE-ENABLED: the disable reason above is stale. It described an older design
+// that wrote back into WoW's hash table (hence "corrupt hash table state ->
+// infinite probe loop"). The current obj_vis_cache.cpp is a READ-ONLY result
+// cache — it never mutates WoW's object table, only stores the lookup result
+// in its own per-thread pool and returns early on a hit. Staleness is guarded
+// four ways: (1) per-frame frameStamp (entries expire every frame via
+// OnFrame()); (2) GUID re-verification — a hit re-reads the object's own GUID
+// at +0x30 and only returns it if it still matches, so a freed/recycled
+// pointer is rejected; (3) InvalidateObjVisCacheFor on UnlinkNode; (4) SEH +
+// teardown/reload/swap bypass. Still ini-gated (General/ObjVisCache, default
+// on) so it can be turned off without a rebuild. Hot path — if any unit/object
+// misbehavior or hang appears in-game, set ObjVisCache=0 or revert this flag.
+#define TEST_DISABLE_OBJ_VIS_CACHE      0
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
-// RE-ENABLED (was disabled for race condition crash). v2 fixes:
+// STALE COMMENT WARNING: the paragraph below describes a v2 fix for an
+// older race-condition crash and was written back when this flag was 0.
+// It is currently 1 (disabled) for a DIFFERENT, more recent reason: commit
+// 87e68e6 ("Disable culling, coalescing, and deferred updates to resolve
+// camera and buff update latency") disabled this again because deferring
+// UNIT_FIELD_AURA (offset 0x48, >= the 0x40 critical-field cutoff and not
+// in the immediate-processing whitelist below) reproduces the same aura/
+// buff desync bug documented in CONTEXT.md lesson #2. This flag has been
+// enabled and disabled roughly 15 times across this project's history for
+// a different symptom nearly every time (race conditions, texture/minimap
+// flickering, chat history bugs, camera snapping, empty frames, weapon-
+// swap lag, buff latency) — treat any single fix here as addressing ONE
+// symptom, not the feature as a whole. Do not re-enable without a full
+// manual test pass covering all of the above, not just the aura case.
+// v2 fixes applied on top of the original race-condition crash:
 // - volatile void* for atomic unit pointer access
 // - Data fields written BEFORE tail advance (memory ordering)
 // - InterlockedExchangePointer for ownership claim in flush
@@ -160,9 +184,16 @@
 // Critical fields (fieldId < 0x40) bypass queue for gameplay correctness.
 #define TEST_DISABLE_DEFERRED_FIELD_UPDATES 1
 
-// Hardware cursor fix (ShowCursor + ClipCursor, no hooks)
-// DISABLED - mouse movement triggers 0xC0000005 crash (diag)
-#define TEST_DISABLE_HARDWARE_CURSOR    1
+// Hardware cursor fix (ShowCursor + ClipCursor(NULL), no hooks, no WoW memory
+// writes). The diagnosed crash cause was two direct byte patches (0xCABCDD/
+// CABCDE forcing gxCursor=0 + gxFixLag=1) that activated an uninitialized
+// cursor rendering path on private servers (Circle/Warmane) -> NULL deref.
+// Those two patch lines are already commented out in dllmain.cpp; the only
+// code left in this path is ShowCursor(TRUE) and ClipCursor(NULL) (releases
+// any clip region, does not add one — distinct from CONTEXT lesson 13's
+// mouselook-clipping bug, which is about actively clipping the cursor).
+// RE-ENABLED: the actual crash cause is gone from the code.
+#define TEST_DISABLE_HARDWARE_CURSOR    0
 
 // Lua VM gettable cache - primitives only (safe), GC-objects pass through
 #define TEST_DISABLE_LUA_OPCACHE         0
@@ -238,6 +269,23 @@
 #define TEST_DISABLE_STRSTR_SSE2         0
 
 #define TEST_DISABLE_CRT_CHAR_SSE2       1
+
+// ================================================================
+// WARNING — read before touching ANY flag in this SSE2 math/geometry
+// cluster (matrix/vector/quaternion/frustum/ray-triangle, through
+// TEST_DISABLE_RAY_TRIANGLE_SSE2 below): these ~15 flags have been
+// individually enabled and disabled across more than 30 commits in this
+// project's history, almost always for camera zoom/clipping/jiggle bugs
+// that a per-function "fix" seemed to resolve until a later commit found
+// a new case. The most recent commit in the entire repo at time of
+// writing (3e3c0bf) disabled this whole cluster as a deliberate, blanket
+// stability decision ("permanently resolve camera zoom-in and clipping
+// bugs"), superseding all the individual per-function fixes below. Do
+// not re-enable any of these based on reading the per-function comment
+// alone — each one previously looked individually correct too. Needs a
+// dedicated, isolated test pass per function against real gameplay
+// (camera zoom, clipping, mouselook, terrain collision) before touching.
+// ================================================================
 
 // SSE2 4x4 matrix multiply (sub_4C1F00, result = A*B). Disassembly-verified row-major
 // convention identical to the scalar original; pointer-validated + SEH-guarded.
@@ -332,7 +380,11 @@
 
 // Spell Data Caching - cache spell coefficients, ranges, cooldowns
 // Target function uses __usercall calling convention (custom)
-// Hooking requires naked function with inline assembly
+// Hooking requires naked function with inline assembly.
+// DEAD FLAG — not referenced by any #if anywhere in src/. spell_cache.cpp's
+// Init() unconditionally logs "DISABLED" and returns false; the naked-function
+// thunk this comment describes was never written. Flipping this flag does
+// nothing. Either implement the __usercall thunk for real or delete the stub.
 #define TEST_DISABLE_SPELL_CACHE        1
 
 // Multithreaded Combat Log Parser - DISABLED.
@@ -542,20 +594,19 @@
 #define TEST_DISABLE_PERF_DIAGNOSTICS           0  // enabled: Performance Diagnostics Monitor
 #define TEST_DISABLE_ASYNC_TERRAIN              0  // enabled: Asynchronous Terrain Loader
 
-// Master disable for all Lua C-API inline fast-path hooks (B29-B38 batches).
-// These ~47 hooks were never validated in-game and are suspected of causing
-// the ntdll.dll heap-corruption crash during world entry (0x778BAAB6).
-// Set to 1 to surgically remove all of them; set to 0 to test individually.
-// Re-enable all safe batch hooks (individually tested working).
-// Only lua_setlocal (0x84F210) is permanently disabled — confirmed crashing.
-// Safe batch groups — verified correct against disassembly per CONTEXT 'Hooks Verified Correct'.
-// Re-enabled: checknumber/str, optnum/str, tolstr, argcheck, typename (G1),
-// getlocal, getinfo, ErrorFast, lessthan, gc, xpcall (G2),
-// metafield, where, checktype, getupval, bufinit, prepbuf, iscfunc, rawequal (G3).
-// These were mass-disabled in 8355c31 for crash bisection; the crash root causes
-// were the LuaStackFast / pushnumber / pushvalue / inline-batch-dangerous groups
-// (confirmed at luaD_precall 0x5565E9). G1/G2/G3 had no confirmed crash.
+// DEAD FLAG — not referenced by any #if anywhere in src/. The G1/G2/G2AL/
+// G2AI/G2B/G2C/G3 sub-flags below are the actual, independent gates for
+// these hooks (all already 0/enabled — verified by grep, they are live).
+// Kept only so the historical bisection notes below aren't lost; setting
+// this to 0 or 1 has no effect on anything. Do not "fix" by flipping it.
 #define TEST_DISABLE_LUA_INLINE_BATCH_SAFE       1
+// History: checknumber/str, optnum/str, tolstr, argcheck, typename (G1),
+// getlocal, getinfo, ErrorFast, lessthan, gc, xpcall (G2),
+// metafield, where, checktype, getupval, bufinit, prepbuf, iscfunc, rawequal (G3)
+// were mass-disabled in 8355c31 for crash bisection, then individually
+// re-verified safe against disassembly and re-enabled via their own G-flags.
+// The crash root causes were the LuaStackFast / pushnumber / pushvalue /
+// inline-batch-dangerous groups (confirmed at luaD_precall 0x5565E9).
 #define TEST_DISABLE_LUA_SAFE_G1         0  
 #define TEST_DISABLE_LUA_SAFE_G2         0  // enabled: Safe Group 2 hooks
 #define TEST_DISABLE_LUA_SAFE_G2AL 0
@@ -571,15 +622,22 @@
 // corruption at login. Real lua_setlocal address UNKNOWN. Cannot safely re-enable.
 #define TEST_DISABLE_LUA_SETLOCAL_FAST  1
 
+// DEAD FLAG — not referenced by any #if anywhere in src/. TEST_DISABLE_
+// LUA_INLINE_BATCH (bare, below) is the real gate for the DG1-DG4B group
+// and is correctly 1 (disabled): these hooks caused confirmed TValue
+// corruption at luaD_precall 0x5565E9. Setting this flag has no effect.
 #define TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS  1
 
-// Bisection groups for dangerous batch hooks — find which causes TValue corruption
+// Bisection groups for dangerous batch hooks — find which causes TValue corruption.
+// Only reachable if TEST_DISABLE_LUA_INLINE_BATCH below is flipped to 0 first.
 #define TEST_DISABLE_LUA_BATCH_DG1 0
 #define TEST_DISABLE_LUA_BATCH_DG2 0
 #define TEST_DISABLE_LUA_BATCH_DG3 0
 #define TEST_DISABLE_LUA_BATCH_DG4 0  // master
 #define TEST_DISABLE_LUA_BATCH_DG4A 0
 #define TEST_DISABLE_LUA_BATCH_DG4B 0
+// Real gate for the DG1-DG4B group above — confirmed TValue corruption,
+// keep disabled (see TEST_DISABLE_LUA_INLINE_BATCH_DANGEROUS note above).
 #define TEST_DISABLE_LUA_INLINE_BATCH  1
 
 // lua_rawgeti inline cache (8192 entries) — verified against sub_84E670 disassembly.
@@ -619,7 +677,14 @@
 // via SuspendThread/GetThreadContext/ResumeThread, buckets by nearest known
 // function, dumps top-50 hot functions on shutdown. Read-only, no WoW hooks.
 // Fixes the xrefs≠runtime-frequency blind spot. Set to 1 to disable.
-#define TEST_DISABLE_SAMPLING_PROFILER  1
+// RE-ENABLED: was silently non-functional, not risky — the OpenThread call
+// only requested THREAD_QUERY_INFORMATION (insufficient for SuspendThread/
+// GetThreadContext, so every sample would have failed) AND the caller closed
+// its handle immediately after Init() while the sampler thread kept using it
+// afterward. Fixed by requesting THREAD_SUSPEND_RESUME|THREAD_GET_CONTEXT and
+// having Init() duplicate its own long-lived handle instead of borrowing the
+// caller's.
+#define TEST_DISABLE_SAMPLING_PROFILER  0
 
 // Fast UIFrame accessor hooks (IsShown at 0x48C610, IsVisible at 0x48C5B0, GetAlpha at 0x48C4C0, GetScale at 0x49F7D0).
 // Direct access to C++ object fields from Lua table index 0 with type-checking validation.
