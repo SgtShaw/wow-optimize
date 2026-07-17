@@ -427,7 +427,7 @@ static float* __fastcall Hooked_MatFrom3x3(float* self, void* edx, float* src) {
             __m128 r0 = _mm_setr_ps(src[0], src[1], src[2], 0.0f);
             __m128 r1 = _mm_setr_ps(src[3], src[4], src[5], 0.0f);
             __m128 r2 = _mm_setr_ps(src[6], src[7], src[8], 0.0f);
-            __m128 r3 = _mm_setr_ps(0.0f, 0.0f, 0.0f, 1.0f);
+            __m128 r3 = _mm_setr_ps(src[9], src[10], src[11], 1.0f);
             _mm_storeu_ps(self,     r0);
             _mm_storeu_ps(self + 4, r1);
             _mm_storeu_ps(self + 8, r2);
