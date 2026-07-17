@@ -14,6 +14,7 @@
 #include "version.h"
 #include <algorithm>
 #include <vector>
+#include "../allocators/loading_defrag.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -2164,6 +2165,11 @@ static int __cdecl Hooked_TableRemove(lua_State* L) {
 }
 
 static int __cdecl Hooked_TableConcat(lua_State* L) {
+    if (LoadingDefrag::IsLoadingActive()) {
+        g_tblConcatFallbacks++;
+        return orig_tbl_concat(L);
+    }
+
     int nargs = lua_gettop_(L);
     if (nargs < 1 || nargs > 4) {
         g_tblConcatFallbacks++;
@@ -2269,9 +2275,13 @@ static int __cdecl Hooked_TableConcat(lua_State* L) {
             uintptr_t gcPtr = (uintptr_t)val->value.gc;
             if (gcPtr < 0x10000 || gcPtr >= 0xFFE00000) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
 
-            // Validate string type byte at offset 9 (LUA_TSTRING = 4)
-            uint8_t typeByte = *(uint8_t*)(gcPtr + 9);
-            if ((typeByte & 0x1F) != 4) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
+            // Note: no re-check of the string type here. Pass 1 (above) already
+            // validated val->tt == LUA_TSTRING for every element via the TValue's
+            // real type tag, and nothing between the two passes can mutate this
+            // table. A previous "type byte at +9" recheck read the GCObject's
+            // `marked` (GC white/black) byte instead of its type tag and rejected
+            // legitimate all-string tables whose GC coloring didn't match, forcing
+            // spurious fallback (GitHub issue #37).
 
             size_t slen = *(uint32_t*)(gcPtr + 16);      // len is at offset +16
             if (slen == 0 || slen > 32768) { mi_free(buf); g_tblConcatFallbacks++; return orig_tbl_concat(L); }
