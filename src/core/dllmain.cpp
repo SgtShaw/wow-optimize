@@ -7606,7 +7606,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // ResumeThread and dumps the top-50 hot functions on shutdown.
     // Read-only — no hooks into WoW code, no writes to WoW memory.
     {
-        HANDLE hMain = OpenThread(THREAD_QUERY_INFORMATION, FALSE, g_mainThreadId);
+        HANDLE hMain = OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, g_mainThreadId);
         if (hMain) {
             if (SamplingProfiler::Init(hMain))
                 CrashDumper::FeatureSetActive("SamplingProfiler", true);

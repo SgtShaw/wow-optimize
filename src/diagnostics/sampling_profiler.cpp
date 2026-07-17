@@ -372,7 +372,15 @@ static void DumpResults() {
 bool Init(HANDLE mainThread) {
     if (!mainThread) return false;
 
-    g_mainThread = mainThread;
+    // Duplicate so this module owns an independent, long-lived handle —
+    // the caller only needs the thread open for the duration of this call
+    // and closes its own copy right after Init() returns, but the sampler
+    // thread below uses g_mainThread for the rest of the process lifetime.
+    if (!DuplicateHandle(GetCurrentProcess(), mainThread, GetCurrentProcess(),
+                          &g_mainThread, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+        Log("[SamplingProfiler] FAILED to duplicate main thread handle (err=%u)", GetLastError());
+        return false;
+    }
     g_writeIdx = 0;
     g_totalSamples = 0;
     memset((void*)g_ring, 0, sizeof(g_ring));
@@ -417,6 +425,11 @@ void Shutdown() {
     }
 
     DumpResults();
+
+    if (g_mainThread) {
+        CloseHandle(g_mainThread);
+        g_mainThread = nullptr;
+    }
 
     Log("[SamplingProfiler] SHUTDOWN (total_samples=%llu)",
         (unsigned long long)g_totalSamples);
