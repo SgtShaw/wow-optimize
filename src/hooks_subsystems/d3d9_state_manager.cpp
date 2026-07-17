@@ -749,7 +749,12 @@ static void CheckWindowSizeChange() {
         FontGlyphCache::ClearCache();
         #endif
         TextureUnloadDelay::Discard();
-        D3D9StateCache::InvalidateAllCaches(true);
+        // safeToRelease=false: this runs from the frame loop with no render-thread
+        // PipelineFlush (unlike Hooked_Reset), so we must NOT Release() the D3D9
+        // latency-query COM objects here — the render thread may be mid-GetData()/
+        // Issue() on them when D3d9RenderThread is active. Just drop the pointers
+        // and let them be recreated, matching CheckDeviceChange's async path.
+        D3D9StateCache::InvalidateAllCaches(false);
     }
 }
 

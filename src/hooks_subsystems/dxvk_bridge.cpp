@@ -138,13 +138,22 @@ void Shutdown() {
        (long long)g_presents, g_presentIntervalMs);
 }
 
+static volatile LONG g_lazyAttempted = 0;
+
 // Detection can run before DXVK's d3d9.dll has loaded vulkan-1.dll (that only
 // happens once WoW actually creates the D3D9 device), so a single one-shot
-// check at Init() time can permanently miss it. Keep re-checking lazily here
-// until it latches true; once active this is a single volatile-read fast path.
+// check at Init() time can miss it. This adds exactly ONE more attempt, run
+// lazily on the first IsActive() call: that call comes from a D3D9 hook (our
+// hooks live on d3d9.dll's vtable), so d3d9.dll — and, after device creation,
+// vulkan-1.dll — is loaded by then and detection can succeed. After that single
+// retry we settle to a cheap volatile read, so a genuinely non-DXVK process
+// does NOT re-enumerate modules and read file-version info on every hot-path
+// call (e.g. Hooked_VB_Lock runs IsActive() per vertex-buffer lock).
 bool IsActive() {
     if (g_active) return true;
-    DetectOnce();
+    if (InterlockedCompareExchange(&g_lazyAttempted, 1, 0) == 0) {
+        DetectOnce();
+    }
     return g_active != 0;
 }
 double PresentIntervalMs()   { return g_presentIntervalMs; }

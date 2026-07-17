@@ -401,6 +401,8 @@ bool Init(HANDLE mainThread) {
     if (!g_samplerThread) {
         Log("[SamplingProfiler] FAILED to create sampler thread (err=%u)", GetLastError());
         g_running = false;
+        CloseHandle(g_mainThread);   // release the handle duplicated above
+        g_mainThread = nullptr;
         return false;
     }
 
