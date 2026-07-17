@@ -8,8 +8,15 @@
 #include "MinHook.h"
 #include "version.h"
 #include "config.h"
+#include "../allocators/loading_defrag.h"
 
 extern "C" void Log(const char* fmt, ...);
+
+// Non-namespaced wrapper so the naked asm hook below can `call` it by plain
+// symbol name (inline asm can't reference a namespaced C++ function directly).
+static int CheckLoadingActive() {
+    return LoadingDefrag::IsLoadingActive() ? 1 : 0;
+}
 
 // ================================================================
 // UI Frame Update Batching
@@ -44,12 +51,21 @@ __declspec(naked) static int Hooked_FrameUpdateLoop() {
         push ebp
         mov ebp, esp
         pushad
-        
+
+        // This dispatcher is shared plumbing used during loading screens and
+        // char-select as well as in-world UI (GitHub issue #36: "why is this
+        // modifying the loading screen at all"). Skip the stat bookkeeping
+        // entirely outside gameplay so it adds zero overhead/interference
+        // during those transitions.
+        call CheckLoadingActive
+        test eax, eax
+        jnz skip_counting
+
         // Read dword_B41834 to count pending updates
         mov eax, dword ptr [0x00B41834]
         mov ecx, eax
         xor edx, edx
-        
+
         // Count bits in ecx
     count_loop:
         test ecx, ecx
@@ -59,28 +75,28 @@ __declspec(naked) static int Hooked_FrameUpdateLoop() {
         add edx, eax
         shr ecx, 1
         jmp count_loop
-        
+
     count_done:
-        // edx now contains iteration count
-        // Update g_batchedFrames
-        lock inc dword ptr [g_batchedFrames]
-        
-        // Update g_totalIterations
-        lock add dword ptr [g_totalIterations], edx
-        
-        // Update g_peakIterations if needed
+        // edx now contains iteration count. Single-writer (main thread only,
+        // this dispatcher never runs off-thread) so no lock prefix needed —
+        // the prior unconditional bus-locked atomics added needless latency
+        // on every call through this hot shared path.
+        inc dword ptr [g_batchedFrames]
+        add dword ptr [g_totalIterations], edx
+
         mov eax, dword ptr [g_peakIterations]
     peak_loop:
         cmp edx, eax
         jle peak_done
-        lock cmpxchg dword ptr [g_peakIterations], edx
+        cmpxchg dword ptr [g_peakIterations], edx
         jne peak_loop
-        
+
     peak_done:
+    skip_counting:
         // Restore registers
         popad
         pop ebp
-        
+
         // Jump to original function
         jmp dword ptr [orig_FrameUpdateLoop]
     }
