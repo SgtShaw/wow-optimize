@@ -377,6 +377,7 @@ void ClearCombatLogCache();
 #include "async_terrain_loader.h"
 
 #include "d3d9_state_manager.h"
+#include "dxvk_bridge.h"
 #include "hooks_render.h"
 #include "hooks_simd.h"
 #include "hooks_logic.h"
@@ -1054,126 +1055,15 @@ extern "C" void Log(const char* fmt, ...) {
 
 // 1. Memory allocator replacement (mimalloc).
 //
-typedef void* (__cdecl* malloc_fn)(size_t);
-typedef void  (__cdecl* free_fn)(void*);
-typedef void* (__cdecl* realloc_fn)(void*, size_t);
-typedef void* (__cdecl* calloc_fn)(size_t, size_t);
-typedef size_t (__cdecl* msize_fn)(void*);
-typedef void* (__cdecl* recalloc_fn)(void*, size_t, size_t);
-
-static malloc_fn   orig_malloc   = nullptr;
-static free_fn     orig_free     = nullptr;
-static realloc_fn  orig_realloc  = nullptr;
-static calloc_fn   orig_calloc   = nullptr;
-static msize_fn    orig_msize    = nullptr;
-static recalloc_fn orig_recalloc = nullptr;
-
-static constexpr size_t ALLOCATOR_REDIRECT_THRESHOLD = 131072; // 128KB - avoids redirecting network/socket buffers to prevent LAA pointer bugs
-
-static void* __cdecl hooked_malloc(size_t size) {
-    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= ALLOCATOR_REDIRECT_THRESHOLD) {
-        return mi_malloc(size);
-    }
-    return orig_malloc(size);
-}
-
-static void __cdecl hooked_free(void* ptr) {
-    if (!ptr) return;
-    if (mi_is_in_heap_region(ptr))
-        mi_free(ptr);
-    else
-        orig_free(ptr);
-}
-
-static void* __cdecl hooked_realloc(void* ptr, size_t size) {
-    if (!ptr) return hooked_malloc(size);
-    if (size == 0) { hooked_free(ptr); return nullptr; }
-    
-    if (mi_is_in_heap_region(ptr)) {
-        return mi_realloc(ptr, size);
-    } else {
-        return orig_realloc(ptr, size);
-    }
-}
-
-static void* __cdecl hooked_calloc(size_t count, size_t size) {
-    if (size != 0 && count > (size_t)-1 / size) return nullptr;
-    size_t total = count * size;
-    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) {
-        return mi_calloc(count, size);
-    }
-    return orig_calloc(count, size);
-}
-
-static size_t __cdecl hooked_msize(void* ptr) {
-    if (!ptr) return 0;
-    if (mi_is_in_heap_region(ptr)) return mi_usable_size(ptr);
-    return orig_msize ? orig_msize(ptr) : 0;
-}
-
-static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
-    if (size != 0 && count > (size_t)-1 / size) return nullptr;
-    size_t total = count * size;
-    if (!ptr) {
-        if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= ALLOCATOR_REDIRECT_THRESHOLD) return mi_calloc(count, size);
-        return orig_calloc(count, size);
-    }
-    if (size == 0) { hooked_free(ptr); return nullptr; }
-    
-    if (mi_is_in_heap_region(ptr)) {
-        return mi_recalloc(ptr, count, size);
-    } else {
-        return orig_recalloc(ptr, count, size);
-    }
-}
-
-// Redirect WoW's STATIC MSVCRT allocator to mimalloc. WoW links its CRT statically,
-// so these are the real allocation entry points (the old hook targeted the dynamic
-// CRT exports WoW barely uses -> cross-heap corruption on the boundary). All six are
-// a closed set: _malloc/_free are a matched pair and operator new/delete route through
-// them. We create all six first (CreateHook does not redirect), then QUEUE + apply in
-// one MH_ApplyQueued so they activate ATOMICALLY -- no window where malloc is redirected
-// but free isn't, which would free a mimalloc block on the original heap. Blocks
-// allocated before activation are detected by mi_is_in_heap_region on every
-// free/realloc/_msize/_recalloc and routed back to the original CRT.
-static bool InstallAllocatorHooks() {
-    struct AllocHook { void* addr; void* hook; void** orig; const char* name; };
-    static const AllocHook hooks[] = {
-        { (void*)0x00415074, (void*)hooked_malloc,   (void**)&orig_malloc,   "malloc"    },
-        { (void*)0x00412FC7, (void*)hooked_free,     (void**)&orig_free,     "free"      },
-        { (void*)0x00416A95, (void*)hooked_realloc,  (void**)&orig_realloc,  "realloc"   },
-        { (void*)0x00416A56, (void*)hooked_calloc,   (void**)&orig_calloc,   "calloc"    },
-        { (void*)0x004112F8, (void*)hooked_msize,    (void**)&orig_msize,    "_msize"    },
-        { (void*)0x00416CB0, (void*)hooked_recalloc, (void**)&orig_recalloc, "_recalloc" },
-    };
-    const int N = (int)(sizeof(hooks) / sizeof(hooks[0]));
-
-    // Phase 1: create all trampolines (no redirection happens yet).
-    for (int i = 0; i < N; i++) {
-        if (WineSafe_CreateHook(hooks[i].addr, hooks[i].hook, hooks[i].orig) != MH_OK) {
-            Log("[Allocator] CreateHook %s @0x%08X FAILED -- ABORTING (a partial set corrupts)",
-                hooks[i].name, (uintptr_t)hooks[i].addr);
-            for (int j = 0; j < i; j++) MH_RemoveHook(hooks[j].addr);  // undo, stay on stock CRT
-            return false;
-        }
-    }
-    // Phase 2: queue all, then activate in a single atomic apply.
-    for (int i = 0; i < N; i++) {
-        if (MH_QueueEnableHook(hooks[i].addr) != MH_OK) {
-            Log("[Allocator] QueueEnable %s FAILED -- ABORTING", hooks[i].name);
-            for (int j = 0; j < N; j++) MH_RemoveHook(hooks[j].addr);
-            return false;
-        }
-    }
-    if (MH_ApplyQueued() != MH_OK) {
-        Log("[Allocator] ApplyQueued FAILED -- ABORTING");
-        for (int i = 0; i < N; i++) MH_RemoveHook(hooks[i].addr);
-        return false;
-    }
-    Log("[Allocator] ACTIVE: WoW static CRT malloc/free/realloc/calloc/_msize/_recalloc "
-        "-> mimalloc (atomic activation, is_in_heap_region transition guard)");
-    return true;
-}
+// CRT malloc/free redirect REMOVED — hooking WoW's static CRT malloc/free/realloc
+// entry points (0x415074, 0x412FC7, etc.) destabilized Winsock's internal allocations,
+// causing "unable to connect" on login. The hook trampolines modified the CRT's SBH
+// (Small Block Heap) entry point, and the instruction cache invalidation during
+// MH_ApplyQueued could corrupt an in-flight SBH allocation on a network worker thread.
+//
+// mimalloc is still used directly by subsystems (aligned alloc cache, Lua pool,
+// VA arena, etc.) through explicit mi_malloc/mi_free calls — no CRT interception needed.
+//
 
 // 2. Sleep hook + frame pacing, GC stepping, combat log cleanup.
 //
@@ -1240,6 +1130,13 @@ static void RunPeriodicMaintenanceOnMainThread() {
     if (Config::g_settings.OptMemoryPressure) {
         TexCacheTuning_Tick();
     }
+
+    // HeapCompactor's monitor thread only requests compaction; the actual
+    // HeapCompact()/mi_collect() work must run here on the main thread so it
+    // can never race a background thread mutating a heap WoW's own networking
+    // code is using mid-connect (GitHub issue #39: mimalloc/heap work breaking
+    // Warmane connections).
+    HeapCompactor_RunPendingWork();
 
 #if !TEST_DISABLE_MEMORY_PRESSURE_GOVERNOR
     if (Config::g_settings.OptMemoryPressure) {
@@ -6121,26 +6018,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     g_nextStatsDumpTick = 0;
     g_nextMiCollectTick = 0;
 
-    Log("--- Memory Allocator (early, pre-load) ---");
-#if !TEST_DISABLE_ALLOCATOR_REDIRECT && !TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
-    bool allocOk = false;
-    if (Config::g_settings.OptAllocators) {
-        allocOk = InstallAllocatorHooks();
-        if (!allocOk) Log("[Allocator] redirect install failed -- staying on stock WoW CRT");
-    } else {
-        Log("[Allocator] Redirect disabled via configuration (wow_opt.ini)");
-    }
-#elif TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
-    bool allocOk = false;
-    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH (crash bisection)");
-#else
-    bool allocOk = false;
-    Log("[Allocator] DISABLED via TEST_DISABLE_ALLOCATOR_REDIRECT");
-#endif
-
-    // Now let WoW finish loading. With mimalloc already owning the heap, every
-    // allocation during this window stays in mimalloc's arena-managed VA — no
-    // SBH fragmentation, no scattered HeapAlloc regions, clean from the start.
+    Log("--- Memory Allocator ---");
+    Log("[Allocator] CRT redirect REMOVED (destabilized Winsock). mimalloc used directly by subsystems.");
     Sleep(100);
 
 
@@ -6293,23 +6172,21 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[TimerPrecision] GetTickCount/timeGetTime hooks: DISABLED");
 #endif
     Log("--- Heap Optimization ---");
-    bool heapOk = Config::g_settings.OptAllocators && InstallHeapOptimization();
+    bool heapOk = InstallHeapOptimization();
 #if !TEST_DISABLE_HEAP_REDIRECT
     Log("--- Process Heap Redirect ---");
-    bool heapRedirectOk = Config::g_settings.OptAllocators && InstallHeapRedirectToMimalloc();
+    bool heapRedirectOk = InstallHeapRedirectToMimalloc();
     if (!heapRedirectOk) Log("[HeapRedirect] install failed -- process heap stays stock");
 #else
     Log("[HeapRedirect] DISABLED via TEST_DISABLE_HEAP_REDIRECT");
 #endif
-    if (Config::g_settings.OptAllocators) {
-        InstallLockTuning();   // self-logs; spin counts are best-effort
-    }
+    InstallLockTuning();   // self-logs; spin counts are best-effort
     Log("--- Texture Cache Budget ---");
     if (Config::g_settings.OptMemoryPressure) {
         InitTexCacheTuning();  // self-logs; single-client only
     }
     Log("--- Thread ID Cache ---");
-    bool tidOk = Config::g_settings.OptAllocators && InstallThreadIdCacheHook();
+    bool tidOk = InstallThreadIdCacheHook();
     Log("--- QPC Cache ---");
 #if !CRASH_TEST_DISABLE_QPC_CACHE
     bool qpcOk = Config::g_settings.OptTimingFix && InstallQPCHook();
@@ -6352,7 +6229,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool sfpOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallSetFilePointerHook();
 
     Log("--- Global Alloc ---");
-    bool gaOk  = Config::g_settings.OptAllocators && InstallGlobalAllocHooks();    
+    bool gaOk  = InstallGlobalAllocHooks();    
     Log("--- Multi-Client ---");
     DetectMultiClient();
     AdjustMimallocForMultiClient();    
@@ -6411,7 +6288,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool wcharOk = Config::g_settings.OptStrStrSse2 && InstallCrtWcharSSE2();
 
     // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
-    bool tlsCacheOk = Config::g_settings.OptAllocators && InstallTlsCache();
+    bool tlsCacheOk = InstallTlsCache();
 
     // Stream Reader/Writer Cache - eliminate bounds checks
     bool streamCacheOk = Config::g_settings.OptSavedVarsPretoken && InstallStreamCache();
@@ -6446,10 +6323,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     // CRT Free Hook - 2901 callers (#2 most called)
-    bool crtFreeOk = Config::g_settings.OptAllocators && InstallCrtFreeHook();
+    bool crtFreeOk = InstallCrtFreeHook();
 
     // Aligned Allocator Cache - 1764 callers (thread-local pool for small allocations)
-    bool alignedAllocOk = Config::g_settings.OptAllocators && InstallAlignedAllocCache();
+    bool alignedAllocOk = InstallAlignedAllocCache();
 
     // NOTE: free_cache, strnicmp_fast, tick_counter_cache are DUPLICATES of existing hooks:
     //   crt_free_hook.cpp   already hooks 0x76E5A0 (2901 callers)
@@ -6480,7 +6357,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- MBT/WCT ASCII Fast Path ---");
     bool mbwcOk = Config::g_settings.OptStrStrSse2 && InstallMBWCHooks();
     Log("--- CRT Memory Fast Paths ---");
-    bool crtOk = Config::g_settings.OptAllocators && InstallCrtMemFastPaths();
+    bool crtOk = InstallCrtMemFastPaths();
     bool sysInfoOk = Config::g_settings.OptTimingFix && InstallSysInfoCache();
     bool regCacheOk = Config::g_settings.OptTimingFix && InstallRegCache();
 #if !TEST_DISABLE_SYSTEM_METRICS_CACHE
@@ -6957,7 +6834,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     g_threadAffOk = Config::g_settings.OptDefragLf && InstallThreadAffinity();
 
     Log("--- VA Arena ---");
-    vaOk = Config::g_settings.OptAllocators && InstallVAArena();
+    vaOk = InstallVAArena();
 
     Log("--- RTTI Type Check Cache ---");
     // DISABLED: tls_cache.cpp hooks 0x4D4DB0 first (install order), making
@@ -7305,13 +7182,17 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // caused ACCESS_VIOLATION at 0x009E4F24 (write to .data section from worker thread)
     bool memoryOptAsync = false; // WowMemoryOpt::InitAsyncWorkerPool();
     Log("[MemOpt] Async worker pool DISABLED: unsynchronized writes to WoW game state");
-    bool memoryOptMem = Config::g_settings.OptAllocators && WowMemoryOpt::ApplyMemoryOptimizations();
+    bool memoryOptMem = WowMemoryOpt::ApplyMemoryOptimizations();
 
     Log("--- Source-Level Optimizations ---");
-    bool sourceOptOk = Config::g_settings.OptAllocators && WowSourceOpt::InstallAll();
+    bool sourceOptOk = WowSourceOpt::InstallAll();
 
     Log("--- TLS Object Cache ---");
-    bool tlsObjCacheOk = Config::g_settings.OptAllocators && TlsObjectCache::Install();
+    bool tlsObjCacheOk = TlsObjectCache::Install();
+
+    Log("");
+    Log("--- DXVK/Vulkan Translation Layer Detection ---");
+    DXVKBridge::Init();
 
     Log("");
     Log("--- D3D9 State Manager (15 hooks) ---");
@@ -7336,7 +7217,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Memory Hooks (aligned slabs, GUID hash) ---");
-    bool memHooksOk = Config::g_settings.OptAllocators && InstallMemoryHooks(); // BISECT
+    bool memHooksOk = InstallMemoryHooks(); // BISECT
 
     Log("");
     Log("--- Async Hooks (worker pool, particle, prefetch) ---");
@@ -7439,7 +7320,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Lock-Free Object GUID Lookup Cache ---");
-    bool guidCacheOk = Config::g_settings.OptAllocators && GuidLookupCache::Init();
+    bool guidCacheOk = GuidLookupCache::Init();
 
     Log("");
     Log("--- SSE2 Math Fast Paths ---");
@@ -7451,7 +7332,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Thread-Local Lua Allocator Pool ---");
-    bool luaPoolOk = Config::g_settings.OptAllocators && LuaAllocPool::Init();
+    bool luaPoolOk = LuaAllocPool::Init();
 
     Log("");
     Log("--- Coalesced World State Updates ---");
@@ -7672,7 +7553,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
         }};
         RegisterShedCallback(ShedGuidHash::Go, nullptr);
 
-        // RED: now that mimalloc backs WoW's ENTIRE heap (see InstallAllocatorHooks),
+        // RED: mimalloc is used directly by various subsystems (aligned alloc, Lua pool, etc.),
         // force it to return all freed segments to the OS. This reclaims WoW's own
         // freed memory, not just the DLL's, so it directly raises LargestFreeBlock --
         // the one action that actually unfragments the VA. Registered LAST so the
@@ -7735,7 +7616,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("");
-    Log("  [%s] mimalloc allocator",           allocOk     ? " OK " : "FAIL");
+    Log("  [ -- ] mimalloc CRT redirect (REMOVED)");  // destabilized Winsock
     Log("  [%s] Sleep hook (PreciseSleep)",    sleepOk     ? " OK " : "FAIL");
     Log("  [%s] GetTickCount (QPC)",           tickOk      ? " OK " : "FAIL");
     Log("  [%s] timeGetTime (QPC sync)",       tgtOk       ? " OK " : "FAIL");
@@ -9590,6 +9471,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             UninstallDbcLookupCache();
             UninstallFrameScriptDispatch();
             ShutdownD3D9StateManager();
+            DXVKBridge::Shutdown();
             ShutdownRenderHooks();
             ShutdownSimdHooks();
             ShutdownLogicHooks();

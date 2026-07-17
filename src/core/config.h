@@ -10,7 +10,6 @@ namespace Config {
         bool OptMemoryPressure = true;
         bool OptHeapCompactor = true;
         bool OptDefragLf = false;
-        bool OptAllocators = false;
         bool OptVulkanDXVK = false;
         bool OptTimingFix = false;
         bool OptCvarNullGuard = true; // Safe default: enabled

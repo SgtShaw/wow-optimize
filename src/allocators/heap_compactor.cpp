@@ -32,6 +32,16 @@ static std::atomic<SIZE_T>   g_maxLargestBlock{0};
 static HANDLE g_monitorThread = nullptr;
 static volatile bool g_shutdown = false;
 
+// The monitor thread only ever *requests* compaction; the actual HeapCompact()/
+// mi_collect() work runs on the main thread via HeapCompactor_RunPendingWork(),
+// called from the existing per-frame maintenance tick. HeapCompact() walks and
+// mutates every process heap, and mi_collect(true) can decommit/unmap memory —
+// doing that from an unsynchronized background thread raced against whatever
+// heap WoW's networking code (or Winsock internally) was using mid-connect,
+// which could yank a buffer out from under an in-flight WSA operation and
+// surface as "unable to connect" (GitHub issue #39).
+static std::atomic<int> g_pendingWork{0}; // 0=none, 1=proactive mi_collect, 2=full ForceHeapCompaction
+
 // Forward declarations
 extern "C" void Log(const char* fmt, ...);
 extern "C" void mi_collect(bool force);
@@ -107,36 +117,48 @@ static DWORD WINAPI MonitorThread(LPVOID) {
         while (largestFree > maxVal && 
                !g_maxLargestBlock.compare_exchange_weak(maxVal, largestFree));
         
-        // Check thresholds
+        // Check thresholds — only *request* compaction here; the main thread
+        // performs the actual heap mutation (see HeapCompactor_RunPendingWork).
         if (largestFree < CRITICAL_THRESHOLD) {
-            Log("[HeapCompactor] CRITICAL: LargestFreeBlock=%uMB (<%dMB) - forcing compaction",
+            Log("[HeapCompactor] CRITICAL: LargestFreeBlock=%uMB (<%dMB) - requesting compaction",
                 (unsigned)(largestFree / (1024*1024)), (int)(CRITICAL_THRESHOLD / (1024*1024)));
-            ForceHeapCompaction();
-            g_compactionsTriggered++;
-            
-            // Verify improvement
-            Sleep(100); // Give compaction time to complete
-            SIZE_T afterCompaction = GetLargestFreeBlock();
-            Log("[HeapCompactor] After compaction: LargestFreeBlock=%uMB (%+dMB)",
-                (unsigned)(afterCompaction / (1024*1024)),
-                (int)((afterCompaction - largestFree) / (1024*1024)));
-                
+            g_pendingWork.store(2, std::memory_order_release);
         } else if (largestFree < WARNING_THRESHOLD) {
             // Proactively compact before reaching critical threshold
             static DWORD lastWarningTick = 0;
             DWORD now = GetTickCount();
             if (now - lastWarningTick > 30000) { // Max 1 per 30 seconds
-                Log("[HeapCompactor] WARNING: LargestFreeBlock=%uMB (<32MB) - proactive compaction",
+                Log("[HeapCompactor] WARNING: LargestFreeBlock=%uMB (<32MB) - requesting proactive compaction",
                     (unsigned)(largestFree / (1024*1024)));
-                mi_collect(true);  // Aggressive mimalloc purge
-                g_compactionsTriggered++;
+                int expected = 0;
+                g_pendingWork.compare_exchange_strong(expected, 1, std::memory_order_release);
                 lastWarningTick = now;
             }
         }
     }
-    
+
     Log("[HeapCompactor] Monitor thread shutting down");
     return 0;
+}
+
+// Called once per frame from the main thread's existing periodic maintenance
+// tick. Performs whatever compaction the monitor thread requested — keeps all
+// heap-mutating work off the background thread.
+extern "C" void HeapCompactor_RunPendingWork() {
+    int work = g_pendingWork.exchange(0, std::memory_order_acquire);
+    if (work == 0) return;
+
+    if (work == 2) {
+        SIZE_T before = GetLargestFreeBlock();
+        ForceHeapCompaction();
+        g_compactionsTriggered++;
+        SIZE_T after = GetLargestFreeBlock();
+        Log("[HeapCompactor] After compaction: LargestFreeBlock=%uMB (%+dMB)",
+            (unsigned)(after / (1024*1024)), (int)((after - before) / (1024*1024)));
+    } else {
+        mi_collect(true);
+        g_compactionsTriggered++;
+    }
 }
 
 bool HeapCompactor_Init() {

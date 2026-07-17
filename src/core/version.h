@@ -47,22 +47,11 @@
 // Lua VM GC optimizer + mimalloc allocator replacement
 #define TEST_DISABLE_LUA_VM_OPT         0
 
-// Redirect WoW's STATIC MSVCRT allocator (malloc/free/realloc/calloc/_msize/
-// _recalloc at 0x415074/0x412FC7/0x416A95/0x416A56/0x4112F8/0x416CB0) to mimalloc
-// to fight 32-bit VA fragmentation (the LargestBlock=14MB freeze). The old attempt
-// hooked the DYNAMIC CRT exports (which WoW barely uses) and corrupted cross-heap;
-// this hooks the static set as a closed group with a mi_is_in_heap_region transition
-// guard so blocks allocated before install free through the original CRT. ENABLED by
-// default; set to 1 if it regresses (this is the single riskiest hook in the project).
-#define TEST_DISABLE_ALLOCATOR_REDIRECT         0
-
-// Crash-bisection gate for the mimalloc CRT redirect (same feature as above,
-// separate flag so the normal TEST_DISABLE_ALLOCATOR_REDIRECT can stay 0 while
-// this one is flipped to 1 for an isolation test). Set to 1 to disable the
-// allocator redirect entirely for crash bisection; suspected #1 root cause of
-// the silent CTD at char-select -> world transition (0x5565E9 luaD_precall).
-// MUST be 1 to disable VA allocator redirect completely.
-#define TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH         0
+// CRT malloc→mimalloc redirect REMOVED (v3.17.0) — hooking WoW's static CRT
+// malloc/free entry points destabilized Winsock, causing "unable to connect".
+// mimalloc is still used directly by subsystems (aligned alloc cache, Lua pool, etc.).
+// The old TEST_DISABLE_ALLOCATOR_REDIRECT / TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
+// flags have been removed along with the feature.
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.

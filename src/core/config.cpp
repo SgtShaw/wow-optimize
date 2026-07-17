@@ -26,7 +26,6 @@ namespace Config {
             WritePrivateProfileStringA("General", "MemoryPressure", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "HeapCompactor", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "DefragLf", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "Allocators", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "VulkanDXVK", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "TimingFix", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
@@ -127,7 +126,6 @@ namespace Config {
         g_settings.OptMemoryPressure      = GetPrivateProfileIntA("General", "MemoryPressure", 1, iniPath.c_str()) != 0;
         g_settings.OptHeapCompactor       = GetPrivateProfileIntA("General", "HeapCompactor", 1, iniPath.c_str()) != 0;
         g_settings.OptDefragLf            = GetPrivateProfileIntA("General", "DefragLf", 0, iniPath.c_str()) != 0;
-        g_settings.OptAllocators          = GetPrivateProfileIntA("General", "Allocators", 1, iniPath.c_str()) != 0;
         g_settings.OptVulkanDXVK          = GetPrivateProfileIntA("General", "VulkanDXVK", 0, iniPath.c_str()) != 0;
         g_settings.OptTimingFix           = GetPrivateProfileIntA("General", "TimingFix", 0, iniPath.c_str()) != 0;
         g_settings.OptCvarNullGuard       = GetPrivateProfileIntA("General", "CvarNullGuard", 1, iniPath.c_str()) != 0;
