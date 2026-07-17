@@ -47,11 +47,13 @@
 // Lua VM GC optimizer + mimalloc allocator replacement
 #define TEST_DISABLE_LUA_VM_OPT         0
 
-// CRT malloc→mimalloc redirect REMOVED (v3.17.0) — hooking WoW's static CRT
-// malloc/free entry points destabilized Winsock, causing "unable to connect".
-// mimalloc is still used directly by subsystems (aligned alloc cache, Lua pool, etc.).
-// The old TEST_DISABLE_ALLOCATOR_REDIRECT / TEST_DISABLE_ALLOCATOR_REDIRECT_CRASH
-// flags have been removed along with the feature.
+// The old ALL-allocations CRT→mimalloc redirect was removed for repeatedly
+// breaking server connections. v3.16.3 reintroduces a deliberately narrower,
+// opt-in version (Config::OptMimallocLarge, launcher default OFF): only main-
+// thread allocations >= 1 MB, kept below 2 GB, are routed to mimalloc — see the
+// InstallMimallocLargeHooks comment in dllmain.cpp for the full rationale. This
+// compile flag hard-disables that feature regardless of the config toggle.
+#define TEST_DISABLE_MIMALLOC_LARGE 0
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.

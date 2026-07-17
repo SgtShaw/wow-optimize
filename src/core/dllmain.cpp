@@ -1053,17 +1053,145 @@ extern "C" void Log(const char* fmt, ...) {
     LogEx(LOG_LEVEL_INFO, "DLL", "%s", buf);
 }
 
-// 1. Memory allocator replacement (mimalloc).
+// 1. Memory allocator replacement (mimalloc) — LARGE-ALLOCATION ONLY, opt-in.
 //
-// CRT malloc/free redirect REMOVED — hooking WoW's static CRT malloc/free/realloc
-// entry points (0x415074, 0x412FC7, etc.) destabilized Winsock's internal allocations,
-// causing "unable to connect" on login. The hook trampolines modified the CRT's SBH
-// (Small Block Heap) entry point, and the instruction cache invalidation during
-// MH_ApplyQueued could corrupt an in-flight SBH allocation on a network worker thread.
+// History: a previous version redirected ALL of WoW's static CRT allocations
+// (every malloc/free, any size, from any thread) to mimalloc. That repeatedly
+// broke the ability to connect ("unable to connect" on login). Three plausible
+// causes were never fully separated: (1) with LAA on, mimalloc handed back
+// >2GB pointers that, when used as socket receive buffers, tripped socket
+// filter drivers / WoW's 32-bit net code; (2) routing every free in the process
+// through a region check; (3) MinHook patching the CRT entry points a network
+// thread might be executing. So it was removed entirely.
 //
-// mimalloc is still used directly by subsystems (aligned alloc cache, Lua pool,
-// VA arena, etc.) through explicit mi_malloc/mi_free calls — no CRT interception needed.
-//
+// This is a deliberately narrower, opt-in re-introduction (OptMimallocLarge,
+// default OFF, launcher-gated). It only redirects allocations that:
+//   - are >= 1 MB (model/texture/terrain blocks — the things that actually
+//     fragment the 32-bit VA; socket buffers are KB-sized, so cause #1's
+//     network path is avoided by construction), AND
+//   - originate on the main thread (background socket/db/audio threads never
+//     get a mimalloc pointer), AND
+//   - land below 2 GB — if mimalloc returns a high pointer we free it and fall
+//     back to the CRT, so no redirected block is ever a >2GB pointer (cause #1).
+// free/realloc/_msize/_recalloc still route by region check so mimalloc blocks
+// are freed through mimalloc (WoW's free() would otherwise HeapFree() a non-heap
+// pointer — verified in the 3.3.5a binary). Cause #3 is inherent to any CRT
+// hook and is why this ships opt-in and must be connection-tested before use.
+static constexpr size_t MIMALLOC_LARGE_THRESHOLD = 1048576; // 1 MB
+
+typedef void*  (__cdecl* malloc_fn)(size_t);
+typedef void   (__cdecl* free_fn)(void*);
+typedef void*  (__cdecl* realloc_fn)(void*, size_t);
+typedef void*  (__cdecl* calloc_fn)(size_t, size_t);
+typedef size_t (__cdecl* msize_fn)(void*);
+typedef void*  (__cdecl* recalloc_fn)(void*, size_t, size_t);
+
+static malloc_fn   orig_malloc   = nullptr;
+static free_fn     orig_free     = nullptr;
+static realloc_fn  orig_realloc  = nullptr;
+static calloc_fn   orig_calloc   = nullptr;
+static msize_fn    orig_msize    = nullptr;
+static recalloc_fn orig_recalloc = nullptr;
+
+static void __cdecl hooked_free(void* ptr) {
+    if (!ptr) return;
+    if (mi_is_in_heap_region(ptr)) mi_free(ptr);
+    else orig_free(ptr);
+}
+
+static void* __cdecl hooked_malloc(size_t size) {
+    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId &&
+        size >= MIMALLOC_LARGE_THRESHOLD) {
+        void* p = mi_malloc(size);
+        if (p) {
+            if ((uintptr_t)p < 0x80000000) return p;  // low 2GB only
+            mi_free(p);                                // never expose a >2GB block
+        }
+    }
+    return orig_malloc(size);
+}
+
+static void* __cdecl hooked_calloc(size_t count, size_t size) {
+    if (size != 0 && count > (size_t)-1 / size) return nullptr;  // overflow guard
+    size_t total = count * size;
+    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId &&
+        total >= MIMALLOC_LARGE_THRESHOLD) {
+        void* p = mi_calloc(count, size);
+        if (p) {
+            if ((uintptr_t)p < 0x80000000) return p;
+            mi_free(p);
+        }
+    }
+    return orig_calloc(count, size);
+}
+
+static void* __cdecl hooked_realloc(void* ptr, size_t size) {
+    if (!ptr) return hooked_malloc(size);
+    if (size == 0) { hooked_free(ptr); return nullptr; }
+    if (mi_is_in_heap_region(ptr)) return mi_realloc(ptr, size);
+    return orig_realloc(ptr, size);
+}
+
+static size_t __cdecl hooked_msize(void* ptr) {
+    if (!ptr) return 0;
+    if (mi_is_in_heap_region(ptr)) return mi_usable_size(ptr);
+    return orig_msize ? orig_msize(ptr) : 0;
+}
+
+static void* __cdecl hooked_recalloc(void* ptr, size_t count, size_t size) {
+    if (size != 0 && count > (size_t)-1 / size) return nullptr;
+    if (!ptr) return hooked_calloc(count, size);
+    if (size == 0) { hooked_free(ptr); return nullptr; }
+    if (mi_is_in_heap_region(ptr)) return mi_recalloc(ptr, count, size);
+    return orig_recalloc(ptr, count, size);
+}
+
+// Create all six trampolines first (CreateHook does not redirect), then queue +
+// apply in a single atomic MH_ApplyQueued so malloc and free activate together —
+// no window where malloc is redirected but free isn't (which would HeapFree a
+// mimalloc block). A partial set is treated as fatal and fully rolled back.
+static bool InstallMimallocLargeHooks() {
+#if TEST_DISABLE_MIMALLOC_LARGE
+    Log("[MimallocLarge] DISABLED (compile flag)");
+    return false;
+#else
+    struct AllocHook { void* addr; void* hook; void** orig; const char* name; };
+    static const AllocHook hooks[] = {
+        { (void*)0x00415074, (void*)hooked_malloc,   (void**)&orig_malloc,   "malloc"    },
+        { (void*)0x00412FC7, (void*)hooked_free,     (void**)&orig_free,     "free"      },
+        { (void*)0x00416A95, (void*)hooked_realloc,  (void**)&orig_realloc,  "realloc"   },
+        { (void*)0x00416A56, (void*)hooked_calloc,   (void**)&orig_calloc,   "calloc"    },
+        { (void*)0x004112F8, (void*)hooked_msize,    (void**)&orig_msize,    "_msize"    },
+        { (void*)0x00416CB0, (void*)hooked_recalloc, (void**)&orig_recalloc, "_recalloc" },
+    };
+    const int N = (int)(sizeof(hooks) / sizeof(hooks[0]));
+
+    for (int i = 0; i < N; i++) {
+        if (WineSafe_CreateHook(hooks[i].addr, hooks[i].hook, hooks[i].orig) != MH_OK) {
+            Log("[MimallocLarge] CreateHook %s @0x%08X FAILED — aborting (partial set is unsafe)",
+                hooks[i].name, (uintptr_t)hooks[i].addr);
+            for (int j = 0; j < i; j++) MH_RemoveHook(hooks[j].addr);
+            return false;
+        }
+    }
+    for (int i = 0; i < N; i++) {
+        if (MH_QueueEnableHook(hooks[i].addr) != MH_OK) {
+            Log("[MimallocLarge] QueueEnable %s FAILED — aborting", hooks[i].name);
+            for (int j = 0; j < N; j++) MH_RemoveHook(hooks[j].addr);
+            return false;
+        }
+    }
+    if (MH_ApplyQueued() != MH_OK) {
+        Log("[MimallocLarge] ApplyQueued FAILED — aborting");
+        for (int i = 0; i < N; i++) MH_RemoveHook(hooks[i].addr);
+        return false;
+    }
+    Log("[MimallocLarge] ACTIVE — main-thread allocations >= %u KB routed to mimalloc "
+        "(low-2GB only). EXPERIMENTAL: confirm server connection before relying on it.",
+        (unsigned)(MIMALLOC_LARGE_THRESHOLD / 1024));
+    return true;
+#endif
+}
 
 // 2. Sleep hook + frame pacing, GC stepping, combat log cleanup.
 //
@@ -6021,7 +6149,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     g_nextMiCollectTick = 0;
 
     Log("--- Memory Allocator ---");
-    Log("[Allocator] CRT redirect REMOVED (destabilized Winsock). mimalloc used directly by subsystems.");
+    Log("[Allocator] CRT-wide redirect removed (Winsock stability). mimalloc used directly by subsystems.");
+    bool mimallocLargeOk = false;
+    if (Config::g_settings.OptMimallocLarge) {
+        mimallocLargeOk = InstallMimallocLargeHooks();
+    } else {
+        Log("[MimallocLarge] disabled via configuration (opt-in; enable in launcher to route large allocations to mimalloc)");
+    }
+    (void)mimallocLargeOk;
     Sleep(100);
 
 

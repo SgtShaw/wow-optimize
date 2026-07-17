@@ -21,6 +21,7 @@ namespace Config {
         bool OptOomGovernor = false;
         bool OptHardwareCursor = false;
         bool OptSamplingProfiler = false;
+        bool OptMimallocLarge = false;
 
         // UI & Lua
         bool OptUIFrameBatch = false;
