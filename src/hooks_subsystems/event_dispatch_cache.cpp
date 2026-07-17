@@ -213,6 +213,7 @@ void PreWarmEventDispatchCache()
         "COMBAT_TEXT_UPDATE",
         "BAG_UPDATE",
         "UNIT_INVENTORY_CHANGED",
+        "ITEM_LOCK_CHANGED", // vendor-sell/lock-state notifications drive the greyed-out bag icon; GitHub issue #34
         "ACTIONBAR_SLOT_CHANGED",
         "UPDATE_BINDINGS",
         "PARTY_MEMBERS_CHANGED",
