@@ -242,6 +242,12 @@ namespace WowOptimizeLauncher {
     //  Main Form
     // ───────────────────────────────────────────────────────────────
     public class MainForm : Form {
+        // Single source of truth for this build's version. Compared against the
+        // remote version.txt to decide whether to show the update notification,
+        // and shown in the version label. Keep in sync with version.txt and
+        // src/core/version.h on every release.
+        private const string APP_VERSION = "3.16.3";
+
         private string iniPath;
         private Dictionary<string, SettingItem> settingsMap;
 
@@ -718,7 +724,7 @@ namespace WowOptimizeLauncher {
 
             // ── Version Label ───────────────────────────────────
             versionLabel = new Label();
-            versionLabel.Text = "v3.16.2-Release";
+            versionLabel.Text = "v" + APP_VERSION + "-Release";
             versionLabel.Font = new Font("Segoe UI", 7f, FontStyle.Regular);
             versionLabel.ForeColor = Color.FromArgb(90, 90, 110);
             versionLabel.AutoSize = true;
@@ -1303,7 +1309,7 @@ namespace WowOptimizeLauncher {
                         if (!string.IsNullOrEmpty(rawVer)) {
                             string cleanVer = rawVer.Trim();
                             Version latest = new Version(cleanVer);
-                            Version current = new Version("3.16.2");
+                            Version current = new Version(APP_VERSION);
 
                             if (latest > current) {
                                 BeginInvoke(new Action(delegate { ShowUpdateAlert(cleanVer); }));
