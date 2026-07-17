@@ -19,6 +19,8 @@ namespace Config {
         bool OptObjVisCache = false;
         bool OptDbcPreload = false;
         bool OptOomGovernor = false;
+        bool OptHardwareCursor = false;
+        bool OptSamplingProfiler = false;
 
         // UI & Lua
         bool OptUIFrameBatch = false;

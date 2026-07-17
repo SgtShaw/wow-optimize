@@ -1220,7 +1220,9 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             CombatLogOpt::ProcessUnifiedFrameTicks((int)currentL, g_mainThreadId);
             WorldStateCoalesce::OnFrame();
 #if !TEST_DISABLE_HARDWARE_CURSOR
-            InitHardwareCursor();
+            if (Config::g_settings.OptHardwareCursor) {
+                InitHardwareCursor();
+            }
 #endif
 #if !TEST_DISABLE_ADDON_DISPATCHER
             if (Config::g_settings.OptAddonDispatcher) {
@@ -7605,7 +7607,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // main thread's EIP every ~1ms via SuspendThread/GetThreadContext/
     // ResumeThread and dumps the top-50 hot functions on shutdown.
     // Read-only — no hooks into WoW code, no writes to WoW memory.
-    {
+    if (Config::g_settings.OptSamplingProfiler) {
         HANDLE hMain = OpenThread(THREAD_QUERY_INFORMATION | THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT, FALSE, g_mainThreadId);
         if (hMain) {
             if (SamplingProfiler::Init(hMain))

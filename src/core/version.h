@@ -155,9 +155,9 @@
 // OnFrame()); (2) GUID re-verification — a hit re-reads the object's own GUID
 // at +0x30 and only returns it if it still matches, so a freed/recycled
 // pointer is rejected; (3) InvalidateObjVisCacheFor on UnlinkNode; (4) SEH +
-// teardown/reload/swap bypass. Still ini-gated (General/ObjVisCache, default
-// on) so it can be turned off without a rebuild. Hot path — if any unit/object
-// misbehavior or hang appears in-game, set ObjVisCache=0 or revert this flag.
+// teardown/reload/swap bypass. Exposed as a launcher checkbox (General/
+// ObjVisCache), default OFF/opt-in since it's an unverified hot path — enable
+// it in the launcher and watch for unit/object misbehavior or hangs.
 #define TEST_DISABLE_OBJ_VIS_CACHE      0
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
