@@ -65,14 +65,17 @@ static const char* GetEventName(int eventId) {
 
 static bool ShouldCoalesce(const char* name) {
     if (!name) return false;
-    if (strcmp(name, "SPELL_UPDATE_COOLDOWN") == 0 ||
-        strcmp(name, "UNIT_POWER") == 0 ||
-        strcmp(name, "UNIT_AURA") == 0 ||
+    // UNIT_AURA/SPELL_UPDATE_COOLDOWN/USABLE/CHARGES are intentionally excluded:
+    // IsDuplicate() dedups by (eventId, unit token) within a frame and silently
+    // drops repeats, but these events don't carry which aura/spell changed —
+    // addons rescan full state on receipt, so a dropped repeat can mean a proc
+    // that landed in the same frame as an earlier aura change never triggers a
+    // rescan, leaving buff icons/countdowns stuck (GitHub issue #42). Health/
+    // power events are safe to coalesce since only the latest value matters.
+    if (strcmp(name, "UNIT_POWER") == 0 ||
         strcmp(name, "UNIT_HEALTH") == 0 ||
         strcmp(name, "UNIT_MAXHEALTH") == 0 ||
-        strcmp(name, "UNIT_MAXPOWER") == 0 ||
-        strcmp(name, "SPELL_UPDATE_USABLE") == 0 ||
-        strcmp(name, "SPELL_UPDATE_CHARGES") == 0) {
+        strcmp(name, "UNIT_MAXPOWER") == 0) {
         return true;
     }
     return false;
