@@ -84,16 +84,30 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
                         uint32_t s = e->seq.load(std::memory_order_relaxed);
                         if ((s & 1) == 0) {
                             if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
-                                e->storePtr = storeKey;
-                                e->recordId = (uint32_t)recordId;
-                                if (*(unsigned char*)0x00C5DEA0) {
-                                    typedef void* (__cdecl *rle_decompress_fn)(const void*, int, void*);
-                                    ((rle_decompress_fn)0x004CFBB0)(rptr, 0x2A8, e->rowData);
-                                } else {
-                                    memcpy(e->rowData, rptr, 0x2A8); // Store actual row data
+                                // Once the CAS claims the slot (seq is odd = "write in
+                                // progress"), the seq MUST be advanced back to even no
+                                // matter what — otherwise a fault while copying the row
+                                // (rptr can go stale if the DBC store reloads mid-copy)
+                                // leaves this slot's seq stuck odd forever, and
+                                // ClearDbcLookupCache()'s spin-wait below then loops on
+                                // it for the rest of the process (observed as a hang/
+                                // "crash" during loading screens, GitHub issue #35).
+                                bool wrote = false;
+                                __try {
+                                    e->storePtr = storeKey;
+                                    e->recordId = (uint32_t)recordId;
+                                    if (*(unsigned char*)0x00C5DEA0) {
+                                        typedef void* (__cdecl *rle_decompress_fn)(const void*, int, void*);
+                                        ((rle_decompress_fn)0x004CFBB0)(rptr, 0x2A8, e->rowData);
+                                    } else {
+                                        memcpy(e->rowData, rptr, 0x2A8); // Store actual row data
+                                    }
+                                    wrote = true;
+                                } __except(EXCEPTION_EXECUTE_HANDLER) {
+                                    wrote = false;
                                 }
-                                e->valid = true;
-                                e->seq.store(s + 2, std::memory_order_release); // Even: write complete
+                                e->valid = wrote;
+                                e->seq.store(s + 2, std::memory_order_release); // Even: write complete (or aborted)
                             }
                         }
                     }
@@ -164,7 +178,11 @@ extern "C" void ClearDbcLookupCache()
 {
     for (int i = 0; i < CACHE_SIZE; i++) {
         DbcRowEntry* e = &g_cache[i];
-        while (true) {
+        // Bounded retry: a slot's seq should always return to even quickly (the
+        // writer critical section above is now guaranteed to advance it). Cap the
+        // spin so a still-unforeseen stuck slot can no longer hang this thread
+        // forever — skip it and move on instead.
+        for (int attempt = 0; attempt < 10000; attempt++) {
             uint32_t s = e->seq.load(std::memory_order_relaxed);
             if ((s & 1) == 0) {
                 if (e->seq.compare_exchange_strong(s, s + 1, std::memory_order_acquire)) {
