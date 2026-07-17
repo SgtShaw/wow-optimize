@@ -698,15 +698,72 @@ void ShutdownD3D9StateManager(void) {
     }
 }
 
+// DXVK (and some other D3D9-on-Vulkan translation layers) can resize its
+// Vulkan swapchain implicitly inside Present() when it notices the window's
+// client area changed size -- it does NOT require WoW to call
+// IDirect3DDevice9::Reset() first, unlike real D3D9. Maximizing/restoring the
+// window is exactly this case: no Reset() is ever seen, so CheckDeviceChange
+// and Hooked_Reset both stay silent and FontGlyphCache/TextureUnloadDelay/etc.
+// never get invalidated, leaving glyphs pointing at a back buffer that no
+// longer matches the new swapchain (renders as blank text under Vulkan's
+// robustness clamping instead of the garbage a real driver would show).
+// Poll the window's client rect every frame and treat a change the same as
+// a Reset.
+static void CheckWindowSizeChange() {
+    if (!g_pDevice || !IsReadable((uintptr_t)g_pDevice)) return;
+
+    static HWND s_hwnd = nullptr;
+    static int  s_lastWidth = -1;
+    static int  s_lastHeight = -1;
+
+    if (!s_hwnd) {
+        D3DDEVICE_CREATION_PARAMETERS params;
+        IDirect3DDevice9* dev = (IDirect3DDevice9*)g_pDevice;
+        if (FAILED(dev->GetCreationParameters(&params)) || !params.hFocusWindow) return;
+        s_hwnd = params.hFocusWindow;
+    }
+
+    RECT rect;
+    if (!GetClientRect(s_hwnd, &rect)) return;
+    int width = rect.right - rect.left;
+    int height = rect.bottom - rect.top;
+    if (width <= 0 || height <= 0) return; // minimized
+
+    if (s_lastWidth < 0) {
+        s_lastWidth = width;
+        s_lastHeight = height;
+        return;
+    }
+
+    if (width != s_lastWidth || height != s_lastHeight) {
+        Log("[D3D9State] Window client size changed (%dx%d -> %dx%d) with no Reset call observed "
+            "-- likely an implicit DXVK swapchain resize. Invalidating caches.",
+            s_lastWidth, s_lastHeight, width, height);
+        s_lastWidth = width;
+        s_lastHeight = height;
+
+        InterlockedIncrement(&g_deviceResetCounter);
+        InvalidateAllCaches();
+        RenderStateDedup_ClearCache();
+        #ifndef TEST_DISABLE_FONT_METRICS_FAST
+        FontGlyphCache::ClearCache();
+        #endif
+        TextureUnloadDelay::Discard();
+        D3D9StateCache::InvalidateAllCaches(true);
+    }
+}
+
 void OnFrameD3D9StateManager(DWORD mainThreadId) {
     if (GetCurrentThreadId() != mainThreadId) return;
 
     g_totalFrames++;
-    
+
     // Invalidate state cache every frame to ensure synchronization with device resets,
     // window resizing, resolution changes, and DXVK state updates!
     InvalidateAllCaches();
-    
+
+    CheckWindowSizeChange();
+
     if (!g_deviceHooked) {
         TryFindAndPatchDevice();
     }
