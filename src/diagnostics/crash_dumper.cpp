@@ -447,6 +447,37 @@ static void __cdecl Hooked_WowAssert(const char* msg, int arg1, int arg2) {
 }
 
 // ================================================================
+// TerminateProcess Hook (catches silent kills from Warden, anti-cheat, or WoW internals)
+// ================================================================
+typedef BOOL (WINAPI *TerminateProcess_fn)(HANDLE hProcess, UINT uExitCode);
+static TerminateProcess_fn orig_TerminateProcess = nullptr;
+
+static BOOL WINAPI Hooked_TerminateProcess(HANDLE hProcess, UINT uExitCode) {
+    // Only log if it's our own process being terminated
+    if (hProcess == GetCurrentProcess() || GetProcessId(hProcess) == GetCurrentProcessId()) {
+        LogFlushImmediate();
+        Log("!!! TERMINATE PROCESS (code=%u) — silent kill detected !!!", uExitCode);
+        Log("!!!   TID=%lu  Caller=0x%08X", GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
+
+        // Log last hook calls for context
+        LONG hpos = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+        for (int i = 0; i < 5 && i < hpos; i++) {
+            int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
+            HookTraceEntry& e = s_hookTrace[idx];
+            if (e.hookName) {
+                Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+                    i, e.hookName, (unsigned)e.addr, e.threadId,
+                    GetTickCount() - e.tick);
+            }
+        }
+
+        Log("!!! END TERMINATE REPORT !!!");
+        LogFlushImmediate();
+    }
+    return orig_TerminateProcess(hProcess, uExitCode);
+}
+
+// ================================================================
 // ExitProcess Hook (fallback for any abnormal exit)
 // ================================================================
 typedef void (WINAPI *ExitProcess_fn)(UINT uExitCode);
@@ -457,14 +488,16 @@ static void WINAPI Hooked_ExitProcess(UINT uExitCode) {
 
     if (uExitCode != 0) {
         Log("!!! PROCESS EXIT (code=%u) — abnormal termination !!!", uExitCode);
-        Log("!!!   TID=%lu", GetCurrentThreadId());
+        Log("!!!   TID=%lu  Caller=0x%08X", GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
         LogFlushImmediate();
     } else {
-        Log("[Exit] Normal termination. Killing process via TerminateProcess to avoid background thread deadlocks.");
+        Log("[Exit] Normal termination (code=0). TID=%lu  Caller=0x%08X",
+            GetCurrentThreadId(), (unsigned)(uintptr_t)_ReturnAddress());
         LogFlushImmediate();
     }
 
-    TerminateProcess(GetCurrentProcess(), uExitCode);
+    // Chain to original ExitProcess (allows DLL_PROCESS_DETACH and proper cleanup)
+    orig_ExitProcess(uExitCode);
 }
 
 // ================================================================
@@ -583,6 +616,13 @@ bool Init() {
     if (exitTarget && WineSafe_CreateHook(exitTarget, (void*)Hooked_ExitProcess, (void**)&orig_ExitProcess) == MH_OK) {
         MH_EnableHook(exitTarget);
         Log("[CrashDumper] ExitProcess hook ACTIVE (log flush on exit)");
+    }
+
+    // Hook TerminateProcess to catch silent kills (Warden, anti-cheat, WoW internals)
+    void* termTarget = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "TerminateProcess");
+    if (termTarget && WineSafe_CreateHook(termTarget, (void*)Hooked_TerminateProcess, (void**)&orig_TerminateProcess) == MH_OK) {
+        MH_EnableHook(termTarget);
+        Log("[CrashDumper] TerminateProcess hook ACTIVE (silent kill detection)");
     }
 
     Log("[CrashDumper] Enhanced crash reporter active%s",
