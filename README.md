@@ -14,7 +14,7 @@ The current public build is focused on real frametime stability, long-session sm
 ---
 
 ## Table of Contents
-* [What's New in the Latest Update (v3.16.2)](#whats-new-in-the-latest-update-v3162)
+* [What's New in v3.16.3](#whats-new-in-v3163)
 * [Reviews & Acknowledgments](#reviews)
 * [Current Feature Set](#current-feature-set)
 * [Installation](#installation)
@@ -27,91 +27,24 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in the Latest Update (v3.16.2)
+## What's New in v3.16.3
 
-### Stability, Wine/Proton Compatibility, & Lua VM Fixes (v3.16.2)
-- **Native Thread Management** — Replaced all C++ standard library `std::thread` usage with native Windows API `CreateThread` across all background operations, bypassing C++ runtime crashes inside `MSVCP140.dll` under Wine/Proton environments.
-- **SRWLOCK Mutex Replacement** — Eliminated dynamic `std::mutex` across all 41 subsystems in favor of native Windows `SRWLOCK`, resolving startup race conditions and NULL dereference crashes.
-- **WinForms Launcher & Live Search** — Rewrote the launcher from WPF to WinForms for perfect GDI compatibility under Linux. Added a powerful global **Live Search Filter** that dynamically filters features by name across all tabs as you type.
-- **Lua VM & Compiler Fixes** — Fixed critical offset errors in `table.concat` fast paths and table `lsizenode` boundaries. This resolves corrupted AST generation, compiler syntax crashes (`unexpected symbol near ';'`), and assertion errors for addons like LibDogTag-3.0 and LibGroupTalents.
-- **Lock-Free Cache & Loading Bypasses** — Fixed sequence-lock concurrency bugs in DBC caches, added loading-screen checks to bypass deferred unit visual updates (fixing stretched textures), and safely invalidated caches across zone boundaries.
+A reliability pass driven mostly by your bug reports (issues #34–#42):
 
-### Stability & Connection Fixes (v3.16.1)
-- **Thread-Filtered Allocator Redirection** — Restructured the static CRT allocator redirection (`mimalloc`) to only intercept allocations originating from the main game thread. Background socket, database, and audio threads bypass the redirect and allocate from the native CRT heap, resolving Large Address Aware (LAA) pointer conflicts (>2GB) with third-party socket filter drivers (e.g. ExitLag).
-- **Fast-Kill Exit Handler** — Configured the `ExitProcess` hook to immediately terminate the game using `TerminateProcess(GetCurrentProcess(), uExitCode)`. This avoids deadlocks during CRT/OS teardown caused by background worker threads holding abandoned locks, preventing zombie `wow.exe` hangs.
-- **Deactivated Unstable Network/Winsock Hooks** — Removed all hooks on Winsock APIs (`connect`, `send`, `recv`, and `WSARecv`) to avoid socket thread-local error state corruption and prevent login/connection drops.
-- **Deactivated Redundant ThreadId Caching** — Disabled GetCurrentThreadId/GetCurrentThread caching hooks, which caused thread pool scheduling deadlocks inside Winsock's APC queue.
-- **Deactivated Redundant HeapRedirect safety bridge** — Disabled HeapFree/HeapReAlloc safety bridge hooks, avoiding heap-walk crashes.
-- **Deactivated Leaky Lua VM Allocator Pool** — Disabled the custom thread-local Lua VM allocator pool hook to prevent memory leaks during relogs/UI reloads.
-- **Config-Gated Allocator Hooks** — Gated static CRT allocator detours by the runtime ini configuration (`Config::g_settings.OptAllocators`) to properly respect the launcher toggle.
+- **Connection fixes (#39)** — resolved "unable to connect" on Warmane; the old allocator redirect and a background-thread heap compactor were interfering with Winsock.
+- **Buffs & cooldowns show up again (#42)** — the event coalescer was dropping same-frame aura and cooldown updates.
+- **No more crash while loading (#35)** — a database cache could wedge and hang the next loading screen.
+- **No more `table contains non-strings` errors (#37 / #38)** — a bad type check in the `table.concat` fast path (broke LibGroupTalents and others).
+- **Cleaner loading & character-select screens (#36)** — UIFrameBatch no longer interferes outside gameplay.
+- **DXVK rendering** — device-reset caches now invalidate together, a startup vtable race is fixed, DXVK is properly detected, and window resizing is handled.
+- **Better crash reports** — dumps now include a stack walk, so `EIP=0` null-call crashes are traceable.
+- **New opt-in toggles** (launcher → General, default off): Large-Allocation mimalloc *(experimental — confirm you can still connect)*, Object Manager Lookup Cache, Hardware Cursor Fix, Sampling Profiler.
 
-### Modular Configurator Launcher (v3.16.0)
-- **`wow_optimize_launcher.exe` Configurator** — Allows players to dynamically toggle all 106 optimization features via a C# WPF UI (no DLL recompiles required).
-- **Active Modules Counter & Progress Bar** — Displays a real-time active module ratio (`Active modules: X/106`) and a custom flat, square-cornered progress bar directly above the launch button that dynamically fills to reflect configuration coverage.
-- **Tab-Specific "ENABLE ALL" Actions** — Adds custom button bars at the top of each settings panel (GENERAL, UI & LUA, COMBAT & NET, etc.) to toggle all modules in that specific tab with a single click.
-- **Refined Safe Defaults** — Adjusts defaults so that new or experimental features default to off (`false`) when restoring safe configurations, letting testers easily isolate new additions.
-- **Fast Hover Tooltips** — Lowers hover pop-up delay to `250ms` (from standard OS delay) and extends display time to `30s` to make reading module behaviors smooth and effortless.
-- **Custom-Templated Flat UI** — Replaces default rounded OS checkbox textures with a unified, strictly flat square template featuring cyan indicator squares.
-- **Save & Load Profiles** — Supports exporting/importing customized configurations as `.ini` profiles.
-- **Preset Sharing** — Features a "Share with Developer" button to copy active settings to the clipboard for submitting safe profile recommendations.
-- **Update Checker** — Checks for new versions on startup and displays a link when an update is available on GitHub.
+**Known issue:** on some DXVK setups, UI text can garble after a windowed↔maximized switch — still under investigation.
+
+Older releases: see the [Releases page](https://github.com/suprepupre/wow-optimize/releases) for the full version history.
 
 ![wow_optimize Launcher Dashboard](images/launcher_screenshot.jpg)
-
-### Core Performance & Allocator Updates (v3.16.0)
-- **Asynchronous Terrain Mesh Loader & Collision Decoupler** — Offloads ADT map grid loading and physical geometry parsing to background worker threads during gameplay. Hooks ground elevation query `sub_7C1660` to return player's current Z coordinate as height fallback during active loads, preventing falling through the world.
-- **Asynchronous Texture Hot-Swapping & Storm VFS** — Intercepts `0x004B8910` (`TexCreateBLP`) via assembly detour. Instantly returns placeholder white texture and background loads real BLP into an in-memory Virtual File System (VFS). On frame boundary (`OnFrame`), the real texture wrapper is built from the VFS and hot-swapped into place without stutters.
-- **RCU Client Object Manager Traverser** — Hooks `sub_6DED60` (`TSExplicitList::LinkNode`), `sub_4D4C20` (`UnlinkNode`), and `sub_4D4B30` (`ClntObjMgrEnum`) to replace linear linked-list entity traversals with an atomic pointer flat mirror array, removing list search and lock contention on the main thread in raids.
-- **Deferred Heap Compactor** — Defers memory compaction during loading screens to run once upon screen closure, preventing character login freezes.
-- **Lua VM Bytecode JIT Redirection & Cache** — Redirects Lua VM detours to target the standard call preparation function `sub_856370` instead of telemetry-only routines, enabling JIT stubs under normal play conditions. Upgraded with a thread-safe, lock-free, direct-mapped cache (`g_protoCache`) replacing the slow `std::unordered_map` lookups on the hot path to eliminate mutex contention during profiling.
-- **mimalloc Allocator Redirect** — Replaced WoW's statically-linked CRT memory allocator (`malloc`, `free`, `realloc`, `calloc`, `_msize`, and `_recalloc`) with Microsoft's high-performance `mimalloc` engine. This utilizes a custom transition guard and atomic activation to combat 32-bit virtual-address (VA) fragmentation during long play sessions, character swapping, or teleporting.
-- **Adaptive Purge & VA-Pressure Governor** — The memory manager dynamically tunes allocator purge delay based on OS virtual memory pressure (aggressive cleanup when largest free block is low, gentle otherwise to avoid recommit page-fault storms).
-- **Wow-Internal strlen/memcpy/memset SSE2 Replacements** — Inlined hand-written assembly replacements for critical CRT string and memory operations to avoid scalar bottlenecking in asset loading. Includes non-temporal streaming stores for copies $\ge$ 256 KB.
-- **Free-Wrapper Fast Path** — Directs deallocations to bypass redundant heap-walk overheads on one of the hottest paths in the binary.
-- **Hook Enable Batching** — Startup times have been improved by over 1.7 seconds by batching MinHook hooks during startup initialization via single-snapshot batch activation.
-
-### Lua VM & C-API Inlines (v3.16.0)
-- **Safe Inline Caches & Stack Operations** — Restored and verified the optimized inline paths for `luaH_getstr` (16384 entries with prefetch), `lua_rawgeti` (8192-entry array direct & hash cache), `lua_toboolean`, and `lua_objlen` matching engine byte layouts exactly.
-- **Lua VM Inline Fast-Path Groups** — Over 30 inline helpers (Safe Groups 1, 2, and 3) have been stabilized and activated (e.g. `string.gsub` plain-literal matching, `math.fmod`, `math.modf`, `string.char`, `select`, `rawequal`, `strjoin`, `strsplit`, etc.).
-- **Adaptive GC Pacing** — Lua garbage collection intervals scale dynamically depending on frametime limits and VA-pressure triggers.
-
-### SIMD Geometry, Math & Physics (v3.16.0)
-- **Double-Precision Quaternion Normalization (`CQuaternion::Normalize`)** — Fully stabilized and re-enabled the custom SSE2 quaternion normalization hook (`0x00979110`). By moving from 32-bit float to 64-bit double precision, it matches original FPU outputs exactly, preventing floating-point precision drift and completely resolving the camera jiggling bug when steering.
-- **Thread-Safe SIMD Statistics Counters** — Hardened all physics, culling, and rotation statistics counters using atomic 32-bit `InterlockedIncrement` operations to prevent data races between render and async engine worker threads.
-- **Vectorized Frustum Culling & Geometry Math** — Bypassed legacy x87 FPU stack calculations with SSE2 vectorized operators for matrix multiplies (`CMatrix::operator*` at `0x004C1F00`), matrix-vector transformations (3D/4D transforms at `0x004C21B0` and `0x004C2270`), rigid inversions, and `CFrustum` culling.
-- **SSE2 Network GUID Unpacking** — Vectorized network GUID unpacking (`CDataStore::GetWowGUID` at `0x0076DC20`) inside network packet handlers.
-
-### Lua VM — Safe Inline Caches (active)
-- `luaH_getstr`: bucket-index cache (16384 entries) with content validation — safe across GC rehash
-- `lua_rawgeti`: array-direct O(1) path + bucket-index hash-part cache (8192 entries)
-- `luaV_gettable` safety patch: validates TValue type field before using as array index
-
-### 6 CPU-Side Optimization Modules
-- **Off-screen animation throttle**: 3-tier distance-based update rate (full / 1:4 / 1:16)
-- **SSE2 math**: matrix multiply, 4×4 matrix multiply, quaternion normalize, frustum AABB-vs-4-planes cull, frustum point culling, ray-triangle intersection, matrix-vector transforms, particle simulation throttling, network GUID unpacking, BGRA↔ARGB batch swap, premultiplied alpha
-- **Combat text batching**: 256-entry ring buffer, flush-per-frame
-- **UI layout dirty-flag cache**: 4096-slot frame-pointer keyed, generation-based invalidation
-- **Network heartbeat filter**: suppresses CMSG_PING/CMSG_TIME_SYNC_RESP when data recently sent
-- **Invariant Lua script cache**: 256-slot cache for UnitHealth/UnitPower/UnitClass outcomes
-
-### Memory & Async
-- 64-byte aligned 8-tier slab allocator (64B–8192B) for cache-line-aligned hot structures
-- 16384-entry GUID→object FNV-1a hash-table with lock-free reads
-- 2-thread SPMC worker pool (2048 slots) for fire-and-forget task dispatch
-
-### Infrastructure & Diagnostics
-- 50-API infra_patch: object pools, deduplication, frame-time smoothing, adaptive cache TTL
-- 20-feature hot_patch: datastore lookup cache, delete prefetch, tooltip early-exit, event dedup
-- 3-hook hook_prefetch: SSE2 prefetch on cleanup/delete/datastore-reset paths
-- CrashDumper: 128-slot feature registry + 256-entry hook call trace + minidump/text crash reports
-- Freeze watchdog: 10s threshold with per-feature activity reporting
-- Priority watchdog with rate-limited logging
-
-### Caches
-- Tooltip LRU (512 slots, 30s TTL), regex compiled-pattern (256 slots, 120s TTL)
-- SSE2 trig lookup tables (4096-entry sin/cos, 1024-entry atan)
-- Render state dedup (256 slots), event name lookup/hash caches
-- event name lookup/hash caches
 
 ## Current Status
 
@@ -149,9 +82,10 @@ Morbent, Darkmoore, Ethodeus, Billy Hoyle, tuan, NoGoodLife, feh_dois, David (`_
 <summary><b>Click to expand full optimized feature list (Memory, Lua VM, Math, Network, Async, I/O)</b></summary>
 
 ### Memory and allocator
-- **mimalloc redirect of WoW's static CRT allocator** *(enabled)* — `malloc`/`free`/`realloc`/`calloc`/`_msize`/`_recalloc` routed to mimalloc as a closed set with a transition guard, to defragment 32-bit VA over long sessions (see *New optimizations*). `GlobalAlloc(GMEM_FIXED)` is also serviced from mimalloc.
-- **Adaptive purge delay + memory-pressure governor** — purge aggression scales with VA pressure; forced `mi_collect` under critical pressure
-- Lua allocator replacement *(disabled — corrupted pointers during login; the CRT redirect above is the safe path)*
+- **Large-allocation mimalloc redirect** *(opt-in, default off)* — only main-thread allocations `>= 1 MB` are routed to mimalloc, and only if the returned pointer sits below 2 GB; everything smaller (including all network buffers) and every background-thread allocation stays on WoW's CRT. This is the conservative replacement for the old redirect-everything version, which was removed in v3.16.3 for destabilizing Winsock and breaking connections. Enable in the launcher and confirm you can still connect. `free`/`realloc`/`_msize`/`_recalloc` route mimalloc-owned blocks by region check so nothing is freed on the wrong heap.
+- **Adaptive purge delay + memory-pressure governor** — purge aggression scales with VA pressure; forced `mi_collect` under critical pressure (now driven from the main-thread maintenance tick, not a background thread)
+- **Direct mimalloc use** — subsystems (aligned-alloc cache, async I/O buffers, prefetch, etc.) call mimalloc directly regardless of the redirect toggle
+- Lua allocator replacement *(disabled — corrupted pointers during login)*
 - WoW `free`-wrapper fast path (calls WoW's own `free`, skips a redundant `_msize` heap-walk)
 - Lua string table pre-sizing to reduce hash resize spikes
 - Low Fragmentation Heap (LFH) enabled for process heap and new heaps
@@ -535,7 +469,8 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 - `hooks_async.cpp` - 2-thread worker pool, particle SSE2, ADT prefetch
 - `event_coalescer.cpp` - Lua event coalescing via FrameScript_SignalEvent hook, per-frame deduplication
 - `network_guid_sse2.cpp` - SSE2 branchless GUID unpacking for CDataStore::GetWowGUID
-- `d3d9_state_manager.cpp` - 15-hook D3D9 vtable patcher (disabled — DXVK conflict)
+- `d3d9_state_manager.cpp` - 15-hook D3D9 vtable patcher + device-reset lifecycle tracker and DXVK implicit-resize handler (active)
+- `dxvk_bridge.cpp` - DXVK / Vulkan-translation-layer detection (module, d3d9.dll metadata, env)
 - `hot_patch.cpp` - 20 runtime hot-patch optimizations
 - `infra_patch.cpp` - 50 infrastructure APIs (pools, caches, dedup, perfmon)
 - `hook_prefetch.cpp` - 3 SSE2 prefetch hooks for cleanup/delete/reset paths
@@ -622,7 +557,7 @@ wow-optimize/
 │   ├── core/                 # DLL entry, proxy loader, features config (version.h)
 │   ├── diagnostics/          # EIP sampling profiler, crash reporter, CVar watchdog
 │   ├── hooks_subsystems/     # D3D9 state manager, CRT string fast-paths, event/data caches
-│   ├── launcher/             # C# WPF configurator & launcher dashboard
+│   ├── launcher/             # C# WinForms configurator & launcher dashboard
 │   ├── runtime_vm/           # Lua C-API detour hooks, stack query inline paths, VM engine
 │   ├── simd_math/            # SSE2 4x4 matrix, frustum point culling, raycast overrides
 │   └── threading/            # Multi-threaded work pool dispatcher
