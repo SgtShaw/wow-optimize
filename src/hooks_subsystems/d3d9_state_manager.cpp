@@ -14,6 +14,9 @@
 #include "d3d9_state_manager.h"
 #include "font_glyph_cache.h"
 #include "texture_unload_delay.h"
+#include "d3d9_state_cache.h"
+#include "render_state_dedup.h"
+#include "win_mutex.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -62,7 +65,18 @@ static void* g_vtableOriginals[NUM_HOOKS] = {};
 static bool  g_vtablePatched[NUM_HOOKS] = {};
 
 static void* g_pDevice = nullptr;
+static void* g_pPatchedVTable = nullptr;
 static bool  g_deviceHooked = false;
+volatile LONG g_deviceResetCounter = 0;
+
+// Guards vtable read-modify-write in PatchDeviceVTable/UnpatchDeviceVTable. Without
+// this, the init thread's first-time patch and the game thread's CheckDeviceChange
+// re-patch can race on the same VirtualProtect'd page: one thread restores the
+// page to non-writable between another thread's protect and its write, faulting
+// on the vtable-slot store (observed as ACCESS_VIOLATION inside PatchDeviceVTable
+// at startup, offset 0x3E9C0, both threads logging "Device vtable patched" within
+// the same millisecond).
+static WinMutex g_vtableMutex;
 
 // ================================================================
 // Per-frame statistics
@@ -115,26 +129,32 @@ static bool   g_psValid = false;
 
 static void InvalidateAllCaches();
 static void UnpatchDeviceVTable();
+static bool PatchDeviceVTable(void* pDevice);
 
 static inline void CheckDeviceChange(void* dev) {
+    // Do NOT bypass this under DXVK: it's the only mechanism that notices a
+    // device reset/recreation (windowed<->fullscreen, resize) and invalidates
+    // FontGlyphCache/TextureUnloadDelay/D3D9StateCache. Skipping it here left
+    // those caches hanging onto descriptors for destroyed textures after any
+    // display-mode change, corrupting all on-screen text. The vtable-patch
+    // race that DXVKBridge::IsActive() was introduced to dodge is fixed at
+    // the source now (g_vtableMutex in PatchDeviceVTable/UnpatchDeviceVTable).
     if (dev && dev != g_pDevice) {
-        Log("[D3D9State] Real-time Device pointer change detected (old: %p, new: %p). Invalidating caches.", g_pDevice, dev);
+        Log("[D3D9State] Real-time Device pointer change detected (old: %p, new: %p).", g_pDevice, dev);
         
-        if (g_pDevice && IsReadable((uintptr_t)g_pDevice)) {
-            UnpatchDeviceVTable();
-        } else {
-            g_deviceHooked = false;
-            for (int i = 0; i < NUM_HOOKS; i++) {
-                g_vtablePatched[i] = false;
-            }
-        }
-
-        g_pDevice = dev;
+        InterlockedIncrement(&g_deviceResetCounter);
         InvalidateAllCaches();
+        RenderStateDedup_ClearCache();
         #ifndef TEST_DISABLE_FONT_METRICS_FAST
         FontGlyphCache::ClearCache();
         #endif
-        TextureUnloadDelay::Flush();
+        TextureUnloadDelay::Discard();
+        D3D9StateCache::InvalidateAllCaches(false);
+
+        g_pDevice = dev;
+
+        g_deviceHooked = false; // Force PatchDeviceVTable to run and verify/re-hook the new device vtable
+        PatchDeviceVTable(dev);
     }
 }
 
@@ -422,6 +442,8 @@ static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) 
     InterlockedIncrement64(&g_statCalls[14]);
     Log("[D3D9State] Device Reset detected! Invalidating all caches and flushing delayed textures...");
     InvalidateAllCaches();
+    RenderStateDedup_ClearCache();
+    D3D9StateCache::InvalidateAllCaches(true);
     
     // Clear font glyph cache
     #ifndef TEST_DISABLE_FONT_METRICS_FAST
@@ -429,9 +451,21 @@ static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) 
     #endif
 
     // Flush delayed textures
-    TextureUnloadDelay::Flush();
+    TextureUnloadDelay::Discard();
 
-    return g_orig_Reset(dev, params);
+    InterlockedIncrement(&g_deviceResetCounter);
+
+    HRESULT hr = g_orig_Reset(dev, params);
+    if (SUCCEEDED(hr)) {
+        InvalidateAllCaches();
+        RenderStateDedup_ClearCache();
+        D3D9StateCache::InvalidateAllCaches(true);
+        #ifndef TEST_DISABLE_FONT_METRICS_FAST
+        FontGlyphCache::ClearCache();
+        #endif
+        InterlockedIncrement(&g_deviceResetCounter);
+    }
+    return hr;
 }
 
 // ================================================================
@@ -481,6 +515,7 @@ static void SetHookOrigin(int idx, void* orig) {
 #endif
 
 static bool PatchDeviceVTable(void* pDevice) {
+    WinLockGuard lock(g_vtableMutex);
     if (!pDevice || g_deviceHooked) return false;
 
     uintptr_t* vtable = *(uintptr_t**)pDevice;
@@ -525,49 +560,55 @@ static bool PatchDeviceVTable(void* pDevice) {
     }
 
     g_pDevice = pDevice;
+    g_pPatchedVTable = vtable;
     g_deviceHooked = true;
-    Log("[D3D9State] Device vtable patched: %d/%d state hooks installed", patched, NUM_HOOKS);
+    InterlockedIncrement(&g_deviceResetCounter);
+    Log("[D3D9State] Device vtable patched: %d/%d state hooks installed (vtable: %p, resetCounter: %ld)", patched, NUM_HOOKS, vtable, g_deviceResetCounter);
     return true;
 }
 
-static void UnpatchDeviceVTable() {
-    if (!g_pDevice || !g_deviceHooked) return;
-
-    if (!IsReadable((uintptr_t)g_pDevice)) {
-        g_deviceHooked = false;
-        g_pDevice = nullptr;
-        return;
-    }
-
-    uintptr_t* vtable = *(uintptr_t**)g_pDevice;
-    if (!vtable || !IsReadable((uintptr_t)vtable)) { 
-        g_deviceHooked = false; 
-        g_pDevice = nullptr; 
-        return; 
-    }
-
-    // Restore state hooks in reverse order
-    for (int i = NUM_HOOKS - 1; i >= 0; i--) {
-        if (!g_vtablePatched[i]) continue;
-        int vtIndex = g_vtableIndices[i];
-        
-        // Safety: verify that the target vtable address is still readable
-        if (!IsReadable((uintptr_t)&vtable[vtIndex])) continue;
-
-        // Verify that the vtable currently points to our hook before restoring it,
-        // to prevent overwriting third-party hooks or crashing
-        if (vtable[vtIndex] == (uintptr_t)g_hookFuncs[i]) {
-            DWORD oldProtect;
-            if (VirtualProtect(&vtable[vtIndex], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
-                vtable[vtIndex] = (uintptr_t)g_vtableOriginals[i];
-                VirtualProtect(&vtable[vtIndex], sizeof(void*), oldProtect, &oldProtect);
-            }
+// Split from UnpatchDeviceVTable() because MSVC forbids __try in a function
+// that also has a C++ object needing unwinding (WinLockGuard) — C2712.
+static void UnpatchDeviceVTableInner() {
+    __try {
+        uintptr_t* vtable = (uintptr_t*)g_pPatchedVTable;
+        if (!IsReadable((uintptr_t)vtable)) {
+            return;
         }
-        g_vtablePatched[i] = false;
+
+        // Restore state hooks in reverse order
+        for (int i = NUM_HOOKS - 1; i >= 0; i--) {
+            if (!g_vtablePatched[i]) continue;
+            int vtIndex = g_vtableIndices[i];
+
+            // Safety: verify that the target vtable address is still readable
+            if (!IsReadable((uintptr_t)&vtable[vtIndex])) continue;
+
+            // Verify that the vtable currently points to our hook before restoring it,
+            // to prevent overwriting third-party hooks or crashing
+            if (vtable[vtIndex] == (uintptr_t)g_hookFuncs[i]) {
+                DWORD oldProtect;
+                if (VirtualProtect(&vtable[vtIndex], sizeof(void*), PAGE_EXECUTE_READWRITE, &oldProtect)) {
+                    vtable[vtIndex] = (uintptr_t)g_vtableOriginals[i];
+                    VirtualProtect(&vtable[vtIndex], sizeof(void*), oldProtect, &oldProtect);
+                }
+            }
+            g_vtablePatched[i] = false;
+        }
+    } __except(EXCEPTION_EXECUTE_HANDLER) {
+        Log("[D3D9State] SEH exception caught during UnpatchDeviceVTable!");
     }
+}
+
+static void UnpatchDeviceVTable() {
+    WinLockGuard lock(g_vtableMutex);
+    if (!g_deviceHooked || !g_pPatchedVTable) return;
+
+    UnpatchDeviceVTableInner();
 
     g_deviceHooked = false;
     g_pDevice = nullptr;
+    g_pPatchedVTable = nullptr;
 }
 
 static void InvalidateAllCaches() {
@@ -588,6 +629,10 @@ static void InvalidateAllCaches() {
 }
 
 static bool TryFindAndPatchDevice() {
+    // Always patch, even under DXVK: this is what installs the Reset hook that
+    // FontGlyphCache/TextureUnloadDelay/D3D9StateCache rely on for invalidation
+    // (see CheckDeviceChange). DXVKBridge::IsActive() used to bypass this
+    // entirely, leaving no way to detect device resets under DXVK at all.
     if (g_deviceHooked) return true;
 
     uintptr_t addr = ADDR_CGXDEVICED3D_PTR;
@@ -661,32 +706,6 @@ void OnFrameD3D9StateManager(DWORD mainThreadId) {
     // Invalidate state cache every frame to ensure synchronization with device resets,
     // window resizing, resolution changes, and DXVK state updates!
     InvalidateAllCaches();
-    
-    // Check if the device pointer has changed
-    uintptr_t addr = ADDR_CGXDEVICED3D_PTR;
-    if (addr != 0 && IsReadable(addr)) {
-        uintptr_t pGxDevice = *(uintptr_t*)addr;
-        if (pGxDevice && IsReadable(pGxDevice)) {
-            uintptr_t devicePtrAddr = pGxDevice + 0x397C;
-            if (IsReadable(devicePtrAddr)) {
-                void* pDevice = *(void**)devicePtrAddr;
-                if (pDevice != g_pDevice) {
-                    Log("[D3D9State] Device pointer changed from %p to %p. Re-patching.", g_pDevice, pDevice);
-                    UnpatchDeviceVTable();
-                    
-                    // Clear font glyph cache and flush textures when device is destroyed/replaced!
-                    #ifndef TEST_DISABLE_FONT_METRICS_FAST
-                    FontGlyphCache::ClearCache();
-                    #endif
-                    TextureUnloadDelay::Flush();
-
-                    if (pDevice && IsReadable((uintptr_t)pDevice)) {
-                        PatchDeviceVTable(pDevice);
-                    }
-                }
-            }
-        }
-    }
     
     if (!g_deviceHooked) {
         TryFindAndPatchDevice();

@@ -18,6 +18,7 @@
 #include "d3d9_render_thread.h"
 
 extern "C" void Log(const char* fmt, ...);
+extern volatile LONG g_deviceResetCounter;
 
 // ---- statistics --------------------------------------------------
 static volatile LONG64 g_rs_calls   = 0;    // SetRenderState calls
@@ -156,10 +157,25 @@ static HRESULT STDMETHODCALLTYPE Hooked_Reset(
     memset(g_samplerCache, 0, sizeof(g_samplerCache));
     memset(g_samplerValid, 0, sizeof(g_samplerValid));
 
+    InterlockedIncrement(&g_deviceResetCounter);
+
+    HRESULT hr = S_OK;
     if (g_orig_Reset) {
-        return g_orig_Reset(device, pParams);
+        hr = g_orig_Reset(device, pParams);
     }
-    return S_OK;
+    if (SUCCEEDED(hr)) {
+        memset(g_rsCache, 0, sizeof(g_rsCache));
+        memset(g_rsValid, 0, sizeof(g_rsValid));
+
+        memset(g_tssCache, 0, sizeof(g_tssCache));
+        memset(g_tssValid, 0, sizeof(g_tssValid));
+
+        memset(g_samplerCache, 0, sizeof(g_samplerCache));
+        memset(g_samplerValid, 0, sizeof(g_samplerValid));
+
+        InterlockedIncrement(&g_deviceResetCounter);
+    }
+    return hr;
 }
 
 // ================================================================
@@ -200,6 +216,8 @@ static HRESULT STDMETHODCALLTYPE Hooked_CreateDevice(
 
         memset(g_samplerCache, 0, sizeof(g_samplerCache));
         memset(g_samplerValid, 0, sizeof(g_samplerValid));
+
+        InterlockedIncrement(&g_deviceResetCounter);
 
         if (!g_deviceHooksInstalled) {
             __try {

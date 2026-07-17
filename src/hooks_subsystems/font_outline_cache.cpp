@@ -39,6 +39,12 @@ void Shutdown() {
     Log("[FontOutlineCache] Stats: %lld hits, %lld misses", g_outlineHits, g_outlineMisses);
 }
 
+void ClearCache() {
+    WinLockGuard lock(g_outlineMutex);
+    g_outlineCache.clear();
+    Log("[FontOutlineCache] Cache cleared (device reset)");
+}
+
 void* LookupOutline(void* font, uint32_t charCode, int style) {
     if (!font) return nullptr;
     OutlineKey key = {font, charCode, style};

@@ -158,6 +158,13 @@ namespace TextureUnloadDelay {
         }
     }
 
+    void Discard() {
+        if (!g_enabled) return;
+        WinLockGuard lock(g_textureLock);
+        g_delayedQueue.clear();
+        Log("[TextureUnloadDelay] Queue discarded without release (device change/reset)");
+    }
+
     void OnFrame() {
         if (!g_enabled) return;
         

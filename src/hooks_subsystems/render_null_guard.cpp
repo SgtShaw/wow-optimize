@@ -24,13 +24,26 @@ static uint32_t* const C5DF88 = (uint32_t*)0x00C5DF88; // global render device
 typedef int (__cdecl *Sub873060_t)(int a1, int a2);
 static Sub873060_t g_orig873060 = nullptr;
 
+static bool IsDeviceReady() {
+    uintptr_t pGxDevice = *(uintptr_t*)0x00C5DF88;
+    if (pGxDevice < 0x10000 || pGxDevice > 0xFFE00000) return false;
+    
+    uintptr_t pD3d9Device = *(uintptr_t*)(pGxDevice + 0x397C);
+    if (pD3d9Device < 0x10000 || pD3d9Device > 0xFFE00000) return false;
+    
+    uintptr_t pVtable = *(uintptr_t*)pD3d9Device;
+    if (pVtable < 0x10000 || pVtable > 0xFFE00000) return false;
+    
+    return true;
+}
+
 static int __cdecl Hooked_873060(int a1, int a2)
 {
     // If the device state pointer hasn't been initialized yet
     // (sub_872F90 hasn't run), the function has nothing to configure.
     // Return 1 (original's success code), not 0, to avoid triggering
     // error paths in callers.
-    if (!*D43024 || !*C5DF88) {
+    if (!*D43024 || !*C5DF88 || !IsDeviceReady()) {
         return 1;  // success — nothing to do
     }
 

@@ -19,6 +19,8 @@
 
 extern "C" void Log(const char* fmt, ...);
 extern DWORD g_mainThreadId;
+extern volatile LONG g_deviceResetCounter;
+extern void RenderStateDedup_ClearCache(void);
 
 namespace D3D9StateCache {
 
@@ -113,10 +115,14 @@ static IDirect3DQuery9* g_latencyQueries[LATENCY_QUEUE_SIZE] = { nullptr };
 static int g_latencyQueryIndex = 0;
 static bool g_latencyInitialized = false;
 
-static void InvalidateLatencyQueries() {
+static void InvalidateLatencyQueries(bool release) {
     for (int i = 0; i < LATENCY_QUEUE_SIZE; i++) {
         if (g_latencyQueries[i]) {
-            g_latencyQueries[i]->Release();
+            if (release) {
+                __try {
+                    g_latencyQueries[i]->Release();
+                } __except(EXCEPTION_EXECUTE_HANDLER) {}
+            }
             g_latencyQueries[i] = nullptr;
         }
     }
@@ -383,20 +389,29 @@ static HRESULT WINAPI Hooked_SetTextureStageState(IDirect3DDevice9* device, DWOR
     return orig_SetTextureStageState(device, Stage, Type, Value);
 }
 
+void InvalidateAllCaches(bool safeToRelease);
+
 static HRESULT WINAPI Hooked_Reset(IDirect3DDevice9* device, D3DPRESENT_PARAMETERS* params) {
     Log("[D3D9StateCache] Device Reset requested. Flushing render pipeline...");
     if (D3D9RenderThread::IsActive()) {
         D3D9RenderThread::PipelineFlush();
     }
 
-    InvalidateCache();
-    InvalidateLatencyQueries();
+    InvalidateAllCaches(true);
     FontGlyphCache::ClearCache();
-    TextureUnloadDelay::Flush();
+    TextureUnloadDelay::Discard();
+    RenderStateDedup_ClearCache();
+    InterlockedIncrement(&g_deviceResetCounter);
 
     Log("[D3D9StateCache] Executing Reset synchronously on main thread...");
     HRESULT hr = orig_Reset(device, params);
     Log("[D3D9StateCache] Device Reset result: 0x%08X", hr);
+    if (SUCCEEDED(hr)) {
+        InvalidateAllCaches(true);
+        FontGlyphCache::ClearCache();
+        RenderStateDedup_ClearCache();
+        InterlockedIncrement(&g_deviceResetCounter);
+    }
     return hr;
 }
 
@@ -423,7 +438,7 @@ static HRESULT WINAPI Hooked_Present(IDirect3DDevice9* device, const RECT* src, 
                 g_latencyInitialized = true;
                 Log("[D3D9StateCache] Low-latency GPU sync active (MaxFrameLatency = 1)");
             } else {
-                InvalidateLatencyQueries();
+                InvalidateLatencyQueries(true);
             }
         }
 
@@ -482,7 +497,7 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     orig_CreateVertexBuffer = (CreateVertexBuffer_fn)vtable[26];
     orig_SetVertexShaderConstantF = (SetVertexShaderConstantF_fn)vtable[94];
     orig_SetSamplerState = (SetSamplerState_fn)vtable[69];
-    orig_SetTextureStageState = (SetTextureStageState_fn)vtable[64];
+    orig_SetTextureStageState = (SetTextureStageState_fn)vtable[67];
     orig_SetVertexShader = (SetVertexShader_fn)vtable[92];
 
     // Only install state cache hooks if it is actually enabled by the user config
@@ -535,10 +550,17 @@ void OnCreateDevice(IDirect3DDevice9* device) {
 }
 
 void Shutdown() {
-    InvalidateLatencyQueries();
+    InvalidateLatencyQueries(false);
     CleanVBCache();
     Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld, Transforms: %ld, Viewports: %ld, VSConstants: %ld",
         g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load(), g_transformSkips.load(), g_viewportSkips.load(), g_vsConstantSkips.load());
+}
+
+void InvalidateAllCaches(bool safeToRelease) {
+    Log("[D3D9StateCache] Clearing all state cache registries (device change/reset, safeToRelease=%d)...", safeToRelease);
+    InvalidateCache();
+    InvalidateLatencyQueries(safeToRelease);
+    CleanVBCache();
 }
 
 } // namespace D3D9StateCache

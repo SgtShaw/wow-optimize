@@ -16,6 +16,9 @@ void Shutdown();
 // Handle device creation (resolve pointers and install hooks)
 void OnCreateDevice(struct IDirect3DDevice9* device);
 
+// Clear all cache entries, queries, and vertex buffers
+void InvalidateAllCaches(bool safeToRelease);
+
 } // namespace D3D9StateCache
 
 #endif // D3D9_STATE_CACHE_H

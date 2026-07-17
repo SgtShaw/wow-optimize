@@ -111,9 +111,7 @@ static const char* CheckEnv() {
     return nullptr;
 }
 
-bool Init() {
-    QueryPerformanceFrequency(&g_qpcFreq);
-
+static void DetectOnce() {
     const char* r = CheckLoadedModules();
     if (!r) r = CheckD3D9Metadata();
     if (!r) r = CheckEnv();
@@ -122,8 +120,14 @@ bool Init() {
         g_reason = r;
         InterlockedExchange(&g_active, 1);
         Log("[DXVKBridge] Vulkan translation layer DETECTED - %s", r);
-    } else {
-        Log("[DXVKBridge] no Vulkan translation layer detected");
+    }
+}
+
+bool Init() {
+    QueryPerformanceFrequency(&g_qpcFreq);
+    DetectOnce();
+    if (!g_active) {
+        Log("[DXVKBridge] no Vulkan translation layer detected yet (vulkan-1.dll loads lazily on device creation; will keep checking via IsActive())");
     }
     return true;
 }
@@ -134,7 +138,15 @@ void Shutdown() {
        (long long)g_presents, g_presentIntervalMs);
 }
 
-bool IsActive()              { return g_active != 0; }
+// Detection can run before DXVK's d3d9.dll has loaded vulkan-1.dll (that only
+// happens once WoW actually creates the D3D9 device), so a single one-shot
+// check at Init() time can permanently miss it. Keep re-checking lazily here
+// until it latches true; once active this is a single volatile-read fast path.
+bool IsActive() {
+    if (g_active) return true;
+    DetectOnce();
+    return g_active != 0;
+}
 double PresentIntervalMs()   { return g_presentIntervalMs; }
 bool ShouldSkipGpuSync()     { return g_active != 0; }
 bool ShouldSkipStateCache()  { return g_active != 0; }

@@ -4,8 +4,10 @@
 #include "MinHook.h"
 #include "version.h"
 #include "font_glyph_cache.h"
+#include "font_outline_cache.h"
 
 extern "C" void Log(const char* fmt, ...);
+extern volatile LONG g_deviceResetCounter;
 
 static inline bool IsTeardownState() {
     uintptr_t gL = *(uintptr_t*)0x00D3F78C;
@@ -66,25 +68,53 @@ static bool IsReadable(uintptr_t addr) {
     return !(mbi.Protect & PAGE_NOACCESS) && !(mbi.Protect & PAGE_GUARD);
 }
 
+static bool IsDeviceReady() {
+    uintptr_t pGxDevice = *(uintptr_t*)0x00C5DF88;
+    if (pGxDevice < 0x10000 || pGxDevice > 0xFFE00000) return false;
+    
+    uintptr_t pD3d9Device = *(uintptr_t*)(pGxDevice + 0x397C);
+    if (pD3d9Device < 0x10000 || pD3d9Device > 0xFFE00000) return false;
+    
+    uintptr_t pVtable = *(uintptr_t*)pD3d9Device;
+    if (pVtable < 0x10000 || pVtable > 0xFFE00000) return false;
+    
+    return true;
+}
+
 static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, int fontSize, int a4, void* outStruct, int a6, int a7) {
+    if (!IsDeviceReady()) {
+        return 0; // Device not ready, fail gracefully to prevent crashes/hangs
+    }
     if (fontObj && charCode && outStruct && !IsTeardownState()) {
-        // Real-time device change check inside GxuLoadGlyph itself!
-        static void* lastDevice = nullptr;
-        uintptr_t addr = 0x00C5DF88; // global CGxDeviceD3d*
-        void* currentDevice = nullptr;
-        if (addr && IsReadable(addr)) {
-            uintptr_t pGxDevice = *(uintptr_t*)addr;
-            if (pGxDevice && IsReadable(pGxDevice)) {
-                uintptr_t devicePtrAddr = pGxDevice + 0x397C;
-                if (IsReadable(devicePtrAddr)) {
-                    currentDevice = *(void**)devicePtrAddr;
-                }
-            }
-        }
-        if (currentDevice != lastDevice) {
-            Log("[FontGlyphCache] Device change detected inside GxuLoadGlyph (old: %p, new: %p). Clearing glyph cache.", lastDevice, currentDevice);
-            lastDevice = currentDevice;
+        // Device change detection: track BOTH the CGxDevice wrapper pointer
+        // AND the nested IDirect3DDevice9* pointer. During gxRestart (windowed
+        // mode, vsync, resolution changes), WoW destroys the old CGxDevice and
+        // creates a new one. Due to heap address reuse, the nested D3D device
+        // pointer can be identical after recreation — checking only it misses
+        // the reset. By tracking both levels, we catch all device transitions.
+        static LONG lastResetCounter = -1;
+        static DWORD deviceChangeTime = 0;  // tick when last device change was detected
+        LONG currentResetCounter = g_deviceResetCounter;
+        if (currentResetCounter != lastResetCounter) {
+            Log("[FontGlyphCache] Device reset/change detected (resetCounter: %ld->%ld). Clearing glyph cache.",
+                lastResetCounter, currentResetCounter);
+            lastResetCounter = currentResetCounter;
             ClearCache();
+            FontOutlineCache::ClearCache();
+            deviceChangeTime = GetTickCount();
+        }
+
+        // Grace period: after a device change, skip the cache entirely for 2 seconds.
+        // During gxRestart, GxuLoadGlyph may be called while the font rendering
+        // pipeline is in a transitional state — rasterized glyphs may contain
+        // garbage or partial data. Caching these would corrupt all subsequent
+        // text rendering. By bypassing the cache during the transition window,
+        // we let WoW's original glyph loader handle the unstable period, and
+        // only start caching once the device is fully stable.
+        DWORD elapsed = GetTickCount() - deviceChangeTime;
+        if (deviceChangeTime != 0 && elapsed < 2000) {
+            // During grace period: pass through directly to original, no caching
+            return orig_GxuLoadGlyph(fontObj, charCode, fontSize, a4, outStruct, a6, a7);
         }
 
         GlyphKey key = { fontObj, charCode, fontSize, a4, a6, a7 };
