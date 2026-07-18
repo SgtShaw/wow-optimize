@@ -584,7 +584,7 @@
 #define TEST_DISABLE_DEFRAG_LF                 0  // enabled: lock-free main thread heap defragmentation
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_LUA_GETTIME_FAST           0  // disabled by default: Lua GetTime Frame Cache
-#define TEST_DISABLE_MATRIX_TRANSFORM_SSE2      0  // enabled: SIMD Matrix Vector Transforms
+#define TEST_DISABLE_MATRIX_TRANSFORM_SSE2      1  // disabled: SIMD Matrix Vector Transforms
 #define TEST_DISABLE_CRT_MIMALLOC               0  // enabled: CRT Allocator Redirect to mimalloc
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         1  // enabled: Unit Aura Coalescer
