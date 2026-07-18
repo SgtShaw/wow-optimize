@@ -352,10 +352,12 @@ namespace WowOptimizeLauncher {
                 { "GetSpellInfo Cache", new SettingItem("Combat_Net", "GetSpellInfoCache", false, null, "Caches spells details to prevent repeated DBC lookups by complex combat macros and WA addons.") },
                 { "Parallel Packet Offloader", new SettingItem("Combat_Net", "PacketOffload", false, null, "Offloads incoming network packet decompression and deserialization to helper cores.") },
                 { "Multithreaded Nameplate Renderer", new SettingItem("Combat_Net", "NameplateMT", true, null, "Calculates nameplate positions and layouts on background threads to maximize combat FPS.") },
+                { "Incremental Combat Log Event Coalescer", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "[NEW] Batches and flushes COMBAT_LOG_EVENT_UNFILTERED updates incrementally per frame to eliminate raid AOE freezes.") },
 
                 // Graphics & Sound
                 { "SSE2 Boyer-Moore strstr", new SettingItem("Graphics_Sound", "StrStrSse2", false, null, "Optimizes string sub-searches (such as font names, textures) using vectorized SIMD algorithms.") },
                 { "Vectorized String Concatenation", new SettingItem("Graphics_Sound", "StrCatFast", false, null, "Speeds up string appending (such as chat text building) using SSE2 assembly wrappers.") },
+                { "SIMD SSE2 World-To-Screen Projection", new SettingItem("Graphics_Sound", "WorldToScreenSse2", false, null, "[NEW] Vectorizes 3D-to-2D screen projection calculations using 4-way SSE2 SIMD instructions to speed up HUD and target frame markers.") },
                 { "FMOD Sound Mixer Optimization", new SettingItem("Graphics_Sound", "SoundMixerOpt", false, null, "Adjusts audio thread schedules and buffer allocations to prevent sound stutters in raids.") },
                 { "Parallel Sound Wave Decoding", new SettingItem("Graphics_Sound", "AudioDecodeMt", false, null, "Decodes sound assets in background threads to eliminate latency when playing fresh audio clips.") },
                 { "DBC Data Lookup Cache", new SettingItem("Graphics_Sound", "DbcLookupCache", false, null, "Speeds up data reading from internal database files (.dbc) for models, items, and spells.") },
