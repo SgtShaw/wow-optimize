@@ -101,6 +101,7 @@ namespace Config {
         bool OptWmoCullingOpt = true;
         bool OptFastFloatParse = true;
         bool OptHeapAllocationTracker = true;
+        bool OptCrtMimalloc = false;
         bool OptSpellCooldownCache = true;
         bool OptGuidStringCache = true;
         bool OptFrameScriptMemOpt = true;

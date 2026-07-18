@@ -118,6 +118,7 @@ namespace Config {
             WritePrivateProfileStringA("Graphics_Sound", "WmoCullingOpt", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FastFloatParse", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "HeapAllocationTracker", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "CrtMimalloc", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "SpellCooldownCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "GuidStringCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptMemOpt", "1", iniPath.c_str());
@@ -223,6 +224,7 @@ namespace Config {
         g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 1, iniPath.c_str()) != 0;
         g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 1, iniPath.c_str()) != 0;
         g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 1, iniPath.c_str()) != 0;
+        g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 1, iniPath.c_str()) != 0;
         g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 1, iniPath.c_str()) != 0;
         g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 1, iniPath.c_str()) != 0;
