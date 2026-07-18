@@ -229,6 +229,7 @@ static void StopFreezeWatchdog() {
 #include "addon_dispatcher.h"
 #include "mpq_prefetch.h"
 #include "mpq_mmap_vfs.h"
+#include "mpq_async_decompress.h"
 #include "obj_vis_cache.h"
 #include "nameplate_batch.h"
 #include "addon_preload.h"
@@ -7048,6 +7049,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Memory-Mapped MPQ VFS & Parallel Decompressor ---");
     bool mpqMmapVfsOk = (Config::g_settings.OptMpqMmapVfs || Config::g_settings.OptDbcPreload) && MpqMmapVfs::Init();
+    if (Config::g_settings.OptMpqAsyncDecompress) MpqAsyncDecompress::Init();
 
     Log("");
     Log("--- Object Visibility Cache ---");

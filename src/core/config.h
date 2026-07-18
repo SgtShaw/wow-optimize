@@ -90,6 +90,7 @@ namespace Config {
         bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = true;
         bool OptM2BoneMt = false;
+        bool OptMpqAsyncDecompress = false;
         bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;
         bool OptLuaStringCompareFast = true;
