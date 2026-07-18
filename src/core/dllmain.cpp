@@ -6565,7 +6565,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
 
     Log("--- Matrix SSE2 Fast Path ---");
-    if (Config::g_settings.OptStrStrSse2) {
+    if (Config::g_settings.OptM2MatrixSimd) {
         InstallMatrixCopySSE2();
     } else {
         Log("[MatrixSSE2] DISABLED via configuration");

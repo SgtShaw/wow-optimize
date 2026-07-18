@@ -760,6 +760,7 @@ bool InstallMatrixCopySSE2() {
         Log("[MatrixSSE2] CMatrix::Transpose hook FAILED");
     }
 
+    /*
     if (WineSafe_CreateHook((void*)0x004C2300, (void*)Hooked_PointXformInPlace,
                             (void**)&pOrigPointXformIP) == MH_OK &&
         WO_EnableHook((void*)0x004C2300) == MH_OK) {
@@ -767,6 +768,7 @@ bool InstallMatrixCopySSE2() {
     } else {
         Log("[MatrixSSE2] PointTransformInPlace hook FAILED");
     }
+    */
 
     if (WineSafe_CreateHook((void*)0x004C1BF0, (void*)Hooked_Scale3x3,
                             (void**)&pOrigScale3x3) == MH_OK &&
