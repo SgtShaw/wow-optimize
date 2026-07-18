@@ -4406,6 +4406,11 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
         // with VSync off / uncapped framerates (which bypass hooked_Sleep).
         FlushFieldUpdates();
         WorldStateCoalesce::OnFrame();
+#if !TEST_DISABLE_LUA_GETTIME_FAST
+        if (Config::g_settings.OptLuaGetTimeFast) {
+            LuaGetTimeFast_NewFrame();
+        }
+#endif
 
         // sub_682E50()
         orig_sub_682E50();
