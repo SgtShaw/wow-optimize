@@ -47,13 +47,17 @@
 // Lua VM GC optimizer + mimalloc allocator replacement
 #define TEST_DISABLE_LUA_VM_OPT         0
 
-// The old ALL-allocations CRT→mimalloc redirect was removed for repeatedly
-// breaking server connections. v3.16.3 reintroduces a deliberately narrower,
-// opt-in version (Config::OptMimallocLarge, launcher default OFF): only main-
-// thread allocations >= 1 MB, kept below 2 GB, are routed to mimalloc — see the
-// InstallMimallocLargeHooks comment in dllmain.cpp for the full rationale. This
-// compile flag hard-disables that feature regardless of the config toggle.
-#define TEST_DISABLE_MIMALLOC_LARGE 0
+// HARD-DISABLED after a heap-corruption crash. The large-only opt-in redirect
+// still hits the same fundamental flaw as the original full CRT redirect: a
+// >=1MB block allocated through our malloc hook but freed through a path we do
+// NOT hook (operator delete / _free_base / _aligned_free / a driver's own free)
+// reaches ntdll's HeapFree as a mimalloc pointer and corrupts the heap free-list
+// — observed as a 0xC0000005 in ntdll's free-list splice during raid-exit
+// teardown (mass frees). Covering every free path safely is a large, risky
+// surface, and the sampling profiler showed the allocator/CPU path is not the
+// frame-time bottleneck (WoW-side code is <1% each), so the redirect is not
+// worth its crash risk. Removed from the launcher; keep the code for reference.
+#define TEST_DISABLE_MIMALLOC_LARGE 1
 
 // Gate for the Lua error diagnostic hook. The hook targets 0x84F610 which
 // disassembly-verified is sub_84F610(size_t Size) — luaL_addvalue, NOT lua_error.
