@@ -585,8 +585,18 @@
 #define TEST_DISABLE_LUA_GC_GOVERNOR            0  // enabled: adaptive Lua GC governor
 #define TEST_DISABLE_LUA_GETTIME_FAST           0  // disabled by default: Lua GetTime Frame Cache
 #define TEST_DISABLE_MATRIX_TRANSFORM_SSE2      1  // disabled: SIMD Matrix Vector Transforms
-#define TEST_DISABLE_CRT_MIMALLOC               0  // enabled: CRT Allocator Redirect to mimalloc
-#define TEST_DISABLE_M2_BONE_MT                 0  // enabled: Multi-Threaded M2 Skeleton Animations (64 ring slots)
+// HARD-DISABLED: this is the same all-allocations CRT->mimalloc redirect that was
+// removed in v3.16.3 for breaking server connections ("unable to connect"). The
+// opt-in large-allocation redirect (OptMimallocLarge) is the safe replacement.
+#define TEST_DISABLE_CRT_MIMALLOC               1  // disabled: CRT Allocator Redirect (connection breaker)
+// HARD-DISABLED: the multithreaded UpdateBones hook is broken by design — it
+// dispatches to a worker then immediately blocks waiting on it (no parallelism,
+// pure overhead), and on the 10ms wait timeout it frees the ring slot while the
+// worker is still running orig_UpdateBones on it (use-after-free), and runs
+// non-thread-safe M2 transform code on a worker thread (game-state race). Address
+// 0x0082F0F0 is correct, but the design provides no benefit and crashes. Needs a
+// full rewrite (in-place SSE bone math, no threads) before it can be re-enabled.
+#define TEST_DISABLE_M2_BONE_MT                 1  // disabled: broken multithreaded UpdateBones
 #define TEST_DISABLE_MPQ_ASYNC_DECOMPRESS       0  // enabled: Asynchronous MPQ File Decompressor
 #define TEST_DISABLE_RCU_OBJ_MGR                0  // enabled: Lock-Free Read-Copy-Update (RCU) Object Manager
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control

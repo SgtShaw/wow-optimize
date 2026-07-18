@@ -57,8 +57,8 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGetTimeFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "M2LodBias", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "SpatialCulling", "0", iniPath.c_str());
@@ -77,7 +77,7 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "GetSpellInfoCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "PacketOffload", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NameplateMT", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NameplateMT", "0", iniPath.c_str());
 
             // Graphics & Sound
             WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "1", iniPath.c_str());
@@ -104,7 +104,7 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqAsyncDecompress", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
@@ -165,8 +165,8 @@ namespace Config {
         g_settings.OptLuaJIT              = GetPrivateProfileIntA("UI_Lua", "LuaJIT", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaGetTimeFast      = GetPrivateProfileIntA("UI_Lua", "LuaGetTimeFast", 0, iniPath.c_str()) != 0;
         g_settings.OptAsyncTexLoader      = GetPrivateProfileIntA("UI_Lua", "AsyncTexLoader", 0, iniPath.c_str()) != 0;
-        g_settings.OptAsyncTerrainLoader  = GetPrivateProfileIntA("UI_Lua", "AsyncTerrainLoader", 1, iniPath.c_str()) != 0;
-        g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 1, iniPath.c_str()) != 0;
+        g_settings.OptAsyncTerrainLoader  = GetPrivateProfileIntA("UI_Lua", "AsyncTerrainLoader", 0, iniPath.c_str()) != 0;
+        g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 0, iniPath.c_str()) != 0;
         g_settings.OptM2LodBias           = GetPrivateProfileIntA("UI_Lua", "M2LodBias", 0, iniPath.c_str()) != 0;
         g_settings.OptMipBiasGovernor     = GetPrivateProfileIntA("UI_Lua", "MipBiasGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptSpatialCulling      = GetPrivateProfileIntA("UI_Lua", "SpatialCulling", 0, iniPath.c_str()) != 0;
@@ -185,7 +185,7 @@ namespace Config {
         g_settings.OptNetworkGuidSse2     = GetPrivateProfileIntA("Combat_Net", "NetworkGuidSse2", 0, iniPath.c_str()) != 0;
         g_settings.OptGetSpellInfoCache   = GetPrivateProfileIntA("Combat_Net", "GetSpellInfoCache", 0, iniPath.c_str()) != 0;
         g_settings.OptPacketOffload       = GetPrivateProfileIntA("Combat_Net", "PacketOffload", 0, iniPath.c_str()) != 0;
-        g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 1, iniPath.c_str()) != 0;
+        g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 0, iniPath.c_str()) != 0;
 
         // Graphics & Sound
         g_settings.OptStrStrSse2          = GetPrivateProfileIntA("Graphics_Sound", "StrStrSse2", 0, iniPath.c_str()) != 0;
@@ -212,8 +212,8 @@ namespace Config {
         g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 1, iniPath.c_str()) != 0;
         g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 1, iniPath.c_str()) != 0;
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
-        g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 1, iniPath.c_str()) != 0;
-        g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 1, iniPath.c_str()) != 0;
+        g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 0, iniPath.c_str()) != 0;
+        g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqAsyncDecompress = GetPrivateProfileIntA("General", "MpqAsyncDecompress", 0, iniPath.c_str()) != 0;
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
         g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 1, iniPath.c_str()) != 0;
