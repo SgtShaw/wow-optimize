@@ -281,8 +281,22 @@ struct ModRange { uintptr_t base; uintptr_t end; char name[32]; uint64_t count; 
 static ModRange g_mods[128];
 static int g_modCount = 0;
 
+// Our own DLL is broken down per-4KB-page too (like the WoW image), because it
+// showed up as a top-4 consumer (~8% of main-thread time) and we need to know
+// WHICH of our hooks costs that. Reported as "wowopt+0xNNNN" (offset from our
+// DLL base) so it maps directly to wow_optimize.map.
+static uintptr_t g_selfBase = 0;
+static uintptr_t g_selfEnd  = 0;
+static constexpr int SELF_PAGES = 4096;   // covers a 16MB image
+static uint32_t g_selfPageCounts[SELF_PAGES];
+
+// A cheap marker: this variable lives inside our own DLL, so its address tells
+// us which module is ours.
+static int g_selfAnchor = 0;
+
 static void BuildModuleTable() {
     g_modCount = 0;
+    g_selfBase = g_selfEnd = 0;
     HMODULE mods[256];
     DWORD needed = 0;
     HANDLE proc = GetCurrentProcess();
@@ -297,6 +311,13 @@ static void BuildModuleTable() {
         // Skip the wow.exe main image — those samples are already handled by
         // the named-function / per-page buckets (WOW_BASE..WOW_END).
         if (base <= WOW_BASE && WOW_BASE < end) continue;
+        // Identify our own DLL by the anchor address; it gets a per-page
+        // breakdown instead of a single module bucket.
+        if ((uintptr_t)&g_selfAnchor >= base && (uintptr_t)&g_selfAnchor < end) {
+            g_selfBase = base;
+            g_selfEnd  = end;
+            continue;
+        }
         char nm[MAX_PATH];
         if (!GetModuleBaseNameA(proc, mods[i], nm, sizeof(nm))) continue;
         ModRange& m = g_mods[g_modCount];
@@ -329,6 +350,7 @@ static void DumpResults() {
     // the shutdown path is often skipped on the fast process-exit, which lost
     // the profile entirely). Each call re-aggregates the current ring contents.
     memset(g_pageCounts, 0, sizeof(g_pageCounts));
+    memset(g_selfPageCounts, 0, sizeof(g_selfPageCounts));
 
     // Snapshot loaded modules so system samples can be attributed to a DLL.
     BuildModuleTable();
@@ -336,7 +358,7 @@ static void DumpResults() {
     // Buckets: one per named function, one "system_dll", plus one per non-empty
     // 4KB WoW page (so unlisted hot code is reported by address, not lumped into
     // a single opaque blob). Static (not on the stack) because of the page slots.
-    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + NUM_PAGES + 1;
+    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + NUM_PAGES + SELF_PAGES + 128 + 1;
     static SampleBucket buckets[MAX_BUCKETS];
     int bucketCount = 0;
 
@@ -375,16 +397,28 @@ static void DumpResults() {
         }
 
         // Not matched to a named function: aggregate WoW samples per 4KB page,
-        // and attribute non-WoW samples to their owning module (falling back to
-        // the opaque system bucket only when the module can't be resolved).
+        // our own DLL per 4KB page, and other non-WoW samples per owning module
+        // (falling back to the opaque system bucket only when unresolved).
         if (eip >= WOW_BASE && eip <= WOW_END) {
             g_pageCounts[(eip - WOW_BASE) >> 12]++;
+        } else if (g_selfBase && eip >= g_selfBase && eip < g_selfEnd) {
+            uint32_t pg = (uint32_t)((eip - g_selfBase) >> 12);
+            if (pg < SELF_PAGES) g_selfPageCounts[pg]++;
         } else {
             ModRange* m = FindModule(eip);
             if (m) m->count++;
             else   buckets[systemIdx].count++;
         }
         next_sample:;
+    }
+
+    // Emit one bucket per non-empty page of our own DLL (labelled "wowopt+0x..").
+    for (int p = 0; p < SELF_PAGES && bucketCount < MAX_BUCKETS; p++) {
+        if (!g_selfPageCounts[p]) continue;
+        buckets[bucketCount].addr  = g_selfBase + ((uintptr_t)p << 12);
+        buckets[bucketCount].name  = nullptr;   // labelled by self-offset at print time
+        buckets[bucketCount].count = g_selfPageCounts[p];
+        bucketCount++;
     }
 
     // Emit one bucket per system module that got samples (labelled "sys:<dll>").
@@ -423,6 +457,11 @@ static void DumpResults() {
         const char* name;
         if (buckets[i].name) {
             name = buckets[i].name;
+        } else if (g_selfBase && buckets[i].addr >= g_selfBase && buckets[i].addr < g_selfEnd) {
+            // A hot page inside our own DLL — label by offset from our base so it
+            // maps directly to wow_optimize.map (which of our hooks costs time).
+            wsprintfA(label, "wowopt+0x%05X", (unsigned)(buckets[i].addr - g_selfBase));
+            name = label;
         } else {
             // Unlisted WoW code region — label by its 4KB page base so the
             // region can be decompiled directly from the dump.
