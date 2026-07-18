@@ -6,14 +6,27 @@ namespace Config {
     Settings g_settings;
 
     void Load() {
-        char path[MAX_PATH];
-        GetModuleFileNameA(NULL, path, MAX_PATH);
-        std::string iniPath = path;
-        size_t lastSlash = iniPath.find_last_of("\\/");
-        if (lastSlash != std::string::npos) {
-            iniPath = iniPath.substr(0, lastSlash + 1) + "wow_opt.ini";
+        std::string iniPath;
+
+        // Explicit config path wins (set by wow_loader --config, or anyone who
+        // wants to point us at a specific profile). Only honored if it exists,
+        // so a bad path falls back to the normal wow_opt.ini instead of writing
+        // a fresh default somewhere unexpected.
+        char envPath[MAX_PATH];
+        DWORD envLen = GetEnvironmentVariableA("WOW_OPT_CONFIG", envPath, MAX_PATH);
+        if (envLen > 0 && envLen < MAX_PATH &&
+            GetFileAttributesA(envPath) != INVALID_FILE_ATTRIBUTES) {
+            iniPath = envPath;
         } else {
-            iniPath = "wow_opt.ini";
+            char path[MAX_PATH];
+            GetModuleFileNameA(NULL, path, MAX_PATH);
+            iniPath = path;
+            size_t lastSlash = iniPath.find_last_of("\\/");
+            if (lastSlash != std::string::npos) {
+                iniPath = iniPath.substr(0, lastSlash + 1) + "wow_opt.ini";
+            } else {
+                iniPath = "wow_opt.ini";
+            }
         }
 
         // Check if the file exists, if not, write the default template
