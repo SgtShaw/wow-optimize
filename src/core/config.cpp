@@ -77,7 +77,7 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "GetSpellInfoCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "PacketOffload", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NameplateMT", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NameplateMT", "1", iniPath.c_str());
 
             // Graphics & Sound
             WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "1", iniPath.c_str());
@@ -185,7 +185,7 @@ namespace Config {
         g_settings.OptNetworkGuidSse2     = GetPrivateProfileIntA("Combat_Net", "NetworkGuidSse2", 0, iniPath.c_str()) != 0;
         g_settings.OptGetSpellInfoCache   = GetPrivateProfileIntA("Combat_Net", "GetSpellInfoCache", 0, iniPath.c_str()) != 0;
         g_settings.OptPacketOffload       = GetPrivateProfileIntA("Combat_Net", "PacketOffload", 0, iniPath.c_str()) != 0;
-        g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 0, iniPath.c_str()) != 0;
+        g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 1, iniPath.c_str()) != 0;
 
         // Graphics & Sound
         g_settings.OptStrStrSse2          = GetPrivateProfileIntA("Graphics_Sound", "StrStrSse2", 0, iniPath.c_str()) != 0;
