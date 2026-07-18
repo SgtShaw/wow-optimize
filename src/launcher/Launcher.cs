@@ -313,7 +313,6 @@ namespace WowOptimizeLauncher {
                 { "Null Pointer CVar Safeguard", new SettingItem("General", "CvarNullGuard", true, null, "Critical safety hooks to prevent client crashes caused by uninitialized global variables and CVars.") },
                 { "Frame Rate Limiter Override", new SettingItem("General", "FrameLimiter", false, null, "Overrides WoW's built-in frame limiter with a high-precision spin-wait sleep loop.") },
                 { "Memory-Mapped MPQ VFS", new SettingItem("General", "MpqMmapVfs", false, null, "Maps all main MPQ files to memory using map views to speed up asset load times and parallelize decompression.") },
-                { "Lock-Free Object Manager", new SettingItem("General", "RcuObjMgr", false, null, "Replaces linear linked-list entity loops with atomic pointer mirror arrays to remove object manager locks in raids.") },
                 { "Predictive MPQ Prefetcher", new SettingItem("General", "MpqPrefetch", false, null, "Tracks zone transitions and speculatively pre-caches MPQ asset files in background threads before you arrive.") },
                 { "Memory-Mapped DBC RAM Cache", new SettingItem("General", "DbcPreload", false, null, "Pre-loads and decompresses all major client database files (.dbc) into RAM at startup for near-instant loading screens.") },
                 { "32-bit OOM VRAM Governor", new SettingItem("General", "OomGovernor", false, null, "Dynamically downscales texture mipmaps when the 32-bit client's virtual address space usage approaches critical OOM levels.") },
@@ -321,8 +320,6 @@ namespace WowOptimizeLauncher {
                 { "Hardware Cursor Fix", new SettingItem("General", "HardwareCursor", false, null, "Resets cursor visibility and releases any cursor clip region on startup (no engine byte patches, no hooks). Helps if the cursor is hidden or trapped after alt-tab.") },
                 { "Sampling Profiler (diagnostic)", new SettingItem("General", "SamplingProfiler", false, null, "Developer tool: a background thread samples the main-thread instruction pointer ~1000x/sec and logs the top 50 hot functions on exit. Read-only, no gameplay effect. Leave off for normal play.") },
                 { "Large-Allocation mimalloc (experimental)", new SettingItem("General", "MimallocLarge", false, null, "EXPERIMENTAL - test that you can still connect before relying on it. Routes only large (>=1MB) main-thread allocations to mimalloc, kept below 2GB, to reduce 32-bit address-space fragmentation over long sessions. Small and network buffers are untouched. If you can't connect after enabling, turn this back off.") },
-                { "CRT Allocator Redirect to mimalloc", new SettingItem("General", "CrtMimalloc", false, null, "Redirects the client's internal static C Runtime memory allocator (malloc/free/realloc) to mimalloc. Optimizes character/model/UI memory operations and prevents 32-bit address space fragmentation.") },
-                { "Asynchronous MPQ File Decompressor", new SettingItem("General", "MpqAsyncDecompress", false, null, "Pre-decompresses MPQ archive file blocks in background worker threads to instantly serve SFileReadFile queries on the main thread, eliminating zone boundary loading hitches.") },
 
                 // UI & Lua
                 { "Fast UI Frame Accessors", new SettingItem("UI_Lua", "UIFrameAccessorFast", false, null, "Bypasses standard Lua stack queries to retrieve UI frame parameters (IsShown, GetAlpha) instantly.") },
@@ -352,7 +349,6 @@ namespace WowOptimizeLauncher {
                 { "GetSpellInfo Cache", new SettingItem("Combat_Net", "GetSpellInfoCache", false, null, "Caches spells details to prevent repeated DBC lookups by complex combat macros and WA addons.") },
                 { "Parallel Packet Offloader", new SettingItem("Combat_Net", "PacketOffload", false, null, "Offloads incoming network packet decompression and deserialization to helper cores.") },
                 { "Multithreaded Nameplate Renderer", new SettingItem("Combat_Net", "NameplateMT", true, null, "Calculates nameplate positions and layouts on background threads to maximize combat FPS.") },
-                { "Incremental Combat Log Event Coalescer", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "[NEW] Batches and flushes COMBAT_LOG_EVENT_UNFILTERED updates incrementally per frame to eliminate raid AOE freezes.") },
 
                 // Graphics & Sound
                 { "SSE2 Boyer-Moore strstr", new SettingItem("Graphics_Sound", "StrStrSse2", false, null, "Optimizes string sub-searches (such as font names, textures) using vectorized SIMD algorithms.") },
@@ -363,15 +359,12 @@ namespace WowOptimizeLauncher {
                 { "DBC Data Lookup Cache", new SettingItem("Graphics_Sound", "DbcLookupCache", false, null, "Speeds up data reading from internal database files (.dbc) for models, items, and spells.") },
                 { "Asynchronous Texture Loader", new SettingItem("Graphics_Sound", "AsyncTexLoader", false, null, "Asynchronously loads and decompresses BLP textures in background worker threads, hot-swapping them on frame boundaries to prevent stutters.") },
                 { "Texture Smart Unload Delay", new SettingItem("Graphics_Sound", "TextureUnloadDelay", true, null, "[NEW] Delays texture unloading during camera turnarounds to prevent immediate load micro-stutters.") },
-                { "Asynchronous Terrain Loader", new SettingItem("Graphics_Sound", "AsyncTerrainLoader", false, null, "Offloads ADT terrain file loading and collision mesh compiling to helper cores.") },
                 { "M2 Model LOD Bias Control", new SettingItem("Graphics_Sound", "M2LodBias", false, null, "Dynamically scales 3D model level-of-detail bias depending on active rendering frametimes.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
                 { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
                 { "Direct3D 9 Render State Deduplicator", new SettingItem("Graphics_Sound", "D3d9StateCache", false, null, "[NEW] Deduplicates redundant Direct3D 9 render states, texture stage states, and vertex shader constants before passing calls to the GPU driver.") },
                 { "Direct3D 9 Render-Thread Offloading", new SettingItem("Graphics_Sound", "D3d9RenderThread", false, null, "Offloads draw dispatches and state updates to an asynchronous render thread to prevent driver bottlenecks.") },
                 { "SIMD Matrix Vector Transforms", new SettingItem("Graphics_Sound", "SimdMatrixTransform", false, null, "Vectorizes 3D coordinate and matrix-vector calculations using SSE2 SIMD instructions to accelerate particle updates.") },
-                { "M2 Model SSE2 Matrix Math", new SettingItem("Graphics_Sound", "M2MatrixSimd", false, null, "Vectorizes joint bone matrix operations and skeleton transforms using parallel SSE2 float operations to accelerate animated models.") },
-                { "Multi-Threaded M2 Skeleton Animations", new SettingItem("Graphics_Sound", "M2BoneMt", false, null, "Offloads skeletal joint transformations across a multi-threaded worker pool to eliminate CPU bottlenecks in raids and Dalaran.") },
 
                 // 10 New Features
                 { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
