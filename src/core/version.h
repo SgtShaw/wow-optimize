@@ -341,7 +341,7 @@
 // sub_4C2210 (row-major affine 3D point transform: out_i = row_i[0..2].p + row_i[3],
 // 6 model/render callers). Both pure float, pointer-validated + SEH + fallback.
 // Same products as the FPU originals (summation order sub-ULP). Isolation flag.
-#define TEST_DISABLE_MATRIX_MISC_SSE2         0
+#define TEST_DISABLE_MATRIX_MISC_SSE2         1
 
 // SSE2 in-place local-space translate (sub_4C1B30, 65+ callers across render/
 // network/model/UI -- the hottest fn in the transform cluster). Adds R.v to the
@@ -349,7 +349,7 @@
 // this[8+i]). 3 dot products vectorized; only this[12..14] are written (this[15]
 // preserved, never stored). Same products as the FPU original (summation order
 // sub-ULP). In-place accumulate -> own isolation flag. Pointer-validated + SEH.
-#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         0
+#define TEST_DISABLE_MATRIX_TRANSLATE_SSE2         1
 
 // SSE2 6-plane frustum culling (sub_9839E0, CFrustum::IsAABBVisible).
 // Vectorized check using transposed SSE2 dot products.
