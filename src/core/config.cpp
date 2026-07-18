@@ -166,7 +166,7 @@ namespace Config {
         g_settings.OptLuaGetTimeFast      = GetPrivateProfileIntA("UI_Lua", "LuaGetTimeFast", 0, iniPath.c_str()) != 0;
         g_settings.OptAsyncTexLoader      = GetPrivateProfileIntA("UI_Lua", "AsyncTexLoader", 0, iniPath.c_str()) != 0;
         g_settings.OptAsyncTerrainLoader  = GetPrivateProfileIntA("UI_Lua", "AsyncTerrainLoader", 0, iniPath.c_str()) != 0;
-        g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 0, iniPath.c_str()) != 0;
+        g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 1, iniPath.c_str()) != 0;
         g_settings.OptM2LodBias           = GetPrivateProfileIntA("UI_Lua", "M2LodBias", 0, iniPath.c_str()) != 0;
         g_settings.OptMipBiasGovernor     = GetPrivateProfileIntA("UI_Lua", "MipBiasGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptSpatialCulling      = GetPrivateProfileIntA("UI_Lua", "SpatialCulling", 0, iniPath.c_str()) != 0;
