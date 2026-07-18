@@ -4001,6 +4001,10 @@ static void DumpPeriodicStats() {
             pmc.PeakWorkingSetSize / (1024.0 * 1024.0),
             pmc.PageFaultCount);
     }
+    // Renderer line here too: DXVK's d3d9.dll can load after the startup probe,
+    // so re-report it once detection has reliably latched. Makes any mid-session
+    // log slice self-describing (GPU is static; logged once at startup).
+    Log("[Stats] Renderer: %s", DXVKBridge::IsActive() ? "DXVK / Vulkan translation" : "native Direct3D 9");
 
     // Virtual address space scan (32-bit fragmentation indicator)
     {
@@ -7366,6 +7370,24 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- DXVK/Vulkan Translation Layer Detection ---");
     DXVKBridge::Init();
+    {
+        // Log GPU + renderer up front so testers' logs are self-describing and
+        // we don't have to ask them for it. GPU comes from the primary display
+        // adapter; DXVK state comes from the detection bridge above.
+        char gpu[128] = "unknown";
+        DISPLAY_DEVICEA dd; ZeroMemory(&dd, sizeof(dd)); dd.cb = sizeof(dd);
+        if (EnumDisplayDevicesA(NULL, 0, &dd, 0)) {
+            strncpy(gpu, dd.DeviceString, sizeof(gpu) - 1);
+            gpu[sizeof(gpu) - 1] = '\0';
+        }
+        bool dxvk = DXVKBridge::IsActive();   // triggers a detection attempt
+        DXVKBridge::Stats dstat; ZeroMemory(&dstat, sizeof(dstat));
+        DXVKBridge::GetStats(&dstat);
+        Log("[SysInfo] GPU: %s", gpu);
+        Log("[SysInfo] Renderer: %s (%s)",
+            dxvk ? "DXVK / Vulkan translation" : "native Direct3D 9 (or not detected yet)",
+            dstat.detectionReason ? dstat.detectionReason : "no signal");
+    }
 
     Log("");
     Log("--- D3D9 State Manager (15 hooks) ---");
