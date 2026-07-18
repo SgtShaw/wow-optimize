@@ -1101,8 +1101,8 @@ static void __cdecl hooked_free(void* ptr) {
 }
 
 static void* __cdecl hooked_malloc(size_t size) {
-    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId &&
-        size >= MIMALLOC_LARGE_THRESHOLD) {
+    if (Config::g_settings.OptCrtMimalloc ||
+        (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && size >= MIMALLOC_LARGE_THRESHOLD)) {
         void* p = mi_malloc(size);
         if (p) {
             if ((uintptr_t)p < 0x80000000) return p;  // low 2GB only
@@ -1115,8 +1115,8 @@ static void* __cdecl hooked_malloc(size_t size) {
 static void* __cdecl hooked_calloc(size_t count, size_t size) {
     if (size != 0 && count > (size_t)-1 / size) return nullptr;  // overflow guard
     size_t total = count * size;
-    if (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId &&
-        total >= MIMALLOC_LARGE_THRESHOLD) {
+    if (Config::g_settings.OptCrtMimalloc ||
+        (g_mainThreadId != 0 && GetCurrentThreadId() == g_mainThreadId && total >= MIMALLOC_LARGE_THRESHOLD)) {
         void* p = mi_calloc(count, size);
         if (p) {
             if ((uintptr_t)p < 0x80000000) return p;
@@ -6162,10 +6162,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Memory Allocator ---");
     Log("[Allocator] CRT-wide redirect removed (Winsock stability). mimalloc used directly by subsystems.");
     bool mimallocLargeOk = false;
-    if (Config::g_settings.OptMimallocLarge) {
+    if (Config::g_settings.OptMimallocLarge || Config::g_settings.OptCrtMimalloc) {
         mimallocLargeOk = InstallMimallocLargeHooks();
+        Log("[MimallocLarge] CRT-wide mimalloc allocator redirect ACTIVE (malloc/free/realloc/calloc/_msize/_recalloc)");
     } else {
-        Log("[MimallocLarge] disabled via configuration (opt-in; enable in launcher to route large allocations to mimalloc)");
+        Log("[MimallocLarge] disabled via configuration (opt-in; enable in launcher to route CRT allocations to mimalloc)");
     }
     (void)mimallocLargeOk;
     Sleep(100);

@@ -445,41 +445,8 @@ bool InstallMemoryHooks(void) {
         Log("[MemoryHooks] Object destruction: fill ADDR_OBJECT_DESTROYED to invalidate cache");
 
 #if !TEST_DISABLE_CRT_MIMALLOC
-    Log("[MemoryHooks] OptCrtMimalloc setting value: %d", Config::g_settings.OptCrtMimalloc ? 1 : 0);
-    if (Config::g_settings.OptCrtMimalloc) {
-        MH_STATUS stMalloc = WineSafe_CreateHook((void*)0x00415074, (void*)Hooked_malloc, (void**)&orig_malloc);
-        if (stMalloc == MH_OK) {
-            if (WO_EnableHook((void*)0x00415074) == MH_OK) {
-                Log("[MemoryHooks] CRT malloc detour at 0x00415074 ACTIVE");
-            } else {
-                Log("[MemoryHooks] CRT malloc enable FAILED");
-            }
-        } else {
-            Log("[MemoryHooks] CRT malloc hook create FAILED (status=%d)", (int)stMalloc);
-        }
-
-        MH_STATUS stFree = WineSafe_CreateHook((void*)0x00412FC7, (void*)Hooked_free, (void**)&orig_free);
-        if (stFree == MH_OK) {
-            if (WO_EnableHook((void*)0x00412FC7) == MH_OK) {
-                Log("[MemoryHooks] CRT free detour at 0x00412FC7 ACTIVE");
-            } else {
-                Log("[MemoryHooks] CRT free enable FAILED");
-            }
-        } else {
-            Log("[MemoryHooks] CRT free hook create FAILED (status=%d)", (int)stFree);
-        }
-
-        MH_STATUS stRealloc = WineSafe_CreateHook((void*)0x00416A95, (void*)Hooked_realloc, (void**)&orig_realloc);
-        if (stRealloc == MH_OK) {
-            if (WO_EnableHook((void*)0x00416A95) == MH_OK) {
-                Log("[MemoryHooks] CRT realloc detour at 0x00416A95 ACTIVE");
-            } else {
-                Log("[MemoryHooks] CRT realloc enable FAILED");
-            }
-        } else {
-            Log("[MemoryHooks] CRT realloc hook create FAILED (status=%d)", (int)stRealloc);
-        }
-    }
+    Log("[MemoryHooks] OptCrtMimalloc setting status: %s (handled via CRT Allocator Bridge in dllmain)",
+        Config::g_settings.OptCrtMimalloc ? "ACTIVE" : "DISABLED");
 #endif
 
     Log("[MemoryHooks] Initialized");
