@@ -588,6 +588,7 @@
 #define TEST_DISABLE_CRT_MIMALLOC               0  // enabled: CRT Allocator Redirect to mimalloc
 #define TEST_DISABLE_M2_BONE_MT                 0  // enabled: Multi-Threaded M2 Skeleton Animations
 #define TEST_DISABLE_MPQ_ASYNC_DECOMPRESS       0  // enabled: Asynchronous MPQ File Decompressor
+#define TEST_DISABLE_RCU_OBJ_MGR                0  // enabled: Lock-Free Read-Copy-Update (RCU) Object Manager
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control
 #define TEST_DISABLE_UNIT_AURA_COALESCE         1  // enabled: Unit Aura Coalescer
 #define TEST_DISABLE_D3D9_VB_CACHE              1  // disabled: D3D9 VB Shadow Cache

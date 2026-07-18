@@ -1,3 +1,9 @@
+// ============================================================================
+// Module: rcu_obj_mgr.cpp
+// Description: Lock-Free Read-Copy-Update (RCU) Shadow Object Manager Cache
+// Safety & Threading: Safe SEH guards, atomic RCU array double-buffering.
+// ============================================================================
+
 #include "rcu_obj_mgr.h"
 #include "core/config.h"
 #include "MinHook.h"
@@ -25,6 +31,9 @@ static LinkNode_fn orig_LinkNode = nullptr;
 
 typedef int (__cdecl *ClntObjMgrEnum_fn)(int (__cdecl *callback)(uint32_t, uint32_t, int), int context);
 static ClntObjMgrEnum_fn orig_ClntObjMgrEnum = nullptr;
+
+typedef void* (__thiscall *GetObjectByGUID_fn)(void* pThis, uint64_t guid);
+static GetObjectByGUID_fn orig_GetObjectByGUID = nullptr;
 
 inline void* GetActiveObjMgr() {
     uintptr_t** tls = *(uintptr_t***)__readfsdword(0x2C);
@@ -58,7 +67,6 @@ void UpdateRcuArray(void* objMgr) {
         }
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        // Fallback in case of invalid pointer traversal during transitions
         delete newArray;
         return;
     }
@@ -103,14 +111,35 @@ static int __cdecl Hooked_ClntObjMgrEnum(int (__cdecl *callback)(uint32_t, uint3
                         return 0;
                     }
                 }
-                __except (EXCEPTION_EXECUTE_HANDLER) {
-                    // Safe handling of race condition or use-after-free
-                }
+                __except (EXCEPTION_EXECUTE_HANDLER) {}
             }
         }
         return 1;
     }
     return orig_ClntObjMgrEnum(callback, context);
+}
+
+static void* __fastcall Hooked_GetObjectByGUID(void* pThis, void* unused, uint64_t guid) {
+    if (guid == 0 || !pThis) return nullptr;
+
+    __try {
+        RcuObjectArray* arr = g_rcuArray.load(std::memory_order_acquire);
+        if (arr) {
+            uint32_t targetLow = (uint32_t)guid;
+            uint32_t targetHigh = (uint32_t)(guid >> 32);
+            for (uint32_t i = 0; i < arr->count; i++) {
+                void* obj = arr->objects[i];
+                if (obj && (uintptr_t)obj >= 0x10000 && (uintptr_t)obj < 0xFFE00000) {
+                    uint32_t* j = (uint32_t*)obj;
+                    if (j[12] == targetLow && j[13] == targetHigh) {
+                        return obj;
+                    }
+                }
+            }
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+    return orig_GetObjectByGUID ? orig_GetObjectByGUID(pThis, guid) : nullptr;
 }
 
 bool Init() {
@@ -127,34 +156,20 @@ bool Init() {
 
     void* linkTarget = (void*)0x006DED60;
     void* enumTarget = (void*)0x004D4B30;
+    void* getObjTarget = (void*)0x006792E0;
 
-    // Check prologues
-    unsigned char linkPrologue[2];
-    unsigned char enumPrologue[2];
-    __try {
-        memcpy(linkPrologue, linkTarget, 2);
-        memcpy(enumPrologue, enumTarget, 2);
-    } __except(EXCEPTION_EXECUTE_HANDLER) {
-        Log("[RcuObjMgr] Target memory not readable");
-        return false;
+    if (WineSafe_CreateHook(linkTarget, (void*)Hooked_LinkNode, (void**)&orig_LinkNode) == MH_OK) {
+        WO_EnableHook(linkTarget);
     }
 
-    if (WineSafe_CreateHook(linkTarget, (void*)Hooked_LinkNode, (void**)&orig_LinkNode) != MH_OK) {
-        Log("[RcuObjMgr] Failed to hook LinkNode");
-        return false;
-    }
-    if (WO_EnableHook(linkTarget) != MH_OK) {
-        Log("[RcuObjMgr] Failed to enable LinkNode hook");
-        return false;
+    if (WineSafe_CreateHook(enumTarget, (void*)Hooked_ClntObjMgrEnum, (void**)&orig_ClntObjMgrEnum) == MH_OK) {
+        WO_EnableHook(enumTarget);
     }
 
-    if (WineSafe_CreateHook(enumTarget, (void*)Hooked_ClntObjMgrEnum, (void**)&orig_ClntObjMgrEnum) != MH_OK) {
-        Log("[RcuObjMgr] Failed to hook ClntObjMgrEnum");
-        return false;
-    }
-    if (WO_EnableHook(enumTarget) != MH_OK) {
-        Log("[RcuObjMgr] Failed to enable ClntObjMgrEnum hook");
-        return false;
+    if (WineSafe_CreateHook(getObjTarget, (void*)Hooked_GetObjectByGUID, (void**)&orig_GetObjectByGUID) == MH_OK) {
+        if (WO_EnableHook(getObjTarget) == MH_OK) {
+            Log("[RcuObjMgr] GetObjectByGUID hook at 0x006792E0 ACTIVE");
+        }
     }
 
     Log("[RcuObjMgr] Active - Lock-free entity traverser initialized");
@@ -165,12 +180,11 @@ void Shutdown() {
     if (!Config::g_settings.OptRcuObjMgr) return;
     void* linkTarget = (void*)0x006DED60;
     void* enumTarget = (void*)0x004D4B30;
+    void* getObjTarget = (void*)0x006792E0;
 
     MH_DisableHook(linkTarget);
-    MH_RemoveHook(linkTarget);
-
     MH_DisableHook(enumTarget);
-    MH_RemoveHook(enumTarget);
+    MH_DisableHook(getObjTarget);
 
     RcuObjectArray* arr = g_rcuArray.exchange(nullptr);
     if (arr) delete arr;
