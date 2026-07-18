@@ -39,6 +39,7 @@ namespace Config {
         bool OptLuaGcCoalesce = false;
         bool OptLuaJIT = false;
         bool OptLuaGetTimeFast = false;
+        bool OptSimdMatrixTransform = false;
         bool OptAsyncTexLoader = false;
         bool OptAsyncTerrainLoader = false;
         bool OptRcuObjMgr = false;

@@ -16,6 +16,7 @@
 #include <tmmintrin.h>  // SSSE3 (_mm_shuffle_epi8 for color swizzle)
 #include "MinHook.h"
 #include "core/version.h"
+#include "core/config.h"
 #include "simd_math/hooks_simd.h"
 
 extern "C" void Log(const char* fmt, ...);
@@ -861,6 +862,85 @@ static int __fastcall Hooked_SimulateParticle(void* self, void* edx, int particl
 }
 #endif
 
+#if !TEST_DISABLE_MATRIX_TRANSFORM_SSE2
+typedef float* (__cdecl *MatrixVectorTransform_t)(float* result, float* vec, float* mat);
+static MatrixVectorTransform_t orig_sub_4C2300 = nullptr;
+static MatrixVectorTransform_t orig_sub_5FED20 = nullptr;
+
+static float* __cdecl Hooked_sub_4C2300(float* result, float* vec, float* mat) {
+    __try {
+        if (vec && mat && result &&
+            (uintptr_t)vec >= 0x10000 && (uintptr_t)vec < 0xFFE00000 &&
+            (uintptr_t)mat >= 0x10000 && (uintptr_t)mat < 0xFFE00000 &&
+            (uintptr_t)result >= 0x10000 && (uintptr_t)result < 0xFFE00000) {
+
+            __m128 v_x = _mm_set1_ps(vec[0]);
+            __m128 v_y = _mm_set1_ps(vec[1]);
+            __m128 v_z = _mm_set1_ps(vec[2]);
+
+            __m128 col0 = _mm_setr_ps(mat[0], mat[1], mat[2], 0.0f);
+            __m128 col1 = _mm_setr_ps(mat[4], mat[5], mat[6], 0.0f);
+            __m128 col2 = _mm_setr_ps(mat[8], mat[9], mat[10], 0.0f);
+            __m128 col3 = _mm_setr_ps(mat[12], mat[13], mat[14], 0.0f);
+
+            __m128 res = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(col0, v_x), _mm_mul_ps(col1, v_y)),
+                _mm_add_ps(_mm_mul_ps(col2, v_z), col3)
+            );
+
+            float tmp[4];
+            _mm_storeu_ps(tmp, res);
+
+            vec[0] = tmp[0];
+            vec[1] = tmp[1];
+            vec[2] = tmp[2];
+
+            result[0] = tmp[0];
+            result[1] = tmp[1];
+            result[2] = tmp[2];
+
+            return result;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+    return orig_sub_4C2300(result, vec, mat);
+}
+
+static float* __cdecl Hooked_sub_5FED20(float* result, float* vec, float* mat) {
+    __try {
+        if (vec && mat && result &&
+            (uintptr_t)vec >= 0x10000 && (uintptr_t)vec < 0xFFE00000 &&
+            (uintptr_t)mat >= 0x10000 && (uintptr_t)mat < 0xFFE00000 &&
+            (uintptr_t)result >= 0x10000 && (uintptr_t)result < 0xFFE00000) {
+
+            __m128 v_x = _mm_set1_ps(vec[0]);
+            __m128 v_y = _mm_set1_ps(vec[1]);
+            __m128 v_z = _mm_set1_ps(vec[2]);
+
+            __m128 col0 = _mm_setr_ps(mat[0], mat[1], mat[2], 0.0f);
+            __m128 col1 = _mm_setr_ps(mat[3], mat[4], mat[5], 0.0f);
+            __m128 col2 = _mm_setr_ps(mat[6], mat[7], mat[8], 0.0f);
+
+            __m128 res = _mm_add_ps(
+                _mm_add_ps(_mm_mul_ps(col0, v_x), _mm_mul_ps(col1, v_y)),
+                _mm_mul_ps(col2, v_z)
+            );
+
+            float tmp[4];
+            _mm_storeu_ps(tmp, res);
+
+            result[0] = tmp[0];
+            result[1] = tmp[1];
+            result[2] = tmp[2];
+
+            return result;
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
+
+    return orig_sub_5FED20(result, vec, mat);
+}
+#endif
+
 // ================================================================
 // C3Vector::Cross Hook (0x005FEC70)
 // ================================================================
@@ -1192,6 +1272,19 @@ bool InstallSimdHooks(void) {
     Log("[SimdHooks] CQuaternion::Slerp DISABLED by TEST_DISABLE_QUAT_SLERP_SSE2");
 #endif
 
+#if !TEST_DISABLE_MATRIX_TRANSFORM_SSE2
+    if (Config::g_settings.OptSimdMatrixTransform) {
+        if (WineSafe_CreateHook((void*)0x004C2300, (void*)Hooked_sub_4C2300, (void**)&orig_sub_4C2300) == MH_OK) {
+            WO_EnableHook((void*)0x004C2300);
+            Log("[SimdHooks] sub_4C2300 (Vector-Matrix Translate) hook ACTIVE");
+        }
+        if (WineSafe_CreateHook((void*)0x005FED20, (void*)Hooked_sub_5FED20, (void**)&orig_sub_5FED20) == MH_OK) {
+            WO_EnableHook((void*)0x005FED20);
+            Log("[SimdHooks] sub_5FED20 (Vector-Matrix Rotate) hook ACTIVE");
+        }
+    }
+#endif
+
     return true;
 }
 
@@ -1200,6 +1293,10 @@ void ShutdownSimdHooks(void) {
     MH_DisableHook((void*)0x00983D20);
     MH_DisableHook((void*)0x00982400);
     MH_DisableHook((void*)0x00982460);
+#if !TEST_DISABLE_MATRIX_TRANSFORM_SSE2
+    MH_DisableHook((void*)0x004C2300);
+    MH_DisableHook((void*)0x005FED20);
+#endif
     Log("[SimdHooks] Stats: matMul=%ld, ... frustum=%ld (culled=%ld, %.1f%%), rayTri=%ld (hit=%ld, %.1f%%)",
         g_matMulCalls,
         g_frustumCalls, g_frustumCulled,
