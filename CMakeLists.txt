@@ -183,6 +183,8 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_rawseti_fast.h
     src/runtime_vm/lua_setfield_fast.cpp
     src/runtime_vm/lua_setfield_fast.h
+    src/runtime_vm/lua_gettime_fast.cpp
+    src/runtime_vm/lua_gettime_fast.h
     src/runtime_vm/lua_getupvalue_fast.cpp
     src/runtime_vm/lua_getupvalue_fast.h
     src/runtime_vm/lua_buffinit_fast.cpp

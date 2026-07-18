@@ -38,6 +38,7 @@ namespace Config {
         bool OptLuaOpcache = false;
         bool OptLuaGcCoalesce = false;
         bool OptLuaJIT = false;
+        bool OptLuaGetTimeFast = false;
         bool OptAsyncTexLoader = false;
         bool OptAsyncTerrainLoader = false;
         bool OptRcuObjMgr = false;

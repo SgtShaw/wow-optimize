@@ -284,6 +284,7 @@ static void StopFreezeWatchdog() {
 #include "lua_tonumber_fast.h"
 #include "lua_pushnumber_fast.h"
 #include "gettime_fast.h"
+#include "lua_gettime_fast.h"
 #include "lua_pushvalue_fast.h"
 #include "render_state_dedup.h"
 #include "lua_settable_cache.h"
@@ -1333,6 +1334,11 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             LuaVMEngine_FrameTick();
             ApiCache::OnNewFrame();
             FontMetrics_OnFrame();
+#if !TEST_DISABLE_LUA_GETTIME_FAST
+            if (Config::g_settings.OptLuaGetTimeFast) {
+                LuaGetTimeFast_NewFrame();
+            }
+#endif
             if (Config::g_settings.OptDefragLf) {
                 LoadingDefrag::OnFrame();
             }
@@ -6600,6 +6606,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- GetTime() Frame-Cached Fast Path ---");
     bool getTimeFastOk = Config::g_settings.OptTimingFix && InstallGetTimeFast();
+
+    Log("--- Lua GetTime Frame-Cached Fast Path ---");
+#if !TEST_DISABLE_LUA_GETTIME_FAST
+    bool luaGetTimeFastOk = Config::g_settings.OptLuaGetTimeFast && InstallLuaGetTimeFast();
+#else
+    bool luaGetTimeFastOk = false;
+    Log("[LuaGetTimeFast] DISABLED via TEST_DISABLE_LUA_GETTIME_FAST");
+#endif
 
     Log("--- lua_pushvalue Direct Stack Copy ---");
 #if !TEST_DISABLE_PUSHVALUE_FAST
