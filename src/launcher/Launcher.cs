@@ -348,7 +348,6 @@ namespace WowOptimizeLauncher {
                 { "SSE2 Network GUID Unpacking", new SettingItem("Combat_Net", "NetworkGuidSse2", false, null, "Vectorizes the unpacking of network entity GUIDs inside network data streams.") },
                 { "GetSpellInfo Cache", new SettingItem("Combat_Net", "GetSpellInfoCache", false, null, "Caches spells details to prevent repeated DBC lookups by complex combat macros and WA addons.") },
                 { "Parallel Packet Offloader", new SettingItem("Combat_Net", "PacketOffload", false, null, "Offloads incoming network packet decompression and deserialization to helper cores.") },
-                { "Multithreaded Nameplate Renderer", new SettingItem("Combat_Net", "NameplateMT", true, null, "Calculates nameplate positions and layouts on background threads to maximize combat FPS.") },
 
                 // Graphics & Sound
                 { "SSE2 Boyer-Moore strstr", new SettingItem("Graphics_Sound", "StrStrSse2", false, null, "Optimizes string sub-searches (such as font names, textures) using vectorized SIMD algorithms.") },

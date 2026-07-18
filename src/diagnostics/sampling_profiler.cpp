@@ -8,11 +8,13 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#include <psapi.h>
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
 #include "sampling_profiler.h"
 #include "version.h"
+#pragma comment(lib, "psapi.lib")
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -268,6 +270,52 @@ static DWORD WINAPI SamplerThreadProc(LPVOID) {
     return 0;
 }
 
+// ---- system-module classification ---------------------------------
+// Samples that land outside the WoW image are otherwise lumped into one
+// opaque "system_dll" bucket. On DXVK that bucket can be the majority of
+// main-thread time, and it matters a great deal WHICH module it is:
+// d3d9.dll/vulkan-1.dll = GPU present/sync wait (not CPU-fixable), while
+// ntdll.dll = page-fault / heap work (fixable by reducing memory pressure).
+// Enumerate loaded modules once per dump and range-classify each system sample.
+struct ModRange { uintptr_t base; uintptr_t end; char name[32]; uint64_t count; };
+static ModRange g_mods[128];
+static int g_modCount = 0;
+
+static void BuildModuleTable() {
+    g_modCount = 0;
+    HMODULE mods[256];
+    DWORD needed = 0;
+    HANDLE proc = GetCurrentProcess();
+    if (!EnumProcessModules(proc, mods, sizeof(mods), &needed)) return;
+    int count = (int)(needed / sizeof(HMODULE));
+    if (count > 256) count = 256;
+    for (int i = 0; i < count && g_modCount < 128; i++) {
+        MODULEINFO mi;
+        if (!GetModuleInformation(proc, mods[i], &mi, sizeof(mi))) continue;
+        uintptr_t base = (uintptr_t)mi.lpBaseOfDll;
+        uintptr_t end  = base + mi.SizeOfImage;
+        // Skip the wow.exe main image — those samples are already handled by
+        // the named-function / per-page buckets (WOW_BASE..WOW_END).
+        if (base <= WOW_BASE && WOW_BASE < end) continue;
+        char nm[MAX_PATH];
+        if (!GetModuleBaseNameA(proc, mods[i], nm, sizeof(nm))) continue;
+        ModRange& m = g_mods[g_modCount];
+        m.base = base;
+        m.end  = end;
+        strncpy(m.name, nm, sizeof(m.name) - 1);
+        m.name[sizeof(m.name) - 1] = '\0';
+        m.count = 0;
+        g_modCount++;
+    }
+}
+
+static ModRange* FindModule(uintptr_t eip) {
+    for (int i = 0; i < g_modCount; i++) {
+        if (eip >= g_mods[i].base && eip < g_mods[i].end) return &g_mods[i];
+    }
+    return nullptr;
+}
+
 // ---- aggregation + dump -------------------------------------------
 static void DumpResults() {
     uint64_t total = g_totalSamples;
@@ -281,6 +329,9 @@ static void DumpResults() {
     // the shutdown path is often skipped on the fast process-exit, which lost
     // the profile entirely). Each call re-aggregates the current ring contents.
     memset(g_pageCounts, 0, sizeof(g_pageCounts));
+
+    // Snapshot loaded modules so system samples can be attributed to a DLL.
+    BuildModuleTable();
 
     // Buckets: one per named function, one "system_dll", plus one per non-empty
     // 4KB WoW page (so unlisted hot code is reported by address, not lumped into
@@ -324,13 +375,25 @@ static void DumpResults() {
         }
 
         // Not matched to a named function: aggregate WoW samples per 4KB page,
-        // everything else into the system bucket.
+        // and attribute non-WoW samples to their owning module (falling back to
+        // the opaque system bucket only when the module can't be resolved).
         if (eip >= WOW_BASE && eip <= WOW_END) {
             g_pageCounts[(eip - WOW_BASE) >> 12]++;
         } else {
-            buckets[systemIdx].count++;
+            ModRange* m = FindModule(eip);
+            if (m) m->count++;
+            else   buckets[systemIdx].count++;
         }
         next_sample:;
+    }
+
+    // Emit one bucket per system module that got samples (labelled "sys:<dll>").
+    for (int mi = 0; mi < g_modCount && bucketCount < MAX_BUCKETS; mi++) {
+        if (!g_mods[mi].count) continue;
+        buckets[bucketCount].addr  = g_mods[mi].base;
+        buckets[bucketCount].name  = g_mods[mi].name;  // e.g. "d3d9.dll", "ntdll.dll"
+        buckets[bucketCount].count = g_mods[mi].count;
+        bucketCount++;
     }
 
     // Merge every non-empty page region as an address-labelled bucket.

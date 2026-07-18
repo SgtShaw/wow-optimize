@@ -522,7 +522,12 @@
 // Worker thread pool (2 threads), lock-free queues (4096 entries each)
 // Priority system: Target > Focus > Nearby > Distant
 // Emergency disable flag: set to 1 to disable NAMEPLATE_MT entirely
-#define TEST_DISABLE_NAMEPLATE_MT       0
+// HARD-DISABLED: the design is thread-safe but ADDITIVE, not a speedup — the
+// hook runs the full native nameplate update AND then re-gathers + re-applies
+// name/color via a worker + main-thread OnFrame, so it only adds main-thread
+// work with no FPS benefit (profiling confirmed WoW-side code is <1% each;
+// the cost is system/GPU/memory, not nameplates). Removed from the launcher.
+#define TEST_DISABLE_NAMEPLATE_MT       1
 
 // Frame-Scoped Event Coalescing (Synchronous Deduplication)
 // DISABLED again: suppresses whitelisted events and re-emits them a frame later from
