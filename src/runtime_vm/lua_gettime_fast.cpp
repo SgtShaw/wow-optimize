@@ -1,6 +1,6 @@
 // ============================================================================
 // Module: lua_gettime_fast.cpp
-// Description: Accelerates Lua GetTime API calls via frame caching.
+// Description: Accelerates Lua GetTime API calls via high-precision caching.
 // Safety & Threading: Thread-safe under Lua VM execution constraints.
 // ============================================================================
 
@@ -22,19 +22,30 @@ extern "C" void Log(const char* fmt, ...);
 typedef int (__cdecl *orig_gettime_fn)(int L);
 static orig_gettime_fn orig_LuaGetTime = nullptr;
 
-static volatile DWORD g_lastGetTimeFrameTick = 0;
 static volatile double g_cachedGetTimeValue = 0.0;
-static volatile DWORD g_cachedValueFrameTick = 0xFFFFFFFF;
+static LARGE_INTEGER g_lastQpc = { 0 };
+static LARGE_INTEGER g_qpcFreq = { 0 };
+static bool g_hasCache = false;
 
 static int __cdecl Hooked_LuaGetTime(int L) {
     if (L < 0x10000 || L > 0xFFE00000) {
         return orig_LuaGetTime(L);
     }
 
-    DWORD currentFrameTick = g_lastGetTimeFrameTick;
+    if (g_qpcFreq.QuadPart == 0) {
+        QueryPerformanceFrequency(&g_qpcFreq);
+    }
 
-    // Check if we have a valid cache hit for this frame
-    if (g_cachedValueFrameTick == currentFrameTick) {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+
+    double elapsed = 0.0;
+    if (g_qpcFreq.QuadPart > 0 && g_lastQpc.QuadPart > 0) {
+        elapsed = (double)(now.QuadPart - g_lastQpc.QuadPart) / (double)g_qpcFreq.QuadPart;
+    }
+
+    // Cache hit: if we have a cached value and less than 1 millisecond has elapsed
+    if (g_hasCache && elapsed < 0.001) {
         typedef void (__cdecl *pushnumber_fn)(int, double);
         __try {
             ((pushnumber_fn)ADDR_LUA_PUSHNUMBER)(L, g_cachedGetTimeValue);
@@ -52,7 +63,8 @@ static int __cdecl Hooked_LuaGetTime(int L) {
             uintptr_t val_tv = top - 16;
             if (*(int*)(val_tv + 8) == 3) { // LUA_TNUMBER is 3
                 g_cachedGetTimeValue = *(double*)val_tv;
-                g_cachedValueFrameTick = currentFrameTick;
+                g_lastQpc = now;
+                g_hasCache = true;
             }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
@@ -61,8 +73,7 @@ static int __cdecl Hooked_LuaGetTime(int L) {
 }
 
 void LuaGetTimeFast_NewFrame() {
-    // Advance the frame tick so the cache is invalidated for the new frame
-    g_lastGetTimeFrameTick++;
+    // No-op: cache invalidates automatically after 1ms via high-precision QPC delta
 }
 
 bool InstallLuaGetTimeFast() {
