@@ -4299,6 +4299,14 @@ static void DumpPeriodicStats() {
 
     Log("[Stats] ====================================");
 
+#if !TEST_DISABLE_SAMPLING_PROFILER
+    // If the sampling profiler is active, fold its current top-50 into the
+    // periodic dump. Shutdown() is skipped on the fast process-exit path, so
+    // this is the only way the profile reliably reaches the log.
+    if (Config::g_settings.OptSamplingProfiler) {
+        SamplingProfiler::DumpNow();
+    }
+#endif
 }
 
 // ================================================================
@@ -6165,9 +6173,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool mimallocLargeOk = false;
     if (Config::g_settings.OptMimallocLarge || Config::g_settings.OptCrtMimalloc) {
         mimallocLargeOk = InstallMimallocLargeHooks();
-        Log("[MimallocLarge] CRT-wide mimalloc allocator redirect ACTIVE (malloc/free/realloc/calloc/_msize/_recalloc)");
+        // NOTE: this is the LARGE-ONLY redirect — only main-thread allocations
+        // >= 1 MB below the 2 GB line go to mimalloc. It is NOT the old CRT-wide
+        // redirect (that one broke connections and stays removed). The
+        // InstallMimallocLargeHooks() call above logs its own precise ACTIVE line.
+        if (!mimallocLargeOk) {
+            Log("[MimallocLarge] install failed — staying on stock CRT allocator");
+        }
     } else {
-        Log("[MimallocLarge] disabled via configuration (opt-in; enable in launcher to route CRT allocations to mimalloc)");
+        Log("[MimallocLarge] disabled via configuration (opt-in; enable in launcher to route large allocations to mimalloc)");
     }
     (void)mimallocLargeOk;
     Sleep(100);

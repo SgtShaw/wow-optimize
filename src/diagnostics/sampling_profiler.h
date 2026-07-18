@@ -59,4 +59,9 @@ bool IsActive();
 // Get total number of samples collected (for diagnostics).
 uint64_t GetSampleCount();
 
+// Dump the current top-50 hot functions to the log without stopping sampling.
+// Called from the periodic stats dump so the profile is captured even when the
+// fast process-exit path skips Shutdown().
+void DumpNow();
+
 } // namespace SamplingProfiler

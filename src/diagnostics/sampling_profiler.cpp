@@ -276,6 +276,12 @@ static void DumpResults() {
         return;
     }
 
+    // Reset the per-page tally so DumpResults can be called repeatedly (the
+    // periodic stats dump calls it every few minutes, not only at shutdown —
+    // the shutdown path is often skipped on the fast process-exit, which lost
+    // the profile entirely). Each call re-aggregates the current ring contents.
+    memset(g_pageCounts, 0, sizeof(g_pageCounts));
+
     // Buckets: one per named function, one "system_dll", plus one per non-empty
     // 4KB WoW page (so unlisted hot code is reported by address, not lumped into
     // a single opaque blob). Static (not on the stack) because of the page slots.
@@ -440,5 +446,14 @@ void Shutdown() {
 bool IsActive() { return g_running; }
 
 uint64_t GetSampleCount() { return g_totalSamples; }
+
+// Dump the current top-50 without stopping the sampler. Safe to call from the
+// main thread while sampling continues (it only reads the ring). Used by the
+// periodic stats dump so the profile survives the fast process-exit path that
+// skips Shutdown().
+void DumpNow() {
+    if (!g_running) return;
+    DumpResults();
+}
 
 } // namespace SamplingProfiler
