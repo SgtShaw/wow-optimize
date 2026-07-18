@@ -105,6 +105,7 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "1", iniPath.c_str());
@@ -211,6 +212,7 @@ namespace Config {
         g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 1, iniPath.c_str()) != 0;
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
         g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 1, iniPath.c_str()) != 0;
+        g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
         g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 1, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 1, iniPath.c_str()) != 0;

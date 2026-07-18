@@ -89,6 +89,7 @@ namespace Config {
         bool OptNameplateCulling = true;
         bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = true;
+        bool OptM2BoneMt = false;
         bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;
         bool OptLuaStringCompareFast = true;

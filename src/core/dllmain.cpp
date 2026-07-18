@@ -7513,7 +7513,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- M2 Bone SIMD Acceleration ---");
-    if (Config::g_settings.OptStrStrSse2) M2BoneSimd::Init();
+    if (Config::g_settings.OptM2MatrixSimd || Config::g_settings.OptM2BoneMt) M2BoneSimd::Init();
 
     Log("");
     Log("--- Font Glyph Cache ---");

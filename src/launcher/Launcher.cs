@@ -367,6 +367,7 @@ namespace WowOptimizeLauncher {
                 { "Direct3D 9 Render-Thread Offloading", new SettingItem("Graphics_Sound", "D3d9RenderThread", false, null, "Offloads draw dispatches and state updates to an asynchronous render thread to prevent driver bottlenecks.") },
                 { "SIMD Matrix Vector Transforms", new SettingItem("Graphics_Sound", "SimdMatrixTransform", false, null, "Vectorizes 3D coordinate and matrix-vector calculations using SSE2 SIMD instructions to accelerate particle updates.") },
                 { "M2 Model SSE2 Matrix Math", new SettingItem("Graphics_Sound", "M2MatrixSimd", false, null, "Vectorizes joint bone matrix operations and skeleton transforms using parallel SSE2 float operations to accelerate animated models.") },
+                { "Multi-Threaded M2 Skeleton Animations", new SettingItem("Graphics_Sound", "M2BoneMt", false, null, "Offloads skeletal joint transformations across a multi-threaded worker pool to eliminate CPU bottlenecks in raids and Dalaran.") },
 
                 // 10 New Features
                 { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
