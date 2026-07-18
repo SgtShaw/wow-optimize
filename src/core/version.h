@@ -586,7 +586,7 @@
 #define TEST_DISABLE_LUA_GETTIME_FAST           0  // disabled by default: Lua GetTime Frame Cache
 #define TEST_DISABLE_MATRIX_TRANSFORM_SSE2      1  // disabled: SIMD Matrix Vector Transforms
 #define TEST_DISABLE_CRT_MIMALLOC               0  // enabled: CRT Allocator Redirect to mimalloc
-#define TEST_DISABLE_M2_BONE_MT                 0  // enabled: Multi-Threaded M2 Skeleton Animations
+#define TEST_DISABLE_M2_BONE_MT                 1  // disabled: M2 Skeleton MT (single-slot task race hazard)
 #define TEST_DISABLE_MPQ_ASYNC_DECOMPRESS       0  // enabled: Asynchronous MPQ File Decompressor
 #define TEST_DISABLE_RCU_OBJ_MGR                1  // disabled: RCU Object Manager (linked list race hazard)
 #define TEST_DISABLE_M2_LOD_BIAS                1  // disabled: M2 LOD Bias Control
