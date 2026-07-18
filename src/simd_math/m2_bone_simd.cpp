@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: m2_bone_simd.cpp
 // Description: Multi-Threaded M2 Skeleton Animations & SIMD Bone Math
-// Safety & Threading: Thread-safe dispatch using lock-free atomic counters.
+// Safety & Threading: 64-slot ring buffer task queue with per-slot sync.
 // ============================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN
@@ -49,20 +49,16 @@ void VectorizedMatrixMultiply(float* outMatrix, const float* inMatrixA, const fl
 }
 
 // ================================================================
-// Multi-Threaded UpdateBones Hook
+// Multi-Threaded UpdateBones Hook (64-Slot Ring Buffer)
 // ================================================================
 #if !TEST_DISABLE_M2_BONE_MT
 typedef int (__thiscall* UpdateBones_fn)(void* pThis, float* a2, int a3, float a4, float a5, float a6);
 static UpdateBones_fn orig_UpdateBones = nullptr;
 
 static constexpr int WORKER_COUNT = 4;
-static HANDLE g_workerThreads[WORKER_COUNT] = { NULL };
-static HANDLE g_workEvent = NULL;
-static HANDLE g_doneEvent = NULL;
-static bool   g_threadsRunning = false;
-static volatile LONG g_activeWorkers = 0;
+static constexpr int RING_SLOTS = 64;
 
-struct BoneTask {
+struct BoneRingSlot {
     void* pThis;
     float* a2;
     int a3;
@@ -70,31 +66,45 @@ struct BoneTask {
     float a5;
     float a6;
     int result;
+    HANDLE doneEvent;
+    volatile LONG active;
 };
 
-static volatile BoneTask g_currentTask = {};
-static volatile LONG     g_taskPending = 0;
+static BoneRingSlot g_ring[RING_SLOTS] = {};
+static HANDLE g_workerThreads[WORKER_COUNT] = { NULL };
+static HANDLE g_queueSemaphore = NULL;
+static SRWLOCK g_queueLock = SRWLOCK_INIT;
+static bool g_threadsRunning = false;
+static volatile LONG g_ringIndex = 0;
+
+static int g_slotQueue[RING_SLOTS] = {};
+static int g_qHead = 0, g_qTail = 0, g_qCount = 0;
 
 static DWORD WINAPI M2WorkerProc(LPVOID lpParam) {
     while (g_threadsRunning) {
-        WaitForSingleObject(g_workEvent, INFINITE);
+        WaitForSingleObject(g_queueSemaphore, INFINITE);
         if (!g_threadsRunning) break;
 
-        if (InterlockedExchange(&g_taskPending, 0) == 1) {
+        int slotIdx = -1;
+        AcquireSRWLockExclusive(&g_queueLock);
+        if (g_qCount > 0) {
+            slotIdx = g_slotQueue[g_qHead];
+            g_qHead = (g_qHead + 1) % RING_SLOTS;
+            g_qCount--;
+        }
+        ReleaseSRWLockExclusive(&g_queueLock);
+
+        if (slotIdx >= 0 && slotIdx < RING_SLOTS) {
+            BoneRingSlot* slot = &g_ring[slotIdx];
             __try {
-                if (orig_UpdateBones && g_currentTask.pThis) {
-                    g_currentTask.result = orig_UpdateBones(
-                        g_currentTask.pThis,
-                        g_currentTask.a2,
-                        g_currentTask.a3,
-                        g_currentTask.a4,
-                        g_currentTask.a5,
-                        g_currentTask.a6
+                if (orig_UpdateBones && slot->pThis) {
+                    slot->result = orig_UpdateBones(
+                        slot->pThis, slot->a2, slot->a3, slot->a4, slot->a5, slot->a6
                     );
                 }
             } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
-            SetEvent(g_doneEvent);
+            SetEvent(slot->doneEvent);
         }
     }
     return 0;
@@ -106,26 +116,38 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* edx, float* a2, int 
     }
 
     __try {
-        // Read bone count from CM2Model instance header (offset 0x48 / 72 bytes)
         uint16_t boneCount = *(uint16_t*)((uint8_t*)pThis + 72);
 
-        // Offload models with bone count >= 8 if worker pool is idle
-        if (boneCount >= 8 && g_threadsRunning && InterlockedCompareExchange(&g_taskPending, 0, 0) == 0) {
-            g_currentTask.pThis  = pThis;
-            g_currentTask.a2     = a2;
-            g_currentTask.a3     = a3;
-            g_currentTask.a4     = a4;
-            g_currentTask.a5     = a5;
-            g_currentTask.a6     = a6;
-            g_currentTask.result = 0;
+        if (boneCount >= 8 && g_threadsRunning) {
+            int slotIdx = (int)(InterlockedIncrement(&g_ringIndex) % RING_SLOTS);
+            BoneRingSlot* slot = &g_ring[slotIdx];
 
-            ResetEvent(g_doneEvent);
-            InterlockedExchange(&g_taskPending, 1);
-            SetEvent(g_workEvent);
+            if (InterlockedCompareExchange(&slot->active, 1, 0) == 0) {
+                slot->pThis  = pThis;
+                slot->a2     = a2;
+                slot->a3     = a3;
+                slot->a4     = a4;
+                slot->a5     = a5;
+                slot->a6     = a6;
+                slot->result = 0;
+                ResetEvent(slot->doneEvent);
 
-            // Synchronize completion
-            WaitForSingleObject(g_doneEvent, 5); // 5ms safety timeout
-            return g_currentTask.result;
+                AcquireSRWLockExclusive(&g_queueLock);
+                if (g_qCount < RING_SLOTS) {
+                    g_slotQueue[g_qTail] = slotIdx;
+                    g_qTail = (g_qTail + 1) % RING_SLOTS;
+                    g_qCount++;
+                    ReleaseSRWLockExclusive(&g_queueLock);
+                    ReleaseSemaphore(g_queueSemaphore, 1, NULL);
+
+                    WaitForSingleObject(slot->doneEvent, 10);
+                    int res = slot->result;
+                    InterlockedExchange(&slot->active, 0);
+                    return res;
+                }
+                ReleaseSRWLockExclusive(&g_queueLock);
+                InterlockedExchange(&slot->active, 0);
+            }
         }
     } __except(EXCEPTION_EXECUTE_HANDLER) {}
 
@@ -138,9 +160,13 @@ bool Init() {
 
 #if !TEST_DISABLE_M2_BONE_MT
     if (Config::g_settings.OptM2BoneMt) {
-        g_workEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
-        g_doneEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+        g_queueSemaphore = CreateSemaphore(NULL, 0, RING_SLOTS, NULL);
         g_threadsRunning = true;
+
+        for (int i = 0; i < RING_SLOTS; i++) {
+            g_ring[i].doneEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
+            g_ring[i].active = 0;
+        }
 
         for (int i = 0; i < WORKER_COUNT; i++) {
             g_workerThreads[i] = CreateThread(NULL, 0, M2WorkerProc, NULL, 0, NULL);
@@ -148,7 +174,7 @@ bool Init() {
 
         if (WineSafe_CreateHook((void*)0x0082F0F0, (void*)Hooked_UpdateBones, (void**)&orig_UpdateBones) == MH_OK) {
             if (WO_EnableHook((void*)0x0082F0F0) == MH_OK) {
-                Log("[M2BoneSimd] Multi-Threaded UpdateBones hook at 0x0082F0F0 ACTIVE (%d workers)", WORKER_COUNT);
+                Log("[M2BoneSimd] Multi-Threaded UpdateBones hook at 0x0082F0F0 ACTIVE (64 ring slots)");
             }
         }
     }
@@ -161,7 +187,7 @@ void Shutdown() {
 #if !TEST_DISABLE_M2_BONE_MT
     if (g_threadsRunning) {
         g_threadsRunning = false;
-        SetEvent(g_workEvent);
+        ReleaseSemaphore(g_queueSemaphore, WORKER_COUNT, NULL);
         for (int i = 0; i < WORKER_COUNT; i++) {
             if (g_workerThreads[i]) {
                 WaitForSingleObject(g_workerThreads[i], 100);
@@ -169,8 +195,10 @@ void Shutdown() {
                 g_workerThreads[i] = NULL;
             }
         }
-        if (g_workEvent) CloseHandle(g_workEvent);
-        if (g_doneEvent) CloseHandle(g_doneEvent);
+        for (int i = 0; i < RING_SLOTS; i++) {
+            if (g_ring[i].doneEvent) CloseHandle(g_ring[i].doneEvent);
+        }
+        if (g_queueSemaphore) CloseHandle(g_queueSemaphore);
     }
     MH_DisableHook((void*)0x0082F0F0);
 #endif

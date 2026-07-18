@@ -1,7 +1,7 @@
 // ============================================================================
 // Module: rcu_obj_mgr.cpp
 // Description: Lock-Free Read-Copy-Update (RCU) Shadow Object Manager Cache
-// Safety & Threading: Safe SEH guards, atomic RCU array double-buffering.
+// Safety & Threading: Frame-boundary snapshotting without list mutation hooks.
 // ============================================================================
 
 #include "rcu_obj_mgr.h"
@@ -24,10 +24,6 @@ struct RcuObjectArray {
 
 static std::atomic<RcuObjectArray*> g_rcuArray{nullptr};
 static std::atomic<RcuObjectArray*> g_oldArrays[16]{nullptr};
-
-// Offsets and hooks
-typedef void* (__thiscall *LinkNode_fn)(void* This, int node);
-static LinkNode_fn orig_LinkNode = nullptr;
 
 typedef int (__cdecl *ClntObjMgrEnum_fn)(int (__cdecl *callback)(uint32_t, uint32_t, int), int context);
 static ClntObjMgrEnum_fn orig_ClntObjMgrEnum = nullptr;
@@ -57,7 +53,7 @@ void UpdateRcuArray(void* objMgr) {
         uintptr_t linkOffset = *(uintptr_t*)((char*)objMgr + 164);
         uintptr_t current = firstObj;
 
-        while (current && (current & 1) == 0) {
+        while (current && (current & 1) == 0 && (uintptr_t)current >= 0x10000 && (uintptr_t)current < 0xFFE00000) {
             if (newArray->count < 2048) {
                 newArray->objects[newArray->count++] = (void*)current;
             } else {
@@ -88,21 +84,12 @@ void UpdateRcuArray(void* objMgr) {
     }
 }
 
-static void* __fastcall Hooked_LinkNode(void* This, void* unused, int node) {
-    void* result = orig_LinkNode(This, node);
-    void* activeMgr = GetActiveObjMgr();
-    if (activeMgr && This == (void*)((char*)activeMgr + 164)) {
-        UpdateRcuArray(activeMgr);
-    }
-    return result;
-}
-
 static int __cdecl Hooked_ClntObjMgrEnum(int (__cdecl *callback)(uint32_t, uint32_t, int), int context) {
     RcuObjectArray* arr = g_rcuArray.load(std::memory_order_acquire);
     if (arr) {
         for (uint32_t i = 0; i < arr->count; i++) {
             void* obj = arr->objects[i];
-            if (obj) {
+            if (obj && (uintptr_t)obj >= 0x10000 && (uintptr_t)obj < 0xFFE00000) {
                 __try {
                     uint32_t* j = (uint32_t*)obj;
                     uint32_t guidLow = j[12];
@@ -154,13 +141,8 @@ bool Init() {
     }
     g_rcuArray.store(nullptr);
 
-    void* linkTarget = (void*)0x006DED60;
     void* enumTarget = (void*)0x004D4B30;
     void* getObjTarget = (void*)0x006792E0;
-
-    if (WineSafe_CreateHook(linkTarget, (void*)Hooked_LinkNode, (void**)&orig_LinkNode) == MH_OK) {
-        WO_EnableHook(linkTarget);
-    }
 
     if (WineSafe_CreateHook(enumTarget, (void*)Hooked_ClntObjMgrEnum, (void**)&orig_ClntObjMgrEnum) == MH_OK) {
         WO_EnableHook(enumTarget);
@@ -168,7 +150,7 @@ bool Init() {
 
     if (WineSafe_CreateHook(getObjTarget, (void*)Hooked_GetObjectByGUID, (void**)&orig_GetObjectByGUID) == MH_OK) {
         if (WO_EnableHook(getObjTarget) == MH_OK) {
-            Log("[RcuObjMgr] GetObjectByGUID hook at 0x006792E0 ACTIVE");
+            Log("[RcuObjMgr] GetObjectByGUID hook at 0x006792E0 ACTIVE (frame-boundary RCU)");
         }
     }
 
@@ -178,11 +160,9 @@ bool Init() {
 
 void Shutdown() {
     if (!Config::g_settings.OptRcuObjMgr) return;
-    void* linkTarget = (void*)0x006DED60;
     void* enumTarget = (void*)0x004D4B30;
     void* getObjTarget = (void*)0x006792E0;
 
-    MH_DisableHook(linkTarget);
     MH_DisableHook(enumTarget);
     MH_DisableHook(getObjTarget);
 
@@ -197,6 +177,12 @@ void Shutdown() {
 
 void OnFrame() {
     if (!Config::g_settings.OptRcuObjMgr) return;
+
+    void* activeMgr = GetActiveObjMgr();
+    if (activeMgr) {
+        UpdateRcuArray(activeMgr);
+    }
+
     for (int i = 0; i < 16; i++) {
         RcuObjectArray* old = g_oldArrays[i].exchange(nullptr);
         if (old) {
