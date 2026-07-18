@@ -26,7 +26,7 @@ namespace Config {
             WritePrivateProfileStringA("General", "MemoryPressure", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "HeapCompactor", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "DefragLf", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "VulkanDXVK", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "VulkanDXVK", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "TimingFix", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
@@ -70,7 +70,7 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "NetPacketCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraFast", "0", iniPath.c_str());
@@ -134,7 +134,7 @@ namespace Config {
         g_settings.OptMemoryPressure      = GetPrivateProfileIntA("General", "MemoryPressure", 1, iniPath.c_str()) != 0;
         g_settings.OptHeapCompactor       = GetPrivateProfileIntA("General", "HeapCompactor", 1, iniPath.c_str()) != 0;
         g_settings.OptDefragLf            = GetPrivateProfileIntA("General", "DefragLf", 0, iniPath.c_str()) != 0;
-        g_settings.OptVulkanDXVK          = GetPrivateProfileIntA("General", "VulkanDXVK", 1, iniPath.c_str()) != 0;
+        g_settings.OptVulkanDXVK          = GetPrivateProfileIntA("General", "VulkanDXVK", 0, iniPath.c_str()) != 0;
         g_settings.OptTimingFix           = GetPrivateProfileIntA("General", "TimingFix", 0, iniPath.c_str()) != 0;
         g_settings.OptCvarNullGuard       = GetPrivateProfileIntA("General", "CvarNullGuard", 1, iniPath.c_str()) != 0;
         g_settings.OptFrameLimiter        = GetPrivateProfileIntA("General", "FrameLimiter", 0, iniPath.c_str()) != 0;
@@ -178,9 +178,9 @@ namespace Config {
         g_settings.OptNetPacketCoalesce   = GetPrivateProfileIntA("Combat_Net", "NetPacketCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitAuraCoalesce    = GetPrivateProfileIntA("Combat_Net", "UnitAuraCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptNetAddonCoalescer   = GetPrivateProfileIntA("Combat_Net", "NetAddonCoalescer", 0, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsSerializer = GetPrivateProfileIntA("Combat_Net", "SavedVarsSerializer", 1, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsAsync      = GetPrivateProfileIntA("Combat_Net", "SavedVarsAsync", 1, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsPretoken   = GetPrivateProfileIntA("Combat_Net", "SavedVarsPretoken", 1, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsSerializer = GetPrivateProfileIntA("Combat_Net", "SavedVarsSerializer", 0, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsAsync      = GetPrivateProfileIntA("Combat_Net", "SavedVarsAsync", 0, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsPretoken   = GetPrivateProfileIntA("Combat_Net", "SavedVarsPretoken", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitAuraFast        = GetPrivateProfileIntA("Combat_Net", "UnitAuraFast", 0, iniPath.c_str()) != 0;
         g_settings.OptNetworkGuidSse2     = GetPrivateProfileIntA("Combat_Net", "NetworkGuidSse2", 0, iniPath.c_str()) != 0;
         g_settings.OptGetSpellInfoCache   = GetPrivateProfileIntA("Combat_Net", "GetSpellInfoCache", 0, iniPath.c_str()) != 0;
