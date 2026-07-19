@@ -257,5 +257,27 @@ namespace Config {
         g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 1, iniPath.c_str()) != 0;
         g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 1, iniPath.c_str()) != 0;
         g_settings.OptCombatEventLimit = GetPrivateProfileIntA("Combat_Net", "CombatEventLimit", 1, iniPath.c_str()) != 0;
+
+        // Previously Init'd unconditionally - now read from their launcher keys.
+        // Default 1 preserves the old always-on behavior; they are now disableable.
+        g_settings.OptAddonMsgLimiter      = GetPrivateProfileIntA("Combat_Net", "AddonMsgLimiter", 1, iniPath.c_str()) != 0;
+        g_settings.OptAuraPreloadCache     = GetPrivateProfileIntA("Combat_Net", "AuraPreloadCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptCDataStoreBuffering  = GetPrivateProfileIntA("Combat_Net", "CDataStoreBuffering", 1, iniPath.c_str()) != 0;
+        g_settings.OptCameraShakeOpt       = GetPrivateProfileIntA("General", "CameraShakeOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptCombatLogAsync       = GetPrivateProfileIntA("Combat_Net", "CombatLogAsync", 1, iniPath.c_str()) != 0;
+        g_settings.OptCombatTextFont       = GetPrivateProfileIntA("UI_Lua", "CombatTextFont", 1, iniPath.c_str()) != 0;
+        g_settings.OptDbcFileCache         = GetPrivateProfileIntA("Graphics_Sound", "DbcFileCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptDynamicShadowScaler  = GetPrivateProfileIntA("Graphics_Sound", "DynamicShadowScaler", 1, iniPath.c_str()) != 0;
+        g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 1, iniPath.c_str()) != 0;
+        g_settings.OptMouseCursorSmooth    = GetPrivateProfileIntA("General", "MouseCursorSmooth", 1, iniPath.c_str()) != 0;
+        g_settings.OptNameplateDistanceCvar= GetPrivateProfileIntA("Combat_Net", "NameplateDistanceCvar", 1, iniPath.c_str()) != 0;
+        g_settings.OptParticleDensityScaler= GetPrivateProfileIntA("Graphics_Sound", "ParticleDensityScaler", 1, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 1, iniPath.c_str()) != 0;
+        g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 1, iniPath.c_str()) != 0;
+        g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 1, iniPath.c_str()) != 0;
+        g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 1, iniPath.c_str()) != 0;
+        g_settings.OptVertexBufferPrealloc = GetPrivateProfileIntA("General", "VertexBufferPrealloc", 1, iniPath.c_str()) != 0;
+        g_settings.OptWorldObjectOpt       = GetPrivateProfileIntA("Graphics_Sound", "WorldObjectOpt", 1, iniPath.c_str()) != 0;
     }
 }

@@ -109,6 +109,28 @@ namespace Config {
         bool OptGuidStringCache = true;
         bool OptFrameScriptMemOpt = true;
         bool OptCombatEventLimit = true;
+
+        // Previously Init'd unconditionally (ignored their launcher toggles).
+        // Default true = preserve the old always-on behavior; now disableable.
+        bool OptAddonMsgLimiter = true;
+        bool OptAuraPreloadCache = true;
+        bool OptCDataStoreBuffering = true;
+        bool OptCameraShakeOpt = true;
+        bool OptCombatLogAsync = true;
+        bool OptCombatTextFont = true;
+        bool OptDbcFileCache = true;
+        bool OptDynamicShadowScaler = true;
+        bool OptFontOutlineCache = true;
+        bool OptMouseClipRelease = true;
+        bool OptMouseCursorSmooth = true;
+        bool OptNameplateDistanceCvar = true;
+        bool OptParticleDensityScaler = true;
+        bool OptSavedVarsBackup = true;
+        bool OptSoundCoalescer = true;
+        bool OptSpellOverlayPreload = true;
+        bool OptUnitMaxPowerCache = true;
+        bool OptVertexBufferPrealloc = true;
+        bool OptWorldObjectOpt = true;
     };
 
     extern Settings g_settings;
