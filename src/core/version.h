@@ -871,7 +871,7 @@ static inline MH_STATUS WO_EnableHook(void* target) {
 
 #define CRASH_TEST_DISABLE_GLOBALALLOC         1
 
-#define CRASH_TEST_DISABLE_VA_ARENA         1
+#define CRASH_TEST_DISABLE_VA_ARENA         0   // compiled in; activation is runtime opt-in via Config OptVaArena (default off). This is the authoritative definition (included before dllmain's #ifndef fallback).
 
 #define CRASH_TEST_DISABLE_ISBADPTR         1
 
