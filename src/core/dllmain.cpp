@@ -505,7 +505,9 @@ static SRWLOCK        g_vaArenaLock      = SRWLOCK_INIT;
 static long           g_vaArenaHits      = 0;
 static long           g_vaArenaFallbacks = 0;
 static long           g_vaArenaFailures  = 0;
+static long           g_vaArenaFull      = 0;  // qualifying requests that didn't fit -> "arena too small" signal for sizing
 static DWORD          g_vaArenaUsedPages = 0;
+static DWORD          g_vaArenaPeakPages = 0;  // high-water mark of used pages
 
 // Bitmap + span tracking
 static uint64_t g_vaArenaBitmap[VA_ARENA_BITMAP_SIZE] = {0};
@@ -4226,9 +4228,17 @@ static void DumpPeriodicStats() {
         long total = g_vaArenaHits + g_vaArenaFallbacks;
         double arenaPct = total > 0 ? (double)g_vaArenaHits / total * 100.0 : 0.0;
         double usedMB = (double)g_vaArenaUsedPages * VA_ARENA_PAGE_SIZE / (1024.0 * 1024.0);
-        Log("[Stats] VA Arena v3: %ld hits, %ld fallbacks, %ld fail (%.1f%% arena, %.1f MB used)",
+        double peakMB = (double)g_vaArenaPeakPages * VA_ARENA_PAGE_SIZE / (1024.0 * 1024.0);
+        double capMB  = (double)VA_ARENA_MAX_PAGES * VA_ARENA_PAGE_SIZE / (1024.0 * 1024.0);
+        Log("[Stats] VA Arena: %ld hits, %ld fallbacks, %ld fail (%.1f%% arena, %.1f MB used, %.1f MB peak of %.0f MB)",
             g_vaArenaHits, g_vaArenaFallbacks, g_vaArenaFailures,
-            arenaPct, usedMB);
+            arenaPct, usedMB, peakMB, capMB);
+        // g_vaArenaFull is the key sizing signal: qualifying allocations we had
+        // to reject because the arena ran out of contiguous space. If this is
+        // non-zero, 64MB is too small - grow it (or the peak is near the cap).
+        Log("[Stats] VA Arena sizing: %ld qualifying requests rejected (arena full/fragmented)%s",
+            g_vaArenaFull,
+            g_vaArenaFull > 0 ? "  <-- consider a larger arena" : "");
     }
     if (g_streamReadHits + g_streamReadFallbacks > 0)
         Log("[Stats] Stream read: %ld fast, %ld fallback (%.1f%%)",
@@ -9225,6 +9235,7 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
 
             if (pagesNeeded > VA_ARENA_MAX_PAGES - g_vaArenaUsedPages) {
                 ReleaseSRWLockExclusive(&g_vaArenaLock);
+                InterlockedIncrement(&g_vaArenaFull);  // arena too small to hold this qualifying request
                 goto va_fallback;
             }
 
@@ -9245,6 +9256,7 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
 
             if (!found) {
                 ReleaseSRWLockExclusive(&g_vaArenaLock);
+                InterlockedIncrement(&g_vaArenaFull);  // qualifying request, but no contiguous run (fragmented arena)
                 goto va_fallback;
             }
 
@@ -9255,6 +9267,7 @@ static LPVOID WINAPI Hooked_VirtualAlloc(LPVOID lpAddress, SIZE_T dwSize, DWORD 
             }
             g_vaArenaSpan[startPage] = (DWORD)pagesNeeded;
             g_vaArenaUsedPages += (DWORD)pagesNeeded;
+            if (g_vaArenaUsedPages > g_vaArenaPeakPages) g_vaArenaPeakPages = g_vaArenaUsedPages;
             ReleaseSRWLockExclusive(&g_vaArenaLock);
 
             LPVOID result = (LPVOID)((uintptr_t)g_vaArenaBase + (startPage * VA_ARENA_PAGE_SIZE));
