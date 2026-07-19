@@ -54,7 +54,7 @@ namespace Config {
 
 
             // UI & Lua
-            WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "0", iniPath.c_str());  // #36: artifacting/flicker — off by default
             WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "1", iniPath.c_str());
@@ -65,7 +65,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptDispatch", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());  // #37: slow loads + Lua errors — off by default
             WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGetTimeFast", "0", iniPath.c_str());
@@ -79,7 +79,7 @@ namespace Config {
             // Combat & Network
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogIncremental", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "0", iniPath.c_str());  // #42: hides buffs/countdowns — off by default
             WritePrivateProfileStringA("Combat_Net", "NetPacketCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
@@ -97,7 +97,7 @@ namespace Config {
             WritePrivateProfileStringA("Graphics_Sound", "StrCatFast", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundMixerOpt", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "0", iniPath.c_str());  // #35: crash while loading — off by default
             WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "1", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
 
