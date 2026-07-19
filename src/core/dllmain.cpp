@@ -7662,19 +7662,19 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- RCU Object Manager Traverser ---");
-    RcuObjMgr::Init();
+    if (Config::g_settings.OptRcuObjMgr) RcuObjMgr::Init();
 
     Log("");
     Log("--- Asynchronous Terrain Mesh Loader ---");
-    AsyncTerrainLoader::Init();
+    if (Config::g_settings.OptAsyncTerrainLoader) AsyncTerrainLoader::Init();
 
     Log("");
     Log("--- M2 LOD Bias Control ---");
-    M2LodBias::Init();
+    if (Config::g_settings.OptM2LodBias) M2LodBias::Init();
 
     Log("");
     Log("--- Lock-Free Texture Loader ---");
-    AsyncTexLoader::Init();
+    if (Config::g_settings.OptAsyncTexLoader) AsyncTexLoader::Init();
 
     Log("");
     Log("--- Unit Aura Update Coalescing ---");
