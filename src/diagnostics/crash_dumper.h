@@ -57,6 +57,12 @@ namespace CrashDumper {
 
     // Record last hook call for crash context (ring buffer, lock-free)
     void RecordHookCall(const char* hookName, uintptr_t addr);
+
+    // Hot-path variant for very high-frequency hooks (UI accessors etc.).
+    // Samples ~1/64 calls so the per-call InterlockedIncrement stays off the
+    // frame critical path, and so one hot hook can't flood the 256-slot ring
+    // and evict the rarer, riskier hooks we actually want in a crash trace.
+    void RecordHookCallHot(const char* hookName, uintptr_t addr);
 }
 
 #endif

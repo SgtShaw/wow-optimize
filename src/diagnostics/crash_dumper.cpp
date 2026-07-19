@@ -755,6 +755,18 @@ void RecordHookCall(const char* hookName, uintptr_t addr) {
     s_hookTrace[idx].threadId = GetCurrentThreadId();
 }
 
+void RecordHookCallHot(const char* hookName, uintptr_t addr) {
+    // Sample ~1/64 calls. The counter is a deliberately non-atomic increment:
+    // a lost increment under thread contention only skews the sample rate, and
+    // avoiding the InterlockedIncrement is the entire point on this hot path.
+    // On x86 the aligned 32-bit load/store is itself tear-free, so no bad reads.
+    static volatile LONG s_hotSkip = 0;
+    LONG n = s_hotSkip + 1;
+    s_hotSkip = n;
+    if ((n & 0x3F) != 0) return;   // record only every 64th call
+    RecordHookCall(hookName, addr);
+}
+
 } // namespace CrashDumper
 
 // Called from lua_error_diag to dump hook trace on Lua errors
