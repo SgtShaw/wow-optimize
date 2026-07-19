@@ -210,6 +210,15 @@ namespace Config {
         g_settings.OptDbcLookupCache      = GetPrivateProfileIntA("Graphics_Sound", "DbcLookupCache", 0, iniPath.c_str()) != 0;
         g_settings.OptWorldStateCoalesce  = GetPrivateProfileIntA("Graphics_Sound", "WorldStateCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptD3d9RenderThread    = GetPrivateProfileIntA("Graphics_Sound", "D3d9RenderThread", 0, iniPath.c_str()) != 0;
+        // HARD-DISABLED regardless of ini: this offloads D3D9 draw/Present/Reset
+        // calls to a worker thread, but WoW's device isn't created
+        // D3DCREATE_MULTITHREADED, so cross-thread rendering is undefined
+        // behavior -> mid-fight screen flashing, and the main thread spin-waits
+        // in PipelineFlush on a render thread that stalls on the device Reset
+        // during zone loads -> the "loaded then froze forever" hang. Same class
+        // of unsafe-by-design as MimallocLarge. Kept readable above only so old
+        // profiles with D3d9RenderThread=1 don't silently re-enable it.
+        g_settings.OptD3d9RenderThread = false;
 
         // Parse Features 21-30
         g_settings.OptLoadingScreenOpt   = GetPrivateProfileIntA("Graphics_Sound", "LoadingScreenOpt", 1, iniPath.c_str()) != 0;
