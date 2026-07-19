@@ -51,6 +51,7 @@ namespace Config {
             WritePrivateProfileStringA("General", "HardwareCursor", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "SamplingProfiler", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MimallocLarge", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "VaArena", "0", iniPath.c_str());  // EXPERIMENTAL, opt-in
 
 
             // UI & Lua
@@ -159,6 +160,7 @@ namespace Config {
         g_settings.OptHardwareCursor      = GetPrivateProfileIntA("General", "HardwareCursor", 0, iniPath.c_str()) != 0;
         g_settings.OptSamplingProfiler    = GetPrivateProfileIntA("General", "SamplingProfiler", 0, iniPath.c_str()) != 0;
         g_settings.OptMimallocLarge       = GetPrivateProfileIntA("General", "MimallocLarge", 0, iniPath.c_str()) != 0;
+        g_settings.OptVaArena             = GetPrivateProfileIntA("General", "VaArena", 0, iniPath.c_str()) != 0;
 
 
         // UI & Lua

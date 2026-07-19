@@ -22,6 +22,7 @@ namespace Config {
         bool OptHardwareCursor = false;
         bool OptSamplingProfiler = false;
         bool OptMimallocLarge = false;
+        bool OptVaArena = false;   // EXPERIMENTAL opt-in: segregated VirtualAlloc arena (anti-fragmentation)
 
         // UI & Lua
         bool OptUIFrameBatch = false;

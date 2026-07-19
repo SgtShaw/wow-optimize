@@ -424,7 +424,7 @@ extern "C" void IncrementParticleFrameCount();
 #define CRASH_TEST_DISABLE_THREAD_AFFINITY   0   // Thread core pinning (re-enabled - was disabled preemptively)
 #define CRASH_TEST_DISABLE_SHORT_WAIT_SPIN   1   // WaitSpin (ALREADY DISABLED - tested bad)
 #ifndef CRASH_TEST_DISABLE_VA_ARENA
-#define CRASH_TEST_DISABLE_VA_ARENA          1   // VA Arena virtual alloc (enabled with memory limit fix)
+#define CRASH_TEST_DISABLE_VA_ARENA          0   // VA Arena compiled in; activation is runtime opt-in via Config OptVaArena (default off). Set to 1 to hard-remove.
 #endif
 #define CRASH_TEST_DISABLE_DISPATCH_POOL     1   // DispatchPool (ALREADY DISABLED - tested bad)
 #define CRASH_TEST_DISABLE_BGPRELOAD_CACHE   1   // bgpreloadsleep cache (ALREADY DISABLED - 0 hits)
@@ -9312,20 +9312,23 @@ static BOOL WINAPI Hooked_VirtualFree(LPVOID lpAddress, SIZE_T dwSize, DWORD dwF
             SIZE_T spanSize = spanPages * VA_ARENA_PAGE_SIZE;
 
             if (dwFreeType == MEM_DECOMMIT) {
-                // Decommit arena pages via original VirtualFree
+                // Decommit only: drop the physical/pagefile backing but KEEP the
+                // pages marked owned in the bitmap. A decommit does not release
+                // the reservation - the caller still owns this address and may
+                // re-commit it later - so the arena must NOT hand these pages to
+                // another allocation. Only MEM_RELEASE reclaims them.
+                //
+                // (This is the bug that made the arena unsafe before: it cleared
+                // the bitmap on decommit, so a later allocation could grab pages
+                // the original owner still held -> heap/data corruption.)
+                //
+                // Honor the caller's requested range; fall back to the full span
+                // if they passed size 0.
+                SIZE_T decSize = dwSize ? dwSize : spanSize;
+                if (decSize > spanSize) decSize = spanSize;
                 ReleaseSRWLockExclusive(&g_vaArenaLock);
-                BOOL result = orig_VirtualFree(lpAddress, spanSize, MEM_DECOMMIT);
-                if (result) {
-                    // Clear bitmap + span after successful decommit
-                    AcquireSRWLockExclusive(&g_vaArenaLock);
-                    for (DWORD i = 0; i < spanPages && (page + i) < VA_ARENA_MAX_PAGES; i++) {
-                        g_vaArenaBitmap[(page + i) / 64] &= ~(1ULL << ((page + i) % 64));
-                        g_vaArenaSpan[page + i] = 0;
-                    }
-                    g_vaArenaUsedPages -= (DWORD)spanPages;
-                    ReleaseSRWLockExclusive(&g_vaArenaLock);
-                    InterlockedIncrement(&g_vaArenaHits);
-                }
+                BOOL result = orig_VirtualFree(lpAddress, decSize, MEM_DECOMMIT);
+                if (result) InterlockedIncrement(&g_vaArenaHits);
                 return result;
             }
 
@@ -9364,9 +9367,20 @@ static bool InstallVAArena() {
     Log("VA Arena: DISABLED (crash isolation)");
     return false;
 #else
-    // Pre-reserve 512MB in high address space (>=0xD0000000)
-    // This avoids low-address fragmentation that causes 32-bit crashes
-    g_vaArenaSize = VA_ARENA_MAX_PAGES * VA_ARENA_PAGE_SIZE;
+    // Opt-in: the arena hooks VirtualAlloc/VirtualFree process-wide, so it stays
+    // off unless a tester explicitly enables it in the launcher. Default users
+    // are unaffected - we return before reserving anything or installing hooks.
+    if (!Config::g_settings.OptVaArena) {
+        Log("VA Arena: DISABLED (opt-in; enable 'Segregated VA Arena' in the launcher to test)");
+        return false;
+    }
+
+    // Pre-reserve one contiguous block high in the address space (MEM_TOP_DOWN)
+    // and sub-allocate WoW's committing VirtualAllocs from it, so they don't
+    // scatter holes through the general 2-3GB user VA. VirtualFree still frees
+    // normally (placement only, no allocator redirection), so there's no
+    // cross-heap hazard like MimallocLarge had.
+    g_vaArenaSize = VA_ARENA_MAX_PAGES * VA_ARENA_PAGE_SIZE;  // 64MB (16384 * 4KB)
 
     // Try high addresses first with MEM_TOP_DOWN
     g_vaArenaBase = VirtualAlloc((LPVOID)0xF0000000, g_vaArenaSize, MEM_RESERVE | MEM_TOP_DOWN, PAGE_NOACCESS);
@@ -9376,13 +9390,13 @@ static bool InstallVAArena() {
         if (!g_vaArenaBase) {
             g_vaArenaBase = VirtualAlloc(NULL, g_vaArenaSize, MEM_RESERVE, PAGE_NOACCESS);
             if (!g_vaArenaBase) {
-                Log("VA Arena: SKIP (cannot reserve 512MB block)");
+                Log("VA Arena: SKIP (cannot reserve 64MB block)");
                 return false;
             }
         }
     }
 
-    Log("VA Arena: ACTIVE (512MB block @ 0x%08X, 4KB pages, ALL callers, SEH-guarded)",
+    Log("VA Arena: ACTIVE (64MB block @ 0x%08X, 4KB pages, Wow.exe callers, SEH-guarded)",
        (unsigned)(uintptr_t)g_vaArenaBase);
 
     void* pAlloc = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "VirtualAlloc");
