@@ -6483,26 +6483,38 @@ static DWORD WINAPI MainThread(LPVOID param) {
     AdjustMimallocForMultiClient();    
     Log("--- System Timer ---");
     SetHighTimerResolution();
-    Log("--- Threads ---");
-    OptimizeThreads();
-    Log("--- Process ---");
-    
-    // Install SetPriorityClass hook BEFORE setting priority to block downgrade attempts
-    HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
-    if (hKernel32) {
-        void* pSetPriorityClass = (void*)GetProcAddress(hKernel32, "SetPriorityClass");
-        if (pSetPriorityClass && 
-            MH_CreateHook(pSetPriorityClass, (void*)hooked_SetPriorityClass, (void**)&orig_SetPriorityClass) == MH_OK &&
-            WO_EnableHook(pSetPriorityClass) == MH_OK) {
-            Log("SetPriorityClass hook: ACTIVE (blocks priority downgrades)");
-        } else {
-            Log("WARNING: SetPriorityClass hook failed");
+
+    // Compatibility mode: some virtualized environments (HyperV virtual switches
+    // especially) break WoW's logon TCP connection when the process runs at
+    // ABOVE_NORMAL priority with the anti-downgrade hook + watchdog forcing it -
+    // the virtualized network path gets starved. A tester on HyperV couldn't
+    // connect at all with the DLL loaded, regardless of feature toggles, because
+    // these scheduling tweaks are applied unconditionally. When CompatMode is on
+    // we skip all of them and let WoW run at normal priority/affinity/working set.
+    if (Config::g_settings.OptCompatMode) {
+        Log("--- Process/Threads --- CompatMode ON: skipping CPU priority/affinity/working-set tweaks");
+    } else {
+        Log("--- Threads ---");
+        OptimizeThreads();
+        Log("--- Process ---");
+
+        // Install SetPriorityClass hook BEFORE setting priority to block downgrade attempts
+        HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
+        if (hKernel32) {
+            void* pSetPriorityClass = (void*)GetProcAddress(hKernel32, "SetPriorityClass");
+            if (pSetPriorityClass &&
+                MH_CreateHook(pSetPriorityClass, (void*)hooked_SetPriorityClass, (void**)&orig_SetPriorityClass) == MH_OK &&
+                WO_EnableHook(pSetPriorityClass) == MH_OK) {
+                Log("SetPriorityClass hook: ACTIVE (blocks priority downgrades)");
+            } else {
+                Log("WARNING: SetPriorityClass hook failed");
+            }
         }
+
+        OptimizeProcess();
+        StartPriorityWatchdog();
+        OptimizeWorkingSet();
     }
-    
-    OptimizeProcess();
-    StartPriorityWatchdog();
-    OptimizeWorkingSet();
     Log("--- FPS Cap ---");
     TryRemoveFPSCap();
 
@@ -7092,7 +7104,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
         // when any caller changes thread affinity.
         InstallWineSTIPNoop();
     }
-    g_threadAffOk = Config::g_settings.OptDefragLf && InstallThreadAffinity();
+    g_threadAffOk = Config::g_settings.OptDefragLf && !Config::g_settings.OptCompatMode && InstallThreadAffinity();
 
     Log("--- VA Arena ---");
     vaOk = InstallVAArena();

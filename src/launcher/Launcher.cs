@@ -319,6 +319,7 @@ namespace WowOptimizeLauncher {
                 { "Object Manager Lookup Cache", new SettingItem("General", "ObjVisCache", true, null, "Caches GUID-to-object manager lookups per frame with GUID re-verification. Read-only result cache (never mutates the object table). Hot path - test in-game before relying on it.") },
                 { "Hardware Cursor Fix", new SettingItem("General", "HardwareCursor", false, null, "Resets cursor visibility and releases any cursor clip region on startup (no engine byte patches, no hooks). Helps if the cursor is hidden or trapped after alt-tab.") },
                 { "Sampling Profiler (diagnostic)", new SettingItem("General", "SamplingProfiler", false, null, "Developer tool: a background thread samples the main-thread instruction pointer ~1000x/sec and logs the top 50 hot functions on exit. Read-only, no gameplay effect. Leave off for normal play.") },
+                { "Compatibility Mode (fixes VM/connection issues)", new SettingItem("General", "CompatMode", false, null, "Turn ON if the game will not connect with the DLL loaded, especially inside a VM or with HyperV/virtual switches enabled. Skips the aggressive CPU-priority, affinity and working-set tweaks that can starve the network in virtualized environments. Small performance cost; leave OFF on normal setups.") },
 
                 // UI & Lua
                 { "Fast UI Frame Accessors", new SettingItem("UI_Lua", "UIFrameAccessorFast", false, null, "Bypasses standard Lua stack queries to retrieve UI frame parameters (IsShown, GetAlpha) instantly.") },
