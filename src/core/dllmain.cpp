@@ -103,6 +103,7 @@
 #include "hooks_subsystems/nameplate_culling.h"
 #include "hooks_subsystems/texture_unload_delay.h"
 #include "hooks_subsystems/m2_matrix_simd.h"
+#include "simd_math/animation_lod.h"
 #include "hooks_subsystems/minimap_refresh_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
 #include "hooks_subsystems/lua_string_compare_fast.h"
@@ -4391,6 +4392,7 @@ static void DumpPeriodicStats() {
         SamplingProfiler::DumpNow();
     }
 #endif
+    if (Config::g_settings.OptAnimationLod) AnimationLod::LogStats();
 }
 
 // ================================================================
@@ -7710,6 +7712,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptNameplateCulling) NameplateCulling::Init();
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
     if (Config::g_settings.OptM2MatrixSimd) M2MatrixSimd::Init();
+    AnimationLod::Init();  // self-gates on OptAnimationLod
     if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();
     if (Config::g_settings.OptLuaStringCompareFast) LuaStringCompareFast::Init();
