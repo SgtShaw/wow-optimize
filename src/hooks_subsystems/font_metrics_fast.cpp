@@ -177,7 +177,7 @@ typedef int (__cdecl* GetStringWidth_t)(uintptr_t L);
 static GetStringWidth_t orig_GetStringWidth = nullptr;
 
 static int __cdecl hook_GetStringWidth(uintptr_t L) {
-    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping() || LuaOpt::IsLoadingMode()) 
         return orig_GetStringWidth(L);
 
     ++g_getstringwidth_calls;
@@ -224,7 +224,7 @@ typedef int (__cdecl* GetStringHeight_t)(uintptr_t L);
 static GetStringHeight_t orig_GetStringHeight = nullptr;
 
 static int __cdecl hook_GetStringHeight(uintptr_t L) {
-    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) 
+    if (IsTeardownState() || LuaOpt::IsReloading() || LuaOpt::IsSwapping() || LuaOpt::IsLoadingMode()) 
         return orig_GetStringHeight(L);
 
     ++g_getstringheight_calls;
