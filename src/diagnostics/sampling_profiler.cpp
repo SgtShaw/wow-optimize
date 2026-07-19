@@ -18,7 +18,19 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Forward decl (avoid pulling in the whole lua_optimize header here). Returns
+// true while a zone/UI load or transition is in progress.
+namespace LuaOpt { bool IsLoadingMode(); }
+
 namespace SamplingProfiler {
+
+// Samples taken during loading screens / the first few seconds after start are
+// not representative of steady-state play (they're dominated by MPQ/DBC load,
+// hook install and page faults). Excluding them makes the profile reflect what
+// actually costs frame time in the world. Counted separately for transparency.
+static DWORD    g_samplerStartTick = 0;
+static uint64_t g_skippedSamples = 0;
+static const DWORD PROFILER_WARMUP_MS = 15000;
 
 // ---- configuration ------------------------------------------------
 static constexpr DWORD SAMPLE_INTERVAL_MS = 1;      // target interval
@@ -250,18 +262,31 @@ static DWORD WINAPI SamplerThreadProc(LPVOID) {
     CONTEXT ctx;
     ctx.ContextFlags = CONTEXT_CONTROL;  // just EIP + segment regs
 
+    if (g_samplerStartTick == 0) g_samplerStartTick = GetTickCount();
+
     while (g_running) {
         // Suspend → read → resume. The window is ~microseconds;
         // WoW won't notice. Same technique crash dumpers use.
         if (SuspendThread(g_mainThread) != (DWORD)-1) {
-            if (GetThreadContext(g_mainThread, &ctx)) {
-                uintptr_t eip = (uintptr_t)ctx.Eip;
-                uint64_t idx = g_writeIdx % RING_SIZE;
-                g_ring[idx] = eip;
-                g_writeIdx++;
-                g_totalSamples++;
+            uintptr_t eip = 0;
+            if (GetThreadContext(g_mainThread, &ctx)) eip = (uintptr_t)ctx.Eip;
+            ResumeThread(g_mainThread);  // resume ASAP, then decide off-thread
+
+            if (eip) {
+                // Only record steady-state, in-world samples: skip the warmup
+                // window and any loading/transition. This keeps startup one-shots
+                // (hook install, MPQ/DBC load) and load-screen page-fault spikes
+                // out of the "what costs frame time in play" picture.
+                bool warmedUp = (GetTickCount() - g_samplerStartTick) >= PROFILER_WARMUP_MS;
+                if (warmedUp && !LuaOpt::IsLoadingMode()) {
+                    uint64_t idx = g_writeIdx % RING_SIZE;
+                    g_ring[idx] = eip;
+                    g_writeIdx++;
+                    g_totalSamples++;
+                } else {
+                    g_skippedSamples++;
+                }
             }
-            ResumeThread(g_mainThread);
         }
 
         Sleep(SAMPLE_INTERVAL_MS);
@@ -446,8 +471,8 @@ static void DumpResults() {
               });
 
     // Dump top-N (named functions and hot unlisted regions intermixed by heat)
-    Log("[SamplingProfiler] === TOP %d HOT FUNCTIONS/REGIONS (%llu total samples) ===",
-        TOP_N, (unsigned long long)total);
+    Log("[SamplingProfiler] === TOP %d HOT FUNCTIONS/REGIONS (%llu steady-state samples, %llu skipped: loading/warmup) ===",
+        TOP_N, (unsigned long long)total, (unsigned long long)g_skippedSamples);
 
     int printed = 0;
     for (int i = 0; i < bucketCount && printed < TOP_N; i++) {
@@ -491,6 +516,8 @@ bool Init(HANDLE mainThread) {
     }
     g_writeIdx = 0;
     g_totalSamples = 0;
+    g_skippedSamples = 0;
+    g_samplerStartTick = 0;  // re-arm the warmup window on (re)start
     memset((void*)g_ring, 0, sizeof(g_ring));
     memset(g_pageCounts, 0, sizeof(g_pageCounts));
 
