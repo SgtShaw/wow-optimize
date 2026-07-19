@@ -142,6 +142,75 @@ static void UpdateMainThreadActivity() {
     CrashDumper::FeatureCall("SleepHook");
 }
 
+// Classify a code address to "module.dll+0xOFFSET" (or raw hex if not in a module).
+static void FreezeClassifyAddr(uintptr_t addr, char* out) {
+    HMODULE hm = NULL;
+    if (addr >= 0x10000 &&
+        GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)addr, &hm) && hm) {
+        char path[MAX_PATH];
+        if (GetModuleFileNameA(hm, path, MAX_PATH)) {
+            const char* base = strrchr(path, '\\');
+            base = base ? base + 1 : path;
+            wsprintfA(out, "%s+0x%X", base, (unsigned)(addr - (uintptr_t)hm));
+            return;
+        }
+    }
+    wsprintfA(out, "0x%08X", (unsigned)addr);
+}
+
+// On a real freeze, snapshot WHERE the main thread is actually stuck. The EIP
+// tells us whether it's blocked in a syscall (ntdll = a wait) and the stack
+// return addresses tell us who called it: d3d9.dll/vulkan = DXVK GPU/pipeline
+// wait, wow_optimize.dll = our fault, Wow.exe = engine/addon. This is what turns
+// a useless "SleepHook 10s ago" into an actual diagnosis.
+static void CaptureFreezeLocation(DWORD mainTid) {
+    if (mainTid == 0) return;
+    HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION,
+                          FALSE, mainTid);
+    if (!h) return;
+
+    // While the main thread is suspended, ONLY read raw memory (EIP + a slice of
+    // the stack). Do NOT call GetModuleHandleExA here: it takes the loader lock,
+    // and if the thread froze while holding that lock (e.g. mid DLL load) we'd
+    // deadlock. Classification happens after we resume.
+    uintptr_t eip = 0, rawStack[96]; int rawCount = 0;
+    if (SuspendThread(h) != (DWORD)-1) {
+        CONTEXT ctx; ctx.ContextFlags = CONTEXT_CONTROL | CONTEXT_INTEGER;
+        if (GetThreadContext(h, &ctx)) {
+            eip = ctx.Eip;
+            uintptr_t* sp = (uintptr_t*)ctx.Esp;
+            for (int i = 0; i < 96; i++) {
+                __try { rawStack[rawCount] = sp[i]; } __except(EXCEPTION_EXECUTE_HANDLER) { break; }
+                rawCount++;
+            }
+        }
+        ResumeThread(h);
+    }
+    CloseHandle(h);
+
+    // Now safe to classify (loader lock) and log — main thread is running again.
+    if (eip) {
+        char buf[MAX_PATH + 32];
+        FreezeClassifyAddr(eip, buf);
+        Log("!!!   STUCK AT: EIP=%s", buf);
+        int shown = 0;
+        for (int i = 0; i < rawCount && shown < 6; i++) {
+            uintptr_t v = rawStack[i];
+            HMODULE hm = NULL;
+            if (v >= 0x10000 &&
+                GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                                   (LPCSTR)v, &hm) && hm) {
+                FreezeClassifyAddr(v, buf);
+                Log("!!!     stack -> %s", buf);
+                shown++;
+            }
+        }
+    }
+}
+
 static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
     while (g_freezeWatchdogActive) {
         Sleep(5000);
@@ -168,6 +237,7 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
             } else {
                 Log("!!! FREEZE DETECTED !!! Main thread silent for %u ms (no loading/transition active)", elapsed);
                 Log("!!! Last main thread tick: %u, current: %u", lastTick, GetTickCount());
+                CaptureFreezeLocation(g_mainThreadId);
 
                 // Concise suspect list only: features that logged an error or were
                 // active right up to the stall. The old full dump printed 100+
