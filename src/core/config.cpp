@@ -161,6 +161,14 @@ namespace Config {
         g_settings.OptSamplingProfiler    = GetPrivateProfileIntA("General", "SamplingProfiler", 0, iniPath.c_str()) != 0;
         g_settings.OptMimallocLarge       = GetPrivateProfileIntA("General", "MimallocLarge", 0, iniPath.c_str()) != 0;
         g_settings.OptVaArena             = GetPrivateProfileIntA("General", "VaArena", 0, iniPath.c_str()) != 0;
+        // HARD-DISABLED regardless of ini: in tester logs the arena was active
+        // on machines with zero fragmentation (2GB+ largest free block), so it
+        // used ~0.2MB of its 64MB and delivered no benefit - while still routing
+        // EVERY process VirtualAlloc/VirtualFree through our global hook + lock.
+        // It correlated with repeated 10-14s main-thread freezes and an
+        // exit-time crash, and it is unproven. Keep the (corrected) code for a
+        // future, fragmentation-gated retry, but do not activate it now.
+        g_settings.OptVaArena = false;
 
 
         // UI & Lua
