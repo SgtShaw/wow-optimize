@@ -43,10 +43,10 @@ namespace Config {
             WritePrivateProfileStringA("General", "TimingFix", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MpqMmapVfs", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "MpqMmapVfs", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "ObjVisCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "DbcPreload", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "ObjVisCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "DbcPreload", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "OomGovernor", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "HardwareCursor", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "SamplingProfiler", "0", iniPath.c_str());
@@ -56,25 +56,25 @@ namespace Config {
 
             // UI & Lua
             WritePrivateProfileStringA("UI_Lua", "UIFrameBatch", "0", iniPath.c_str());  // #36: artifacting/flicker — off by default
-            WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsLockFree", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameXmlCoalesce", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "TooltipCache", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "TooltipCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptDispatch", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());  // #37: slow loads + Lua errors — off by default
-            WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaGcCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaJIT", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaGetTimeFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "M2LodBias", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "SpatialCulling", "0", iniPath.c_str());
 
             // Combat & Network
@@ -85,60 +85,60 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "GetSpellInfoCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "PacketOffload", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateMT", "0", iniPath.c_str());
 
             // Graphics & Sound
-            WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "StrCatFast", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "StrStrSse2", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "StrCatFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundMixerOpt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "AudioDecodeMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "DbcLookupCache", "0", iniPath.c_str());  // #35: crash while loading — off by default
-            WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "WorldStateCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
 
             // 10 new features defaults
-            WritePrivateProfileStringA("Graphics_Sound", "LoadingScreenOpt", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "CombatLogFilter", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "AnimBlendCache", "1", iniPath.c_str());
-            WritePrivateProfileStringA("General", "SavedVarsOpt", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "ItemDataPrefetch", "1", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MovementSmoothing", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "LoadingScreenOpt", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "CombatLogFilter", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "AnimBlendCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "SavedVarsOpt", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "ItemDataPrefetch", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "MovementSmoothing", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "0", iniPath.c_str());
 
             // 20 new colossal features defaults
-            WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "1", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqAsyncDecompress", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaStringCompareFast", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "DbcRowCaching", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NetworkStringDedup", "1", iniPath.c_str());
-            WritePrivateProfileStringA("General", "CameraCollisionThrottle", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "SoundFreqCoalesce", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "AuraUpdateDedup", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "UiTextureCaching", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "WmoCullingOpt", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FastFloatParse", "1", iniPath.c_str());
-            WritePrivateProfileStringA("General", "HeapAllocationTracker", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "LuaStringCompareFast", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "DbcRowCaching", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "NetworkStringDedup", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "CameraCollisionThrottle", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "SoundFreqCoalesce", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "AuraUpdateDedup", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "UiTextureCaching", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "WmoCullingOpt", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FastFloatParse", "0", iniPath.c_str());
+            WritePrivateProfileStringA("General", "HeapAllocationTracker", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CrtMimalloc", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "SpellCooldownCache", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "GuidStringCache", "1", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FrameScriptMemOpt", "1", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "CombatEventLimit", "1", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "SpellCooldownCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "GuidStringCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "FrameScriptMemOpt", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Combat_Net", "CombatEventLimit", "0", iniPath.c_str());
         }
 
         // Read all settings
@@ -154,7 +154,7 @@ namespace Config {
         g_settings.OptFrameLimiter        = GetPrivateProfileIntA("General", "FrameLimiter", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqMmapVfs          = GetPrivateProfileIntA("General", "MpqMmapVfs", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqPrefetch         = GetPrivateProfileIntA("General", "MpqPrefetch", 0, iniPath.c_str()) != 0;
-        g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 1, iniPath.c_str()) != 0;
         g_settings.OptDbcPreload          = GetPrivateProfileIntA("General", "DbcPreload", 0, iniPath.c_str()) != 0;
         g_settings.OptOomGovernor         = GetPrivateProfileIntA("General", "OomGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptHardwareCursor      = GetPrivateProfileIntA("General", "HardwareCursor", 0, iniPath.c_str()) != 0;
@@ -229,63 +229,63 @@ namespace Config {
         g_settings.OptD3d9RenderThread = false;
 
         // Parse Features 21-30
-        g_settings.OptLoadingScreenOpt   = GetPrivateProfileIntA("Graphics_Sound", "LoadingScreenOpt", 1, iniPath.c_str()) != 0;
-        g_settings.OptCombatLogFilter    = GetPrivateProfileIntA("Combat_Net", "CombatLogFilter", 1, iniPath.c_str()) != 0;
-        g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 1, iniPath.c_str()) != 0;
-        g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 1, iniPath.c_str()) != 0;
-        g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptAnimBlendCache     = GetPrivateProfileIntA("Graphics_Sound", "AnimBlendCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsOpt       = GetPrivateProfileIntA("General", "SavedVarsOpt", 1, iniPath.c_str()) != 0;
-        g_settings.OptItemDataPrefetch   = GetPrivateProfileIntA("Combat_Net", "ItemDataPrefetch", 1, iniPath.c_str()) != 0;
-        g_settings.OptMovementSmoothing  = GetPrivateProfileIntA("General", "MovementSmoothing", 1, iniPath.c_str()) != 0;
-        g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 1, iniPath.c_str()) != 0;
+        g_settings.OptLoadingScreenOpt   = GetPrivateProfileIntA("Graphics_Sound", "LoadingScreenOpt", 0, iniPath.c_str()) != 0;
+        g_settings.OptCombatLogFilter    = GetPrivateProfileIntA("Combat_Net", "CombatLogFilter", 0, iniPath.c_str()) != 0;
+        g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 0, iniPath.c_str()) != 0;
+        g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 0, iniPath.c_str()) != 0;
+        g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptAnimBlendCache     = GetPrivateProfileIntA("Graphics_Sound", "AnimBlendCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsOpt       = GetPrivateProfileIntA("General", "SavedVarsOpt", 0, iniPath.c_str()) != 0;
+        g_settings.OptItemDataPrefetch   = GetPrivateProfileIntA("Combat_Net", "ItemDataPrefetch", 0, iniPath.c_str()) != 0;
+        g_settings.OptMovementSmoothing  = GetPrivateProfileIntA("General", "MovementSmoothing", 0, iniPath.c_str()) != 0;
+        g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 0, iniPath.c_str()) != 0;
 
         // Parse Features 31-50
-        g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 1, iniPath.c_str()) != 0;
-        g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 1, iniPath.c_str()) != 0;
+        g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 0, iniPath.c_str()) != 0;
+        g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 0, iniPath.c_str()) != 0;
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
         g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 0, iniPath.c_str()) != 0;
         g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqAsyncDecompress = GetPrivateProfileIntA("General", "MpqAsyncDecompress", 0, iniPath.c_str()) != 0;
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
-        g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 1, iniPath.c_str()) != 0;
-        g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 1, iniPath.c_str()) != 0;
-        g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 1, iniPath.c_str()) != 0;
-        g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 1, iniPath.c_str()) != 0;
-        g_settings.OptNetworkStringDedup = GetPrivateProfileIntA("Combat_Net", "NetworkStringDedup", 1, iniPath.c_str()) != 0;
-        g_settings.OptCameraCollisionThrottle = GetPrivateProfileIntA("General", "CameraCollisionThrottle", 1, iniPath.c_str()) != 0;
-        g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 1, iniPath.c_str()) != 0;
-        g_settings.OptAuraUpdateDedup = GetPrivateProfileIntA("Combat_Net", "AuraUpdateDedup", 1, iniPath.c_str()) != 0;
-        g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 1, iniPath.c_str()) != 0;
-        g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 1, iniPath.c_str()) != 0;
-        g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 1, iniPath.c_str()) != 0;
-        g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 1, iniPath.c_str()) != 0;
+        g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 0, iniPath.c_str()) != 0;
+        g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;
+        g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 0, iniPath.c_str()) != 0;
+        g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 0, iniPath.c_str()) != 0;
+        g_settings.OptNetworkStringDedup = GetPrivateProfileIntA("Combat_Net", "NetworkStringDedup", 0, iniPath.c_str()) != 0;
+        g_settings.OptCameraCollisionThrottle = GetPrivateProfileIntA("General", "CameraCollisionThrottle", 0, iniPath.c_str()) != 0;
+        g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 0, iniPath.c_str()) != 0;
+        g_settings.OptAuraUpdateDedup = GetPrivateProfileIntA("Combat_Net", "AuraUpdateDedup", 0, iniPath.c_str()) != 0;
+        g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 0, iniPath.c_str()) != 0;
+        g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 0, iniPath.c_str()) != 0;
+        g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 0, iniPath.c_str()) != 0;
+        g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
-        g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 1, iniPath.c_str()) != 0;
-        g_settings.OptCombatEventLimit = GetPrivateProfileIntA("Combat_Net", "CombatEventLimit", 1, iniPath.c_str()) != 0;
+        g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 0, iniPath.c_str()) != 0;
+        g_settings.OptCombatEventLimit = GetPrivateProfileIntA("Combat_Net", "CombatEventLimit", 0, iniPath.c_str()) != 0;
 
         // Previously Init'd unconditionally - now read from their launcher keys.
         // Default 1 preserves the old always-on behavior; they are now disableable.
-        g_settings.OptAddonMsgLimiter      = GetPrivateProfileIntA("Combat_Net", "AddonMsgLimiter", 1, iniPath.c_str()) != 0;
-        g_settings.OptAuraPreloadCache     = GetPrivateProfileIntA("Combat_Net", "AuraPreloadCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptCDataStoreBuffering  = GetPrivateProfileIntA("Combat_Net", "CDataStoreBuffering", 1, iniPath.c_str()) != 0;
-        g_settings.OptCameraShakeOpt       = GetPrivateProfileIntA("General", "CameraShakeOpt", 1, iniPath.c_str()) != 0;
-        g_settings.OptCombatLogAsync       = GetPrivateProfileIntA("Combat_Net", "CombatLogAsync", 1, iniPath.c_str()) != 0;
-        g_settings.OptCombatTextFont       = GetPrivateProfileIntA("UI_Lua", "CombatTextFont", 1, iniPath.c_str()) != 0;
-        g_settings.OptDbcFileCache         = GetPrivateProfileIntA("Graphics_Sound", "DbcFileCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptDynamicShadowScaler  = GetPrivateProfileIntA("Graphics_Sound", "DynamicShadowScaler", 1, iniPath.c_str()) != 0;
-        g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 1, iniPath.c_str()) != 0;
-        g_settings.OptMouseCursorSmooth    = GetPrivateProfileIntA("General", "MouseCursorSmooth", 1, iniPath.c_str()) != 0;
-        g_settings.OptNameplateDistanceCvar= GetPrivateProfileIntA("Combat_Net", "NameplateDistanceCvar", 1, iniPath.c_str()) != 0;
-        g_settings.OptParticleDensityScaler= GetPrivateProfileIntA("Graphics_Sound", "ParticleDensityScaler", 1, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 1, iniPath.c_str()) != 0;
-        g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 1, iniPath.c_str()) != 0;
-        g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 1, iniPath.c_str()) != 0;
-        g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 1, iniPath.c_str()) != 0;
-        g_settings.OptVertexBufferPrealloc = GetPrivateProfileIntA("General", "VertexBufferPrealloc", 1, iniPath.c_str()) != 0;
-        g_settings.OptWorldObjectOpt       = GetPrivateProfileIntA("Graphics_Sound", "WorldObjectOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptAddonMsgLimiter      = GetPrivateProfileIntA("Combat_Net", "AddonMsgLimiter", 0, iniPath.c_str()) != 0;
+        g_settings.OptAuraPreloadCache     = GetPrivateProfileIntA("Combat_Net", "AuraPreloadCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptCDataStoreBuffering  = GetPrivateProfileIntA("Combat_Net", "CDataStoreBuffering", 0, iniPath.c_str()) != 0;
+        g_settings.OptCameraShakeOpt       = GetPrivateProfileIntA("General", "CameraShakeOpt", 0, iniPath.c_str()) != 0;
+        g_settings.OptCombatLogAsync       = GetPrivateProfileIntA("Combat_Net", "CombatLogAsync", 0, iniPath.c_str()) != 0;
+        g_settings.OptCombatTextFont       = GetPrivateProfileIntA("UI_Lua", "CombatTextFont", 0, iniPath.c_str()) != 0;
+        g_settings.OptDbcFileCache         = GetPrivateProfileIntA("Graphics_Sound", "DbcFileCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptDynamicShadowScaler  = GetPrivateProfileIntA("Graphics_Sound", "DynamicShadowScaler", 0, iniPath.c_str()) != 0;
+        g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 0, iniPath.c_str()) != 0;
+        g_settings.OptMouseCursorSmooth    = GetPrivateProfileIntA("General", "MouseCursorSmooth", 0, iniPath.c_str()) != 0;
+        g_settings.OptNameplateDistanceCvar= GetPrivateProfileIntA("Combat_Net", "NameplateDistanceCvar", 0, iniPath.c_str()) != 0;
+        g_settings.OptParticleDensityScaler= GetPrivateProfileIntA("Graphics_Sound", "ParticleDensityScaler", 0, iniPath.c_str()) != 0;
+        g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 0, iniPath.c_str()) != 0;
+        g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 0, iniPath.c_str()) != 0;
+        g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 0, iniPath.c_str()) != 0;
+        g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptVertexBufferPrealloc = GetPrivateProfileIntA("General", "VertexBufferPrealloc", 0, iniPath.c_str()) != 0;
+        g_settings.OptWorldObjectOpt       = GetPrivateProfileIntA("Graphics_Sound", "WorldObjectOpt", 0, iniPath.c_str()) != 0;
     }
 }
