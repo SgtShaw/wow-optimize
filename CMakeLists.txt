@@ -342,6 +342,7 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_toboolean_inline.h
     src/runtime_vm/lua_gettable_safety.cpp
     src/runtime_vm/lua_gettable_safety.h
+    src/runtime_vm/type_check_safety.cpp
     src/runtime_vm/lua_newkey_safety.cpp
     src/runtime_vm/lua_newkey_safety.h
     src/runtime_vm/lua_vm_engine.cpp

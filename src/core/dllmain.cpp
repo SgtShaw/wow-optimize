@@ -7017,6 +7017,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[GetTableSafety] DISABLED via feature flag");
 #endif
 
+    Log("--- GUID Type Check Safety Patch (0x4D4DF7 BG-load crash fix) ---");
+    extern bool InstallTypeCheckSafety();
+    bool typeCheckSafetyOk = Config::g_settings.OptCvarNullGuard && InstallTypeCheckSafety();
+    (void)typeCheckSafetyOk;
+
     Log("--- luaH_newkey Safety Patch (0x85CB43 crash fix) ---");
 #if !TEST_DISABLE_LUA_NEWKEY_SAFETY
     InstallLuaNewKeySafety();
