@@ -362,6 +362,65 @@ static ModRange* FindModule(uintptr_t eip) {
     return nullptr;
 }
 
+// ntdll shows up as one big bucket (~40%+ of main-thread time), but that lumps
+// together two very different things: threads BLOCKED in a wait (NtWait* /
+// NtDelayExecution = idle GPU/frame-pacing, NOT CPU we can cut) versus HEAP work
+// (RtlAllocateHeap/RtlFreeHeap = reducible by cutting allocations). Resolving
+// ntdll samples to the nearest key exported function tells us which - i.e.
+// whether a memory optimization is even worth attempting.
+struct NtFunc { uintptr_t addr; const char* name; uint64_t count; };
+static NtFunc g_ntFuncs[24];
+static int g_ntFuncCount = 0;
+static uintptr_t g_ntdllBase = 0, g_ntdllEnd = 0;
+
+static void BuildNtFuncTable() {
+    g_ntFuncCount = 0; g_ntdllBase = g_ntdllEnd = 0;
+    HMODULE h = GetModuleHandleA("ntdll.dll");
+    if (!h) return;
+    MODULEINFO mi;
+    if (GetModuleInformation(GetCurrentProcess(), h, &mi, sizeof(mi))) {
+        g_ntdllBase = (uintptr_t)mi.lpBaseOfDll;
+        g_ntdllEnd  = g_ntdllBase + mi.SizeOfImage;
+    }
+    static const char* const names[] = {
+        // blocked in a wait -> idle (GPU/frame-pacing/lock), not fixable CPU work
+        "NtWaitForSingleObject", "NtWaitForMultipleObjects", "NtDelayExecution",
+        "NtWaitForAlertByThreadId", "NtSignalAndWaitForSingleObject", "NtRemoveIoCompletion",
+        // heap -> real CPU work, reducible by cutting main-thread allocations
+        "RtlAllocateHeap", "RtlFreeHeap", "RtlReAllocateHeap", "RtlSizeHeap",
+        // locks / dispatch
+        "RtlEnterCriticalSection", "RtlLeaveCriticalSection",
+        "KiUserCallbackDispatcher", "KiUserApcDispatcher", "KiUserExceptionDispatcher",
+    };
+    for (int i = 0; i < (int)(sizeof(names)/sizeof(names[0])) && g_ntFuncCount < 24; i++) {
+        void* p = (void*)GetProcAddress(h, names[i]);
+        if (p) {
+            g_ntFuncs[g_ntFuncCount].addr = (uintptr_t)p;
+            g_ntFuncs[g_ntFuncCount].name = names[i];
+            g_ntFuncs[g_ntFuncCount].count = 0;
+            g_ntFuncCount++;
+        }
+    }
+    for (int i = 1; i < g_ntFuncCount; i++) {  // insertion sort by address
+        NtFunc t = g_ntFuncs[i]; int j = i - 1;
+        while (j >= 0 && g_ntFuncs[j].addr > t.addr) { g_ntFuncs[j+1] = g_ntFuncs[j]; j--; }
+        g_ntFuncs[j+1] = t;
+    }
+}
+
+// Nearest key ntdll function at or below eip, within 64KB. Wait stubs are leaf
+// syscalls so a blocked thread lands right on them (precise); heap internals are
+// approximate but a heap-heavy cluster is still unmistakable.
+static NtFunc* FindNtFunc(uintptr_t eip) {
+    NtFunc* best = nullptr;
+    for (int i = 0; i < g_ntFuncCount; i++) {
+        if (g_ntFuncs[i].addr <= eip) best = &g_ntFuncs[i];
+        else break;
+    }
+    if (best && (eip - best->addr) <= 0x10000) return best;
+    return nullptr;
+}
+
 // ---- aggregation + dump -------------------------------------------
 static void DumpResults() {
     uint64_t total = g_totalSamples;
@@ -379,11 +438,12 @@ static void DumpResults() {
 
     // Snapshot loaded modules so system samples can be attributed to a DLL.
     BuildModuleTable();
+    BuildNtFuncTable();
 
     // Buckets: one per named function, one "system_dll", plus one per non-empty
     // 4KB WoW page (so unlisted hot code is reported by address, not lumped into
     // a single opaque blob). Static (not on the stack) because of the page slots.
-    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + NUM_PAGES + SELF_PAGES + 128 + 1;
+    static constexpr int MAX_BUCKETS = MAX_KNOWN_FUNCS + NUM_PAGES + SELF_PAGES + 128 + 24 + 1;
     static SampleBucket buckets[MAX_BUCKETS];
     int bucketCount = 0;
 
@@ -431,8 +491,17 @@ static void DumpResults() {
             if (pg < SELF_PAGES) g_selfPageCounts[pg]++;
         } else {
             ModRange* m = FindModule(eip);
-            if (m) m->count++;
-            else   buckets[systemIdx].count++;
+            if (m) {
+                if (g_ntdllBase && eip >= g_ntdllBase && eip < g_ntdllEnd) {
+                    NtFunc* nf = FindNtFunc(eip);
+                    if (nf) nf->count++;   // attributed to a known ntdll function
+                    else    m->count++;    // ntdll but unrecognized -> stays in ntdll bucket
+                } else {
+                    m->count++;
+                }
+            } else {
+                buckets[systemIdx].count++;
+            }
         }
         next_sample:;
     }
@@ -452,6 +521,16 @@ static void DumpResults() {
         buckets[bucketCount].addr  = g_mods[mi].base;
         buckets[bucketCount].name  = g_mods[mi].name;  // e.g. "d3d9.dll", "ntdll.dll"
         buckets[bucketCount].count = g_mods[mi].count;
+        bucketCount++;
+    }
+
+    // Emit ntdll sub-function buckets (e.g. "ntdll!NtWaitForSingleObject") so the
+    // big ntdll bucket is split into idle-wait vs heap vs locks.
+    for (int i = 0; i < g_ntFuncCount && bucketCount < MAX_BUCKETS; i++) {
+        if (!g_ntFuncs[i].count) continue;
+        buckets[bucketCount].addr  = g_ntFuncs[i].addr;
+        buckets[bucketCount].name  = g_ntFuncs[i].name;  // e.g. "NtWaitForSingleObject"
+        buckets[bucketCount].count = g_ntFuncs[i].count;
         bucketCount++;
     }
 
