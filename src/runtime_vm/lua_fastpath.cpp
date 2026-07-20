@@ -3338,9 +3338,9 @@ bool Init() {
     Log("[FastPath] ====================================");
 
     __try {
-        // Use MinHook on native Windows, or on Wine/Rosetta when JIT cache is disabled
-        // (CrossOver on Apple Silicon runs WoW.exe through Rosetta underneath)
-        bool useMinHook = g_rosettaCacheDisabled || (!IsWine() && !IsRosetta());
+        // On Wine/Rosetta, we defer string.format to Phase 2 to hook it safely via Lua API path
+        // rather than doing unsafe code patching that requires thread freezing and Rosetta cache flushes.
+        bool useMinHook = !IsWine() && !IsRosetta();
 
         if (!useMinHook) {
             // Legacy Rosetta-safe path: defer string.format hook to Phase 2 (Lua API path)
@@ -3372,7 +3372,7 @@ bool Init() {
 
     g_active = true;
     Log("[FastPath]  Phase 1 [ OK ] - string.format %s",
-        (g_rosettaCacheDisabled || (!IsWine() && !IsRosetta())) ? "hooked" : "deferred to Phase 2");
+        (!IsWine() && !IsRosetta()) ? "hooked" : "deferred to Phase 2");
     Log("[FastPath]  Phase 2 will run after Lua state ready");
     Log("[FastPath] ====================================");
     return true;
@@ -3492,9 +3492,10 @@ bool InitPhase2(lua_State* L) {
         }
 
         __try {
-            // Use MinHook on native Windows, or on Wine/Rosetta when JIT cache is disabled
-            // (CrossOver on Apple Silicon runs WoW.exe through Rosetta underneath)
-            bool useMinHook = g_rosettaCacheDisabled || (!IsWine() && !IsRosetta());
+            // On Wine/Rosetta, named functions are hooked via the Lua API path (modifying table data).
+            // This is 100% safe, does not freeze threads (preventing Wine deadlocks), and is transparent to JIT.
+            // For unnamed functions (like ipairsaux at address 0x00854720), we must fall back to MinHook.
+            bool useMinHook = (!IsWine() && !IsRosetta()) || (e.name == nullptr);
 
             if (!useMinHook) {
                 // ============================================================
