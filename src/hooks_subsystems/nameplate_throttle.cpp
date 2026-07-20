@@ -51,6 +51,11 @@ typedef void (__fastcall* Update_fn)(void* pThis, void* edx, float dt);
 static Update_fn orig_Update = nullptr;
 static bool g_installed = false;
 
+// GetWorldMatrix __thiscall detour expressed as __fastcall
+typedef void* (__fastcall* GetWorldMatrix_fn)(void* pThis, void* edx, void* a2);
+static GetWorldMatrix_fn orig_GetWorldMatrix = nullptr;
+static bool g_installed_matrix = false;
+
 // ---- engine globals (verified in IDA) --------------------------------------
 static volatile uint32_t* const g_frameCounter = (volatile uint32_t*)0x00CD87B0; // ++ per render frame
 static const uint64_t*   const g_targetGuid    = (const uint64_t*)0x00BD07B0;     // current target GUID
@@ -159,6 +164,42 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
     }
 }
 
+static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
+{
+    if (pThis) {
+        void* vtable = *(void**)pThis;
+        // Verify if this is indeed a Nameplate Frame object to safely query the GUID field.
+        if (vtable == (void*)0x00A3278C || vtable == (void*)0x00A34E54) {
+            uintptr_t self = (uintptr_t)pThis;
+            uint64_t* pGuid = (uint64_t*)(self + 680);
+            uint64_t originalGuid = *pGuid;
+
+            if (originalGuid != 0) {
+                typedef void* (__cdecl* fn_4D4DB0)(uint64_t guid, int typeMask);
+                fn_4D4DB0 typeCheck = (fn_4D4DB0)0x004D4DB0;
+
+                void* unit = nullptr;
+                __try {
+                    unit = typeCheck(originalGuid, 1);
+                } __except (EXCEPTION_EXECUTE_HANDLER) {
+                    unit = nullptr;
+                }
+
+                if (!unit) {
+                    // The unit represented by this nameplate has despawned and been freed.
+                    // Temporarily set the nameplate GUID to 0 so the original GetWorldMatrix
+                    // function skips the virtual call matrix adjustment that would otherwise crash.
+                    *pGuid = 0;
+                    void* result = orig_GetWorldMatrix(pThis, edx, a2);
+                    *pGuid = originalGuid;
+                    return result;
+                }
+            }
+        }
+    }
+    return orig_GetWorldMatrix(pThis, edx, a2);
+}
+
 bool Init()
 {
     if (!Config::g_settings.OptNameplateThrottle) {
@@ -190,6 +231,24 @@ bool Init()
         return false;
     }
     g_installed = true;
+
+    // GetWorldMatrix detour hook for 0x00722C14 crash protection
+    void* matrixTarget = (void*)0x00722B50;
+    unsigned char* pMatrix = (unsigned char*)matrixTarget;
+    if (pMatrix[0] != 0x55 || pMatrix[1] != 0x8B || pMatrix[2] != 0xEC) {
+        Log("[NameplateThrottle] BAD PROLOGUE at 0x00722B50 (got %02X %02X %02X) - matrix hook skipped",
+            pMatrix[0], pMatrix[1], pMatrix[2]);
+    } else {
+        if (MH_CreateHook(matrixTarget, (void*)Hooked_GetWorldMatrix, (void**)&orig_GetWorldMatrix) != MH_OK) {
+            Log("[NameplateThrottle] MH_CreateHook FAILED for GetWorldMatrix");
+        } else if (MH_EnableHook(matrixTarget) != MH_OK) {
+            Log("[NameplateThrottle] MH_EnableHook FAILED for GetWorldMatrix");
+        } else {
+            g_installed_matrix = true;
+            Log("[NameplateThrottle] GetWorldMatrix hook ACTIVE (0x00722B50 crash protection)");
+        }
+    }
+
     Log("[NameplateThrottle] ACTIVE: non-target nameplate updates throttled (engage>=%u plates, "
         "1/2-1/3 frames, target always full rate). Positioning untouched; only cosmetic refresh throttled.",
         g_crowdThreshold);
@@ -213,6 +272,12 @@ void Shutdown()
     MH_DisableHook((void*)0x0098E9F0);
     MH_RemoveHook((void*)0x0098E9F0);
     g_installed = false;
+
+    if (g_installed_matrix) {
+        MH_DisableHook((void*)0x00722B50);
+        MH_RemoveHook((void*)0x00722B50);
+        g_installed_matrix = false;
+    }
 }
 
 } // namespace NameplateThrottle
