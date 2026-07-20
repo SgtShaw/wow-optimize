@@ -587,10 +587,25 @@ set_target_properties(wow_optimize PROPERTIES
     MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
 )
 
+# Stamp the commit into the banner. The version string only moves on releases,
+# so several different builds all report "3.16.3" -- which makes a tester log
+# impossible to match to source. The short hash identifies the build exactly.
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    OUTPUT_VARIABLE WOW_OPT_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT WOW_OPT_GIT_HASH)
+    set(WOW_OPT_GIT_HASH "unknown")
+endif()
+
 target_compile_definitions(wow_optimize PRIVATE
     WIN32_LEAN_AND_MEAN
     _CRT_SECURE_NO_WARNINGS
     _WINSOCK_DEPRECATED_NO_WARNINGS
+    WOW_OPTIMIZE_GIT_HASH="${WOW_OPT_GIT_HASH}"
 )
 
 set_source_files_properties(src/hooks_subsystems/crt_mem_fastpath.cpp PROPERTIES

@@ -212,7 +212,12 @@ static void CaptureFreezeLocation(DWORD mainTid) {
     }
 }
 
+// perf_diagnostics.h is included further down this file; declare what the
+// watchdog needs here so the escalation path can dump the memory snapshot.
+namespace PerfDiagnostics { void LogPerformanceSnapshot(double elapsedMs); }
+
 static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
+    bool escalatedThisStall = false;   // reset once the main thread ticks again
     while (g_freezeWatchdogActive) {
         Sleep(5000);
         if (!g_freezeWatchdogActive) break;
@@ -221,6 +226,7 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
         if (lastTick == 0) continue;
 
         DWORD elapsed = GetTickCount() - lastTick;
+        if (elapsed <= 10000) escalatedThisStall = false;
         if (elapsed > 10000) {
             // Loading screens, UI reloads and lua_State swaps legitimately block
             // the main thread (cold MPQ asset loads + addon (re)load). That is NOT
@@ -233,6 +239,20 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
             DWORD swapTick = LuaOpt::GetLastSwapTick();
             bool inPostSwapGrace = (swapTick != 0 && (GetTickCount() - swapTick) < 30000);
             bool expected = LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping() || inPostSwapGrace;
+
+            // A loading screen that never ends looks exactly like "expected"
+            // blocking, so staying quiet forever means we never see the one
+            // failure we most need to diagnose. Past 45s no legitimate zone load
+            // is still running: escalate and capture the stuck location anyway.
+            // Once per stall, so a genuinely slow cold load doesn't spam.
+            if (expected && elapsed > 45000 && !escalatedThisStall) {
+                escalatedThisStall = true;
+                Log("!!! LOADING STALL !!! Main thread blocked %u ms and still flagged as "
+                    "loading/transition -- this is no longer a normal load", elapsed);
+                CaptureFreezeLocation(g_mainThreadId);
+                PerfDiagnostics::LogPerformanceSnapshot((double)elapsed);
+            }
+
             if (expected) {
                 Log("[FreezeWatchdog] main thread blocked %u ms during loading/transition (expected, not a hang)", elapsed);
             } else {
@@ -6232,7 +6252,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // waited 5s then installed, missing the entire early-init allocation stream.
     LogOpen();
     Log("========================================");
-    Log("  wow_optimize.dll v%s BY %s", WOW_OPTIMIZE_VERSION_STR, WOW_OPTIMIZE_AUTHOR);
+#ifndef WOW_OPTIMIZE_GIT_HASH
+#define WOW_OPTIMIZE_GIT_HASH "unknown"
+#endif
+    Log("  wow_optimize.dll v%s (build %s) BY %s",
+        WOW_OPTIMIZE_VERSION_STR, WOW_OPTIMIZE_GIT_HASH, WOW_OPTIMIZE_AUTHOR);
     Log("  PID: %lu", GetCurrentProcessId());
     Log("========================================");
     
