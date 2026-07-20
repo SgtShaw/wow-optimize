@@ -31,6 +31,22 @@
 // current (slightly older) bone matrices - the same state it would see mid-frame
 // before that model's turn to update. Everything is under SEH; any surprise
 // falls back to the original function.
+//
+// Two refinements over a flat "half-rate when crowded" throttle, both using only
+// data that is confirmed-available at this hook (no world position - the model
+// animation object here has no camera distance, verified against UpdateBones and
+// its callers, so we deliberately do NOT try to distance-gate and instead stay
+// conservative to protect near models):
+//   1. Crowd-graduated interval - the denser the scene, the longer the throttle
+//      interval (2 -> 3 -> 4). The worst scenes, where CPU cost and FPS pain are
+//      greatest, get the most relief; modest crowds get the gentlest throttle.
+//      Capped at 4 (~15fps anim) precisely because we can't tell near from far
+//      here, so we never throttle any model harder than stays imperceptible.
+//   2. Per-model phase stagger - each model gets a stable phase offset from its
+//      pointer hash, so the throttled models don't all skip the same frames.
+//      The updates spread evenly across the interval instead of arriving in a
+//      synchronized wave, which is what makes a 1/3 or 1/4 rate look smooth
+//      rather than hitchy.
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -54,9 +70,19 @@ static bool g_installed = false;
 // Only throttle when at least this many models were updated in the previous
 // frame - i.e. only when the scene is actually crowded and CPU-bound. Light
 // scenes run at full animation rate (zero quality cost when it doesn't matter).
-static uint32_t g_crowdThreshold = 40;
-// A throttled model updates once every N ticks (2 = half rate, ~30fps anim).
-static uint32_t g_throttleInterval = 2;
+static uint32_t g_crowdThreshold = 30;
+
+// Crowd-graduated throttle interval: the busier the scene, the more we throttle.
+// A model updates once every N ticks (2 = ~30fps anim, 3 = ~20fps, 4 = ~15fps).
+// Capped at 4 on purpose: without per-model distance we can't protect a model
+// that happens to be right in front of the camera inside a huge crowd, so we
+// never push any model below ~15fps skeletal animation (imperceptible for
+// background models, still tolerable for a near one).
+static inline uint32_t IntervalForCrowd(uint32_t crowd) {
+    if (crowd >= 160) return 4;   // very packed city / large BG
+    if (crowd >= 80)  return 3;   // raid / busy city
+    return 2;                     // modest crowd (>= threshold)
+}
 
 // ---- per-model round-robin tracker (fixed table, no allocation) ------------
 // Keyed by the model pointer; stores the tick we last allowed it to update.
@@ -120,12 +146,26 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
             return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
         }
 
-        // Crowded + this model is due for a real update. Round-robin throttle it.
+        // Crowded + this model is due for a real update. Round-robin throttle it,
+        // with the interval graduated by how packed the scene is.
+        uint32_t interval = IntervalForCrowd(g_callsLastFrame);
         uint32_t h = HashPtr(pThis);
         Slot& s = g_slots[h];
-        bool due = (s.key != pThis) || ((uint32_t)(tick - s.tick) >= g_throttleInterval);
-        if (due) {
+
+        if (s.key != pThis) {
+            // First time we've seen this model (or a hash collision evicted it):
+            // register it with a per-model phase offset in [0, interval) so that
+            // models do NOT all become due on the same frame. This spreads the
+            // updates evenly across the interval instead of a synchronized wave,
+            // which is what keeps a 1/3 or 1/4 rate looking smooth. Update now.
+            uint32_t phase = HashPtr((void*)~(uintptr_t)pThis) % (interval ? interval : 1);
             s.key = pThis;
+            s.tick = tick - phase;
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+
+        if ((uint32_t)(tick - s.tick) >= interval) {
             s.tick = tick;
             g_updatedTotal++;
             return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
@@ -162,9 +202,9 @@ bool Init()
         return false;
     }
     g_installed = true;
-    Log("[AnimationLod] ACTIVE: crowd-throttled bone updates (crowd>=%u models, 1/%u tick when far). "
-        "Skeletal animation for background models drops to ~%ufps in packed scenes.",
-        g_crowdThreshold, g_throttleInterval, 60u / (g_throttleInterval ? g_throttleInterval : 1));
+    Log("[AnimationLod] ACTIVE: crowd-graduated bone-update throttle (engage>=%u models, "
+        "interval 2/3/4 by crowd size, per-model phase-staggered). Background skeletal "
+        "animation drops to ~30/20/15fps as scenes get denser.", g_crowdThreshold);
     return true;
 }
 
