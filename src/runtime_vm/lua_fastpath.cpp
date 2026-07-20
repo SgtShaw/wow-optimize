@@ -3704,7 +3704,14 @@ bool InitWoWHooks(lua_State* L) {
 }
 
 void InvalidateWoWCache() {
-    // No-op — reserved for future use
+    // Reset hooked status for named hooks only.
+    // Unnamed hooks (MinHook inline hooks) are persistent in process memory
+    // and do not need to be re-created on lua_State swap.
+    for (int i = 0; i < NUM_FUNC_HOOKS; i++) {
+        if (g_funcHooks[i].name != nullptr) {
+            g_funcHooks[i].hooked = false;
+        }
+    }
 }
 
 Stats GetStats() {

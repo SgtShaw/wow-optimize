@@ -1522,7 +1522,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
         }
 
         if (Config::g_settings.OptSleepPrecision && ms <= 3) {
-            if (!LuaOpt::IsInitialized() || LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
+            if (IsWine() || IsRosetta() || !LuaOpt::IsInitialized() || LuaOpt::IsLoadingMode() || LuaOpt::IsReloading() || LuaOpt::IsSwapping()) {
                 orig_Sleep(ms);
                 return;
             }

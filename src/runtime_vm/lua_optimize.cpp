@@ -1853,6 +1853,11 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             LuaBytecodeCache::OnLuaStateSwap();
             ClearAddonPreload();
             SetupLuaInterface(Api.L);
+            __try {
+                LuaFastPath::InitPhase2(Api.L);
+            } __except(EXCEPTION_EXECUTE_HANDLER) {
+                Log("[LuaOpt] EXCEPTION in LuaFastPath::InitPhase2 during swap");
+            }
             if (!CheckAndRestoreLuaInterface(Api.L)) {
                 Log("[LuaOpt] Subsequent swap: interface verification failed, will retry");
             } else {
