@@ -25,6 +25,7 @@ namespace Config {
         bool OptVaArena = false;   // EXPERIMENTAL opt-in: segregated VirtualAlloc arena (anti-fragmentation)
         bool OptCompatMode = false; // Compatibility: skip aggressive CPU-priority/affinity/working-set tweaks (for VMs/HyperV where they break the connection)
         bool OptAnimationLod = false; // Throttle skeletal bone updates for background models in crowded scenes (FPS in raids/cities)
+        bool OptNameplateThrottle = false; // Throttle non-target nameplate updates in crowds (BGs/cities)
 
         // UI & Lua
         bool OptUIFrameBatch = false;

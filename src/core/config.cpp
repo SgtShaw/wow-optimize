@@ -54,6 +54,7 @@ namespace Config {
             WritePrivateProfileStringA("General", "VaArena", "0", iniPath.c_str());  // EXPERIMENTAL, opt-in
             WritePrivateProfileStringA("General", "CompatMode", "0", iniPath.c_str());  // set 1 on VMs/HyperV if the game can't connect
             WritePrivateProfileStringA("Graphics_Sound", "AnimationLod", "0", iniPath.c_str());  // crowd-throttle bone animation (FPS in raids/cities)
+            WritePrivateProfileStringA("Graphics_Sound", "NameplateThrottle", "0", iniPath.c_str());  // crowd-throttle non-target nameplate updates
 
 
             // UI & Lua
@@ -165,6 +166,7 @@ namespace Config {
         g_settings.OptVaArena             = GetPrivateProfileIntA("General", "VaArena", 0, iniPath.c_str()) != 0;
         g_settings.OptCompatMode          = GetPrivateProfileIntA("General", "CompatMode", 0, iniPath.c_str()) != 0;
         g_settings.OptAnimationLod        = GetPrivateProfileIntA("Graphics_Sound", "AnimationLod", 0, iniPath.c_str()) != 0;
+        g_settings.OptNameplateThrottle   = GetPrivateProfileIntA("Graphics_Sound", "NameplateThrottle", 0, iniPath.c_str()) != 0;
         // HARD-DISABLED regardless of ini: in tester logs the arena was active
         // on machines with zero fragmentation (2GB+ largest free block), so it
         // used ~0.2MB of its 64MB and delivered no benefit - while still routing
