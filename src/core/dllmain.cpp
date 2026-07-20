@@ -7060,6 +7060,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool typeCheckSafetyOk = Config::g_settings.OptCvarNullGuard && InstallTypeCheckSafety();
     (void)typeCheckSafetyOk;
 
+    Log("--- Object Unlink Safety Patch (0x5C685C reaper NULL-write crash fix) ---");
+    extern bool InstallObjectUnlinkSafety();
+    bool objUnlinkSafetyOk = Config::g_settings.OptCvarNullGuard && InstallObjectUnlinkSafety();
+    (void)objUnlinkSafetyOk;
+
     Log("--- luaH_newkey Safety Patch (0x85CB43 crash fix) ---");
 #if !TEST_DISABLE_LUA_NEWKEY_SAFETY
     InstallLuaNewKeySafety();
