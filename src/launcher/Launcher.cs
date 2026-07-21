@@ -16,7 +16,6 @@ namespace WowOptimizeLauncher {
         public string Key;
         public bool DefaultVal;
         public CheckBox Ctrl;
-        public CheckBox RecentCtrl;
         public string Tooltip;
 
         public SettingItem(string section, string key, bool defaultVal, CheckBox ctrl, string tooltip) {
@@ -24,7 +23,6 @@ namespace WowOptimizeLauncher {
             Key = key;
             DefaultVal = defaultVal;
             Ctrl = ctrl;
-            RecentCtrl = null;
             Tooltip = tooltip;
         }
     }
@@ -262,13 +260,11 @@ namespace WowOptimizeLauncher {
         private DarkButton btnEnableUiLua;
         private DarkButton btnEnableCombatNet;
         private DarkButton btnEnableGfx;
-        private DarkButton btnEnableRecent;
 
         private FlowLayoutPanel generalFlow;
         private FlowLayoutPanel uiLuaFlow;
         private FlowLayoutPanel combatNetFlow;
         private FlowLayoutPanel graphicsSoundFlow;
-        private FlowLayoutPanel recentNewFlow;
         private TextBox searchBox;
 
         // Background image
@@ -354,7 +350,6 @@ namespace WowOptimizeLauncher {
                 // Graphics & Sound
                 { "SSE2 Boyer-Moore strstr", new SettingItem("Graphics_Sound", "StrStrSse2", false, null, "Optimizes string sub-searches (such as font names, textures) using vectorized SIMD algorithms.") },
                 { "Vectorized String Concatenation", new SettingItem("Graphics_Sound", "StrCatFast", false, null, "Speeds up string appending (such as chat text building) using SSE2 assembly wrappers.") },
-                { "SIMD SSE2 World-To-Screen Projection", new SettingItem("Graphics_Sound", "WorldToScreenSse2", false, null, "[NEW] Vectorizes 3D-to-2D screen projection calculations using 4-way SSE2 SIMD instructions to speed up HUD and target frame markers.") },
                 { "FMOD Sound Mixer Optimization", new SettingItem("Graphics_Sound", "SoundMixerOpt", false, null, "Adjusts audio thread schedules and buffer allocations to prevent sound stutters in raids.") },
                 { "Parallel Sound Wave Decoding", new SettingItem("Graphics_Sound", "AudioDecodeMt", false, null, "Decodes sound assets in background threads to eliminate latency when playing fresh audio clips.") },
                 { "DBC Data Lookup Cache", new SettingItem("Graphics_Sound", "DbcLookupCache", false, null, "Speeds up data reading from internal database files (.dbc) for models, items, and spells.") },
@@ -363,7 +358,6 @@ namespace WowOptimizeLauncher {
                 { "M2 Model LOD Bias Control", new SettingItem("Graphics_Sound", "M2LodBias", false, null, "Dynamically scales 3D model level-of-detail bias depending on active rendering frametimes.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
                 { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
-                { "Direct3D 9 Render State Deduplicator", new SettingItem("Graphics_Sound", "D3d9StateCache", false, null, "[NEW] Deduplicates redundant Direct3D 9 render states, texture stage states, and vertex shader constants before passing calls to the GPU driver.") },
                 { "SIMD Matrix Vector Transforms", new SettingItem("Graphics_Sound", "SimdMatrixTransform", false, null, "Vectorizes 3D coordinate and matrix-vector calculations using SSE2 SIMD instructions to accelerate particle updates.") },
 
                 // 10 New Features
@@ -372,7 +366,6 @@ namespace WowOptimizeLauncher {
                 { "Aura / Buff Textures Preload Cache", new SettingItem("Combat_Net", "AuraPreloadCache", false, null, "[NEW] Pre-caches spell/aura icons at zone transitions to eliminate micro-freezes during combat.") },
                 { "DBC File Query Cache", new SettingItem("Graphics_Sound", "DbcFileCache", false, null, "[NEW] High-performance cache for record retrieval from client DBC files (items, spells, etc.).") },
                 { "Font Glyph Outline Cache", new SettingItem("UI_Lua", "FontOutlineCache", false, null, "[NEW] Caches glyph outline bitmaps to accelerate formatted text rendering.") },
-                { "LUA GC Budget Governor", new SettingItem("UI_Lua", "LuaGcGovernor", false, null, "[NEW] Runs GC step cycles dynamically, matching the exact frame time budget to prevent spikes.") },
                 { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
                 { "Addon Message Rate Limiter", new SettingItem("Combat_Net", "AddonMsgLimiter", false, null, "[NEW] Intercepts and rate-limits outbound addon sync messages to prevent disconnection #36.") },
                 { "Hardware Mouse Smoothing & Edge Lock", new SettingItem("General", "MouseCursorSmooth", false, null, "[NEW] Smooths mouse coordinates and locks the cursor inside the window during mouselook.") },
@@ -788,20 +781,17 @@ namespace WowOptimizeLauncher {
             TabPage tpUiLua = CreateTabPage("UI & LUA");
             TabPage tpCombatNet = CreateTabPage("COMBAT & NET");
             TabPage tpGraphicsSound = CreateTabPage("GRAPHICS & SOUND");
-            TabPage tpRecentNew = CreateTabPage("RECENT & NEW");
 
             tabs.TabPages.Add(tpGeneral);
             tabs.TabPages.Add(tpUiLua);
             tabs.TabPages.Add(tpCombatNet);
             tabs.TabPages.Add(tpGraphicsSound);
-            tabs.TabPages.Add(tpRecentNew);
 
             // Get the scroll panels from each tab page
             generalFlow = (FlowLayoutPanel)((Panel)tpGeneral.Controls[0]).Controls[0];
             uiLuaFlow = (FlowLayoutPanel)((Panel)tpUiLua.Controls[0]).Controls[0];
             combatNetFlow = (FlowLayoutPanel)((Panel)tpCombatNet.Controls[0]).Controls[0];
             graphicsSoundFlow = (FlowLayoutPanel)((Panel)tpGraphicsSound.Controls[0]).Controls[0];
-            recentNewFlow = (FlowLayoutPanel)((Panel)tpRecentNew.Controls[0]).Controls[0];
 
             // Add "ENABLE ALL IN ..." buttons at top of each flow
             btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
@@ -819,10 +809,6 @@ namespace WowOptimizeLauncher {
             btnEnableGfx = CreateCategoryButton("ENABLE ALL IN GRAPHICS & SOUND");
             btnEnableGfx.Click += delegate { ToggleCategoryAction("Graphics_Sound", btnEnableGfx, "GRAPHICS & SOUND"); };
             graphicsSoundFlow.Controls.Add(btnEnableGfx);
-
-            btnEnableRecent = CreateCategoryButton("ENABLE ALL NEW FEATURES");
-            btnEnableRecent.Click += delegate { ToggleRecentAction(btnEnableRecent); };
-            recentNewFlow.Controls.Add(btnEnableRecent);
 
             // Populate checkboxes
             foreach (KeyValuePair<string, SettingItem> pair in settingsMap) {
@@ -848,19 +834,6 @@ namespace WowOptimizeLauncher {
                         graphicsSoundFlow.Controls.Add(chk);
                         break;
                 }
-
-                // If feature is new, create synced duplicate in RECENT & NEW tab
-                if (data.Tooltip.StartsWith("[NEW]")) {
-                    DarkCheckBox recentChk = CreateStyledCheckBox(name, data.Tooltip);
-                    data.RecentCtrl = recentChk;
-
-                    // Use a helper object to avoid closure capture issues with C# 5
-                    SyncHelper helper = new SyncHelper(chk, recentChk);
-                    chk.CheckedChanged += helper.OnMainChanged;
-                    recentChk.CheckedChanged += helper.OnRecentChanged;
-
-                    recentNewFlow.Controls.Add(recentChk);
-                }
             }
 
             Controls.Add(tabs);
@@ -880,8 +853,8 @@ namespace WowOptimizeLauncher {
                 }
             }
 
-            if (generalFlow == null || uiLuaFlow == null || combatNetFlow == null || 
-                graphicsSoundFlow == null || recentNewFlow == null) {
+            if (generalFlow == null || uiLuaFlow == null || combatNetFlow == null ||
+                graphicsSoundFlow == null) {
                 return;
             }
 
@@ -890,14 +863,12 @@ namespace WowOptimizeLauncher {
             uiLuaFlow.Controls.Clear();
             combatNetFlow.Controls.Clear();
             graphicsSoundFlow.Controls.Clear();
-            recentNewFlow.Controls.Clear();
 
             // Category buttons visibility
             if (btnEnableGeneral != null) btnEnableGeneral.Visible = !hasSearch;
             if (btnEnableUiLua != null) btnEnableUiLua.Visible = !hasSearch;
             if (btnEnableCombatNet != null) btnEnableCombatNet.Visible = !hasSearch;
             if (btnEnableGfx != null) btnEnableGfx.Visible = !hasSearch;
-            if (btnEnableRecent != null) btnEnableRecent.Visible = !hasSearch;
 
             // Put category buttons back if not searching
             if (!hasSearch) {
@@ -905,7 +876,6 @@ namespace WowOptimizeLauncher {
                 uiLuaFlow.Controls.Add(btnEnableUiLua);
                 combatNetFlow.Controls.Add(btnEnableCombatNet);
                 graphicsSoundFlow.Controls.Add(btnEnableGfx);
-                recentNewFlow.Controls.Add(btnEnableRecent);
             }
 
             foreach (KeyValuePair<string, SettingItem> pair in settingsMap) {
@@ -922,9 +892,6 @@ namespace WowOptimizeLauncher {
                     } else if (data.Ctrl != null) {
                         data.Ctrl.Visible = false;
                     }
-                    if (data.RecentCtrl != null) {
-                        data.RecentCtrl.Visible = false;
-                    }
                 } else {
                     // Restore to original tab flows
                     if (data.Ctrl != null) {
@@ -936,38 +903,6 @@ namespace WowOptimizeLauncher {
                             case "Graphics_Sound": graphicsSoundFlow.Controls.Add(data.Ctrl); break;
                         }
                     }
-                    if (data.RecentCtrl != null && data.Tooltip != null && data.Tooltip.StartsWith("[NEW]")) {
-                        data.RecentCtrl.Visible = true;
-                        recentNewFlow.Controls.Add(data.RecentCtrl);
-                    }
-                }
-            }
-        }
-
-        // Helper class for checkbox syncing (avoids C# 5 closure issues)
-        private class SyncHelper {
-            private CheckBox main;
-            private CheckBox recent;
-            private bool syncing;
-
-            public SyncHelper(CheckBox mainChk, CheckBox recentChk) {
-                main = mainChk;
-                recent = recentChk;
-            }
-
-            public void OnMainChanged(object sender, EventArgs e) {
-                if (!syncing) {
-                    syncing = true;
-                    recent.Checked = main.Checked;
-                    syncing = false;
-                }
-            }
-
-            public void OnRecentChanged(object sender, EventArgs e) {
-                if (!syncing) {
-                    syncing = true;
-                    main.Checked = recent.Checked;
-                    syncing = false;
                 }
             }
         }
@@ -1073,24 +1008,6 @@ namespace WowOptimizeLauncher {
             UpdateCategoryButtonTexts();
         }
 
-        private void ToggleRecentAction(DarkButton btn) {
-            bool allChecked = true;
-            foreach (SettingItem item in settingsMap.Values) {
-                if (item.RecentCtrl != null && !item.RecentCtrl.Checked) {
-                    allChecked = false;
-                    break;
-                }
-            }
-
-            bool nextState = !allChecked;
-            foreach (SettingItem item in settingsMap.Values) {
-                if (item.RecentCtrl != null) {
-                    item.RecentCtrl.Checked = nextState;
-                }
-            }
-            UpdateCategoryButtonTexts();
-        }
-
         private void UpdateCategoryButtonTexts() {
             if (settingsMap == null) return;
 
@@ -1136,17 +1053,6 @@ namespace WowOptimizeLauncher {
                     }
                 }
                 btnEnableGfx.Text = all ? "DISABLE ALL IN GRAPHICS & SOUND" : "ENABLE ALL IN GRAPHICS & SOUND";
-            }
-
-            if (btnEnableRecent != null) {
-                bool all = true;
-                foreach (SettingItem item in settingsMap.Values) {
-                    if (item.RecentCtrl != null && !item.RecentCtrl.Checked) {
-                        all = false;
-                        break;
-                    }
-                }
-                btnEnableRecent.Text = all ? "DISABLE ALL NEW FEATURES" : "ENABLE ALL NEW FEATURES";
             }
         }
 
