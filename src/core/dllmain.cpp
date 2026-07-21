@@ -1511,6 +1511,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
             MipBiasGovernor::UpdateMipBias(elapsedMs);
 #endif
+            if (Config::g_settings.OptMouseClipRelease) MouseClipRelease::OnFrame();
 #if !TEST_DISABLE_PERF_DIAGNOSTICS
             PerfDiagnostics::OnFrame(elapsedMs);
 #endif
