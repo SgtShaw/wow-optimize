@@ -205,16 +205,10 @@ static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
                 }
 
                 if (!unit) {
-                    // Unit despawned/freed. Zero the GUID so the original skips the
-                    // unchecked virtual call, and guarantee restoration.
-                    void* result;
-                    *pGuid = 0;
-                    __try {
-                        result = orig_GetWorldMatrix(pThis, edx, a2);
-                    } __finally {
-                        *pGuid = originalGuid;
-                    }
-                    return result;
+                    // Unit despawned/freed. Return identity matrix directly instead of calling
+                    // orig_GetWorldMatrix with zeroed GUID (which outputs a (0,0,0) matrix).
+                    FillIdentityMatrix(a2);
+                    return a2;
                 }
             }
         }

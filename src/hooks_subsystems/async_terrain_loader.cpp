@@ -127,23 +127,15 @@ int __cdecl Hooked_UnloadGrid(void* grid) {
 int __cdecl Hooked_GetGroundElevation(float* pos, float* out_height, void** out_chunk) {
     if (pos && out_height) {
         if (::TerrainHeightCache::GetCachedHeight(pos[0], pos[1], *out_height)) {
-            if (out_chunk) *out_chunk = nullptr;
-            return 1;
-        }
-    }
-    int result = orig_sub_7C1660 ? orig_sub_7C1660(pos, out_height, out_chunk) : 0;
-    if (!result) {
-        if (g_asyncLoadCount.load(std::memory_order_relaxed) > 0) {
-            if (out_height && pos) {
-                *out_height = pos[2];
-                if (out_chunk) *out_chunk = nullptr;
+            // Only return cached height if out_chunk is null or caller does not demand a chunk pointer
+            if (!out_chunk) {
                 return 1;
             }
         }
-    } else {
-        if (pos && out_height) {
-            ::TerrainHeightCache::AddToCache(pos[0], pos[1], *out_height);
-        }
+    }
+    int result = orig_sub_7C1660 ? orig_sub_7C1660(pos, out_height, out_chunk) : 0;
+    if (result && pos && out_height) {
+        ::TerrainHeightCache::AddToCache(pos[0], pos[1], *out_height);
     }
     return result;
 }

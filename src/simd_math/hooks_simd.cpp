@@ -844,10 +844,6 @@ static float* __cdecl Hooked_sub_4C2300(float* result, float* vec, float* mat) {
             float tmp[4];
             _mm_storeu_ps(tmp, res);
 
-            vec[0] = tmp[0];
-            vec[1] = tmp[1];
-            vec[2] = tmp[2];
-
             result[0] = tmp[0];
             result[1] = tmp[1];
             result[2] = tmp[2];
