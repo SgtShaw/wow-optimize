@@ -164,40 +164,66 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
     }
 }
 
+typedef void* (__cdecl* fn_4D4DB0)(uint64_t guid, int typeMask);
+
+// A 4x4 identity matrix - the safe fallback the caller can render with (plate at
+// origin for one frame) when we can't produce a real world matrix without crashing.
+static void FillIdentityMatrix(void* a2) {
+    if (!a2) return;
+    float* m = (float*)a2;
+    for (int i = 0; i < 16; i++) m[i] = 0.0f;
+    m[0] = m[5] = m[10] = m[15] = 1.0f;
+}
+
+// The nameplate GetWorldMatrix (sub_722B50) resolves the plate's GUID via a
+// vtable getter and, on Ascension, does an UNCHECKED virtual call on the result:
+// when the unit has despawned, sub_4D4DB0 returns NULL and the client crashes
+// (0x722C14, mov edx,[eax] with eax=0). We can't skip positioning (the plate must
+// track its unit), so instead: if the plate's unit no longer resolves, zero its
+// GUID so the original computes the position but skips the crashing virtual call,
+// then ALWAYS restore the GUID (__finally, even if the original faults). An outer
+// SEH backstop returns an identity matrix for any other fault path, since the
+// crash can also be reached via a GUID source other than this+680.
 static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
 {
-    if (pThis) {
+    if (!pThis) return orig_GetWorldMatrix(pThis, edx, a2);
+
+    __try {
         void* vtable = *(void**)pThis;
-        // Verify if this is indeed a Nameplate Frame object to safely query the GUID field.
+        // Verify this is a Nameplate Frame object (its two vtables are the only
+        // data xrefs to sub_722B50) before touching the GUID field.
         if (vtable == (void*)0x00A3278C || vtable == (void*)0x00A34E54) {
-            uintptr_t self = (uintptr_t)pThis;
-            uint64_t* pGuid = (uint64_t*)(self + 680);
+            uint64_t* pGuid = (uint64_t*)((uintptr_t)pThis + 680);
             uint64_t originalGuid = *pGuid;
 
             if (originalGuid != 0) {
-                typedef void* (__cdecl* fn_4D4DB0)(uint64_t guid, int typeMask);
-                fn_4D4DB0 typeCheck = (fn_4D4DB0)0x004D4DB0;
-
                 void* unit = nullptr;
                 __try {
-                    unit = typeCheck(originalGuid, 1);
+                    unit = ((fn_4D4DB0)0x004D4DB0)(originalGuid, 1);
                 } __except (EXCEPTION_EXECUTE_HANDLER) {
                     unit = nullptr;
                 }
 
                 if (!unit) {
-                    // The unit represented by this nameplate has despawned and been freed.
-                    // Temporarily set the nameplate GUID to 0 so the original GetWorldMatrix
-                    // function skips the virtual call matrix adjustment that would otherwise crash.
+                    // Unit despawned/freed. Zero the GUID so the original skips the
+                    // unchecked virtual call, and guarantee restoration.
+                    void* result;
                     *pGuid = 0;
-                    void* result = orig_GetWorldMatrix(pThis, edx, a2);
-                    *pGuid = originalGuid;
+                    __try {
+                        result = orig_GetWorldMatrix(pThis, edx, a2);
+                    } __finally {
+                        *pGuid = originalGuid;
+                    }
                     return result;
                 }
             }
         }
+        return orig_GetWorldMatrix(pThis, edx, a2);
     }
-    return orig_GetWorldMatrix(pThis, edx, a2);
+    __except (EXCEPTION_EXECUTE_HANDLER) {
+        FillIdentityMatrix(a2);
+        return a2;
+    }
 }
 
 bool Init()
