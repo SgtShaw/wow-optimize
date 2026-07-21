@@ -332,7 +332,7 @@ namespace WowOptimizeLauncher {
                 { "Lua GetTime Frame Cache", new SettingItem("UI_Lua", "LuaGetTimeFast", false, null, "Caches the GetTime() Lua API value within a single frame tick to avoid redundant OS-level high-precision timer calls.") },
                 
                 // Combat & Net
-                { "Aggregated Combat Log Parser", new SettingItem("Combat_Net", "CombatLogParser", false, null, "C++ level combat log aggregator that intercepts and summarizes events, bypassing slow Lua parsers.") },
+                { "Combat Log Leak Fix & Aggregator", new SettingItem("Combat_Net", "CombatLogParser", false, null, "Fixes the 16-year-old WoW combat log memory leak and extends event retention from 300s to 1800s - the proven, stable part. Also enables a C++ combat log aggregator that intercepts and summarizes events instead of the slow Lua path. Recommended on.") },
                 { "Incremental Combat Log parsing", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "Splits large combat updates into small steps, preventing massive spikes in large-scale combat.") },
                 { "Addon Message Coalescing", new SettingItem("Combat_Net", "NetAddonCoalescer", false, null, "Groups chat/addon network communications to reduce the volume of individual messages.") },
                 { "SSE2 Network GUID Unpacking", new SettingItem("Combat_Net", "NetworkGuidSse2", false, null, "Vectorizes the unpacking of network entity GUIDs inside network data streams.") },
@@ -352,20 +352,15 @@ namespace WowOptimizeLauncher {
                 // 10 New Features
                 { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
                 { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", false, null, "[NEW] Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
-                { "DBC File Query Cache", new SettingItem("Graphics_Sound", "DbcFileCache", false, null, "[NEW] High-performance cache for record retrieval from client DBC files (items, spells, etc.).") },
                 { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
 
                 // 10 Additional New Features
-                { "World Object Render Optimizer", new SettingItem("Graphics_Sound", "WorldObjectOpt", false, null, "[NEW] Caches visibility state of non-interactive far world objects to skip drawing when camera is static.") },
                 { "Loading Screen Render Optimizer", new SettingItem("Graphics_Sound", "LoadingScreenOpt", false, null, "[NEW] Bypasses heavy 3D rendering calls during loading screens to improve loading speeds.") },
                 { "Overlapping Sound Volume Limiter", new SettingItem("Graphics_Sound", "SoundVolumeLimit", false, null, "[NEW] Limits and clamps volume for overlapping duplicate sound effects to prevent clipping and audio driver lag.") },
                 { "Terrain Height Cache", new SettingItem("Graphics_Sound", "TerrainHeightCache", false, null, "[NEW] Caches terrain elevation queries within the frame to minimize CPU map collisions query time.") },
 
                 // 20 new colossal features (Features 31-50)
                 { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
-                { "DBC Data Row Offset Caching", new SettingItem("Graphics_Sound", "DbcRowCaching", false, null, "[NEW] Speeds up database queries by caching resolved row pointer offsets in DBC files.") },
-                { "FMOD Sound Play Rate Limit", new SettingItem("Graphics_Sound", "SoundFreqCoalesce", false, null, "[NEW] Coalesces rapid duplicated sound plays that share exact pitch/frequency.") },
-                { "Portal Occluder WMO Culler", new SettingItem("Graphics_Sound", "WmoCullingOpt", false, null, "[NEW] Aggressively culls hidden interior structures of world objects (WMOs).") },
             };
 
             // Window Setup
