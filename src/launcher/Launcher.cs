@@ -336,8 +336,6 @@ namespace WowOptimizeLauncher {
                 { "Incremental Combat Log parsing", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "Splits large combat updates into small steps, preventing massive spikes in large-scale combat.") },
                 { "Addon Message Coalescing", new SettingItem("Combat_Net", "NetAddonCoalescer", false, null, "Groups chat/addon network communications to reduce the volume of individual messages.") },
                 { "SSE2 Network GUID Unpacking", new SettingItem("Combat_Net", "NetworkGuidSse2", false, null, "Vectorizes the unpacking of network entity GUIDs inside network data streams.") },
-                { "GetSpellInfo Cache", new SettingItem("Combat_Net", "GetSpellInfoCache", false, null, "Caches spells details to prevent repeated DBC lookups by complex combat macros and WA addons.") },
-                { "Parallel Packet Offloader", new SettingItem("Combat_Net", "PacketOffload", false, null, "Offloads incoming network packet decompression and deserialization to helper cores.") },
 
                 // Graphics & Sound
                 { "SSE2 Boyer-Moore strstr", new SettingItem("Graphics_Sound", "StrStrSse2", false, null, "Optimizes string sub-searches (such as font names, textures) using vectorized SIMD algorithms.") },
@@ -354,32 +352,20 @@ namespace WowOptimizeLauncher {
                 // 10 New Features
                 { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
                 { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", false, null, "[NEW] Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
-                { "Aura / Buff Textures Preload Cache", new SettingItem("Combat_Net", "AuraPreloadCache", false, null, "[NEW] Pre-caches spell/aura icons at zone transitions to eliminate micro-freezes during combat.") },
                 { "DBC File Query Cache", new SettingItem("Graphics_Sound", "DbcFileCache", false, null, "[NEW] High-performance cache for record retrieval from client DBC files (items, spells, etc.).") },
                 { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
-                { "Addon Message Rate Limiter", new SettingItem("Combat_Net", "AddonMsgLimiter", false, null, "[NEW] Intercepts and rate-limits outbound addon sync messages to prevent disconnection #36.") },
 
                 // 10 Additional New Features
                 { "World Object Render Optimizer", new SettingItem("Graphics_Sound", "WorldObjectOpt", false, null, "[NEW] Caches visibility state of non-interactive far world objects to skip drawing when camera is static.") },
-                { "Nameplate Render Distance CVar", new SettingItem("Combat_Net", "NameplateDistanceCvar", false, null, "[NEW] Enables customizable rendering distance bounds on unit nameplates.") },
-                { "Combat Log File Async Flusher", new SettingItem("Combat_Net", "CombatLogAsync", false, null, "[NEW] Writes combat log files to disk asynchronously in a background thread to prevent lag.") },
-                { "CDataStore Payload Buffering", new SettingItem("Combat_Net", "CDataStoreBuffering", false, null, "[NEW] Caches data buffer pointers to prevent redundant dereferences on packets.") },
-                { "Spell Overlay Preload Cache", new SettingItem("Combat_Net", "SpellOverlayPreload", false, null, "[NEW] Preloads visual spell overlays at zone transitions to stop combat freezes.") },
                 { "Loading Screen Render Optimizer", new SettingItem("Graphics_Sound", "LoadingScreenOpt", false, null, "[NEW] Bypasses heavy 3D rendering calls during loading screens to improve loading speeds.") },
-                { "Combat Log Range Filter", new SettingItem("Combat_Net", "CombatLogFilter", false, null, "[NEW] Discards out-of-range combat log events between distant non-grouped units to reduce CPU load.") },
                 { "Overlapping Sound Volume Limiter", new SettingItem("Graphics_Sound", "SoundVolumeLimit", false, null, "[NEW] Limits and clamps volume for overlapping duplicate sound effects to prevent clipping and audio driver lag.") },
                 { "Terrain Height Cache", new SettingItem("Graphics_Sound", "TerrainHeightCache", false, null, "[NEW] Caches terrain elevation queries within the frame to minimize CPU map collisions query time.") },
 
                 // 20 new colossal features (Features 31-50)
-                { "Network Packet Processing Throttle", new SettingItem("Combat_Net", "PacketProcessingThrottle", false, null, "[NEW] Limits processing rate of non-essential social/guild status packets in combat.") },
-                { "Nameplate Occlusion Culler", new SettingItem("Combat_Net", "NameplateCulling", false, null, "[NEW] Culls processing and drawing of nameplates that are behind obstacles or out of range.") },
                 { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
                 { "DBC Data Row Offset Caching", new SettingItem("Graphics_Sound", "DbcRowCaching", false, null, "[NEW] Speeds up database queries by caching resolved row pointer offsets in DBC files.") },
-                { "Social Packet String Pooling", new SettingItem("Combat_Net", "NetworkStringDedup", false, null, "[NEW] De-duplicates incoming packet strings to minimize memory allocation overhead.") },
                 { "FMOD Sound Play Rate Limit", new SettingItem("Graphics_Sound", "SoundFreqCoalesce", false, null, "[NEW] Coalesces rapid duplicated sound plays that share exact pitch/frequency.") },
                 { "Portal Occluder WMO Culler", new SettingItem("Graphics_Sound", "WmoCullingOpt", false, null, "[NEW] Aggressively culls hidden interior structures of world objects (WMOs).") },
-                { "Combat GUID Hex String Pool", new SettingItem("Combat_Net", "GuidStringCache", false, null, "[NEW] Caches formatted hex string GUIDs to speed up combat log parsers.") },
-                { "Non-Vital Combat Event Screener", new SettingItem("Combat_Net", "CombatEventLimit", false, null, "[NEW] Dynamically filters minor combat events when active client rendering FPS is low.") }
             };
 
             // Window Setup
