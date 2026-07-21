@@ -356,7 +356,6 @@ namespace WowOptimizeLauncher {
                 { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", false, null, "[NEW] Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
                 { "Aura / Buff Textures Preload Cache", new SettingItem("Combat_Net", "AuraPreloadCache", false, null, "[NEW] Pre-caches spell/aura icons at zone transitions to eliminate micro-freezes during combat.") },
                 { "DBC File Query Cache", new SettingItem("Graphics_Sound", "DbcFileCache", false, null, "[NEW] High-performance cache for record retrieval from client DBC files (items, spells, etc.).") },
-                { "Font Glyph Outline Cache", new SettingItem("UI_Lua", "FontOutlineCache", false, null, "[NEW] Caches glyph outline bitmaps to accelerate formatted text rendering.") },
                 { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
                 { "Addon Message Rate Limiter", new SettingItem("Combat_Net", "AddonMsgLimiter", false, null, "[NEW] Intercepts and rate-limits outbound addon sync messages to prevent disconnection #36.") },
 
@@ -365,31 +364,21 @@ namespace WowOptimizeLauncher {
                 { "Nameplate Render Distance CVar", new SettingItem("Combat_Net", "NameplateDistanceCvar", false, null, "[NEW] Enables customizable rendering distance bounds on unit nameplates.") },
                 { "Combat Log File Async Flusher", new SettingItem("Combat_Net", "CombatLogAsync", false, null, "[NEW] Writes combat log files to disk asynchronously in a background thread to prevent lag.") },
                 { "CDataStore Payload Buffering", new SettingItem("Combat_Net", "CDataStoreBuffering", false, null, "[NEW] Caches data buffer pointers to prevent redundant dereferences on packets.") },
-                { "Combat Floating Text Font Optimizer", new SettingItem("UI_Lua", "CombatTextFont", false, null, "[NEW] Caches fonts and metrics specifically for floating scrolling damage/heal strings.") },
                 { "Spell Overlay Preload Cache", new SettingItem("Combat_Net", "SpellOverlayPreload", false, null, "[NEW] Preloads visual spell overlays at zone transitions to stop combat freezes.") },
-                { "Unit Max Power Cache", new SettingItem("UI_Lua", "UnitMaxPowerCache", false, null, "[NEW] Caches maximum unit power limits to bypass Lua-to-C client API query overhead.") },
                 { "Loading Screen Render Optimizer", new SettingItem("Graphics_Sound", "LoadingScreenOpt", false, null, "[NEW] Bypasses heavy 3D rendering calls during loading screens to improve loading speeds.") },
                 { "Combat Log Range Filter", new SettingItem("Combat_Net", "CombatLogFilter", false, null, "[NEW] Discards out-of-range combat log events between distant non-grouped units to reduce CPU load.") },
                 { "Overlapping Sound Volume Limiter", new SettingItem("Graphics_Sound", "SoundVolumeLimit", false, null, "[NEW] Limits and clamps volume for overlapping duplicate sound effects to prevent clipping and audio driver lag.") },
-                { "UI Layout Recalculation Throttle", new SettingItem("UI_Lua", "UILayoutThrottle", false, null, "[NEW] Prevents frame layout loops and limits redundant recalculation checks per tick.") },
                 { "Terrain Height Cache", new SettingItem("Graphics_Sound", "TerrainHeightCache", false, null, "[NEW] Caches terrain elevation queries within the frame to minimize CPU map collisions query time.") },
-                { "Font Alpha Blending Fastpath", new SettingItem("UI_Lua", "FontAlphaFastpath", false, null, "[NEW] Bypasses alpha blending render states for fully opaque or fully transparent UI and nameplate text.") },
 
                 // 20 new colossal features (Features 31-50)
                 { "Network Packet Processing Throttle", new SettingItem("Combat_Net", "PacketProcessingThrottle", false, null, "[NEW] Limits processing rate of non-essential social/guild status packets in combat.") },
                 { "Nameplate Occlusion Culler", new SettingItem("Combat_Net", "NameplateCulling", false, null, "[NEW] Culls processing and drawing of nameplates that are behind obstacles or out of range.") },
-                { "Minimap Refresh Rate Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", false, null, "[NEW] Caps minimap radar updates frequency to prevent client rendering overload during fast runs.") },
                 { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
-                { "Lua Fast String Compare", new SettingItem("UI_Lua", "LuaStringCompareFast", false, null, "[NEW] Accelerates Lua string comparison using hardware-inlined vector instructions.") },
                 { "DBC Data Row Offset Caching", new SettingItem("Graphics_Sound", "DbcRowCaching", false, null, "[NEW] Speeds up database queries by caching resolved row pointer offsets in DBC files.") },
                 { "Social Packet String Pooling", new SettingItem("Combat_Net", "NetworkStringDedup", false, null, "[NEW] De-duplicates incoming packet strings to minimize memory allocation overhead.") },
                 { "FMOD Sound Play Rate Limit", new SettingItem("Graphics_Sound", "SoundFreqCoalesce", false, null, "[NEW] Coalesces rapid duplicated sound plays that share exact pitch/frequency.") },
-                { "Static UI Artwork Texture Cache", new SettingItem("UI_Lua", "UiTextureCaching", false, null, "[NEW] Cache loaded UI texture references in memory to avoid repetitive disk loads.") },
                 { "Portal Occluder WMO Culler", new SettingItem("Graphics_Sound", "WmoCullingOpt", false, null, "[NEW] Aggressively culls hidden interior structures of world objects (WMOs).") },
-                { "Fast Float String Parser", new SettingItem("UI_Lua", "FastFloatParse", false, null, "[NEW] Bypasses slow standard CRT float conversion during UI asset parsing.") },
-                { "Spell Cooldown Frame Cache", new SettingItem("UI_Lua", "SpellCooldownCache", false, null, "[NEW] Caches cooldown timers status updates to speed up action bar updates.") },
                 { "Combat GUID Hex String Pool", new SettingItem("Combat_Net", "GuidStringCache", false, null, "[NEW] Caches formatted hex string GUIDs to speed up combat log parsers.") },
-                { "FrameScript Block Recycling", new SettingItem("UI_Lua", "FrameScriptMemOpt", false, null, "[NEW] Recycles script block allocations to bypass heap allocator serialize bottlenecks.") },
                 { "Non-Vital Combat Event Screener", new SettingItem("Combat_Net", "CombatEventLimit", false, null, "[NEW] Dynamically filters minor combat events when active client rendering FPS is low.") }
             };
 
