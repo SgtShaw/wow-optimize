@@ -329,17 +329,12 @@ namespace WowOptimizeLauncher {
                 { "Lua Number Conversion Fast Path", new SettingItem("UI_Lua", "LuaNumConvFast", false, null, "Inlines common Lua stack value queries (tonumber, gettop, settop) to bypass stack checking overhead.") },
                 { "Lua VM Cache & Regex Cache", new SettingItem("UI_Lua", "LuaOpcache", false, null, "Provides a fast lookup cache for VM table indexing and caches compiled regex patterns to speed up string matching/gsub APIs.") },
                 { "Coalesced Lua Garbage Collection", new SettingItem("UI_Lua", "LuaGcCoalesce", false, null, "Bundles tiny incremental garbage collection steps to execute during empty frame budgets.") },
-                { "Lua VM Bytecode JIT Compiler", new SettingItem("UI_Lua", "LuaJIT", false, null, "Hooks standard call preparation to redirect and execute compiled Lua bytecode JIT stubs.") },
                 { "Lua GetTime Frame Cache", new SettingItem("UI_Lua", "LuaGetTimeFast", false, null, "Caches the GetTime() Lua API value within a single frame tick to avoid redundant OS-level high-precision timer calls.") },
                 
                 // Combat & Net
                 { "Aggregated Combat Log Parser", new SettingItem("Combat_Net", "CombatLogParser", false, null, "C++ level combat log aggregator that intercepts and summarizes events, bypassing slow Lua parsers.") },
                 { "Incremental Combat Log parsing", new SettingItem("Combat_Net", "CombatLogIncremental", false, null, "Splits large combat updates into small steps, preventing massive spikes in large-scale combat.") },
                 { "Addon Message Coalescing", new SettingItem("Combat_Net", "NetAddonCoalescer", false, null, "Groups chat/addon network communications to reduce the volume of individual messages.") },
-                { "SavedVariables Serializer", new SettingItem("Combat_Net", "SavedVarsSerializer", false, null, "Serializes and writes addon variables incrementally in a lock-free worker thread.") },
-                { "SavedVariables Async Writer", new SettingItem("Combat_Net", "SavedVarsAsync", false, null, "Performs SavedVariables file flushing asynchronously in the background to prevent logout freezes.") },
-                { "SavedVariables Preloader", new SettingItem("Combat_Net", "SavedVarsPretoken", false, null, "Pre-loads and parses addon configuration files during the early loading screen sequence.") },
-                { "UnitAura Fast Path", new SettingItem("Combat_Net", "UnitAuraFast", false, null, "Vectorizes UnitAura query evaluations at the C++ level to speed up unit frames updates.") },
                 { "SSE2 Network GUID Unpacking", new SettingItem("Combat_Net", "NetworkGuidSse2", false, null, "Vectorizes the unpacking of network entity GUIDs inside network data streams.") },
                 { "GetSpellInfo Cache", new SettingItem("Combat_Net", "GetSpellInfoCache", false, null, "Caches spells details to prevent repeated DBC lookups by complex combat macros and WA addons.") },
                 { "Parallel Packet Offloader", new SettingItem("Combat_Net", "PacketOffload", false, null, "Offloads incoming network packet decompression and deserialization to helper cores.") },
@@ -352,7 +347,6 @@ namespace WowOptimizeLauncher {
                 { "DBC Data Lookup Cache", new SettingItem("Graphics_Sound", "DbcLookupCache", false, null, "Speeds up data reading from internal database files (.dbc) for models, items, and spells.") },
                 { "Asynchronous Texture Loader", new SettingItem("Graphics_Sound", "AsyncTexLoader", false, null, "Asynchronously loads and decompresses BLP textures in background worker threads, hot-swapping them on frame boundaries to prevent stutters.") },
                 { "Texture Smart Unload Delay", new SettingItem("Graphics_Sound", "TextureUnloadDelay", false, null, "[NEW] Delays texture unloading during camera turnarounds to prevent immediate load micro-stutters.") },
-                { "M2 Model LOD Bias Control", new SettingItem("Graphics_Sound", "M2LodBias", false, null, "Dynamically scales 3D model level-of-detail bias depending on active rendering frametimes.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
                 { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
                 { "SIMD Matrix Vector Transforms", new SettingItem("Graphics_Sound", "SimdMatrixTransform", false, null, "Vectorizes 3D coordinate and matrix-vector calculations using SSE2 SIMD instructions to accelerate particle updates.") },
@@ -365,7 +359,6 @@ namespace WowOptimizeLauncher {
                 { "Font Glyph Outline Cache", new SettingItem("UI_Lua", "FontOutlineCache", false, null, "[NEW] Caches glyph outline bitmaps to accelerate formatted text rendering.") },
                 { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
                 { "Addon Message Rate Limiter", new SettingItem("Combat_Net", "AddonMsgLimiter", false, null, "[NEW] Intercepts and rate-limits outbound addon sync messages to prevent disconnection #36.") },
-                { "Hardware Mouse Smoothing & Edge Lock", new SettingItem("General", "MouseCursorSmooth", false, null, "[NEW] Smooths mouse coordinates and locks the cursor inside the window during mouselook.") },
                 { "Model Vertex Buffers Pre-Allocator", new SettingItem("General", "VertexBufferPrealloc", false, null, "[NEW] Pre-allocates memory slabs for dynamic vertex updates using memory pools to stop stutters.") },
 
                 // 10 Additional New Features
