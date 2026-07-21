@@ -50,6 +50,7 @@ namespace Config {
         bool OptSpatialCulling = false;
         
         // Combat & Network
+        bool OptCombatLogLeakFix = true; // Proven fix: extend combat log retention 300s->1800s (writes the retention CVar). Default on.
         bool OptCombatLogParser = false;
         bool OptCombatLogIncremental = false;
         bool OptEventCoalescer = false;

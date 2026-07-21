@@ -7165,7 +7165,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Combat Log ---");
-    bool combatLogOk = Config::g_settings.OptCombatLogParser && CombatLogOpt::Init();
+    // The retention leak-fix (CombatLogOpt) is the proven, stable part: it just
+    // extends the combat-log retention CVar 300s->1800s. It runs on its own
+    // default-on flag, independent of the aggressive aggregator (Parser/Buffer/
+    // FullCache below, which stay on OptCombatLogParser).
+    bool combatLogOk = (Config::g_settings.OptCombatLogLeakFix || Config::g_settings.OptCombatLogParser)
+                       && CombatLogOpt::Init();
 
     Log("");
     Log("--- Combat Log Buffer Governor ---");

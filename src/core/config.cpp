@@ -79,6 +79,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "SpatialCulling", "0", iniPath.c_str());
 
             // Combat & Network
+            WritePrivateProfileStringA("Combat_Net", "CombatLogLeakFix", "1", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogIncremental", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "0", iniPath.c_str());  // #42: hides buffs/countdowns — off by default
@@ -196,6 +197,7 @@ namespace Config {
         g_settings.OptSpatialCulling      = GetPrivateProfileIntA("UI_Lua", "SpatialCulling", 0, iniPath.c_str()) != 0;
 
         // Combat & Network
+        g_settings.OptCombatLogLeakFix    = GetPrivateProfileIntA("Combat_Net", "CombatLogLeakFix", 1, iniPath.c_str()) != 0;
         g_settings.OptCombatLogParser     = GetPrivateProfileIntA("Combat_Net", "CombatLogParser", 0, iniPath.c_str()) != 0;
         g_settings.OptCombatLogIncremental = GetPrivateProfileIntA("Combat_Net", "CombatLogIncremental", 0, iniPath.c_str()) != 0;
         g_settings.OptEventCoalescer      = GetPrivateProfileIntA("Combat_Net", "EventCoalescer", 0, iniPath.c_str()) != 0;
