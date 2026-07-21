@@ -2,8 +2,6 @@
 
 // ============================================================================
 // Module: version.h
-// Description: Supporting utility functions for `version.h`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 

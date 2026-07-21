@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: batch_opt_40.cpp
-// Description: Supporting utility functions for `batch_opt_40.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #ifndef WIN32_LEAN_AND_MEAN

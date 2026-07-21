@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: ui_accessor_fast.cpp
-// Description: Supporting utility functions for `ui_accessor_fast.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include <windows.h>

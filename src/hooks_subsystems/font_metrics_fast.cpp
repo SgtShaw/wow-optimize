@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: font_metrics_fast.cpp
-// Description: Supporting utility functions for `font_metrics_fast.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include <windows.h>

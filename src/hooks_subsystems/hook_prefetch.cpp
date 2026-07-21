@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: hook_prefetch.cpp
-// Description: Supporting utility functions for `hook_prefetch.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include "hook_prefetch.h"

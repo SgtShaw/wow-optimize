@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: matrix_copy_sse2.cpp
-// Description: Supporting utility functions for `matrix_copy_sse2.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include <windows.h>

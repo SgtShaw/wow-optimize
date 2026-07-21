@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: addon_preload.cpp
-// Description: Supporting utility functions for `addon_preload.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include "addon_preload.h"

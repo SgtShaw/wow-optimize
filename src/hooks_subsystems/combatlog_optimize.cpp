@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: combatlog_optimize.cpp
-// Description: Supporting utility functions for `combatlog_optimize.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include "combatlog_optimize.h"

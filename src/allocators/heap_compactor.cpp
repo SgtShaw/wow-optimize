@@ -1,7 +1,5 @@
 // ============================================================================
 // Module: heap_compactor.cpp
-// Description: Supporting utility functions for `heap_compactor.cpp`.
-// Safety & Threading: Verify pointer validation boundaries range up to 0xFFE00000.
 // ============================================================================
 
 #include "version.h"
