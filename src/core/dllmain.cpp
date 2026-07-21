@@ -7560,7 +7560,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Visual Frustum Culling Cache ---");
 #if !TEST_DISABLE_ASYNC_CULLING
-    bool asyncCullingOk = Config::g_settings.OptSpatialCulling && AsyncCulling::Init();
+    bool asyncCullingOk = Config::g_settings.OptSpatialCulling && !RunningUnderTranslation() && AsyncCulling::Init();
 #else
     bool asyncCullingOk = false;
     Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
@@ -7597,10 +7597,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Lock-Free SavedVariables Serializer ---");
 #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
     bool savedVarsSerializerOk = false;
-    if (Config::g_settings.OptSavedVarsSerializer) {
+    if (Config::g_settings.OptSavedVarsSerializer && !RunningUnderTranslation()) {
         savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
     } else {
-        Log("[SavedVarsSerializer] DISABLED via configuration (wow_opt.ini)");
+        Log("[SavedVarsSerializer] DISABLED via configuration (wow_opt.ini)%s",
+            RunningUnderTranslation() ? " [forced off: Wine/Rosetta]" : "");
     }
 #else
     bool savedVarsSerializerOk = false;
@@ -7620,10 +7621,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Parallel Network Packet Offloader ---");
 #if !TEST_DISABLE_NET_PACKET_OFFLOAD
     bool netPacketOffloadOk = false;
-    if (Config::g_settings.OptPacketOffload) {
+    if (Config::g_settings.OptPacketOffload && !RunningUnderTranslation()) {
         netPacketOffloadOk = NetPacketOffload::Init();
     } else {
-        Log("[NetPacketOffload] DISABLED via configuration (wow_opt.ini)");
+        Log("[NetPacketOffload] DISABLED via configuration (wow_opt.ini)%s",
+            RunningUnderTranslation() ? " [forced off: Wine/Rosetta]" : "");
     }
 #else
     bool netPacketOffloadOk = false;
@@ -7641,7 +7643,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Parallel M2 Geometry SIMD Skinning ---");
-    bool parallelM2Ok = Config::g_settings.OptStrStrSse2 && ParallelM2Skinning::Init();
+    bool parallelM2Ok = Config::g_settings.OptStrStrSse2 && !RunningUnderTranslation() && ParallelM2Skinning::Init();
 
     Log("");
     Log("--- Lock-Free Object GUID Lookup Cache ---");
@@ -7681,7 +7683,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- M2 Bone SIMD Acceleration ---");
-    if (Config::g_settings.OptM2MatrixSimd || Config::g_settings.OptM2BoneMt) M2BoneSimd::Init();
+    if ((Config::g_settings.OptM2MatrixSimd || Config::g_settings.OptM2BoneMt) && !RunningUnderTranslation()) M2BoneSimd::Init();
+    else if (RunningUnderTranslation()) Log("[M2BoneSimd] DISABLED [forced off: Wine/Rosetta]");
 
     Log("");
     Log("--- Font Glyph Cache ---");
@@ -7689,7 +7692,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Async SavedVariables Preloader ---");
-    if (Config::g_settings.OptSavedVarsAsync) SavedVarsPreloadAsync::Init();
+    if (Config::g_settings.OptSavedVarsAsync && !RunningUnderTranslation()) SavedVarsPreloadAsync::Init();
 
     Log("");
     Log("--- Combat Text Coalescer ---");
@@ -7776,7 +7779,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Async Sound FX Loader ---");
-    if (Config::g_settings.OptAudioDecodeMt) AsyncSoundLoader::Init();
+    if (Config::g_settings.OptAudioDecodeMt && !RunningUnderTranslation()) AsyncSoundLoader::Init();
 
     Log("");
     Log("--- Lua VM Bytecode JIT Compiler ---");
@@ -7788,7 +7791,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Asynchronous Terrain Mesh Loader ---");
-    if (Config::g_settings.OptAsyncTerrainLoader) AsyncTerrainLoader::Init();
+    if (Config::g_settings.OptAsyncTerrainLoader && !RunningUnderTranslation()) AsyncTerrainLoader::Init();
 
     Log("");
     Log("--- M2 LOD Bias Control ---");
@@ -7796,7 +7799,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Lock-Free Texture Loader ---");
-    if (Config::g_settings.OptAsyncTexLoader) AsyncTexLoader::Init();
+    if (Config::g_settings.OptAsyncTexLoader && !RunningUnderTranslation()) AsyncTexLoader::Init();
 
     Log("");
     Log("--- Unit Aura Update Coalescing ---");

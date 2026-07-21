@@ -802,6 +802,22 @@ static inline bool IsRosetta() {
 #endif
 
 // ================================================================
+// Translation layer (Wine on Linux, Rosetta 2 on macOS ARM).
+// Our worker-thread / parallel features dispatch work to background threads and
+// then BLOCK the main thread waiting for them (some with INFINITE timeouts).
+// Under x86->ARM/native translation those workers are themselves translated and
+// slow/starved, so the main-thread wait turns into a multi-second freeze
+// (observed: 11.7s stall, stack = our DLL -> WaitForSingleObject). These
+// features also give little to no benefit under translation (SSE/AVX2 emulated,
+// extra threads compete for translation resources). So on a translation layer we
+// simply don't run them - a freeze becomes "feature just doesn't run", which is
+// strictly better. Native Windows (the primary target) is unaffected.
+#ifndef WOWOPT_ISTRANSLATED_DEFINED
+#define WOWOPT_ISTRANSLATED_DEFINED
+static inline bool RunningUnderTranslation() { return IsWine() || IsRosetta(); }
+#endif
+
+// ================================================================
 // Wine/Rosetta safe hook wrapper
 // MinHook patching WoW .text section (0x00400000-0x00FFFFFF) may
 // invalidate JIT translations. System DLL hooks are safe (separate modules).
