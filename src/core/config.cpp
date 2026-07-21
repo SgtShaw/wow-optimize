@@ -62,8 +62,6 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FontMetricsLockFree", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FrameXmlCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "TooltipCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "0", iniPath.c_str());
@@ -84,7 +82,6 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogIncremental", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "0", iniPath.c_str());  // #42: hides buffs/countdowns — off by default
-            WritePrivateProfileStringA("Combat_Net", "NetPacketCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "0", iniPath.c_str());
@@ -182,8 +179,6 @@ namespace Config {
         g_settings.OptAddonDispatcher     = GetPrivateProfileIntA("UI_Lua", "AddonDispatcher", 0, iniPath.c_str()) != 0;
         g_settings.OptUIFrameAccessorFast = GetPrivateProfileIntA("UI_Lua", "UIFrameAccessorFast", 0, iniPath.c_str()) != 0;
         g_settings.OptFontMetricsFast     = GetPrivateProfileIntA("UI_Lua", "FontMetricsFast", 0, iniPath.c_str()) != 0;
-        g_settings.OptFontMetricsLockFree = GetPrivateProfileIntA("UI_Lua", "FontMetricsLockFree", 0, iniPath.c_str()) != 0;
-        g_settings.OptFrameXmlCoalesce    = GetPrivateProfileIntA("UI_Lua", "FrameXmlCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptAddonTickGovernor   = GetPrivateProfileIntA("UI_Lua", "AddonTickGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptTooltipCache        = GetPrivateProfileIntA("UI_Lua", "TooltipCache", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaFileCache        = GetPrivateProfileIntA("UI_Lua", "LuaFileCache", 0, iniPath.c_str()) != 0;
@@ -204,7 +199,6 @@ namespace Config {
         g_settings.OptCombatLogParser     = GetPrivateProfileIntA("Combat_Net", "CombatLogParser", 0, iniPath.c_str()) != 0;
         g_settings.OptCombatLogIncremental = GetPrivateProfileIntA("Combat_Net", "CombatLogIncremental", 0, iniPath.c_str()) != 0;
         g_settings.OptEventCoalescer      = GetPrivateProfileIntA("Combat_Net", "EventCoalescer", 0, iniPath.c_str()) != 0;
-        g_settings.OptNetPacketCoalesce   = GetPrivateProfileIntA("Combat_Net", "NetPacketCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitAuraCoalesce    = GetPrivateProfileIntA("Combat_Net", "UnitAuraCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptNetAddonCoalescer   = GetPrivateProfileIntA("Combat_Net", "NetAddonCoalescer", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsSerializer = GetPrivateProfileIntA("Combat_Net", "SavedVarsSerializer", 0, iniPath.c_str()) != 0;

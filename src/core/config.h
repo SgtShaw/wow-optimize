@@ -32,8 +32,6 @@ namespace Config {
         bool OptAddonDispatcher = false;
         bool OptUIFrameAccessorFast = false;
         bool OptFontMetricsFast = false;
-        bool OptFontMetricsLockFree = false;
-        bool OptFrameXmlCoalesce = false;
         bool OptAddonTickGovernor = false;
         bool OptTooltipCache = false;
         bool OptLuaFileCache = false;
@@ -55,7 +53,6 @@ namespace Config {
         bool OptCombatLogParser = false;
         bool OptCombatLogIncremental = false;
         bool OptEventCoalescer = false;
-        bool OptNetPacketCoalesce = false;
         bool OptUnitAuraCoalesce = false;
         bool OptNetAddonCoalescer = false;
         bool OptSavedVarsSerializer = false;
