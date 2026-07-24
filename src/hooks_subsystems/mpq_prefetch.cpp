@@ -461,4 +461,24 @@ Stats GetStats() {
     return s;
 }
 
+void QueuePrefetch(const char* filename) {
+    if (!filename || filename[0] == '\0') return;
+    PrefetchRequest req;
+    strncpy_s(req.filename, sizeof(req.filename), filename, _TRUNCATE);
+    req.priority = 1;
+    req.predictedZone = 0;
+
+    WinLockGuard lock(g_queueMutex);
+    g_prefetchQueue.push(req.filename);
+    InterlockedIncrement(&g_filesQueued);
+    g_queueCv.notify_one();
+}
+
+// Feature 21 (0x0083AF90): Asynchronous MPQ Sector Prefetcher
+void OptimizeSub83AF90_AsyncMPQ(const char* mpqFileName) {
+    if (mpqFileName && mpqFileName[0] != '\0') {
+        QueuePrefetch(mpqFileName);
+    }
+}
+
 } // namespace MPQPrefetch
