@@ -236,7 +236,12 @@ static HRESULT __stdcall Hooked_SetRenderState(void* dev, DWORD state, DWORD val
     CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[0]);
     
-    if (state < 256 && g_rsValid[state] && g_rsCache[state] == value) {
+    bool isCriticalState = (state == D3DRS_ALPHABLENDENABLE || state == D3DRS_SRCBLEND || 
+                           state == D3DRS_DESTBLEND || state == D3DRS_ALPHATESTENABLE || 
+                           state == D3DRS_ALPHAREF || state == D3DRS_ALPHAFUNC ||
+                           state == D3DRS_ZWRITEENABLE || state == D3DRS_ZENABLE);
+
+    if (state < 256 && !isCriticalState && g_rsValid[state] && g_rsCache[state] == value) {
         InterlockedIncrement64(&g_statSkipped[0]);
         return 0;
     }
@@ -292,26 +297,7 @@ static HRESULT __stdcall Hooked_SetTexture(void* dev, DWORD stage, void* tex) {
 static HRESULT __stdcall Hooked_SetTransform(void* dev, DWORD state, const void* matrix) {
     CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[4]);
-    
-    if (!matrix) {
-        if (state < 32) g_xformValid[state] = false;
-        return g_orig_SetTransform(dev, state, matrix);
-    }
-
-    DWORD idx = state;
-    if (idx < 32) {
-        uint64_t hash = QuickMatrixHash((const float*)matrix);
-        if (g_xformValid[idx] && g_xformHash[idx] == hash) {
-            InterlockedIncrement64(&g_statSkipped[4]);
-            return 0;
-        }
-        HRESULT hr = g_orig_SetTransform(dev, state, matrix);
-        if (SUCCEEDED(hr)) {
-            g_xformHash[idx] = hash;
-            g_xformValid[idx] = true;
-        }
-        return hr;
-    }
+    // Always call original transform setter to guarantee 100% world matrix accuracy on weapon sub-meshes
     return g_orig_SetTransform(dev, state, matrix);
 }
 

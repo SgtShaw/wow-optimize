@@ -162,7 +162,7 @@
 // teardown/reload/swap bypass. Exposed as a launcher checkbox (General/
 // ObjVisCache), default OFF/opt-in since it's an unverified hot path — enable
 // it in the launcher and watch for unit/object misbehavior or hangs.
-#define TEST_DISABLE_OBJ_VIS_CACHE      0
+#define TEST_DISABLE_OBJ_VIS_CACHE      1
 
 // Deferred unit field update queue v2 - Lock-free SPSC batch processor.
 // STALE COMMENT WARNING: the paragraph below describes a v2 fix for an

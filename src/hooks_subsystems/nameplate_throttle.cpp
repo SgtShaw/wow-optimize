@@ -163,32 +163,9 @@ typedef void* (__cdecl* fn_4D4DB0)(uint64_t guid, int typeMask);
 
 static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
 {
-    if (!pThis || !a2) return orig_GetWorldMatrix(pThis, edx, a2);
+    if (!pThis || !a2 || !orig_GetWorldMatrix) return a2;
 
     __try {
-        void* vtable = *(void**)pThis;
-        if (vtable == (void*)0x00A3278C || vtable == (void*)0x00A34E54) {
-            uint64_t* pGuid = (uint64_t*)((uintptr_t)pThis + 680);
-            uint64_t originalGuid = *pGuid;
-
-            if (originalGuid != 0) {
-                void* unit = nullptr;
-                __try {
-                    unit = ((fn_4D4DB0)0x004D4DB0)(originalGuid, 1);
-                } __except (EXCEPTION_EXECUTE_HANDLER) {
-                    unit = nullptr;
-                }
-
-                if (!unit) {
-                    // Safe execution without crashing when unit despawns: execute original under SEH
-                    __try {
-                        return orig_GetWorldMatrix(pThis, edx, a2);
-                    } __except (EXCEPTION_EXECUTE_HANDLER) {
-                        return a2;
-                    }
-                }
-            }
-        }
         return orig_GetWorldMatrix(pThis, edx, a2);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {

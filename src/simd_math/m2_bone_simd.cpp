@@ -127,23 +127,13 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* edx, float* a2, int 
 #endif
 
 bool Init() {
-    Log("[M2BoneSimd] Active - CPU SSE2 Lock-Free Bone Matrix Engine Initialized");
+    Log("[M2BoneSimd] Active - CPU SSE2 M2 Bone Matrix Engine Initialized");
 
 #if !TEST_DISABLE_M2_BONE_MT
     if (Config::g_settings.OptM2BoneMt) {
-        for (int i = 0; i < RING_SLOTS; i++) {
-            g_ring[i].state = STATE_FREE;
-        }
-
-        InterlockedExchange(&g_threadsRunning, 1);
-
-        for (int i = 0; i < WORKER_COUNT; i++) {
-            g_workerThreads[i] = CreateThread(NULL, 0, M2WorkerProc, NULL, 0, NULL);
-        }
-
         if (WineSafe_CreateHook((void*)0x0082F0F0, (void*)Hooked_UpdateBones, (void**)&orig_UpdateBones) == MH_OK) {
             if (WO_EnableHook((void*)0x0082F0F0) == MH_OK) {
-                Log("[M2BoneSimd] Multi-Threaded Lock-Free UpdateBones hook at 0x0082F0F0 ACTIVE (64 ring slots)");
+                Log("[M2BoneSimd] Synchronous SEH UpdateBones hook at 0x0082F0F0 ACTIVE");
             }
         }
     }

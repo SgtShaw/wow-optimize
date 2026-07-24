@@ -114,69 +114,13 @@ static inline bool ValidPtr(uintptr_t p) { return p >= 0x10000 && p < 0xFFE00000
 static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
                                          float* a2, int a3, float a4, float a5, float a6)
 {
-    if (!ValidPtr((uintptr_t)pThis))
-        return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
+    if (!ValidPtr((uintptr_t)pThis) || !orig_UpdateBones) return 0;
 
     __try {
-        uintptr_t self = (uintptr_t)pThis;
-
-        // Must be an active model (flags bit 0) or the engine wouldn't animate it.
-        int flags = *(int*)(self + 16);
-        if ((flags & 1) == 0)
-            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
-
-        uintptr_t animCtx = *(uintptr_t*)(self + 40);
-        if (!ValidPtr(animCtx))
-            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
-
-        uint32_t tick = *(uint32_t*)(animCtx + 20);   // current animation tick
-        uint32_t last = *(uint32_t*)(self + 60);      // tick this model last updated
-
-        // Frame boundary: when the global tick advances, roll the crowd counter.
-        if (tick != g_lastFrameTick) {
-            g_callsLastFrame = (uint32_t)InterlockedExchange(&g_callsThisFrame, 0);
-            g_crowded = (g_callsLastFrame >= g_crowdThreshold);
-            g_lastFrameTick = tick;
-        }
-        InterlockedIncrement(&g_callsThisFrame);
-
-        // Engine already skips it this tick, or the scene is light -> untouched.
-        if (tick == last || !g_crowded) {
-            g_updatedTotal++;
-            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
-        }
-
-        // Crowded + this model is due for a real update. Round-robin throttle it,
-        // with the interval graduated by how packed the scene is.
-        uint32_t interval = IntervalForCrowd(g_callsLastFrame);
-        uint32_t h = HashPtr(pThis);
-        Slot& s = g_slots[h];
-
-        if (s.key != pThis) {
-            // First time we've seen this model (or a hash collision evicted it):
-            // register it with a per-model phase offset in [0, interval) so that
-            // models do NOT all become due on the same frame. This spreads the
-            // updates evenly across the interval instead of a synchronized wave,
-            // which is what keeps a 1/3 or 1/4 rate looking smooth. Update now.
-            uint32_t phase = HashPtr((void*)~(uintptr_t)pThis) % (interval ? interval : 1);
-            s.key = pThis;
-            s.tick = tick - phase;
-            g_updatedTotal++;
-            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
-        }
-
-        if ((uint32_t)(tick - s.tick) >= interval) {
-            s.tick = tick;
-            g_updatedTotal++;
-            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
-        }
-
-        // Throttle: skip exactly like the engine's own dedup branch does.
-        g_throttledTotal++;
-        return *(int*)(self + 16);
+        return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
+        return 0;
     }
 }
 
