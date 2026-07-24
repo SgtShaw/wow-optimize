@@ -41,4 +41,17 @@ void Shutdown() {
     Log("[LuaStringPoolFast] Stats: %lld hits, %lld misses in string pool", g_hits, g_misses);
 }
 
+// Feature 12 (0x0051D9B0): TLS-cached String Table Lookup
+void* OptimizeSub51D9B0_TLSString(const char* str, size_t len) {
+    if (!str || len == 0) return nullptr;
+    static __declspec(thread) const char* t_lastStr = nullptr;
+    static __declspec(thread) void* t_lastSymbol = nullptr;
+    if (t_lastStr == str && t_lastSymbol) return t_lastSymbol;
+
+    void* sym = GetSymbol(std::string(str, len));
+    t_lastStr = str;
+    t_lastSymbol = sym;
+    return sym;
+}
+
 } // namespace LuaStringPoolFast
