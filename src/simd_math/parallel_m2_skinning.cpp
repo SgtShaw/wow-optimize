@@ -42,8 +42,11 @@ static void SkinVertices_Chunk_SSE2(M2Vertex* dest, const M2Vertex* src, int cou
         float rx = 0.0f, ry = 0.0f, rz = 0.0f;
         float rnx = 0.0f, rny = 0.0f, rnz = 0.0f;
 
+        __m128 pos = _mm_setr_ps(x, y, z, 1.0f);
+        __m128 norm = _mm_setr_ps(nx, ny, nz, 0.0f);
+
         for (int b = 0; b < 4; b++) {
-            float weight = (float)v.boneWeights[b] / 255.0f;
+            float weight = (float)v.boneWeights[b] * (1.0f / 255.0f);
             if (weight <= 0.0f) continue;
 
             int boneIdx = v.boneIndices[b];
@@ -53,47 +56,21 @@ static void SkinVertices_Chunk_SSE2(M2Vertex* dest, const M2Vertex* src, int cou
             __m128 r1 = _mm_loadu_ps(&mat[4]);
             __m128 r2 = _mm_loadu_ps(&mat[8]);
 
-            __m128 pos = _mm_setr_ps(x, y, z, 1.0f);
-            __m128 p0 = _mm_mul_ps(r0, pos);
-            __m128 p1 = _mm_mul_ps(r1, pos);
-            __m128 p2 = _mm_mul_ps(r2, pos);
+            __m128 tx_v  = _mm_dp_ps(r0, pos,  0xF1);
+            __m128 ty_v  = _mm_dp_ps(r1, pos,  0xF1);
+            __m128 tz_v  = _mm_dp_ps(r2, pos,  0xF1);
 
-            __m128 sum0 = _mm_hadd_ps(p0, p0);
-            sum0 = _mm_hadd_ps(sum0, sum0);
-            float tx = _mm_cvtss_f32(sum0);
+            __m128 tnx_v = _mm_dp_ps(r0, norm, 0x71);
+            __m128 tny_v = _mm_dp_ps(r1, norm, 0x71);
+            __m128 tnz_v = _mm_dp_ps(r2, norm, 0x71);
 
-            __m128 sum1 = _mm_hadd_ps(p1, p1);
-            sum1 = _mm_hadd_ps(sum1, sum1);
-            float ty = _mm_cvtss_f32(sum1);
+            rx += _mm_cvtss_f32(tx_v) * weight;
+            ry += _mm_cvtss_f32(ty_v) * weight;
+            rz += _mm_cvtss_f32(tz_v) * weight;
 
-            __m128 sum2 = _mm_hadd_ps(p2, p2);
-            sum2 = _mm_hadd_ps(sum2, sum2);
-            float tz = _mm_cvtss_f32(sum2);
-
-            rx += tx * weight;
-            ry += ty * weight;
-            rz += tz * weight;
-
-            __m128 norm = _mm_setr_ps(nx, ny, nz, 0.0f);
-            __m128 n0 = _mm_mul_ps(r0, norm);
-            __m128 n1 = _mm_mul_ps(r1, norm);
-            __m128 n2 = _mm_mul_ps(r2, norm);
-
-            __m128 nsum0 = _mm_hadd_ps(n0, n0);
-            nsum0 = _mm_hadd_ps(nsum0, nsum0);
-            float tnx = _mm_cvtss_f32(nsum0);
-
-            __m128 nsum1 = _mm_hadd_ps(n1, n1);
-            nsum1 = _mm_hadd_ps(nsum1, nsum1);
-            float tny = _mm_cvtss_f32(nsum1);
-
-            __m128 nsum2 = _mm_hadd_ps(n2, n2);
-            nsum2 = _mm_hadd_ps(nsum2, nsum2);
-            float tnz = _mm_cvtss_f32(nsum2);
-
-            rnx += tnx * weight;
-            rny += tny * weight;
-            rnz += tnz * weight;
+            rnx += _mm_cvtss_f32(tnx_v) * weight;
+            rny += _mm_cvtss_f32(tny_v) * weight;
+            rnz += _mm_cvtss_f32(tnz_v) * weight;
         }
 
         d.pos[0] = rx;
