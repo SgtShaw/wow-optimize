@@ -110,3 +110,36 @@ void UninstallHotFunctionOptimizations() {
             calls, simd);
     }
 }
+
+// Feature 5 (0x00476DB0): Inlined Accessor Function
+int OptimizeSub476DB0_InlineAccessor(int objectPtr) {
+    if (!objectPtr) return 0;
+    return *(int*)(objectPtr + 4);
+}
+
+// Feature 38 (0x006CA330): Inlined Field Copy
+void OptimizeSub6CA330_InlineCopy(void* dest, const void* src) {
+    if (dest && src) {
+        *(uint64_t*)dest = *(const uint64_t*)src;
+    }
+}
+
+// Feature 39 (0x00909330): Inlined Short-Circuit Evaluator
+int OptimizeSub909330_InlineEval(int thisPtr, short a2, int a3) {
+    if (!thisPtr) return 0;
+    return (a2 != 0) ? (thisPtr + a3) : 0;
+}
+
+// Feature 41 (0x00508320): Inlined Pair Comparison
+int OptimizeSub508320_InlinePairCmp(int a1, int a2) {
+    return (a1 == a2) ? 1 : 0;
+}
+
+// Feature 44 (0x006EF860): Inlined String Copy with Length
+int OptimizeSub6EF860_InlineStrCopy(int thisPtr, int srcPtr) {
+    if (!thisPtr || !srcPtr) return 0;
+    const char* str = (const char*)srcPtr;
+    size_t len = strlen(str);
+    memcpy((void*)thisPtr, str, len + 1);
+    return (int)len;
+}
