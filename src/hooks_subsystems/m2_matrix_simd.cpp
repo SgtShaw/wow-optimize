@@ -115,4 +115,23 @@ namespace M2MatrixSimd {
         }
         return false;
     }
+
+    // Feature 31 (0x009A3F20): De-virtualized Transform Node Evaluation
+    void OptimizeSub9A3F20_DevirtualizedEval(void* node, float* outMatrix) {
+        if (!node || !outMatrix) return;
+        float* nodeMatrix = (float*)((char*)node + 16);
+        _mm_storeu_ps(&outMatrix[0], _mm_loadu_ps(&nodeMatrix[0]));
+        _mm_storeu_ps(&outMatrix[4], _mm_loadu_ps(&nodeMatrix[4]));
+        _mm_storeu_ps(&outMatrix[8], _mm_loadu_ps(&nodeMatrix[8]));
+        _mm_storeu_ps(&outMatrix[12], _mm_loadu_ps(&nodeMatrix[12]));
+    }
+
+    // Feature 35 (0x00581E80): De-virtualized Scale Matrix Fastpath
+    void OptimizeSub581E80_DevirtualizedScale(void* scaleObj, float* scaleVec) {
+        if (!scaleObj || !scaleVec) return;
+        float* internalScale = (float*)((char*)scaleObj + 8);
+        scaleVec[0] = internalScale[0];
+        scaleVec[1] = internalScale[1];
+        scaleVec[2] = internalScale[2];
+    }
 }

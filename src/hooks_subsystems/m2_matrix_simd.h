@@ -18,4 +18,8 @@ namespace M2MatrixSimd {
     void OptimizeSub9B1B40_MatrixMul(float* outMat, const float* matA, const float* matB);
     // Feature 26 (0x0093E470): Lock-Free Matrix Update Slot
     bool OptimizeSub93E470_LockFree(volatile LONG* lockSlot, const float* newMatrix, float* targetMatrix);
+
+    // De-virtualized Transform Path Fastpaths
+    void OptimizeSub9A3F20_DevirtualizedEval(void* node, float* outMatrix);
+    void OptimizeSub581E80_DevirtualizedScale(void* scaleObj, float* scaleVec);
 }
