@@ -117,10 +117,87 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
     if (!ValidPtr((uintptr_t)pThis) || !orig_UpdateBones) return 0;
 
     __try {
-        return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        uintptr_t self = (uintptr_t)pThis;
+
+        // Must be an active model (flags bit 0)
+        int flags = *(int*)(self + 16);
+        if ((flags & 1) == 0)
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+
+        // Safety Guard 1: Never throttle attachment models (e.g. weapons, shoulders, helms)
+        // Attachment models have parent model pointers or attachment flags set at offset +0x24 / +0x28
+        uintptr_t parentModel = *(uintptr_t*)(self + 0x24);
+        if (ValidPtr(parentModel)) {
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+
+        // Safety Guard 2: Never throttle local player character model
+        uintptr_t playerUnit = *(uintptr_t*)0x00BD07A0;
+        if (ValidPtr(playerUnit)) {
+            uintptr_t playerModel = *(uintptr_t*)(playerUnit + 0x118);
+            if (self == playerModel) {
+                g_updatedTotal++;
+                return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+            }
+        }
+
+        // Safety Guard 3: Never throttle target model
+        uintptr_t targetUnit = *(uintptr_t*)0x00BD07B0;
+        if (ValidPtr(targetUnit)) {
+            uintptr_t targetModel = *(uintptr_t*)(targetUnit + 0x118);
+            if (self == targetModel) {
+                g_updatedTotal++;
+                return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+            }
+        }
+
+        uintptr_t animCtx = *(uintptr_t*)(self + 40);
+        if (!ValidPtr(animCtx))
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+
+        uint32_t tick = *(uint32_t*)(animCtx + 20);   // current animation tick
+        uint32_t last = *(uint32_t*)(self + 60);      // tick this model last updated
+
+        // Frame boundary: when global tick advances, roll crowd counter
+        if (tick != g_lastFrameTick) {
+            g_callsLastFrame = (uint32_t)InterlockedExchange(&g_callsThisFrame, 0);
+            g_crowded = (g_callsLastFrame >= g_crowdThreshold);
+            g_lastFrameTick = tick;
+        }
+        InterlockedIncrement(&g_callsThisFrame);
+
+        // Engine already skipped it this tick, or scene is light -> full rate
+        if (tick == last || !g_crowded) {
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+
+        // Throttle distant background models in crowded scenes
+        uint32_t interval = IntervalForCrowd(g_callsLastFrame);
+        uint32_t h = HashPtr(pThis);
+        Slot& s = g_slots[h];
+
+        if (s.key != pThis) {
+            uint32_t phase = HashPtr((void*)~(uintptr_t)pThis) % (interval ? interval : 1);
+            s.key = pThis;
+            s.tick = tick - phase;
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+
+        if ((uint32_t)(tick - s.tick) >= interval) {
+            s.tick = tick;
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+
+        // Throttle background model update safely
+        g_throttledTotal++;
+        return *(int*)(self + 16);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        return 0;
+        return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
     }
 }
 
