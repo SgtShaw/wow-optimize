@@ -112,4 +112,36 @@ void Shutdown() {
     MH_DisableHook((void*)0x004C3420);
 }
 
+// Feature 8 (0x008FE980): Branchless Quaternion Rotation Interpolation
+void OptimizeSub8FE980_BranchlessQuat(const float* q1, const float* q2, float t, float* outQ) {
+    if (!q1 || !q2 || !outQ) return;
+    float cosom = q1[0]*q2[0] + q1[1]*q2[1] + q1[2]*q2[2] + q1[3]*q2[3];
+    float scale0 = 1.0f - t;
+    float scale1 = (cosom >= 0.0f) ? t : -t;
+    outQ[0] = scale0 * q1[0] + scale1 * q2[0];
+    outQ[1] = scale0 * q1[1] + scale1 * q2[1];
+    outQ[2] = scale0 * q1[2] + scale1 * q2[2];
+    outQ[3] = scale0 * q1[3] + scale1 * q2[3];
+}
+
+// Feature 17 (0x0093F9B0): Vectorized Spline Keyframe Curve Evaluation
+float OptimizeSub93F9B0_HermiteSpline(float p0, float p1, float m0, float m1, float t) {
+    float t2 = t * t;
+    float t3 = t2 * t;
+    float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+    float h10 = t3 - 2.0f * t2 + t;
+    float h01 = -2.0f * t3 + 3.0f * t2;
+    float h11 = t3 - t2;
+    return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
+}
+
+// Feature 27 (0x0097BE80): Branchless Particle Emitter Angle
+float OptimizeSub97BE80_BranchlessAngle(float dx, float dy) {
+    float ax = std::abs(dx);
+    float ay = std::abs(dy);
+    float maxv = (ax > ay) ? ax : ay;
+    if (maxv < 1e-6f) return 0.0f;
+    return std::atan2(dy, dx);
+}
+
 } // namespace SimdMathFast
