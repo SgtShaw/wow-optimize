@@ -60,7 +60,18 @@ bool Init() {
 void Shutdown() {
     WinLockGuard lock(g_historyMutex);
     g_history.clear();
-    Log("[CombatTextCoalescer] Stats: Coalesced %lld combat text messages", g_coalescedCount);
+    Log("[CombatTextCoalescer] Stats: Coalesced %lld duplicate combat text popups", g_coalescedCount);
+}
+
+// Feature 45 (0x007385C0): Throttled Floating Combat Text Routine
+bool OptimizeSub7385C0_CombatTextThrottle(int amount, char isCrit) {
+    if (amount < 50 && !isCrit) {
+        static DWORD lastNonCritTick = 0;
+        DWORD now = GetTickCount();
+        if (now - lastNonCritTick < 100) return true; // Throttle low non-crit combat text
+        lastNonCritTick = now;
+    }
+    return false;
 }
 
 } // namespace CombatTextCoalescer
