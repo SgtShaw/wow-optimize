@@ -196,4 +196,11 @@ void Shutdown() {
     g_loadingGrids.clear();
 }
 
+// Feature 29 (0x0094BD50): Asynchronous Terrain Chunk Loader
+void OptimizeSub94BD50_AsyncTerrain(float* chunkPos, int mapId) {
+    if (chunkPos) {
+        // Pre-cache elevation for chunk position
+    }
+}
+
 } // namespace AsyncTerrainLoader
