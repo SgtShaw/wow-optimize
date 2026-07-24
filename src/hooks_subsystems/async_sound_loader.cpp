@@ -251,4 +251,11 @@ void Shutdown() {
     Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects.", g_preloads);
 }
 
+// Feature 10 (0x0080E1B0): Asynchronous Sound I/O Task
+void OptimizeSub80E1B0_AsyncSound(const char* soundPath) {
+    if (soundPath && soundPath[0] != '\0') {
+        PreloadSound(std::string(soundPath));
+    }
+}
+
 } // namespace AsyncSoundLoader
