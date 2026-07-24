@@ -169,3 +169,27 @@ void GetTlsCacheStats(uint64_t* hits, uint64_t* total)
     if (hits) *hits = g_tlsCacheHits;
     if (total) *total = g_tlsCacheTotal;
 }
+
+// TLS Cache Routines
+void* OptimizeSub6238A0_TLSCache(unsigned int index) {
+    static __declspec(thread) void* s_tlsSlot = nullptr;
+    if (!s_tlsSlot) s_tlsSlot = TlsGetValue(index);
+    return s_tlsSlot;
+}
+
+void* OptimizeSub45E080_TLSCache() {
+    static __declspec(thread) void* s_tlsBuf = nullptr;
+    return s_tlsBuf;
+}
+
+void* OptimizeSub55BDC0_TLSCache(void* key) {
+    static __declspec(thread) void* s_cachedKey = nullptr;
+    if (key) s_cachedKey = key;
+    return s_cachedKey;
+}
+
+void* OptimizeSub509DD0_TLSCache(const char* name) {
+    static __declspec(thread) const char* s_lastName = nullptr;
+    if (name) s_lastName = name;
+    return (void*)s_lastName;
+}
