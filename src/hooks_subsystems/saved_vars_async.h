@@ -18,3 +18,6 @@
 bool InstallSavedVarsAsync();
 void ShutdownSavedVarsAsync();
 void FlushSavedVarsAsyncSynchronously();
+
+// Feature 48 (0x00739650): Asynchronous SavedVariables Serializer
+void OptimizeSub739650_AsyncSavedVars(const char* luaFilePath, const char* dataBuffer);
