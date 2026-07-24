@@ -119,9 +119,10 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
         }
         g_countThisFrame++;
 
-        // Scene is light, or this is the current target -> always full rate.
+        // Scene is light, target, or has child frames (addons like PlateBuffs/Icicle/ClassIcons) -> always full rate.
         uint64_t guid = *(uint64_t*)(self + 680);
-        if (!g_crowded || (guid != 0 && guid == *g_targetGuid)) {
+        uint32_t childCount = *(uint32_t*)(self + 0x18); // CSimpleFrame child array count
+        if (!g_crowded || (guid != 0 && guid == *g_targetGuid) || childCount > 0) {
             g_updatedTotal++;
             orig_Update(pThis, edx, dt);
             return;
@@ -132,9 +133,6 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
         Slot& s = g_slots[h];
 
         if (s.key != pThis) {
-            // First sight (or a collision evicted the slot): register with a
-            // per-plate phase offset so plates don't all update on the same
-            // frame, and update now.
             uint32_t phase = HashPtr((void*)~(uintptr_t)pThis) % (interval ? interval : 1);
             s.key = pThis;
             s.frame = frame - phase;
@@ -145,8 +143,6 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
         }
 
         if ((uint32_t)(frame - s.frame) >= interval) {
-            // Due: update with the dt accumulated across the skipped frames so
-            // its timers/animations advance by the correct total time.
             float total = s.accumDt + dt;
             s.frame = frame;
             s.accumDt = 0.0f;
@@ -155,7 +151,6 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
             return;
         }
 
-        // Throttle: skip this frame's update, banking dt for when it's next due.
         s.accumDt += dt;
         g_throttledTotal++;
     }
@@ -166,32 +161,12 @@ static void __fastcall Hooked_Update(void* pThis, void* edx, float dt)
 
 typedef void* (__cdecl* fn_4D4DB0)(uint64_t guid, int typeMask);
 
-// A 4x4 identity matrix - the safe fallback the caller can render with (plate at
-// origin for one frame) when we can't produce a real world matrix without crashing.
-static void FillIdentityMatrix(void* a2) {
-    if (!a2) return;
-    float* m = (float*)a2;
-    for (int i = 0; i < 16; i++) m[i] = 0.0f;
-    m[0] = m[5] = m[10] = m[15] = 1.0f;
-}
-
-// The nameplate GetWorldMatrix (sub_722B50) resolves the plate's GUID via a
-// vtable getter and, on Ascension, does an UNCHECKED virtual call on the result:
-// when the unit has despawned, sub_4D4DB0 returns NULL and the client crashes
-// (0x722C14, mov edx,[eax] with eax=0). We can't skip positioning (the plate must
-// track its unit), so instead: if the plate's unit no longer resolves, zero its
-// GUID so the original computes the position but skips the crashing virtual call,
-// then ALWAYS restore the GUID (__finally, even if the original faults). An outer
-// SEH backstop returns an identity matrix for any other fault path, since the
-// crash can also be reached via a GUID source other than this+680.
 static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
 {
-    if (!pThis) return orig_GetWorldMatrix(pThis, edx, a2);
+    if (!pThis || !a2) return orig_GetWorldMatrix(pThis, edx, a2);
 
     __try {
         void* vtable = *(void**)pThis;
-        // Verify this is a Nameplate Frame object (its two vtables are the only
-        // data xrefs to sub_722B50) before touching the GUID field.
         if (vtable == (void*)0x00A3278C || vtable == (void*)0x00A34E54) {
             uint64_t* pGuid = (uint64_t*)((uintptr_t)pThis + 680);
             uint64_t originalGuid = *pGuid;
@@ -205,17 +180,18 @@ static void* __fastcall Hooked_GetWorldMatrix(void* pThis, void* edx, void* a2)
                 }
 
                 if (!unit) {
-                    // Unit despawned/freed. Return identity matrix directly instead of calling
-                    // orig_GetWorldMatrix with zeroed GUID (which outputs a (0,0,0) matrix).
-                    FillIdentityMatrix(a2);
-                    return a2;
+                    // Safe execution without crashing when unit despawns: execute original under SEH
+                    __try {
+                        return orig_GetWorldMatrix(pThis, edx, a2);
+                    } __except (EXCEPTION_EXECUTE_HANDLER) {
+                        return a2;
+                    }
                 }
             }
         }
         return orig_GetWorldMatrix(pThis, edx, a2);
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
-        FillIdentityMatrix(a2);
         return a2;
     }
 }

@@ -116,45 +116,13 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* edx, float* a2, int 
         return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
     }
 
-    if (g_threadsRunning) {
-        __try {
-            uint16_t boneCount = *(uint16_t*)((uint8_t*)pThis + 72);
+    __try {
+        if (orig_UpdateBones) {
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
+    } __except (EXCEPTION_EXECUTE_HANDLER) {}
 
-            if (boneCount >= 8) {
-                int slotIdx = (int)(InterlockedIncrement(&g_ringIndex) % RING_SLOTS);
-                LockFreeBoneSlot* slot = &g_ring[slotIdx];
-
-                if (InterlockedCompareExchange(&slot->state, STATE_PENDING, STATE_FREE) == STATE_FREE) {
-                    slot->pThis  = pThis;
-                    slot->a2     = a2;
-                    slot->a3     = a3;
-                    slot->a4     = a4;
-                    slot->a5     = a5;
-                    slot->a6     = a6;
-                    slot->result = 0;
-
-                    // Ultra-low latency spin-wait loop
-                    for (int spin = 0; spin < SPIN_BOUND; ++spin) {
-                        if (InterlockedCompareExchange(&slot->state, STATE_DONE, STATE_DONE) == STATE_DONE) {
-                            int res = slot->result;
-                            InterlockedExchange(&slot->state, STATE_FREE);
-                            return res;
-                        }
-                        YieldProcessor();
-                    }
-
-                    // Fallback: If workers are overloaded, pull work back or complete directly
-                    if (InterlockedCompareExchange(&slot->state, STATE_PROCESSING, STATE_PENDING) == STATE_PENDING) {
-                        int res = orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
-                        InterlockedExchange(&slot->state, STATE_FREE);
-                        return res;
-                    }
-                }
-            }
-        } __except(EXCEPTION_EXECUTE_HANDLER) {}
-    }
-
-    return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;
+    return 0;
 }
 #endif
 

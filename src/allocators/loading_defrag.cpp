@@ -233,8 +233,11 @@ void Shutdown() {
 
 extern "C" void ClearDbcLookupCache();
 
+static DWORD g_loadingStartTick = 0;
+
 void NotifyLoadingState(bool isLoading) {
     if (isLoading) {
+        g_loadingStartTick = GetTickCount();
         g_loadingActive.store(true, std::memory_order_release);
         SetEvent(g_defragEvent);
         ApiCache::ClearCache();
@@ -245,7 +248,14 @@ void NotifyLoadingState(bool isLoading) {
 }
 
 bool IsLoadingActive() {
-    return g_loadingActive.load(std::memory_order_acquire);
+    if (g_loadingActive.load(std::memory_order_acquire)) {
+        if (GetTickCount() - g_loadingStartTick > 8000) {
+            g_loadingActive.store(false, std::memory_order_release);
+            return false;
+        }
+        return true;
+    }
+    return false;
 }
 
 // Helper to check if string matches GetStackTopFast / SetStackTopFast definitions
