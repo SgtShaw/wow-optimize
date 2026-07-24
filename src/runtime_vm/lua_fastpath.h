@@ -27,6 +27,17 @@ namespace LuaFastPath {
 // Phase 1: Hook string.format (hardcoded address, called during DLL init)
 bool Init();
 
+// Feature 4 (0x009013B0): TLS-cached Lua Stack Type Check
+int OptimizeSub9013B0_LuaTypeCheckTLS(lua_State* L, int idx, int expectedType);
+// Feature 14 (0x008A65E0): De-virtualized FrameScript Event Dispatcher
+bool OptimizeSub8A65E0_FrameScriptDispatch(void* frameObj, int eventId, const char* argStr);
+// Feature 15 (0x00608880): Fast Event Name Hash Cache for UNIT_PET
+const char* OptimizeSub608880_UnitPetHash();
+// Feature 22 (0x00832EA0): TLS-cached Lua Environment Lookup
+void* OptimizeSub832EA0_LuaEnvTLS(lua_State* L);
+// Feature 25 (0x00693E40): De-virtualized Lua Metatable Call Dispatcher
+void OptimizeSub693E40_LuaMetatableDispatch(lua_State* L, void* tableObj, const char* eventName);
+
 // Phase 2: Discover and hook more functions at runtime (called after Lua state ready)
 bool InitPhase2(lua_State* L);
 // Allow Phase 2 discovery to re-run after lua_State / VM change

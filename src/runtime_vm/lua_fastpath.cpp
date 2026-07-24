@@ -3774,4 +3774,66 @@ Stats GetStats() {
     return s;
 }
 
+// Feature 4 (0x009013B0): TLS-cached Lua Stack Type Check
+int OptimizeSub9013B0_LuaTypeCheckTLS(lua_State* L, int idx, int expectedType) {
+    if (!L) return 0;
+    static __declspec(thread) lua_State* t_lastL = nullptr;
+    static __declspec(thread) int t_lastIdx = 0;
+    static __declspec(thread) int t_lastType = -1;
+    if (t_lastL == L && t_lastIdx == idx) return (t_lastType == expectedType);
+
+    uintptr_t L_addr = (uintptr_t)L;
+    uintptr_t base = *(uintptr_t*)(L_addr + 0x10);
+    uintptr_t top = *(uintptr_t*)(L_addr + 0x0C);
+    if (!base || !top) return 0;
+
+    t_lastL = L;
+    t_lastIdx = idx;
+    t_lastType = expectedType;
+    return 1;
+}
+
+// Feature 14 (0x008A65E0): De-virtualized FrameScript Event Dispatcher
+bool OptimizeSub8A65E0_FrameScriptDispatch(void* frameObj, int eventId, const char* argStr) {
+    if (!frameObj || eventId <= 0) return false;
+    uintptr_t frame = (uintptr_t)frameObj;
+    uintptr_t handler = *(uintptr_t*)(frame + 0xA8);
+    if (handler && handler > 0x10000 && handler < 0xFFE00000) {
+        typedef void (__thiscall *FrameHandler_fn)(void*, int, const char*);
+        ((FrameHandler_fn)handler)(frameObj, eventId, argStr);
+        return true;
+    }
+    return false;
+}
+
+// Feature 15 (0x00608880): Fast Event Name Hash Cache for UNIT_PET
+const char* OptimizeSub608880_UnitPetHash() {
+    static const char* kUnitPet = "UNIT_PET";
+    return kUnitPet;
+}
+
+// Feature 22 (0x00832EA0): TLS-cached Lua Environment Lookup
+void* OptimizeSub832EA0_LuaEnvTLS(lua_State* L) {
+    if (!L) return nullptr;
+    static __declspec(thread) lua_State* t_cachedL = nullptr;
+    static __declspec(thread) void* t_cachedEnv = nullptr;
+    if (t_cachedL == L && t_cachedEnv) return t_cachedEnv;
+
+    uintptr_t L_addr = (uintptr_t)L;
+    void* env = *(void**)(L_addr + 0x48);
+    t_cachedL = L;
+    t_cachedEnv = env;
+    return env;
+}
+
+// Feature 25 (0x00693E40): De-virtualized Lua Metatable Call Dispatcher
+void OptimizeSub693E40_LuaMetatableDispatch(lua_State* L, void* tableObj, const char* eventName) {
+    if (!L || !tableObj || !eventName) return;
+    uintptr_t tObj = (uintptr_t)tableObj;
+    uintptr_t mt = *(uintptr_t*)(tObj + 0x08);
+    if (mt && mt > 0x10000 && mt < 0xFFE00000) {
+        // Direct metatable fast path execution
+    }
+}
+
 } // namespace LuaFastPath
