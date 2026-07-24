@@ -520,3 +520,19 @@ void ShutdownDataCaches() {
             g_rsBatchFlushes, g_rsBatchCoalesced);
     Log("  Tex Prefetch: %lld prefetched", g_texPrefetchHits);
 }
+
+void OptimizeSub474F50_CacheLineAoS(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr, _MM_HINT_T0);
+}
+
+void OptimizeSub87C710_CacheLineRefactor(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr + 64, _MM_HINT_T0);
+}
+
+void OptimizeSub857CA0_CacheLineAccess(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr, _MM_HINT_T0);
+}
+
+void OptimizeSub8418F0_CacheLineMemory(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr + 64, _MM_HINT_T0);
+}

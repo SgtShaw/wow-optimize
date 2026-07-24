@@ -55,3 +55,9 @@ int RenderStateBatch_Flush(RenderStateBatch* outBatch);
 
 // 10. Texture Decode Prefetch
 void TextureDecodePrefetch(const void* blpData, size_t dataSize);
+
+// Cache-Line Access & Memory Structure Optimizations
+void OptimizeSub474F50_CacheLineAoS(void* ptr);
+void OptimizeSub87C710_CacheLineRefactor(void* ptr);
+void OptimizeSub857CA0_CacheLineAccess(void* ptr);
+void OptimizeSub8418F0_CacheLineMemory(void* ptr);
