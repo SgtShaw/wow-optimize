@@ -349,7 +349,7 @@ Then inject after WoW starts.
 
 ### Supported Clients & Private Servers
 The optimization suite is compatible with any standard or customized WotLK 3.3.5a client (build 12340), including private servers using custom executables:
-* **Warmane** (Icecrown, Lordaeron, Onyxia) -- DO NOT USE, CAUSE BAN
+* **Warmane** (Icecrown, Lordaeron, Onyxia) — **STRICTLY PROHIBITED (WILL RESULT IN A PERMANENT BAN)**
 * **Project Ascension** (supporting custom `Ascension.exe` launches)
 * **WoW Circle** (supporting `WoWCircle.exe` launches)
 * **EZ WoW**
