@@ -20,4 +20,14 @@ namespace CameraCollisionThrottle {
         unsigned int frame = g_frameCount.fetch_add(1, std::memory_order_relaxed);
         return (frame % 2 != 0);
     }
+
+    // Feature 23 (0x00821A20): Throttled Camera Collision Raycast
+    bool OptimizeSub821A20_CameraRayThrottle(float camX, float camY, float camZ) {
+        static float lastX = 0, lastY = 0, lastZ = 0;
+        if (lastX == camX && lastY == camY && lastZ == camZ) {
+            return true; // Position unchanged, skip raycast
+        }
+        lastX = camX; lastY = camY; lastZ = camZ;
+        return false;
+    }
 }
