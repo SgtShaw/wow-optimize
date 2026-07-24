@@ -73,8 +73,13 @@ static HRESULT STDMETHODCALLTYPE Hooked_SetRenderState(
 {
     g_rs_calls++;
 
+    bool isCriticalState = (state == D3DRS_ALPHABLENDENABLE || state == D3DRS_SRCBLEND || 
+                           state == D3DRS_DESTBLEND || state == D3DRS_ALPHATESTENABLE || 
+                           state == D3DRS_ALPHAREF || state == D3DRS_ALPHAFUNC ||
+                           state == D3DRS_ZWRITEENABLE || state == D3DRS_ZENABLE);
+
     DWORD idx = (DWORD)state;
-    if (idx < RS_CACHE_SIZE) {
+    if (idx < RS_CACHE_SIZE && !isCriticalState) {
         if (g_rsValid[idx] && g_rsCache[idx] == value) {
             g_rs_skipped++;
             return S_OK;
