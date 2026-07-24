@@ -38,6 +38,9 @@ void* OptimizeSub832EA0_LuaEnvTLS(lua_State* L);
 // Feature 25 (0x00693E40): De-virtualized Lua Metatable Call Dispatcher
 void OptimizeSub693E40_LuaMetatableDispatch(lua_State* L, void* tableObj, const char* eventName);
 
+// Feature 36 (0x006E2E90): De-virtualized Lua String Formatting Fastpath
+int OptimizeSub6E2E90_DevirtualizeStringFormat(lua_State* L, const char* fmt, int numArgs);
+
 // Phase 2: Discover and hook more functions at runtime (called after Lua state ready)
 bool InitPhase2(lua_State* L);
 // Allow Phase 2 discovery to re-run after lua_State / VM change

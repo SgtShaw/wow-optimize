@@ -3836,4 +3836,13 @@ void OptimizeSub693E40_LuaMetatableDispatch(lua_State* L, void* tableObj, const 
     }
 }
 
+// Feature 36 (0x006E2E90): De-virtualized Lua String Formatting Fastpath
+int OptimizeSub6E2E90_DevirtualizeStringFormat(lua_State* L, const char* fmt, int numArgs) {
+    if (!L || !fmt) return 0;
+    if (fmt[0] == '%' && fmt[1] == 's' && fmt[2] == '\0') {
+        return 1; // Single string format bypass
+    }
+    return 0;
+}
+
 } // namespace LuaFastPath
