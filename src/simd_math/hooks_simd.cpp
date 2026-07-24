@@ -821,76 +821,11 @@ static MatrixVectorTransform_t orig_sub_4C2300 = nullptr;
 static MatrixVectorTransform_t orig_sub_5FED20 = nullptr;
 
 static float* __cdecl Hooked_sub_4C2300(float* result, float* vec, float* mat) {
-    __try {
-        if (vec && mat && result &&
-            (uintptr_t)vec >= 0x10000 && (uintptr_t)vec < 0xFFE00000 &&
-            (uintptr_t)mat >= 0x10000 && (uintptr_t)mat < 0xFFE00000 &&
-            (uintptr_t)result >= 0x10000 && (uintptr_t)result < 0xFFE00000) {
-
-            __m128 v_x = _mm_set1_ps(vec[0]);
-            __m128 v_y = _mm_set1_ps(vec[1]);
-            __m128 v_z = _mm_set1_ps(vec[2]);
-
-            __m128 col0 = _mm_setr_ps(mat[0], mat[1], mat[2], 0.0f);
-            __m128 col1 = _mm_setr_ps(mat[4], mat[5], mat[6], 0.0f);
-            __m128 col2 = _mm_setr_ps(mat[8], mat[9], mat[10], 0.0f);
-            __m128 col3 = _mm_setr_ps(mat[12], mat[13], mat[14], 0.0f);
-
-            __m128 res = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(col0, v_x), _mm_mul_ps(col1, v_y)),
-                _mm_add_ps(_mm_mul_ps(col2, v_z), col3)
-            );
-
-            float tmp[4];
-            _mm_storeu_ps(tmp, res);
-
-            vec[0] = tmp[0];
-            vec[1] = tmp[1];
-            vec[2] = tmp[2];
-
-            result[0] = tmp[0];
-            result[1] = tmp[1];
-            result[2] = tmp[2];
-
-            return result;
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-
-    return orig_sub_4C2300(result, vec, mat);
+    return orig_sub_4C2300 ? orig_sub_4C2300(result, vec, mat) : result;
 }
 
 static float* __cdecl Hooked_sub_5FED20(float* result, float* vec, float* mat) {
-    __try {
-        if (vec && mat && result &&
-            (uintptr_t)vec >= 0x10000 && (uintptr_t)vec < 0xFFE00000 &&
-            (uintptr_t)mat >= 0x10000 && (uintptr_t)mat < 0xFFE00000 &&
-            (uintptr_t)result >= 0x10000 && (uintptr_t)result < 0xFFE00000) {
-
-            __m128 v_x = _mm_set1_ps(vec[0]);
-            __m128 v_y = _mm_set1_ps(vec[1]);
-            __m128 v_z = _mm_set1_ps(vec[2]);
-
-            __m128 col0 = _mm_setr_ps(mat[0], mat[1], mat[2], 0.0f);
-            __m128 col1 = _mm_setr_ps(mat[3], mat[4], mat[5], 0.0f);
-            __m128 col2 = _mm_setr_ps(mat[6], mat[7], mat[8], 0.0f);
-
-            __m128 res = _mm_add_ps(
-                _mm_add_ps(_mm_mul_ps(col0, v_x), _mm_mul_ps(col1, v_y)),
-                _mm_mul_ps(col2, v_z)
-            );
-
-            float tmp[4];
-            _mm_storeu_ps(tmp, res);
-
-            result[0] = tmp[0];
-            result[1] = tmp[1];
-            result[2] = tmp[2];
-
-            return result;
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-
-    return orig_sub_5FED20(result, vec, mat);
+    return orig_sub_5FED20 ? orig_sub_5FED20(result, vec, mat) : result;
 }
 #endif
 
@@ -976,22 +911,7 @@ static FromAngleAxis_t orig_FromAngleAxis = nullptr;
 
 
 static float* __fastcall Hooked_FromAngleAxis(float* self, void* edx, float angle, float* axis) {
-    __try {
-        if (self && axis &&
-            (uintptr_t)self > 0x10000 && (uintptr_t)self < 0xFFE00000 &&
-            (uintptr_t)axis > 0x10000 && (uintptr_t)axis < 0xFFE00000) {
-            
-            float half_angle = angle * 0.5f;
-            float s = sinf(half_angle);
-            float c = cosf(half_angle);
-            self[3] = c;
-            self[0] = axis[0] * s;
-            self[1] = axis[1] * s;
-            self[2] = axis[2] * s;
-            return axis;
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_FromAngleAxis(self, edx, angle, axis);
+    return orig_FromAngleAxis ? orig_FromAngleAxis(self, edx, angle, axis) : axis;
 }
 
 // ================================================================
@@ -1002,49 +922,7 @@ static QuatSlerp_t orig_QuatSlerp = nullptr;
 
 
 static float* __cdecl Hooked_QuatSlerp(float* result, float t, float* q1, float* q2) {
-    __try {
-        if (result && q1 && q2 &&
-            (uintptr_t)result > 0x10000 && (uintptr_t)result < 0xFFE00000 &&
-            (uintptr_t)q1 > 0x10000 && (uintptr_t)q1 < 0xFFE00000 &&
-            (uintptr_t)q2 > 0x10000 && (uintptr_t)q2 < 0xFFE00000) {
-            
-            float cosTheta = q1[0]*q2[0] + q1[1]*q2[1] + q1[2]*q2[2] + q1[3]*q2[3];
-            float factor = 1.0f;
-            if (cosTheta < 0.0f) {
-                factor = -1.0f;
-                cosTheta = -cosTheta;
-            }
-            
-            float sinThetaSq = 1.0f - cosTheta * cosTheta;
-            if (sinThetaSq < 0.0f) sinThetaSq = 0.0f;
-            if (sinThetaSq > 0.0f) {
-                float sinTheta = sqrtf(sinThetaSq);
-                if (sinTheta >= 0.00000047683716f) {
-                    float theta = atan2f(sinTheta, cosTheta);
-                    float invSinTheta = 1.0f / sinTheta;
-                    float r1 = sinf((1.0f - t) * theta) * invSinTheta;
-                    float r2 = sinf(t * theta) * invSinTheta * factor;
-                    
-                    result[0] = q1[0] * r1 + q2[0] * r2;
-                    result[1] = q1[1] * r1 + q2[1] * r2;
-                    result[2] = q1[2] * r1 + q2[2] * r2;
-                    result[3] = q1[3] * r1 + q2[3] * r2;
-                } else {
-                    result[0] = q1[0];
-                    result[1] = q1[1];
-                    result[2] = q1[2];
-                    result[3] = q1[3];
-                }
-            } else {
-                result[0] = q1[0];
-                result[1] = q1[1];
-                result[2] = q1[2];
-                result[3] = q1[3];
-            }
-            return result;
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {}
-    return orig_QuatSlerp(result, t, q1, q2);
+    return orig_QuatSlerp ? orig_QuatSlerp(result, t, q1, q2) : result;
 }
 
 bool InstallSimdHooks(void) {
