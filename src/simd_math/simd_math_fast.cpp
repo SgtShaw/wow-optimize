@@ -144,4 +144,35 @@ float OptimizeSub97BE80_BranchlessAngle(float dx, float dy) {
     return std::atan2(dy, dx);
 }
 
+// Feature 16 (0x0082F0F0): Vectorized Math Array Operations
+void OptimizeSub82F0F0_VectorizedMath(float* inArray, float* outArray, int count) {
+    if (!inArray || !outArray || count <= 0) return;
+    int i = 0;
+    for (; i <= count - 4; i += 4) {
+        __m128 v = _mm_loadu_ps(&inArray[i]);
+        v = _mm_mul_ps(v, v);
+        _mm_storeu_ps(&outArray[i], v);
+    }
+    for (; i < count; ++i) {
+        outArray[i] = inArray[i] * inArray[i];
+    }
+}
+
+// Feature 43 (0x006865B0): Vectorized Matrix-Vector Transform
+void OptimizeSub6865B0_VectorizedTransform(float* inVec4, const float* matrix4x4, float* outVec4) {
+    if (!inVec4 || !matrix4x4 || !outVec4) return;
+    __m128 v = _mm_loadu_ps(inVec4);
+    __m128 m0 = _mm_loadu_ps(&matrix4x4[0]);
+    __m128 m1 = _mm_loadu_ps(&matrix4x4[4]);
+    __m128 m2 = _mm_loadu_ps(&matrix4x4[8]);
+    __m128 m3 = _mm_loadu_ps(&matrix4x4[12]);
+    __m128 res = _mm_add_ps(
+        _mm_add_ps(_mm_mul_ps(_mm_shuffle_ps(v, v, _MM_SHUFFLE(0, 0, 0, 0)), m0),
+                   _mm_mul_ps(_mm_shuffle_ps(v, v, _MM_SHUFFLE(1, 1, 1, 1)), m1)),
+        _mm_add_ps(_mm_mul_ps(_mm_shuffle_ps(v, v, _MM_SHUFFLE(2, 2, 2, 2)), m2),
+                   _mm_mul_ps(_mm_shuffle_ps(v, v, _MM_SHUFFLE(3, 3, 3, 3)), m3))
+    );
+    _mm_storeu_ps(outVec4, res);
+}
+
 } // namespace SimdMathFast

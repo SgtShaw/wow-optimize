@@ -20,4 +20,8 @@ float OptimizeSub93F9B0_HermiteSpline(float p0, float p1, float m0, float m1, fl
 // Feature 27 (0x0097BE80): Branchless Particle Emitter Angle
 float OptimizeSub97BE80_BranchlessAngle(float dx, float dy);
 
+// Vectorized Math Functions
+void OptimizeSub82F0F0_VectorizedMath(float* inArray, float* outArray, int count);
+void OptimizeSub6865B0_VectorizedTransform(float* inVec4, const float* matrix4x4, float* outVec4);
+
 } // namespace SimdMathFast
