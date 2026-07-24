@@ -101,4 +101,16 @@ void Shutdown() {
     MH_DisableHook((void*)0x0052F1E0);
 }
 
+// Feature 50 (0x004B3F80): Pre-allocated Memory Pool for Network Packets
+float* OptimizeSub4B3F80_PreallocBuffer(float* inVec) {
+    static float s_pool[4];
+    if (inVec) {
+        s_pool[0] = inVec[0];
+        s_pool[1] = inVec[1];
+        s_pool[2] = inVec[2];
+        s_pool[3] = 1.0f;
+    }
+    return s_pool;
+}
+
 } // namespace NetAddonCoalescer
