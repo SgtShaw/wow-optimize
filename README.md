@@ -1,7 +1,16 @@
-# wow_optimize 
+<table width="100%">
+<tr>
+<td bgcolor="#ff4d4d">
 
-# DO NOT USE ON WARMANE -- CAUSE BAN 
+WARNING
 
+Using this tool on the Warmane server is strictly prohibited and will result in a permanent ban. The Warmane anti cheat flags performance injectors and memory optimization tools as illegal software regardless of intent. Players must avoid using this optimization tool on Warmane servers to protect their accounts from being permanently banned.
+
+</td>
+</tr>
+</table>
+
+# wow_optimize
 
 Performance optimization DLL for World of Warcraft 3.3.5a (WotLK)
 Author: SUPREMATIST
