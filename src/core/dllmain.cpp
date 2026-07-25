@@ -98,7 +98,6 @@
 #include "hooks_subsystems/movement_smoothing.h"
 #include "hooks_subsystems/font_alpha_fastpath.h"
 
-// 20 new colossal features (Features 31-50)
 #include "hooks_subsystems/packet_processing_throttle.h"
 #include "hooks_subsystems/nameplate_culling.h"
 #include "hooks_subsystems/texture_unload_delay.h"
@@ -7747,7 +7746,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptMovementSmoothing) MovementSmoothing::Init();
     if (Config::g_settings.OptFontAlphaFastpath) FontAlphaFastpath::Init();
 
-    Log("--- 20 New Colossal Optimization Features ---");
     if (Config::g_settings.OptPacketProcessingThrottle) PacketProcessingThrottle::Init();
     if (Config::g_settings.OptNameplateCulling) NameplateCulling::Init();
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();

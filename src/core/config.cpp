@@ -115,7 +115,6 @@ namespace Config {
             WritePrivateProfileStringA("General", "MovementSmoothing", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "0", iniPath.c_str());
 
-            // 20 new colossal features defaults
             WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());

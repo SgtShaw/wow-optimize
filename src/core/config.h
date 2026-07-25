@@ -86,7 +86,6 @@ namespace Config {
         bool OptMovementSmoothing = true;
         bool OptFontAlphaFastpath = true;
 
-        // 20 new colossal features (Features 31-50)
         bool OptPacketProcessingThrottle = true;
         bool OptNameplateCulling = true;
         bool OptTextureUnloadDelay = false;

@@ -341,30 +341,24 @@ namespace WowOptimizeLauncher {
                 { "Parallel Sound Wave Decoding", new SettingItem("Graphics_Sound", "AudioDecodeMt", false, null, "Decodes sound assets in background threads to eliminate latency when playing fresh audio clips.") },
                 { "DBC Data Lookup Cache", new SettingItem("Graphics_Sound", "DbcLookupCache", false, null, "Speeds up data reading from internal database files (.dbc) for models, items, and spells.") },
                 { "Asynchronous Texture Loader", new SettingItem("Graphics_Sound", "AsyncTexLoader", false, null, "Asynchronously loads and decompresses BLP textures in background worker threads, hot-swapping them on frame boundaries to prevent stutters.") },
-                { "Texture Smart Unload Delay", new SettingItem("Graphics_Sound", "TextureUnloadDelay", false, null, "[NEW] Delays texture unloading during camera turnarounds to prevent immediate load micro-stutters.") },
+                { "Texture Smart Unload Delay", new SettingItem("Graphics_Sound", "TextureUnloadDelay", false, null, "Delays texture unloading during camera turnarounds to prevent immediate load micro-stutters.") },
                 { "Mipmap Bias Governor", new SettingItem("Graphics_Sound", "MipBiasGovernor", false, null, "Adjusts mipmap texture bias dynamically based on virtual memory pressure to prevent allocation spikes.") },
                 { "Spatial Culling & Parallel Frustum Culler", new SettingItem("Graphics_Sound", "SpatialCulling", false, null, "Speculatively culls off-screen models and parallelizes frustum plane intersection queries using helper threads.") },
                 { "SIMD Matrix Vector Transforms", new SettingItem("Graphics_Sound", "SimdMatrixTransform", false, null, "Vectorizes 3D coordinate and matrix-vector calculations using SSE2 SIMD instructions to accelerate particle updates.") },
-
-                // 10 New Features
-                { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "[NEW] Dynamically scales shadow quality and resolution depending on the active frame rate.") },
-                { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", false, null, "[NEW] Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
-                { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "[NEW] Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
-
-                // 10 Additional New Features
-                { "Loading Screen Render Optimizer", new SettingItem("Graphics_Sound", "LoadingScreenOpt", false, null, "[NEW] Bypasses heavy 3D rendering calls during loading screens to improve loading speeds.") },
-                { "Overlapping Sound Volume Limiter", new SettingItem("Graphics_Sound", "SoundVolumeLimit", false, null, "[NEW] Limits and clamps volume for overlapping duplicate sound effects to prevent clipping and audio driver lag.") },
-                { "Terrain Height Cache", new SettingItem("Graphics_Sound", "TerrainHeightCache", false, null, "[NEW] Caches terrain elevation queries within the frame to minimize CPU map collisions query time.") },
-
-                // 20 new colossal features (Features 31-50)
-                { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
-                { "Fast SSE2 luaS_newlstr String Constructor", new SettingItem("UI_Lua", "LuaSNewLstrFast", true, null, "[VERIFIED] Fast SSE2 string table allocation and string construction at 0x00856C80.") },
-                { "Fast SSE2 Memory Clear (FastMemset)", new SettingItem("Graphics_Sound", "FastMemsetOpt", true, null, "[VERIFIED] SSE2 non-temporal memset replacement for large memory clears at 0x0040BB80.") },
-                { "Fast Case-Insensitive String Compare", new SettingItem("UI_Lua", "FastStrnicmpOpt", true, null, "[VERIFIED] SSE2 ASCII case-insensitive string comparison replacement at 0x0076E780.") },
-                { "Minimap Blip Refresh Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", true, null, "[VERIFIED] Throttles minimap blip refresh calls at 0x00923D50 to eliminate minimap CPU overhead.") },
-                { "Camera Collision Raycast Throttle", new SettingItem("Graphics_Sound", "CameraCollisionThrottle", true, null, "[VERIFIED] Throttles redundant camera collision raycasting at 0x00821A20.") },
-                { "Floating Combat Text Coalescer", new SettingItem("Combat_Net", "CombatTextCoalescer", true, null, "[VERIFIED] Coalesces floating combat text popups at 0x007385C0 to prevent text rendering lag.") },
-                { "UI Layout Recalculation Throttle", new SettingItem("UI_Lua", "UILayoutThrottle", true, null, "[VERIFIED] Governs UI layout recalculations at 0x00865270 during heavy addon updates.") },
+                { "Dynamic Shadow Quality Auto-Scaler", new SettingItem("Graphics_Sound", "DynamicShadowScaler", false, null, "Dynamically scales shadow quality and resolution depending on the active frame rate.") },
+                { "Advanced Sound Channels Coalescer", new SettingItem("Graphics_Sound", "SoundCoalescer", false, null, "Coalesces rapid duplicated sound plays to prevent channel exhaustion under AOE spam.") },
+                { "Particle Density Dynamic Scaler", new SettingItem("Graphics_Sound", "ParticleDensityScaler", false, null, "Dynamically scales down particle density in heavy raid environments to keep FPS high.") },
+                { "Loading Screen Render Optimizer", new SettingItem("Graphics_Sound", "LoadingScreenOpt", false, null, "Bypasses heavy 3D rendering calls during loading screens to improve loading speeds.") },
+                { "Overlapping Sound Volume Limiter", new SettingItem("Graphics_Sound", "SoundVolumeLimit", false, null, "Limits and clamps volume for overlapping duplicate sound effects to prevent clipping and audio driver lag.") },
+                { "Terrain Height Cache", new SettingItem("Graphics_Sound", "TerrainHeightCache", false, null, "Caches terrain elevation queries within the frame to minimize CPU map collisions query time.") },
+                { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "Dynamically scales down particle density and minor spell impact effects in large raids.") },
+                { "Fast SSE2 luaS_newlstr String Constructor", new SettingItem("UI_Lua", "LuaSNewLstrFast", true, null, "Fast SSE2 string table allocation and string construction at 0x00856C80.") },
+                { "Fast SSE2 Memory Clear (FastMemset)", new SettingItem("Graphics_Sound", "FastMemsetOpt", true, null, "SSE2 non-temporal memset replacement for large memory clears at 0x0040BB80.") },
+                { "Fast Case-Insensitive String Compare", new SettingItem("UI_Lua", "FastStrnicmpOpt", true, null, "SSE2 ASCII case-insensitive string comparison replacement at 0x0076E780.") },
+                { "Minimap Blip Refresh Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", true, null, "Throttles minimap blip refresh calls at 0x00923D50 to eliminate minimap CPU overhead.") },
+                { "Camera Collision Raycast Throttle", new SettingItem("Graphics_Sound", "CameraCollisionThrottle", true, null, "Throttles redundant camera collision raycasting at 0x00821A20.") },
+                { "Floating Combat Text Coalescer", new SettingItem("Combat_Net", "CombatTextCoalescer", true, null, "Coalesces floating combat text popups at 0x007385C0 to prevent text rendering lag.") },
+                { "UI Layout Recalculation Throttle", new SettingItem("UI_Lua", "UILayoutThrottle", true, null, "Governs UI layout recalculations at 0x00865270 during heavy addon updates.") },
             };
 
             // Window Setup
