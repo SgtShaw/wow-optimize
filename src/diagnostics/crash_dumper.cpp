@@ -52,6 +52,23 @@ static HookTraceEntry s_hookTrace[HOOK_TRACE_SIZE] = {};
 static volatile LONG s_hookTracePos = 0;  // Monotonic write position
 
 // ================================================================
+// Event trace ("flight recorder") - state transitions, not hot calls
+// ================================================================
+#define EVENT_TRACE_SIZE 256
+#define EVENT_TRACE_MASK (EVENT_TRACE_SIZE - 1)
+#define EVENT_TRACE_TEXT 112
+
+struct EventTraceEntry {
+    DWORD        tick;
+    DWORD        threadId;
+    volatile LONG complete;              // 1 once text is fully written
+    char         text[EVENT_TRACE_TEXT];
+};
+
+static EventTraceEntry s_eventTrace[EVENT_TRACE_SIZE] = {};
+static volatile LONG s_eventTracePos = 0;
+
+// ================================================================
 // Crash-time log flush - force ring buffer to disk before dump
 // ================================================================
 extern void LogFlushImmediate();  // Defined in dllmain.cpp
@@ -59,6 +76,7 @@ extern void LogFlushImmediate();  // Defined in dllmain.cpp
 // Forward declarations for crash report sections
 static void WriteFeatureStates(HANDLE hFile);
 static void WriteHookTrace(HANDLE hFile);
+static void WriteEventTrace(HANDLE hFile);
 static void WriteMemoryInfo(HANDLE hFile);
 
 // ================================================================
@@ -303,6 +321,7 @@ static void WriteTextReport(EXCEPTION_POINTERS* ep) {
     WriteInstructions(hFile, ep->ContextRecord);
     WriteStackWalk(hFile, ep->ContextRecord);
     WriteRawStackScan(hFile, ep->ContextRecord);
+    WriteEventTrace(hFile);
     WriteFeatureStates(hFile);
     WriteHookTrace(hFile);
     WriteMemoryInfo(hFile);
@@ -415,6 +434,36 @@ static void WriteHookTrace(HANDLE hFile) {
             "  [%02d] TID=%5lu tick=%10lu addr=0x%08X %s\n",
             i, e.threadId, e.tick, (unsigned)e.addr, e.hookName);
         if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
+    }
+}
+
+// ================================================================
+// Write Event Trace to crash report - the state transitions leading
+// up to the crash, which is usually the section that explains it
+// ================================================================
+static void WriteEventTrace(HANDLE hFile) {
+    char buf[256];
+    DWORD written;
+
+    const char* hdr = "\n=== EVENT TRACE (most recent first) ===\n";
+    WriteFile(hFile, hdr, (DWORD)strlen(hdr), &written, NULL);
+
+    LONG pos = InterlockedCompareExchange(&s_eventTracePos, 0, 0);
+    DWORD now = GetTickCount();
+    int printed = 0;
+
+    for (int i = 0; i < EVENT_TRACE_SIZE && i < pos; i++) {
+        EventTraceEntry& e = s_eventTrace[(pos - 1 - i) & EVENT_TRACE_MASK];
+        if (!e.complete) continue;
+        int len = sprintf_s(buf, sizeof(buf), "  -%7ums TID=%5lu %s\n",
+                            (unsigned)(now - e.tick), e.threadId, e.text);
+        if (len > 0) WriteFile(hFile, buf, (DWORD)len, &written, NULL);
+        printed++;
+    }
+
+    if (printed == 0) {
+        const char* none = "  (no events recorded)\n";
+        WriteFile(hFile, none, (DWORD)strlen(none), &written, NULL);
     }
 }
 
@@ -869,6 +918,45 @@ int GetFeatureStates(FeatureState* out, int maxCount) {
     return copied;
 }
 
+void Trace(const char* fmt, ...) {
+    if (!fmt) return;
+
+    LONG pos = InterlockedIncrement(&s_eventTracePos) - 1;
+    EventTraceEntry& e = s_eventTrace[pos & EVENT_TRACE_MASK];
+
+    // Mark incomplete first: a reader (crash handler) must never print a slot
+    // that is halfway through being overwritten.
+    InterlockedExchange(&e.complete, 0);
+    e.tick = GetTickCount();
+    e.threadId = GetCurrentThreadId();
+
+    va_list args;
+    va_start(args, fmt);
+    int n = _vsnprintf(e.text, EVENT_TRACE_TEXT - 1, fmt, args);
+    va_end(args);
+    if (n < 0) n = EVENT_TRACE_TEXT - 1;
+    e.text[n] = '\0';
+
+    InterlockedExchange(&e.complete, 1);
+}
+
+void DumpTrace(int count) {
+    if (count > EVENT_TRACE_SIZE) count = EVENT_TRACE_SIZE;
+    LONG pos = InterlockedCompareExchange(&s_eventTracePos, 0, 0);
+    DWORD now = GetTickCount();
+
+    int printed = 0;
+    for (int i = 0; i < count && i < pos; i++) {
+        EventTraceEntry& e = s_eventTrace[(pos - 1 - i) & EVENT_TRACE_MASK];
+        if (!e.complete) continue;
+        Log("    -%6ums  TID=%-5lu %s", (unsigned)(now - e.tick), e.threadId, e.text);
+        printed++;
+    }
+    if (printed == 0) {
+        Log("    (no events recorded)");
+    }
+}
+
 void RecordHookCall(const char* hookName, uintptr_t addr) {
     // Lock-free: atomic increment gives us a unique slot
     LONG pos = InterlockedIncrement(&s_hookTracePos) - 1;
@@ -892,6 +980,17 @@ void RecordHookCallHot(const char* hookName, uintptr_t addr) {
 }
 
 } // namespace CrashDumper
+
+extern "C" void CrashDumper_Trace(const char* fmt, ...) {
+    if (!fmt) return;
+    char buf[EVENT_TRACE_TEXT];
+    va_list args;
+    va_start(args, fmt);
+    _vsnprintf(buf, sizeof(buf) - 1, fmt, args);
+    va_end(args);
+    buf[sizeof(buf) - 1] = '\0';
+    CrashDumper::Trace("%s", buf);
+}
 
 // Called from lua_error_diag to dump hook trace on Lua errors
 void CrashDumper_DumpHookTrace(int count) {

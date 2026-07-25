@@ -17,6 +17,7 @@
 #include "d3d9_state_cache.h"
 #include "render_state_dedup.h"
 #include "win_mutex.h"
+#include "diagnostics/crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -140,6 +141,7 @@ static inline void CheckDeviceChange(void* dev) {
     // race that DXVKBridge::IsActive() was introduced to dodge is fixed at
     // the source now (g_vtableMutex in PatchDeviceVTable/UnpatchDeviceVTable).
     if (dev && dev != g_pDevice) {
+        CrashDumper::Trace("D3D9 device pointer changed %p -> %p", g_pDevice, dev);
         Log("[D3D9State] Real-time Device pointer change detected (old: %p, new: %p).", g_pDevice, dev);
         
         InterlockedIncrement(&g_deviceResetCounter);
@@ -426,6 +428,7 @@ static HRESULT __stdcall Hooked_SetPixelShader(void* dev, void* ps) {
 static HRESULT __stdcall Hooked_Reset(void* dev, D3DPRESENT_PARAMETERS* params) {
     CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[14]);
+    CrashDumper::Trace("D3D9 device Reset (dev=%p)", dev);
     Log("[D3D9State] Device Reset detected! Invalidating all caches and flushing delayed textures...");
     InvalidateAllCaches();
     RenderStateDedup_ClearCache();

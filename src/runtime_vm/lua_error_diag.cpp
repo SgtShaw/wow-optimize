@@ -136,25 +136,41 @@ static int __cdecl DiagLuaError(uintptr_t L) {
         LogLuaTraceback(useL);
     }
 
-    // The feature table and hook trace are ~70 ERROR lines, and every ERROR line is
-    // flushed to disk before returning. Emitting them for every error costs hundreds
-    // of milliseconds of main-thread time each; the reported state barely changes
-    // between consecutive errors, so only the first few carry the full snapshot.
+    CrashDumper::Trace("LUA error: %.80s", errMsg);
+
+    // Only the first few errors carry the state snapshot. Every ERROR line is
+    // written through to disk, so repeating the snapshot per error costs real
+    // main-thread time, and consecutive errors report near-identical state.
     if (errNum > MAX_FULL_STATE_DUMPS) {
         LogEx(LOG_LEVEL_ERROR, "LUA", "=== END LUA ERROR #%d (state snapshot omitted) ===", (int)errNum);
         return s_origLuaError(L);
     }
 
-    LogEx(LOG_LEVEL_ERROR, "LUA", "  DLL optimization features status:");
-    FeatureState features[64];
-    int fcount = CrashDumper::GetFeatureStates(features, 64);
+    // What ran before the error, in order. This replaces a full dump of the
+    // feature table: FeatureCall() is wired into almost nothing, so that table
+    // printed ~70 lines of "calls=0" that said nothing about the failure. Only
+    // features that actually recorded activity are worth a line.
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  Recent events:");
+    CrashDumper::DumpTrace(16);
+
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  Features with recorded activity:");
+    FeatureState features[MAX_TRACKED_FEATURES];
+    int fcount = CrashDumper::GetFeatureStates(features, MAX_TRACKED_FEATURES);
+    int active = 0, reported = 0;
     for (int i = 0; i < fcount; i++) {
+        if (features[i].active) active++;
+        if (features[i].callCount == 0 && features[i].errorCount == 0) continue;
         LogEx(LOG_LEVEL_ERROR, "LUA", "    %-28s active=%d calls=%lld errors=%lld",
             features[i].name ? features[i].name : "(null)",
             features[i].active ? 1 : 0,
             features[i].callCount,
             features[i].errorCount);
+        reported++;
     }
+    if (reported == 0) {
+        LogEx(LOG_LEVEL_ERROR, "LUA", "    (none)");
+    }
+    LogEx(LOG_LEVEL_ERROR, "LUA", "  %d of %d registered features active", active, fcount);
 
     LogEx(LOG_LEVEL_ERROR, "LUA", "  Last 32 hook calls:");
     extern void CrashDumper_DumpHookTrace(int count);

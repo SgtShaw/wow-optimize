@@ -51,6 +51,26 @@ namespace CrashDumper {
     // frame critical path, and so one hot hook can't flood the 256-slot ring
     // and evict the rarer, riskier hooks we actually want in a crash trace.
     void RecordHookCallHot(const char* hookName, uintptr_t addr);
+
+    // ------------------------------------------------------------------
+    // Event trace ("flight recorder")
+    //
+    // RecordHookCall answers "which hook ran last", but only the handful of
+    // opt-in features that call it - so in practice a crash report showed an
+    // empty trace. This ring records STATE TRANSITIONS instead: loading screen
+    // boundaries, lua_State swaps, D3D9 device resets, cache invalidations,
+    // watchdogs firing. Those are what actually explain a crash here, they are
+    // rare enough that formatting one costs nothing, and they are recorded
+    // unconditionally so the trail exists no matter which features are enabled.
+    //
+    // Safe from any thread; never allocates. Keep messages short and factual.
+    void Trace(const char* fmt, ...);
+
+    // Writes the most recent `count` events to the log, newest first.
+    void DumpTrace(int count);
 }
+
+// C-callable wrapper for modules that only see the C interface.
+extern "C" void CrashDumper_Trace(const char* fmt, ...);
 
 #endif

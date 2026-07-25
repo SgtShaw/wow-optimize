@@ -27,6 +27,7 @@
 #include "loading_state.h"
 #include "event_coalescer.h"
 #include "runtime_vm/lua_gc_governor.h"
+#include "diagnostics/crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 extern "C" void ReserveLoadingArena();
@@ -93,6 +94,7 @@ void ApplyEventKind(EventKind kind) {
         case EVENT_LOADING_BEGIN:
             if (InterlockedExchange(&g_isLoading, 1) == 0) {
                 LuaGCGovernor::g_isLoading = true;
+                CrashDumper::Trace("LOADING begin (PLAYER_LEAVING_WORLD)");
                 Log("[LoadingState] Loading screen started (PLAYER_LEAVING_WORLD)");
                 ReserveLoadingArena();
             }
@@ -100,6 +102,7 @@ void ApplyEventKind(EventKind kind) {
         case EVENT_LOADING_END:
             if (InterlockedExchange(&g_isLoading, 0) == 1) {
                 LuaGCGovernor::g_isLoading = false;
+                CrashDumper::Trace("LOADING end (PLAYER_ENTERING_WORLD)");
                 Log("[LoadingState] Loading screen finished (PLAYER_ENTERING_WORLD)");
                 ReleaseLoadingArena();
             }

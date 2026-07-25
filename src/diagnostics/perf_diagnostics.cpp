@@ -186,20 +186,33 @@ void LogPerformanceSnapshot(double elapsedMs) {
         }
     }
         
-    // 4. Feature states and usage
-    Log("[PerfDiag]   Optimization features status:");
-    FeatureState features[64];
-    int fcount = CrashDumper::GetFeatureStates(features, 64);
+    // 4. What happened just before the spike. A state transition landing inside a
+    // stutter (loading boundary, device reset, cache invalidation) is almost always
+    // the explanation, and it is the one thing a raw frame time cannot tell us.
+    Log("[PerfDiag]   Recent events:");
+    CrashDumper::DumpTrace(16);
+
+    // 5. Feature usage. Only features that recorded activity are listed - printing
+    // every active feature meant ~70 lines of "calls=0" per stutter, because
+    // FeatureCall() is wired into almost nothing.
+    Log("[PerfDiag]   Features with recorded activity:");
+    FeatureState features[MAX_TRACKED_FEATURES];
+    int fcount = CrashDumper::GetFeatureStates(features, MAX_TRACKED_FEATURES);
+    int activeCount = 0, reported = 0;
     for (int i = 0; i < fcount; i++) {
-        if (features[i].active) {
-            Log("[PerfDiag]     %-28s calls=%lld errors=%lld", 
-                features[i].name ? features[i].name : "(null)", 
-                features[i].callCount, 
-                features[i].errorCount);
-        }
+        if (features[i].active) activeCount++;
+        if (features[i].callCount == 0 && features[i].errorCount == 0) continue;
+        Log("[PerfDiag]     %-28s active=%d calls=%lld errors=%lld",
+            features[i].name ? features[i].name : "(null)",
+            features[i].active ? 1 : 0,
+            features[i].callCount,
+            features[i].errorCount);
+        reported++;
     }
-    
-    // 5. Dump last hook trace to pinpoint exactly what ran during this lag spike
+    if (reported == 0) Log("[PerfDiag]     (none)");
+    Log("[PerfDiag]   %d of %d registered features active", activeCount, fcount);
+
+    // 6. Dump last hook trace to pinpoint exactly what ran during this lag spike
     Log("[PerfDiag]   Last 16 hook calls before stutter:");
     CrashDumper_DumpHookTrace(16);
     

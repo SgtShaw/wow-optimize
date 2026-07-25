@@ -5,6 +5,7 @@
 // ============================================================================
 
 #include "lua_optimize.h"
+#include "diagnostics/crash_dumper.h"
 #include "../allocators/loading_defrag.h"
 #include "combatlog_optimize.h"
 #include "ui_cache.h"
@@ -1730,6 +1731,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             g_pendingLuaState = currentL;
             g_pendingLuaStateTick = nowTick;
             g_pendingLuaStateFrames = 1;
+            CrashDumper::Trace("LUA state swap (UI reload) - new VM settling");
             Log("[LuaOpt] lua_State changed (UI reload) - waiting for new VM to settle");
 
             // CRITICAL FIX: Set swapping flag BEFORE cache invalidation so inline
@@ -1790,6 +1792,7 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
         g_pendingLuaStateTick = 0;
         g_pendingLuaStateFrames = 0;
         g_luaInterfaceRetryCount = 0;
+        CrashDumper::Trace("LUA state swap - reinitializing stable VM");
         Log("[LuaOpt] lua_State changed (UI reload) - reinitializing stable VM");
 
         // Re-initialization about to begin — keep swapping flag set until
