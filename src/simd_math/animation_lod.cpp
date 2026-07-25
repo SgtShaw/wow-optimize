@@ -123,10 +123,35 @@ static inline uint32_t HashPtr(void* p) {
 }
 
 // ---- crowd detection (per frame) -------------------------------------------
+//
+// The animation tick cannot be used on its own as a frame boundary. The client
+// runs several animation contexts at once - the world has one, UI model frames
+// (portraits, dressing room, model previews) keep their own - so consecutive
+// models arriving at this hook can report completely unrelated tick values. Any
+// change was treated as a new frame, so the counter was rolled several times per
+// real frame: one roll captured the whole crowd, the next captured the one or two
+// models belonging to the other context.
+//
+// The result was a throttle that flipped on and off about ten times a second -
+// 137 models, then 1, then 137 - which is exactly the ~10Hz model flickering
+// reported in issue #46. The fix is to roll only on the context we picked as our
+// reference, and to require a real drop in crowd size before disengaging.
 static volatile long g_callsThisFrame = 0;
 static uint32_t      g_callsLastFrame = 0;
 static uint32_t      g_lastFrameTick  = 0;
+static uintptr_t     g_frameCtx       = 0;   // context whose tick marks our frames
+static DWORD         g_lastRollTick   = 0;
 static bool          g_crowded        = false;
+
+// Re-latch the reference context if it has gone quiet - it may belong to a UI
+// model frame the player just closed, and without this the counter would never
+// roll again.
+static const DWORD CTX_RELATCH_MS = 500;
+
+// Engage and disengage at different crowd sizes. Without a gap, a scene sitting
+// on the threshold toggles the throttle every frame, and the visible cost of
+// toggling is far worse than either state on its own.
+static const uint32_t CROWD_DISENGAGE = 22;   // vs g_crowdThreshold (30) to engage
 
 // ---- stats -----------------------------------------------------------------
 static uint64_t g_throttledTotal = 0;
@@ -188,10 +213,21 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
         uint32_t tick = *(uint32_t*)(animCtx + 20);   // current animation tick
         uint32_t last = *(uint32_t*)(self + 60);      // tick this model last updated
 
-        // Frame boundary: when global tick advances, roll crowd counter
-        if (tick != g_lastFrameTick) {
+        // Frame boundary: only the reference context's tick marks a frame.
+        DWORD nowMs = GetTickCount();
+        if (g_frameCtx == 0 || (DWORD)(nowMs - g_lastRollTick) > CTX_RELATCH_MS) {
+            g_frameCtx = animCtx;
+            g_lastRollTick = nowMs;
+        }
+
+        if (animCtx == g_frameCtx && tick != g_lastFrameTick) {
             g_callsLastFrame = (uint32_t)InterlockedExchange(&g_callsThisFrame, 0);
-            bool crowded = (g_callsLastFrame >= g_crowdThreshold);
+            g_lastRollTick = nowMs;
+
+            // Hysteresis: engage at the threshold, disengage only once the scene
+            // has genuinely thinned out.
+            bool crowded = g_crowded ? (g_callsLastFrame >= CROWD_DISENGAGE)
+                                     : (g_callsLastFrame >= g_crowdThreshold);
 
             // Record every engage/disengage. Without this a log only shows the
             // running totals, so a report of a visual artifact cannot be matched
