@@ -358,6 +358,13 @@ namespace WowOptimizeLauncher {
 
                 // 20 new colossal features (Features 31-50)
                 { "Spell Visual Effects Culler", new SettingItem("Graphics_Sound", "SpellEffectCulling", false, null, "[NEW] Dynamically scales down particle density and minor spell impact effects in large raids.") },
+                { "Fast SSE2 luaS_newlstr String Constructor", new SettingItem("UI_Lua", "LuaSNewLstrFast", true, null, "[VERIFIED] Fast SSE2 string table allocation and string construction at 0x00856C80.") },
+                { "Fast SSE2 Memory Clear (FastMemset)", new SettingItem("Graphics_Sound", "FastMemsetOpt", true, null, "[VERIFIED] SSE2 non-temporal memset replacement for large memory clears at 0x0040BB80.") },
+                { "Fast Case-Insensitive String Compare", new SettingItem("UI_Lua", "FastStrnicmpOpt", true, null, "[VERIFIED] SSE2 ASCII case-insensitive string comparison replacement at 0x0076E780.") },
+                { "Minimap Blip Refresh Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", true, null, "[VERIFIED] Throttles minimap blip refresh calls at 0x00923D50 to eliminate minimap CPU overhead.") },
+                { "Camera Collision Raycast Throttle", new SettingItem("Graphics_Sound", "CameraCollisionThrottle", true, null, "[VERIFIED] Throttles redundant camera collision raycasting at 0x00821A20.") },
+                { "Floating Combat Text Coalescer", new SettingItem("Combat_Net", "CombatTextCoalescer", true, null, "[VERIFIED] Coalesces floating combat text popups at 0x007385C0 to prevent text rendering lag.") },
+                { "UI Layout Recalculation Throttle", new SettingItem("UI_Lua", "UILayoutThrottle", true, null, "[VERIFIED] Governs UI layout recalculations at 0x00865270 during heavy addon updates.") },
             };
 
             // Window Setup
