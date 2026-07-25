@@ -6597,7 +6597,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // FrameScript hash dispatch - 18 handlers, O(1) vs O(n)
 #if !TEST_DISABLE_FRAME_SCRIPT_DISPATCH
-    bool fsDispatchOk = Config::g_settings.OptFrameScriptDispatch && InstallFrameScriptDispatch();
+    bool fsDispatchOk = InstallFrameScriptDispatch();
 #else
     bool fsDispatchOk = false;
     Log("[FrameScriptDispatch] DISABLED via feature flag");
