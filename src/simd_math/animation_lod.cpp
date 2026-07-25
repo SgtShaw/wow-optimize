@@ -79,6 +79,7 @@
 #include "version.h"
 #include "core/config.h"
 #include "animation_lod.h"
+#include "diagnostics/crash_dumper.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -190,7 +191,24 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
         // Frame boundary: when global tick advances, roll crowd counter
         if (tick != g_lastFrameTick) {
             g_callsLastFrame = (uint32_t)InterlockedExchange(&g_callsThisFrame, 0);
-            g_crowded = (g_callsLastFrame >= g_crowdThreshold);
+            bool crowded = (g_callsLastFrame >= g_crowdThreshold);
+
+            // Record every engage/disengage. Without this a log only shows the
+            // running totals, so a report of a visual artifact cannot be matched
+            // against whether the throttle was even running at the time - which
+            // is exactly the ambiguity that made issue #46 hard to pin down.
+            if (crowded != g_crowded) {
+                if (crowded) {
+                    CrashDumper::Trace("ANIMLOD engage: %u models, interval %u",
+                                       g_callsLastFrame, IntervalForCrowd(g_callsLastFrame));
+                    Log("[AnimationLod] Throttle ENGAGED: %u models in frame, interval %u",
+                        g_callsLastFrame, IntervalForCrowd(g_callsLastFrame));
+                } else {
+                    CrashDumper::Trace("ANIMLOD disengage: %u models", g_callsLastFrame);
+                    Log("[AnimationLod] Throttle DISENGAGED: %u models in frame", g_callsLastFrame);
+                }
+                g_crowded = crowded;
+            }
             g_lastFrameTick = tick;
         }
         InterlockedIncrement(&g_callsThisFrame);
