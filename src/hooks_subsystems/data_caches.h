@@ -61,3 +61,5 @@ void OptimizeSub474F50_CacheLineAoS(void* ptr);
 void OptimizeSub87C710_CacheLineRefactor(void* ptr);
 void OptimizeSub857CA0_CacheLineAccess(void* ptr);
 void OptimizeSub8418F0_CacheLineMemory(void* ptr);
+void OptimizeSub80CCE0_CacheLineStructurePrefetch(void* ptr);
+void OptimizeSub8F8E40_CacheLineAoSPrefetch(void* ptr);

@@ -536,3 +536,11 @@ void OptimizeSub857CA0_CacheLineAccess(void* ptr) {
 void OptimizeSub8418F0_CacheLineMemory(void* ptr) {
     if (ptr) _mm_prefetch((const char*)ptr + 64, _MM_HINT_T0);
 }
+
+void OptimizeSub80CCE0_CacheLineStructurePrefetch(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr, _MM_HINT_T0);
+}
+
+void OptimizeSub8F8E40_CacheLineAoSPrefetch(void* ptr) {
+    if (ptr) _mm_prefetch((const char*)ptr + 128, _MM_HINT_T0);
+}
