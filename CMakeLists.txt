@@ -123,8 +123,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_gc_fast.h
     src/runtime_vm/lua_gc_governor.cpp
     src/runtime_vm/lua_gc_governor.h
-    src/runtime_vm/addon_tick_governor.cpp
-    src/runtime_vm/addon_tick_governor.h
     src/hooks_subsystems/sound_mixer_opt.cpp
     src/hooks_subsystems/sound_mixer_opt.h
     src/hooks_subsystems/async_tex_loader.cpp
@@ -212,8 +210,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/ui_frame_batch.h
     src/runtime_vm/lua_vm_cache.cpp
     src/runtime_vm/lua_vm_cache.h
-    src/hooks_subsystems/tooltip_cache.cpp
-    src/hooks_subsystems/tooltip_cache.h
     src/runtime_vm/lua_settable_cache.cpp
     src/runtime_vm/lua_settable_cache.h
     src/runtime_vm/regex_cache.cpp
@@ -440,8 +436,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_yield_fast.h
     src/runtime_vm/lua_getn_fast.cpp
     src/runtime_vm/lua_getn_fast.h
-    src/runtime_vm/lua_file_cache.cpp
-    src/runtime_vm/lua_file_cache.h
     src/runtime_vm/combatlog_parser.cpp
     src/runtime_vm/combatlog_parser.h
     src/hooks_subsystems/ui_accessor_fast.cpp

@@ -15,7 +15,6 @@
 #include "lua_bytecode_cache.h"
 #include "addon_preload.h"
 #include "event_dispatch_cache.h"
-#include "addon_tick_governor.h"
 
 // VA Arena helpers (defined in dllmain.cpp)
 extern "C" void ReserveLoadingArena();

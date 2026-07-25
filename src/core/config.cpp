@@ -62,9 +62,7 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "AddonDispatcher", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UIFrameAccessorFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontMetricsFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "AddonTickGovernor", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "TooltipCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaFileCache", "0", iniPath.c_str());
+            WritePrivateProfileStringA("UI_Lua", "ModuleHandleCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FrameScriptDispatch", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaNumConvFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "LuaOpcache", "0", iniPath.c_str());  // #37: slow loads + Lua errors — off by default
@@ -179,9 +177,7 @@ namespace Config {
         g_settings.OptAddonDispatcher     = GetPrivateProfileIntA("UI_Lua", "AddonDispatcher", 0, iniPath.c_str()) != 0;
         g_settings.OptUIFrameAccessorFast = GetPrivateProfileIntA("UI_Lua", "UIFrameAccessorFast", 0, iniPath.c_str()) != 0;
         g_settings.OptFontMetricsFast     = GetPrivateProfileIntA("UI_Lua", "FontMetricsFast", 0, iniPath.c_str()) != 0;
-        g_settings.OptAddonTickGovernor   = GetPrivateProfileIntA("UI_Lua", "AddonTickGovernor", 0, iniPath.c_str()) != 0;
-        g_settings.OptTooltipCache        = GetPrivateProfileIntA("UI_Lua", "TooltipCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptLuaFileCache        = GetPrivateProfileIntA("UI_Lua", "LuaFileCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptModuleHandleCache   = GetPrivateProfileIntA("UI_Lua", "ModuleHandleCache", 0, iniPath.c_str()) != 0;
         g_settings.OptFrameScriptDispatch = GetPrivateProfileIntA("UI_Lua", "FrameScriptDispatch", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaNumConvFast      = GetPrivateProfileIntA("UI_Lua", "LuaNumConvFast", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaOpcache          = GetPrivateProfileIntA("UI_Lua", "LuaOpcache", 0, iniPath.c_str()) != 0;

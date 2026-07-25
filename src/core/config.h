@@ -32,9 +32,7 @@ namespace Config {
         bool OptAddonDispatcher = false;
         bool OptUIFrameAccessorFast = false;
         bool OptFontMetricsFast = false;
-        bool OptAddonTickGovernor = false;
-        bool OptTooltipCache = false;
-        bool OptLuaFileCache = false;
+        bool OptModuleHandleCache = false;
         bool OptFrameScriptDispatch = false;
         bool OptLuaNumConvFast = false;
         bool OptLuaOpcache = false;

@@ -37,7 +37,6 @@
 #include "hooks_memory.h"
 #include "data_caches.h"
 #include "compute_caches.h"
-#include "tooltip_cache.h"
 #include "regex_cache.h"
 #include "texcache_tuning.h"
 #include "lua_register_fast.h"
@@ -307,7 +306,6 @@ static void StopFreezeWatchdog() {
 }
 
 #include "frame_throttle.h"
-#include "tooltip_cache.h"
 #include "spell_cache.h"
 // #include "ui_frame_batch.h" // REMOVED - optimization disabled
 
@@ -433,7 +431,6 @@ static void StopFreezeWatchdog() {
 #include "lua_pushfstring_fast.h"
 #include "lua_getupvalue_fast.h"
 #include "lua_buffinit_fast.h"
-#include "lua_file_cache.h"
 #include "combatlog_parser.h"
 
 void ClearCombatLogCache();
@@ -449,7 +446,6 @@ void ClearCombatLogCache();
 #include "m2_lod_bias.h"
 #include "async_tex_loader.h"
 #include "unit_aura_coalesce.h"
-#include "addon_tick_governor.h"
 #include "saved_vars_pretoken.h"
 #include "net_addon_coalescer.h"
 #include "mip_bias_governor.h"
@@ -4252,14 +4248,6 @@ static void DumpPeriodicStats() {
         }
     }
 
-    // Tooltip Cache stats
-    {
-        TooltipCache::Stats stats = TooltipCache::GetStats();
-        if (stats.hits + stats.misses > 0) {
-            Log("[Stats] Tooltip Cache: %lld hits, %lld misses, %lld evictions (%.1f%% hit rate)",
-                stats.hits, stats.misses, stats.evictions, stats.hitRate);
-        }
-    }
 
     // Spell Cache stats
     {
@@ -6381,7 +6369,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("HardwareCursor");
     CrashDumper::RegisterFeature("FrameThrottle");
     CrashDumper::RegisterFeature("UIFrameBatch");
-    CrashDumper::RegisterFeature("TooltipCache");
     CrashDumper::RegisterFeature("SpellCache");
     CrashDumper::RegisterFeature("LuaRawGetICache");
     CrashDumper::RegisterFeature("CombatLogFullCache");
@@ -6575,7 +6562,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- WaitForSingleObject Spin ---");
     bool wfsOk = Config::g_settings.OptDefragLf && InstallWaitForSingleObjectHook();
     Log("--- Module Handle Cache ---");
-    bool modOk = Config::g_settings.OptLuaFileCache && InstallGetModuleHandleCache();
+    bool modOk = Config::g_settings.OptModuleHandleCache && InstallGetModuleHandleCache();
     Log("--- String Compare (lstrcmp) ---");
     bool lstrOk = Config::g_settings.OptStrStrSse2 && InstallLstrcmpHook();
     Log("--- String Length (lstrlen) ---");
@@ -7126,9 +7113,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- Frame Script Throttling ---");
     bool frameThrottleOk = Config::g_settings.OptUIFrameBatch && InstallFrameThrottling();
 
-    Log("--- Tooltip String Caching ---");
-    bool tooltipCacheOk = Config::g_settings.OptTooltipCache && TooltipCache::Install();
-
     Log("--- Spell Data Caching ---");
     bool spellCacheOk = Config::g_settings.OptGetSpellInfoCache && SpellCache::Init();
 
@@ -7475,9 +7459,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool savedVarsAsyncOk = false;
     Log("[SavedVarsAsync] DISABLED via feature flag");
 #endif
-
-    Log("--- Lua File Cache ---");
-    bool luaFileCacheOk = Config::g_settings.OptLuaFileCache && InstallLuaFileCache();
 
     Log("--- Combat Log Parser ---");
     bool combatLogParserOk = Config::g_settings.OptCombatLogParser && InstallCombatLogParser();
@@ -7834,10 +7815,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptUnitAuraCoalesce) UnitAuraCoalesce::Init();
 
     Log("");
-    Log("--- Adaptive Addon Tick Governor ---");
-    if (Config::g_settings.OptAddonTickGovernor) AddonTickGovernor::Init();
-
-    Log("");
     Log("--- SavedVariables Pretoken Caching ---");
     if (Config::g_settings.OptSavedVarsPretoken) SavedVarsPretoken::Init();
 
@@ -7867,9 +7844,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
         // YELLOW (free < 48MB): shed the 2 heaviest non-critical caches +
         // drop texture budget toward stock.  Regex is ~2.2MB (256×8KB bytecode),
         // tooltip is ~2.1MB (512×4KB text) — together ~4.3MB of VA returned.
-        struct ShedTooltip { static void Go(Level, void*) { TooltipCache::Clear(); } };
-        RegisterShedCallback(ShedTooltip::Go, nullptr);
-
         struct ShedRegex { static void Go(Level, void*) { RegexCache_Clear(); } };
         RegisterShedCallback(ShedRegex::Go, nullptr);
 
@@ -8040,7 +8014,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
-    Log("  [%s] Tooltip string cache (LRU)",  tooltipCacheOk ? " OK " : "SKIP");
     Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
     Log("  [%s] Stream buffer fast path",     streamBufOk    ? " OK " : "SKIP");
     Log("  [%s] D3D9 State Manager (15 hooks)",   d3d9StateOk ? " OK " : "SKIP");
@@ -9808,7 +9781,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();
-            AddonTickGovernor::Shutdown();
             SavedVarsPretoken::Shutdown();
             NetAddonCoalescer::Shutdown();
             MipBiasGovernor::Shutdown();
@@ -9816,11 +9788,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             PerfDiagnostics::Shutdown();
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
-            TooltipCache::Shutdown();
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             ShutdownCombatLogParser();
-            ShutdownLuaFileCache();
             LuaBytecodePreCompiler::Shutdown();
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
             ShutdownSavedVarsAsync();
