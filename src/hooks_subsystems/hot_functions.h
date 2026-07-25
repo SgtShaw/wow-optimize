@@ -31,3 +31,7 @@ int OptimizeSub508320_InlinePairCmp(int a1, int a2);
 
 // Feature 44 (0x006EF860): Inlined String Copy with Length
 int OptimizeSub6EF860_InlineStrCopy(int thisPtr, int srcPtr);
+
+// Inlined & Branchless Routines
+int OptimizeSub90BDA0_InlineShortCircuit(int thisPtr, short a2, int a3);
+int OptimizeSub57C720_BranchlessCond(int cond, int valA, int valB);

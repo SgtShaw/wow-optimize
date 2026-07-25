@@ -143,3 +143,15 @@ int OptimizeSub6EF860_InlineStrCopy(int thisPtr, int srcPtr) {
     memcpy((void*)thisPtr, str, len + 1);
     return (int)len;
 }
+
+// Feature 53 (0x0090BDA0): Inlined Short-Circuit Evaluator
+int OptimizeSub90BDA0_InlineShortCircuit(int thisPtr, short a2, int a3) {
+    if (!thisPtr) return 0;
+    return (a2 > 0) ? (thisPtr + a3) : 0;
+}
+
+// Feature 55 (0x0057C720): Branchless Conditional Arithmetic Select
+int OptimizeSub57C720_BranchlessCond(int cond, int valA, int valB) {
+    int mask = -(int)(cond != 0);
+    return (valA & mask) | (valB & ~mask);
+}
