@@ -961,6 +961,14 @@ static FILE* g_sessionLog = nullptr;
 static constexpr int LOG_RING_SIZE = 2048;
 static constexpr int LOG_RING_MASK = LOG_RING_SIZE - 1;
 
+// ready: 0 = free (producer may fill), 1 = filled, 2 = claimed by a consumer.
+// The ring has two consumers - the background log thread and whichever thread calls
+// LogFlushImmediate - so a slot must be claimed with an interlocked 1 -> 2 transition
+// before it is written out, and only released back to 0 once its text has been read.
+static constexpr LONG LOG_SLOT_FREE = 0;
+static constexpr LONG LOG_SLOT_FILLED = 1;
+static constexpr LONG LOG_SLOT_CLAIMED = 2;
+
 struct LogEntry {
     char text[2048];
     volatile LONG ready;
@@ -968,40 +976,58 @@ struct LogEntry {
 
 static LogEntry g_logRing[LOG_RING_SIZE] = {};
 static volatile LONG g_logWritePos = 0;
-static LONG g_logReadPos = 0;
+static volatile LONG g_logReadPos = 0;
 static HANDLE g_logEvent = NULL;
 static HANDLE g_logThread = NULL;
 static volatile bool g_logShutdown = false;
 
+static HANDLE LogFileHandle(FILE* f) {
+    if (!f) return NULL;
+    HANDLE h = (HANDLE)_get_osfhandle(_fileno(f));
+    if (h == INVALID_HANDLE_VALUE) return NULL;
+    return h;
+}
+
+// Writes out every filled ring entry and returns how many were drained. Both
+// consumers go through this single path with unbuffered WriteFile, so log lines can
+// never interleave through two independent stream buffers on the same descriptor.
+static int LogDrainRing() {
+    HANDLE hMain = LogFileHandle(g_log);
+    HANDLE hSession = LogFileHandle(g_sessionLog);
+    if (!hMain && !hSession) return 0;
+
+    int drained = 0;
+    for (int guard = 0; guard < LOG_RING_SIZE; guard++) {
+        int slot = g_logReadPos & LOG_RING_MASK;
+        if (InterlockedCompareExchange(&g_logRing[slot].ready,
+                                       LOG_SLOT_CLAIMED, LOG_SLOT_FILLED) != LOG_SLOT_FILLED) {
+            break;
+        }
+        InterlockedIncrement(&g_logReadPos);
+
+        DWORD len = (DWORD)strlen(g_logRing[slot].text);
+        DWORD written = 0;
+        if (hMain) WriteFile(hMain, g_logRing[slot].text, len, &written, NULL);
+        if (hSession) WriteFile(hSession, g_logRing[slot].text, len, &written, NULL);
+
+        InterlockedExchange(&g_logRing[slot].ready, LOG_SLOT_FREE);
+        drained++;
+    }
+    return drained;
+}
+
 static DWORD WINAPI LogThreadProc(LPVOID) {
     while (!g_logShutdown) {
         WaitForSingleObject(g_logEvent, 100);
-        if (!g_log && !g_sessionLog) continue;
-
-        int flushed = 0;
-        while (g_logRing[g_logReadPos & LOG_RING_MASK].ready) {
-            int slot = g_logReadPos & LOG_RING_MASK;
-            if (g_log) fputs(g_logRing[slot].text, g_log);
-            if (g_sessionLog) fputs(g_logRing[slot].text, g_sessionLog);
-            InterlockedExchange(&g_logRing[slot].ready, 0);
-            g_logReadPos++;
-            flushed++;
-        }
-        if (flushed > 0) {
-            if (g_log) fflush(g_log);
-            if (g_sessionLog) fflush(g_sessionLog);
-        }
+        LogDrainRing();
     }
 
-    while (g_logRing[g_logReadPos & LOG_RING_MASK].ready) {
-        int slot = g_logReadPos & LOG_RING_MASK;
-        if (g_log) fputs(g_logRing[slot].text, g_log);
-        if (g_sessionLog) fputs(g_logRing[slot].text, g_sessionLog);
-        InterlockedExchange(&g_logRing[slot].ready, 0);
-        g_logReadPos++;
-    }
-    if (g_log) fflush(g_log);
-    if (g_sessionLog) fflush(g_sessionLog);
+    LogDrainRing();
+
+    HANDLE hMain = LogFileHandle(g_log);
+    HANDLE hSession = LogFileHandle(g_sessionLog);
+    if (hMain) FlushFileBuffers(hMain);
+    if (hSession) FlushFileBuffers(hSession);
     return 0;
 }
 
@@ -1054,45 +1080,25 @@ static void LogClose() {
     if (g_sessionLog) { fclose(g_sessionLog); g_sessionLog = nullptr; }
 }
 
+// Minimum spacing between physical FlushFileBuffers calls. WriteFile already hands
+// the bytes to the OS file cache, so they survive a process crash (which is all the
+// log has to survive); FlushFileBuffers additionally forces a disk sync and costs
+// several milliseconds per call. Calling it per line made a multi-line ERROR dump
+// stall the main thread for hundreds of milliseconds.
+static constexpr DWORD LOG_FSYNC_INTERVAL_MS = 1000;
+static DWORD g_lastLogFsyncTick = 0;
+
 void LogFlushImmediate() {
-    if (!g_log && !g_sessionLog) return;
+    if (!LogDrainRing()) return;
 
-    int maxDrain = LOG_RING_SIZE;
-    while (maxDrain-- > 0) {
-        int slot = g_logReadPos & LOG_RING_MASK;
-        LONG ready = InterlockedCompareExchange(&g_logRing[slot].ready, 0, 1);
-        if (ready != 1) break;
+    DWORD now = GetTickCount();
+    if (now - g_lastLogFsyncTick < LOG_FSYNC_INTERVAL_MS) return;
+    g_lastLogFsyncTick = now;
 
-        DWORD len = (DWORD)strlen(g_logRing[slot].text);
-        DWORD written = 0;
-
-        if (g_log) {
-            HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
-            if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-                WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
-            }
-        }
-        if (g_sessionLog) {
-            HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_sessionLog));
-            if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-                WriteFile(hFile, g_logRing[slot].text, len, &written, NULL);
-            }
-        }
-        g_logReadPos++;
-    }
-
-    if (g_log) {
-        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_log));
-        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-            FlushFileBuffers(hFile);
-        }
-    }
-    if (g_sessionLog) {
-        HANDLE hFile = (HANDLE)_get_osfhandle(_fileno(g_sessionLog));
-        if (hFile != INVALID_HANDLE_VALUE && hFile != NULL) {
-            FlushFileBuffers(hFile);
-        }
-    }
+    HANDLE hMain = LogFileHandle(g_log);
+    HANDLE hSession = LogFileHandle(g_sessionLog);
+    if (hMain) FlushFileBuffers(hMain);
+    if (hSession) FlushFileBuffers(hSession);
 }
 
   extern "C" void LogEx(LogLevel level, const char* context, const char* fmt, ...) {
