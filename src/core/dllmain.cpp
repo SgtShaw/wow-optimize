@@ -7425,9 +7425,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool addonPreloadOk = false;
 #endif
 
-    // Lua bytecode cache (skips script parsing on reload)
+    // Lua bytecode cache (skips script parsing on reload & addon load)
 #if !TEST_DISABLE_LUA_BYTECODE_CACHE
-    bool bytecodeOk = Config::g_settings.OptLuaFileCache && LuaBytecodeCache::Init();
+    bool bytecodeOk = LuaBytecodeCache::Init();
 #else
     bool bytecodeOk = false;
 #endif
