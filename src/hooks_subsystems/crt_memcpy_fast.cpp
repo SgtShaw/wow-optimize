@@ -156,7 +156,7 @@ void* OptimizeSub695FD0_PoolAlloc(size_t size) {
     return g_poolBlock + offset;
 }
 
-// Feature 32 (0x00621070): Branchless Conditional Copy
+// Branchless Conditional Copy
 void OptimizeSub621070_BranchlessCopy(void* dest, const void* src, size_t count, int condition) {
     // Branchless: mask is all-ones if condition != 0, all-zeros otherwise
     size_t mask = (size_t)(-(int)(condition != 0));
@@ -164,4 +164,9 @@ void OptimizeSub621070_BranchlessCopy(void* dest, const void* src, size_t count,
     if (effectiveCount > 0 && dest && src) {
         memcpy(dest, src, effectiveCount);
     }
+}
+
+// Pre-allocated Object Memory Pool Allocator
+void* OptimizeSub839270_ObjPoolAlloc(size_t size) {
+    return OptimizeSub695FD0_PoolAlloc(size);
 }

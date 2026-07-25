@@ -24,5 +24,8 @@ void* OptimizeSub842DA0_FastMemcpy(void* dest, const void* src, size_t count);
 // Feature 2 (0x00695FD0): Pre-allocated Memory Pool for Frequent Allocs
 void* OptimizeSub695FD0_PoolAlloc(size_t size);
 
-// Feature 32 (0x00621070): Branchless Conditional Copy
+// Branchless Conditional Copy
 void OptimizeSub621070_BranchlessCopy(void* dest, const void* src, size_t count, int condition);
+
+// Pre-allocated Object Memory Pool Allocator
+void* OptimizeSub839270_ObjPoolAlloc(size_t size);
