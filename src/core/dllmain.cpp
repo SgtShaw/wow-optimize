@@ -1077,6 +1077,37 @@ static void LogClose() {
     if (g_sessionLog) { fclose(g_sessionLog); g_sessionLog = nullptr; }
 }
 
+// Teardown for DLL_PROCESS_DETACH with lpReserved != NULL (the process is exiting).
+// LogClose() must NOT be used there: by that point the OS has already terminated
+// every other thread, including the log thread, possibly while it held the CRT
+// stream lock - so fprintf/fclose can deadlock the exiting process, and waiting on
+// the dead log thread just burns the timeout. Drain whatever the log thread never
+// got to using raw WriteFile (a syscall, unaffected by an orphaned CRT lock), force
+// it to disk, and leave the handles for the OS to close.
+static void LogFinalizeOnProcessExit(const char* note) {
+    g_logShutdown = true;
+    LogDrainRing();
+
+    HANDLE hMain = LogFileHandle(g_log);
+    HANDLE hSession = LogFileHandle(g_sessionLog);
+
+    if (note && (hMain || hSession)) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char line[512];
+        int n = _snprintf(line, sizeof(line) - 1, "[%02d:%02d:%02d.%03d] %s\n",
+                          st.wHour, st.wMinute, st.wSecond, st.wMilliseconds, note);
+        if (n > 0) {
+            DWORD written = 0;
+            if (hMain) WriteFile(hMain, line, (DWORD)n, &written, NULL);
+            if (hSession) WriteFile(hSession, line, (DWORD)n, &written, NULL);
+        }
+    }
+
+    if (hMain) FlushFileBuffers(hMain);
+    if (hSession) FlushFileBuffers(hSession);
+}
+
 // Minimum spacing between physical FlushFileBuffers calls. WriteFile already hands
 // the bytes to the OS file cache, so they survive a process crash (which is all the
 // log has to survive); FlushFileBuffers additionally forces a disk sync and costs
@@ -9651,15 +9682,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 FlushSavedVarsAsyncSynchronously();
 #endif
                 ClearAssetPathCache();
-                if (g_log) {
-                    SYSTEMTIME st;
-                    GetLocalTime(&st);
-                    fprintf(g_log, "[%02d:%02d:%02d.%03d] wow_optimize.dll: process terminating, hooks removed, skipping cleanup\n",
-                        st.wHour, st.wMinute, st.wSecond, st.wMilliseconds);
-                    fflush(g_log);
-                    fclose(g_log);
-                    g_log = nullptr;
-                }
+                LogFinalizeOnProcessExit(
+                    "wow_optimize.dll: process terminating, hooks removed, skipping cleanup");
                 break;
             }
 
