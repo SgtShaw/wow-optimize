@@ -25,12 +25,34 @@
 // animation is imperceptible, and there can be hundreds of them.
 //
 // This hook extends that existing skip: when the scene is crowded, background
-// models update on a round-robin subset of ticks instead of every tick. On a
-// throttled tick we return exactly what the engine's own skip branch returns
-// (this[16]) and leave this[60] alone, so the caller renders the model with its
-// current (slightly older) bone matrices - the same state it would see mid-frame
-// before that model's turn to update. Everything is under SEH; any surprise
-// falls back to the original function.
+// models update on a round-robin subset of ticks instead of every tick.
+//
+// A throttled tick MUST look like "this model is already current", not like "the
+// update did not happen". Callers verify completion by re-reading the tick after
+// the call - sub_830DC0 does it three times:
+//
+//     result = this[10];                              // anim context
+//     if (this[15] != *(result + 20)) {               // lastTick != curTick?
+//         ... sub_82F0F0(this, ...) ...               // update bones
+//         v4 = this[10];
+//         if (this[15] != *(v4 + 20))                 // did the update take?
+//             ... entirely different fallback transform path ...
+//     }
+//
+// An earlier version returned this+16 and left this+60 alone. That produces a
+// state the engine itself never produces - tick not advanced AND no work done -
+// so every caller concluded the update had failed and pushed the model down its
+// fallback transform branch. The model snapped to the fallback placement on
+// throttled ticks and back on updated ones: visible flickering at exactly the
+// throttle rate (GitHub issue #46).
+//
+// So on a throttled tick we publish completion exactly the way the work path
+// does - set this+60 to the current tick and return the animation context from
+// this+40 - and simply leave the bone matrices at their previous values. That is
+// the "already updated this tick" state every caller is built to handle, and the
+// only difference from a real update is that the pose is one interval old, which
+// is the entire point of the LOD. Everything is under SEH; any surprise falls
+// back to the original function.
 //
 // Two refinements over a flat "half-rate when crowded" throttle, both using only
 // data that is confirmed-available at this hook (no world position - the model
@@ -124,6 +146,12 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
         if ((flags & 1) == 0)
             return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
 
+        // Safety Guard 0: bit 0x400 is cleared by the engine at the very end of a
+        // completed update, so it is a per-update request the engine expects to be
+        // consumed. Never throttle a model that still has it set.
+        if ((flags & 0x400) != 0)
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+
         // Safety Guard 1: Never throttle attachment models (e.g. weapons, shoulders, helms)
         // Attachment models have parent model pointers or attachment flags set at offset +0x24 / +0x28
         uintptr_t parentModel = *(uintptr_t*)(self + 0x24);
@@ -192,9 +220,12 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
             return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
         }
 
-        // Throttle background model update safely
+        // Throttle: publish completion the same way the work path does, so callers
+        // that re-check the tick see "already current" instead of "update failed"
+        // and keep using the bone matrices already in this+152.
+        *(uint32_t*)(self + 60) = tick;
         g_throttledTotal++;
-        return *(int*)(self + 16);
+        return (int)animCtx;
     }
     __except (EXCEPTION_EXECUTE_HANDLER) {
         return orig_UpdateBones ? orig_UpdateBones(pThis, a2, a3, a4, a5, a6) : 0;

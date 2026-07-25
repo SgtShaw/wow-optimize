@@ -596,6 +596,15 @@ execute_process(
     OUTPUT_STRIP_TRAILING_WHITESPACE
     ERROR_QUIET
 )
+
+# The hash above is read at CONFIGURE time. Without this, an incremental build
+# after a commit keeps baking in whatever hash was current when cmake last ran,
+# so tester logs report a build that no longer matches the source - exactly the
+# problem the hash exists to solve. Re-run configure whenever HEAD moves.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/.git/HEAD"
+    "${CMAKE_CURRENT_SOURCE_DIR}/.git/logs/HEAD"
+)
 if(NOT WOW_OPT_GIT_HASH)
     set(WOW_OPT_GIT_HASH "unknown")
 endif()
