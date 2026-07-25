@@ -23,5 +23,8 @@ float OptimizeSub97BE80_BranchlessAngle(float dx, float dy);
 // Vectorized Math Functions
 void OptimizeSub82F0F0_VectorizedMath(float* inArray, float* outArray, int count);
 void OptimizeSub6865B0_VectorizedTransform(float* inVec4, const float* matrix4x4, float* outVec4);
+void OptimizeSub911FD0_VectorizedArrayScale(float* inArray, float scale, float* outArray, int count);
+void OptimizeSub92F3C0_VectorizedMatrixMultiply(float* outMat, const float* inMatA, const float* inMatB);
+float OptimizeSub8ECF60_BranchlessFloatAngle(float x, float y);
 
 } // namespace SimdMathFast

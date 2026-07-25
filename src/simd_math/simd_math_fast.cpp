@@ -175,4 +175,46 @@ void OptimizeSub6865B0_VectorizedTransform(float* inVec4, const float* matrix4x4
     _mm_storeu_ps(outVec4, res);
 }
 
+// Feature 51 (0x00911FD0): Vectorized Array Scaling Fastpath
+void OptimizeSub911FD0_VectorizedArrayScale(float* inArray, float scale, float* outArray, int count) {
+    if (!inArray || !outArray || count <= 0) return;
+    __m128 s = _mm_set1_ps(scale);
+    int i = 0;
+    for (; i <= count - 4; i += 4) {
+        __m128 v = _mm_loadu_ps(&inArray[i]);
+        _mm_storeu_ps(&outArray[i], _mm_mul_ps(v, s));
+    }
+    for (; i < count; ++i) {
+        outArray[i] = inArray[i] * scale;
+    }
+}
+
+// Feature 54 (0x0092F3C0): Vectorized SIMD 4x4 Matrix Multiplication
+void OptimizeSub92F3C0_VectorizedMatrixMultiply(float* outMat, const float* inMatA, const float* inMatB) {
+    if (!outMat || !inMatA || !inMatB) return;
+    __m128 b0 = _mm_loadu_ps(&inMatB[0]);
+    __m128 b1 = _mm_loadu_ps(&inMatB[4]);
+    __m128 b2 = _mm_loadu_ps(&inMatB[8]);
+    __m128 b3 = _mm_loadu_ps(&inMatB[12]);
+    for (int i = 0; i < 4; ++i) {
+        __m128 a0 = _mm_set1_ps(inMatA[i * 4 + 0]);
+        __m128 a1 = _mm_set1_ps(inMatA[i * 4 + 1]);
+        __m128 a2 = _mm_set1_ps(inMatA[i * 4 + 2]);
+        __m128 a3 = _mm_set1_ps(inMatA[i * 4 + 3]);
+        __m128 res = _mm_add_ps(
+            _mm_add_ps(_mm_mul_ps(a0, b0), _mm_mul_ps(a1, b1)),
+            _mm_add_ps(_mm_mul_ps(a2, b2), _mm_mul_ps(a3, b3))
+        );
+        _mm_storeu_ps(&outMat[i * 4], res);
+    }
+}
+
+// Feature 58 (0x008ECF60): Branchless Float Angle Arithmetic
+float OptimizeSub8ECF60_BranchlessFloatAngle(float x, float y) {
+    float ax = std::abs(x);
+    float ay = std::abs(y);
+    if (ax < 1e-5f && ay < 1e-5f) return 0.0f;
+    return std::atan2(y, x);
+}
+
 } // namespace SimdMathFast
