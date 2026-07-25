@@ -26,7 +26,7 @@ The current public build is focused on real frametime stability, long-session sm
 ---
 
 ## Table of Contents
-* [What's New in v3.16.3](#whats-new-in-v3163)
+* [What's New in v3.17.0](#whats-new-in-v3170)
 * [Reviews & Acknowledgments](#reviews)
 * [Current Feature Set](#current-feature-set)
 * [Installation](#installation)
@@ -39,7 +39,42 @@ The current public build is focused on real frametime stability, long-session sm
 
 ---
 
-## What's New in v3.16.3
+## What's New in v3.17.0
+
+A bug-hunt release. Issue #46 ("world loads but the loading screen doesn't go away") turned out to be four separate defects stacked on top of each other, and finding them meant rebuilding the diagnostics first.
+
+**The loading screen hang is fixed.** Three things were causing it:
+
+- **A 1 MB cache wipe on every Lua table resize.** The Lua inline cache was cleared with a full `memset` on each `luaH_resize` — tens of thousands of times during addon load — right before a counter invalidated it anyway. The game really was running behind the loading screen; the frame loop just never got a turn. A tester profile had **52% of all CPU samples** inside that one `memset`. Invalidation is now O(1).
+- **The same mistake on every GC step**, wiping a second 96 KB cache under an exclusive lock. Also O(1) now.
+- **Multi-second stalls inside our own error logging.** Every `ERROR` line forced two disk syncs, and a misread `lua_State` field made every *caught* Lua error look unhandled — so an addon probing the API through `pcall` triggered a ~78-line, ~850 ms dump each time.
+
+**Model flickering is fixed.** The animation LOD throttle was switching on and off about **ten times a second** in crowded scenes, changing the animation rate of every background model at once. WoW runs several animation clocks at the same time (the world, plus UI model frames like portraits and the dressing room), and any clock change was being treated as a new frame, so the crowd counter alternated between the real count and near zero. It now measures against a single reference clock and needs a genuine drop in crowd size before disengaging.
+
+**Fatal `ERROR #134` on clean clients is fixed.** WoW validates every C function pointer handed to the Lua VM and kills the process if it falls outside its own code range. Our Lua fast paths were only legal because some clients happen to load a third-party library that widens that range — without it, enabling them crashed at login. We now ask the client whether a pointer is acceptable and skip the fast path instead of crashing. The validation range is deliberately **not** patched.
+
+**Loading-screen detection no longer needs the addon.** The DLL derives the loading window from the client's own event stream. Previously it came only from `!LuaBoost`, so for anyone without the addon every "bypass this while loading" guard silently never engaged. Two more paths that could suppress it were fixed as well.
+
+**Diagnostics you can act on.** Crash reports, Lua error dumps and stutter dumps now open with an event trace — the state transitions leading up to the problem, newest first, with timestamps:
+
+```
+Recent events:
+    -    23ms  TID=900   LUA state swap (UI reload) - new VM settling
+    - 27810ms  TID=900   LOADING begin (PLAYER_LEAVING_WORLD)
+```
+
+Dumps also list only features with recorded activity instead of ~70 lines of `calls=0`, the session log is now flushed on exit (its tail used to be lost exactly when a session ended badly), and the startup banner reports the true build hash so a log can be matched to source.
+
+**Launcher.** Three toggles that did nothing were removed (their modules are gone). Two that had been removed by mistake are back — the **Lua C-API inline cache suite**, which gates roughly sixty hooks and had no way to be enabled, and the **adaptive Lua GC governor**, which was only ever inert because the state it reacts to was never being set.
+
+### Upgrading
+
+Settings carry over. If you previously edited `wow_optimize.ini` by hand, note that `LuaFileCache` is gone and the loader cache it actually controlled is now its own `ModuleHandleCache` toggle.
+
+**Still open:** a crash reported a while after `alt+F4`. If you hit it, please attach `Crashes\wow_crash_*.dmp` and the timestamped `Logs\wow_optimize_<date>_<time>.log`.
+
+<details>
+<summary><b>Previously — v3.16.3</b></summary>
 
 A reliability pass driven mostly by your bug reports (issues #34–#42):
 
@@ -53,6 +88,8 @@ A reliability pass driven mostly by your bug reports (issues #34–#42):
 - **New opt-in toggles** (launcher → General, default off): Large-Allocation mimalloc *(experimental — confirm you can still connect)*, Object Manager Lookup Cache, Hardware Cursor Fix, Sampling Profiler.
 
 **Known issue:** on some DXVK setups, UI text can garble after a windowed↔maximized switch — still under investigation.
+
+</details>
 
 Older releases: see the [Releases page](https://github.com/suprepupre/wow-optimize/releases) for the full version history.
 
@@ -251,8 +288,9 @@ Replacements for WoW's own statically-linked CRT routines at verified addresses:
 > The generic msvcrt CRT mem/char SSE2 paths (`crt_mem_fastpath`, `crt_char_fast`) are **disabled** — WoW links its CRT statically, so hooking msvcrt exports had little effect and risked VA exhaustion.
 
 ### Lua Event Coalescing *(disabled)*
-- Hooks `FrameScript_SignalEvent` (0x81AC90) to buffer and deduplicate high-frequency UI events per frame
+- Buffers and deduplicates high-frequency UI events per frame
 - **Disabled**: suppressing and re-emitting events a frame later changes event timing/ordering and was unvalidated across the in-world → glue teardown where char-switch crashes occur. Stability outranks the dedup win until it can be confirmed in-game.
+- The `FrameScript_SignalEvent` (0x81AC90) detour it used to own now belongs to the loading/combat state detector, which is always installed. The dedup queue is a consumer of that detour, so it stays switched off without taking the state tracking down with it.
 
 ### Kernel-call caches (38 hooks)
 Batch 1-8: `GetSystemTimeAsFileTime` (QPC-based 1ms refresh), `GetACP`, `GetUserDefaultLangID`, `GetProcessHeap`, `CharUpperA/W`, `CharLowerA/W`, `MapVirtualKeyA`, `GetThreadPriority`
@@ -264,8 +302,9 @@ Batch 21-26: `GetTickCount64` (QPC-backed), `ShowCursor`, `GetVersionExA`, `GetS
 Batch 31-38: `GetCurrentProcess`, `GetCurrentThread`, `GetCPInfo` and related kernel caches
 
 ### Loading screen optimization
-- Skips UR arena reserve on HD clients (>500MB working set)
-- Dynamic VA arena: reserves 256MB during loading, releases after
+- Loading state is detected natively from the client's own event stream (`PLAYER_LEAVING_WORLD` → `PLAYER_ENTERING_WORLD`), so it works with or without the `!LuaBoost` addon. Many subsystems use it as a "bypass this while the world is loading" gate: deferred field updates, the DBC lookup cache, the Lua opcache and the texture unload queue
+- Dynamic VA arena: reserves 256MB during loading, releases after. The reservation is skipped on HD clients (>500MB working set), but the loading state itself is always published
+- A watchdog force-exits the loading state after 30s, so a missed end event can never pin the process in loading mode
 - Sleep hook: bulk Sleep for waits >16ms (less CPU during idle)
 
 ### VA Arena (Virtual Address Arena)
@@ -507,6 +546,26 @@ The Makefile drives `clang-cl` (Homebrew `llvm`) and `lld-link` (Homebrew `lld`)
 ---
 
 ## Troubleshooting
+
+### Reporting a problem
+
+Two things make a report actionable, and both are easy to get wrong:
+
+1. **Send `Logs\wow_optimize_<date>_<time>.log`**, not `Logs\wow_optimize.log`. The second one is overwritten on every launch.
+2. **Quit the game normally** — not `alt+F4` — after reproducing the problem, so the end of the log reaches disk.
+
+If the game crashed, attach `Crashes\wow_crash_*.dmp` (or the text report written next to it under Wine) as well.
+
+Every crash report, Lua error dump and stutter dump starts with an event trace — the state transitions leading up to the problem, newest first — which is usually the part that explains it:
+
+```
+Recent events:
+    -    23ms  TID=900   LUA state swap (UI reload) - new VM settling
+    - 27810ms  TID=900   LOADING begin (PLAYER_LEAVING_WORLD)
+    -110351ms  TID=900   D3D9 device Reset (dev=0x0EB1AA90)
+```
+
+The startup banner reports the exact build the log came from (`v3.17.0 (build abc1234)`), so please don't trim the first lines.
 
 | Problem | Solution |
 |---------|----------|

@@ -51,6 +51,10 @@ FetchContent_MakeAvailable(mimalloc)
 add_library(wow_optimize SHARED
     src/core/dllmain.cpp
     src/core/config.cpp
+    # Windows file-version metadata. This was never attached to a target, so the
+    # shipped DLL carried no version resource at all and the file sat at 3.12.0
+    # unnoticed through several releases.
+    src/core/version.rc
     src/hooks_subsystems/crt_mem_fastpath.cpp
     src/runtime_vm/lua_optimize.cpp
     src/runtime_vm/lua_optimize.h
