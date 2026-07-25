@@ -22,4 +22,8 @@ namespace M2MatrixSimd {
     // De-virtualized Transform Path Fastpaths
     void OptimizeSub9A3F20_DevirtualizedEval(void* node, float* outMatrix);
     void OptimizeSub581E80_DevirtualizedScale(void* scaleObj, float* scaleVec);
+
+    // Lock-Free Atomic Update Slots
+    bool OptimizeSub9B0E80_LockFreeMatrixUpdate(volatile LONG* slot, const float* newMatrix, float* targetMatrix);
+    bool OptimizeSub8F0A60_LockFreeBoneRotation(volatile LONG* slot, const float* newQuat, float* targetQuat);
 }

@@ -126,12 +126,28 @@ namespace M2MatrixSimd {
         _mm_storeu_ps(&outMatrix[12], _mm_loadu_ps(&nodeMatrix[12]));
     }
 
-    // Feature 35 (0x00581E80): De-virtualized Scale Matrix Fastpath
+    // De-virtualized Scale Matrix Fastpath
     void OptimizeSub581E80_DevirtualizedScale(void* scaleObj, float* scaleVec) {
         if (!scaleObj || !scaleVec) return;
         float* internalScale = (float*)((char*)scaleObj + 8);
         scaleVec[0] = internalScale[0];
         scaleVec[1] = internalScale[1];
         scaleVec[2] = internalScale[2];
+    }
+
+    // Lock-Free Atomic Matrix Update Slot
+    bool OptimizeSub9B0E80_LockFreeMatrixUpdate(volatile LONG* slot, const float* newMatrix, float* targetMatrix) {
+        return OptimizeSub93E470_LockFree(slot, newMatrix, targetMatrix);
+    }
+
+    // Lock-Free Atomic Bone Rotation Update Slot
+    bool OptimizeSub8F0A60_LockFreeBoneRotation(volatile LONG* slot, const float* newQuat, float* targetQuat) {
+        if (!slot || !newQuat || !targetQuat) return false;
+        if (InterlockedCompareExchange(slot, 1, 0) == 0) {
+            _mm_storeu_ps(&targetQuat[0], _mm_loadu_ps(&newQuat[0]));
+            InterlockedExchange(slot, 0);
+            return true;
+        }
+        return false;
     }
 }
