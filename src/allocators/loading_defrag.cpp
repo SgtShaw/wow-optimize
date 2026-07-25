@@ -247,10 +247,19 @@ void NotifyLoadingState(bool isLoading) {
     }
 }
 
+// Safety net only. Loading now ends on the client's own PLAYER_ENTERING_WORLD
+// signal (LoadingState), so this exists purely so a missed end event cannot pin the
+// process in loading mode forever. The previous 8s cap was shorter than a real cold
+// zone load on a fragmented client, which silently dropped every loading-time
+// bypass part-way through the load it was meant to cover.
+static constexpr DWORD LOADING_WATCHDOG_MS = 30000;
+
 bool IsLoadingActive() {
     if (g_loadingActive.load(std::memory_order_acquire)) {
-        if (GetTickCount() - g_loadingStartTick > 8000) {
+        if (GetTickCount() - g_loadingStartTick > LOADING_WATCHDOG_MS) {
             g_loadingActive.store(false, std::memory_order_release);
+            Log("[LoadingDefrag] Loading state watchdog expired after %u ms - forcing exit",
+                (unsigned)LOADING_WATCHDOG_MS);
             return false;
         }
         return true;

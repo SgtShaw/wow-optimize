@@ -406,6 +406,7 @@ static void StopFreezeWatchdog() {
 #include "lua_gettable_cache.h"
 #include "saved_vars_async.h"
 #include "event_coalescer.h"
+#include "loading_state.h"
 #include "luaS_newlstr_sse2.h"
 #include "lua_bytecode_pre_compiler.h"
 #include "hook_prefetch.h"
@@ -5814,25 +5815,37 @@ static bool InstallWFMOFast() {
 static void* g_loadingArena = nullptr;
 static SRWLOCK g_arenaLock = SRWLOCK_INIT;
 
+// Reserving the arena is a best-effort optimization that is deliberately skipped on
+// heavy clients, but entering the loading state is NOT optional - a whole family of
+// "bypass this hook while loading" guards depends on it. The two were previously
+// fused, so on any client with a working set above 500 MB (i.e. most HD clients) the
+// early return skipped the notification and the process never entered loading state.
 extern "C" void ReserveLoadingArena() {
     AcquireSRWLockExclusive(&g_arenaLock);
-    if (g_loadingArena) { ReleaseSRWLockExclusive(&g_arenaLock); return; }
+    if (!g_loadingArena) {
+        // Skip on HD clients - VA space already under pressure (32-bit, 1.3GB WS)
+        PROCESS_MEMORY_COUNTERS pmc = {};
+        pmc.cb = sizeof(pmc);
+        bool vaUnderPressure = GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
+                               && pmc.WorkingSetSize > 500u * 1024u * 1024u;
 
-    // Skip on HD clients - VA space already under pressure (32-bit, 1.3GB WS)
-    PROCESS_MEMORY_COUNTERS pmc = {};
-    pmc.cb = sizeof(pmc);
-    if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))
-        && pmc.WorkingSetSize > 500u * 1024u * 1024u)
-        { ReleaseSRWLockExclusive(&g_arenaLock); return; }
-
-    g_loadingArena = VirtualAlloc(nullptr, 256 * 1024 * 1024, MEM_RESERVE, PAGE_NOACCESS);
-    ReleaseSRWLockExclusive(&g_arenaLock);
-
-    if (g_loadingArena) {
-        Log("[VA-Arena] Reserved 256MB for loading screen model/texture allocation");
+        if (!vaUnderPressure) {
+            g_loadingArena = VirtualAlloc(nullptr, 256 * 1024 * 1024, MEM_RESERVE, PAGE_NOACCESS);
+            ReleaseSRWLockExclusive(&g_arenaLock);
+            if (g_loadingArena) {
+                Log("[VA-Arena] Reserved 256MB for loading screen model/texture allocation");
+            } else {
+                Log("[VA-Arena] Failed to reserve 256MB (VA fragmented - continuing)");
+            }
+        } else {
+            ReleaseSRWLockExclusive(&g_arenaLock);
+            Log("[VA-Arena] Skipped reservation (working set %.1f MB - VA already under pressure)",
+                pmc.WorkingSetSize / (1024.0 * 1024.0));
+        }
     } else {
-        Log("[VA-Arena] Failed to reserve 256MB (VA fragmented - continuing)");
+        ReleaseSRWLockExclusive(&g_arenaLock);
     }
+
     LoadingDefrag::NotifyLoadingState(true);
     TextureUnloadDelay::Flush();
 }
@@ -6421,6 +6434,11 @@ static DWORD WINAPI MainThread(LPVOID param) {
     InstallSoundEmitterGuard();
     InstallSoundBufferGuard();
     InstallSoundUpdateGuard();
+    // Always installed: it owns the FrameScript_SignalEvent detour and publishes the
+    // loading state that the DBC cache, deferred field updates, LuaOpcache and the
+    // texture unload queue use as a safety gate. EventCoalescer, when enabled, hangs
+    // its dedup queue off this same detour.
+    LoadingState::Init();
 #if !TEST_DISABLE_EVENT_COALESCER
     EventCoalescer::Init();
 #endif
