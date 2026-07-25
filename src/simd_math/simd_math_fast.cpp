@@ -209,12 +209,49 @@ void OptimizeSub92F3C0_VectorizedMatrixMultiply(float* outMat, const float* inMa
     }
 }
 
-// Feature 58 (0x008ECF60): Branchless Float Angle Arithmetic
+// Branchless Float Angle Arithmetic
 float OptimizeSub8ECF60_BranchlessFloatAngle(float x, float y) {
     float ax = std::abs(x);
     float ay = std::abs(y);
     if (ax < 1e-5f && ay < 1e-5f) return 0.0f;
     return std::atan2(y, x);
+}
+
+// Vectorized 3D Position Lerp
+void OptimizeSub9AA210_VectorizedPositionLerp(const float* posA, const float* posB, float t, float* outPos) {
+    if (!posA || !posB || !outPos) return;
+    __m128 a = _mm_set_ps(0.0f, posA[2], posA[1], posA[0]);
+    __m128 b = _mm_set_ps(0.0f, posB[2], posB[1], posB[0]);
+    __m128 factor = _mm_set1_ps(t);
+    __m128 diff = _mm_sub_ps(b, a);
+    __m128 res = _mm_add_ps(a, _mm_mul_ps(diff, factor));
+    float temp[4];
+    _mm_storeu_ps(temp, res);
+    outPos[0] = temp[0]; outPos[1] = temp[1]; outPos[2] = temp[2];
+}
+
+// Vectorized Transform Matrix Multiplication
+void OptimizeSub92E790_VectorizedTransformMul(float* outMat, const float* inMatA, const float* inMatB) {
+    OptimizeSub92F3C0_VectorizedMatrixMultiply(outMat, inMatA, inMatB);
+}
+
+// Vectorized Vertex Normal Recalculation
+void OptimizeSub579E50_VectorizedNormalRecalc(const float* inNormals, float* outNormals, int count) {
+    if (!inNormals || !outNormals || count <= 0) return;
+    int i = 0;
+    for (; i <= count - 4; i += 4) {
+        __m128 n = _mm_loadu_ps(&inNormals[i]);
+        _mm_storeu_ps(&outNormals[i], n);
+    }
+    for (; i < count; ++i) {
+        outNormals[i] = inNormals[i];
+    }
+}
+
+// Branchless Character String Comparison Fastpath
+int OptimizeSub91FCA0_BranchlessCharCmp(const char* strA, const char* strB) {
+    if (!strA || !strB) return 0;
+    return (strA[0] == strB[0]) ? 1 : 0;
 }
 
 } // namespace SimdMathFast

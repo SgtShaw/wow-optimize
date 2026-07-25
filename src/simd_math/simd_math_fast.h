@@ -26,5 +26,9 @@ void OptimizeSub6865B0_VectorizedTransform(float* inVec4, const float* matrix4x4
 void OptimizeSub911FD0_VectorizedArrayScale(float* inArray, float scale, float* outArray, int count);
 void OptimizeSub92F3C0_VectorizedMatrixMultiply(float* outMat, const float* inMatA, const float* inMatB);
 float OptimizeSub8ECF60_BranchlessFloatAngle(float x, float y);
+void OptimizeSub9AA210_VectorizedPositionLerp(const float* posA, const float* posB, float t, float* outPos);
+void OptimizeSub92E790_VectorizedTransformMul(float* outMat, const float* inMatA, const float* inMatB);
+void OptimizeSub579E50_VectorizedNormalRecalc(const float* inNormals, float* outNormals, int count);
+int OptimizeSub91FCA0_BranchlessCharCmp(const char* strA, const char* strB);
 
 } // namespace SimdMathFast
