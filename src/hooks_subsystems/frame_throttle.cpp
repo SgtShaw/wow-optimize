@@ -129,3 +129,23 @@ void GetFrameThrottleStats(long* skipped, long* executed, long* bypassed) {
 void ShutdownFrameThrottling() {
     // No cleanup required for static array cache
 }
+
+// Feature 56 (0x005C29C0): Throttled Update Governor Tick
+bool OptimizeSub5C29C0_ThrottleUpdate(DWORD currentTick) {
+    static DWORD s_lastTick = 0;
+    if (currentTick - s_lastTick < 100) { // 10Hz tick throttle
+        return true; // Skip tick
+    }
+    s_lastTick = currentTick;
+    return false;
+}
+
+// Feature 57 (0x00542030): Throttled UI Refresh Routine
+bool OptimizeSub542030_ThrottleUIRefresh(DWORD currentTick) {
+    static DWORD s_lastUIRefresh = 0;
+    if (currentTick - s_lastUIRefresh < 50) { // 20Hz UI refresh throttle
+        return true; // Skip UI refresh
+    }
+    s_lastUIRefresh = currentTick;
+    return false;
+}
