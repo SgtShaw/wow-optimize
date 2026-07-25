@@ -1241,6 +1241,16 @@ static int __cdecl LuaBoostC_GetFastPathStats_cb(lua_State* L) {
 
 static void RegisterLuaFunction(lua_State* L, const char* name, void* fn) {
     if (!Api.lua_pushcclosure || !Api.lua_setfield) return;
+
+    // Handing the VM a C function outside the client's accepted pointer range is a
+    // fatal ERROR #134, raised by the client itself - the SEH block below cannot
+    // catch it, so the check has to happen before the push.
+    if (!LuaCFunctionAccepted(fn)) {
+        Log("[LuaOpt] Skipping global '%s': 0x%08X is outside WoW's lua_CFunction range",
+            name, (unsigned)(uintptr_t)fn);
+        return;
+    }
+
     __try {
         Api.lua_pushcclosure(L, fn, 0);
         Api.lua_setfield(L, LUA_GLOBALSINDEX, name);

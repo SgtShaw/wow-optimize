@@ -22,6 +22,17 @@
 // Forward declaration
 typedef struct lua_State lua_State;
 
+// True if WoW will accept `fn` as a lua_CFunction.
+//
+// The client validates every C function pointer handed to the Lua VM against
+// [dword_D415B8, dword_D415BC) in sub_86B5A0, and kills the process outright with
+// ERROR #134 "Invalid function pointer: %p" when it falls outside. That range
+// covers Wow.exe's own code, so a pointer into this DLL is only accepted when
+// something has widened it. Anything registering our functions into Lua must ask
+// this first and skip the registration when it returns false - the failure mode is
+// a fatal error box at login, which no SEH guard can catch.
+bool LuaCFunctionAccepted(const void* fn);
+
 namespace LuaFastPath {
 
 // Phase 1: Hook string.format (hardcoded address, called during DLL init)

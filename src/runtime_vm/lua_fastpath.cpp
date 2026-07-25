@@ -55,6 +55,28 @@ static fn_lua_pushboolean lua_pushboolean_ = (fn_lua_pushboolean)0x0084E4D0;
 static fn_lua_settop      lua_settop_      = (fn_lua_settop)0x0084DBF0;
 static fn_lua_getfield    lua_getfield_    = (fn_lua_getfield)0x0084E590;
 static fn_lua_pushcclosure lua_pushcclosure_ = (fn_lua_pushcclosure)0x0084E400;
+
+// Bounds the client checks every lua_CFunction pointer against (see sub_86B5A0).
+// They are initialized lazily by the client; zero means "not established yet".
+static constexpr uintptr_t ADDR_CFUNC_RANGE_LO = 0x00D415B8;
+static constexpr uintptr_t ADDR_CFUNC_RANGE_HI = 0x00D415BC;
+
+bool LuaCFunctionAccepted(const void* fn) {
+    __try {
+        uintptr_t lo = *(uintptr_t*)ADDR_CFUNC_RANGE_LO;
+        uintptr_t hi = *(uintptr_t*)ADDR_CFUNC_RANGE_HI;
+
+        // Not initialized yet: we cannot tell, and guessing wrong is a hard crash,
+        // so stay out. Registration always happens long after the client has
+        // registered its own C functions, which is what establishes the range.
+        if (lo == 0 || hi == 0 || hi <= lo) return false;
+
+        uintptr_t p = (uintptr_t)fn;
+        return p >= lo && p < hi;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return false;
+    }
+}
 static fn_lua_replace     lua_replace_     = (fn_lua_replace)0x0084DD70;
 static fn_lua_insert      lua_insert_      = (fn_lua_insert)0x0084DCC0;
 static fn_lua_remove      lua_remove_      = (fn_lua_remove)0x0084DC50;
@@ -3544,6 +3566,16 @@ bool InitPhase2(lua_State* L) {
                     continue;
                 }
                 lua_settop_(L, -2); // pop old function, keep table
+
+                // The client kills the process if it is handed a lua_CFunction
+                // outside its accepted range, so this must be checked before the
+                // push, not guarded around it.
+                if (!LuaCFunctionAccepted(e.hookFn)) {
+                    lua_settop_(L, -2); // pop table
+                    Log("[FastPath]   %-8s.%-8s  SKIP (hook at 0x%08X outside WoW's lua_CFunction range)",
+                        e.table ? e.table : "_G", e.name, (unsigned)(uintptr_t)e.hookFn);
+                    continue;
+                }
 
                 // Push our hook as a C closure with original as upvalue
                 lua_pushcclosure_(L, (int(__cdecl*)(lua_State*))e.hookFn, 0);
