@@ -483,7 +483,35 @@ static HRESULT __stdcall Hooked_Present(void* dev, const RECT* src, const RECT* 
     InterlockedIncrement64(&g_statCalls[15]);
     FrameBench::OnPresent(FrameBench::Source::D3D9Present);
     WowOpt_OnFrameBoundary();
-    return g_orig_Present(dev, src, dst, hOverride, dirty);
+
+    HRESULT hr = g_orig_Present(dev, src, dst, hOverride, dirty);
+
+    // Drop the shadow state at the real frame boundary.
+    //
+    // The caches above answer "is this state already set?" by returning S_OK
+    // without touching the device. That is only sound while this DLL is the sole
+    // writer of device state, and it is not: any overlay injected into the
+    // process - RTSS, Afterburner, Steam, Discord, OBS - issues its own D3D9
+    // calls around Present. Once one changes a state we believe is current, every
+    // later SetRenderState for it is skipped and the device keeps the overlay's
+    // value. Wrong lighting, fog or colour-write state darkens the whole frame.
+    //
+    // OnFrameD3D9StateManager already invalidated per frame for exactly this
+    // reason, but it runs from hooked_Sleep, which is gated to one tick every
+    // SleepPrecisionValue ms (8 by default). That caps it near 125 ticks/second
+    // while frames keep coming, and a client with frames to spare barely calls
+    // Sleep at all - so above roughly 125 fps the per-frame invalidation quietly
+    // stops being per-frame. That matches the report this fixes: flicker and a
+    // darkened screen with an overlay running above 120 fps.
+    //
+    // Present is the one place that is a frame, at any frame rate. The Sleep-side
+    // call stays as the fallback for the OpenGL swap path, where this hook never
+    // runs. Done after the original returns, so whatever the overlay drew for
+    // this frame is already behind us.
+    InvalidateAllCaches();
+    RenderStateDedup_ClearCache();
+
+    return hr;
 }
 
 // ================================================================
@@ -785,6 +813,12 @@ void OnFrameD3D9StateManager(DWORD mainThreadId) {
 
     // Invalidate state cache every frame to ensure synchronization with device resets,
     // window resizing, resolution changes, and DXVK state updates!
+    //
+    // This is the fallback path. It runs from hooked_Sleep, which is gated to one
+    // tick every SleepPrecisionValue ms, so it stops keeping up with frames above
+    // roughly 125 fps. Hooked_Present carries the same invalidation and is a true
+    // frame boundary at any frame rate; this call still matters for the OpenGL
+    // swap path, where Present is never reached.
     InvalidateAllCaches();
 
     CheckWindowSizeChange();
