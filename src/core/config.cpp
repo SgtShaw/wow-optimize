@@ -53,7 +53,6 @@ namespace Config {
             WritePrivateProfileStringA("General", "MimallocLarge", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "VaArena", "0", iniPath.c_str());  // EXPERIMENTAL, opt-in
             WritePrivateProfileStringA("General", "CompatMode", "0", iniPath.c_str());  // set 1 on VMs/HyperV if the game can't connect
-            WritePrivateProfileStringA("Graphics_Sound", "AnimationLod", "0", iniPath.c_str());  // crowd-throttle bone animation (FPS in raids/cities)
             WritePrivateProfileStringA("Graphics_Sound", "NameplateThrottle", "0", iniPath.c_str());  // crowd-throttle non-target nameplate updates
 
 
@@ -158,7 +157,6 @@ namespace Config {
         g_settings.OptMimallocLarge       = GetPrivateProfileIntA("General", "MimallocLarge", 0, iniPath.c_str()) != 0;
         g_settings.OptVaArena             = GetPrivateProfileIntA("General", "VaArena", 0, iniPath.c_str()) != 0;
         g_settings.OptCompatMode          = GetPrivateProfileIntA("General", "CompatMode", 0, iniPath.c_str()) != 0;
-        g_settings.OptAnimationLod        = GetPrivateProfileIntA("Graphics_Sound", "AnimationLod", 0, iniPath.c_str()) != 0;
         g_settings.OptNameplateThrottle   = GetPrivateProfileIntA("Graphics_Sound", "NameplateThrottle", 0, iniPath.c_str()) != 0;
         // HARD-DISABLED regardless of ini: in tester logs the arena was active
         // on machines with zero fragmentation (2GB+ largest free block), so it
