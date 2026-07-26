@@ -331,6 +331,54 @@ static constexpr int SELF_FINE_SLOTS = 8192;   // covers a 2MB image (~600KB tod
 static constexpr int SELF_FINE_TOP   = 20;
 static uint32_t g_selfFineCounts[SELF_FINE_SLOTS];
 
+// The client's code has exactly the same problem, and it is the bigger half: the
+// hottest region in a recent profile, 0x005B2000 at 6.45%, holds four functions,
+// so "which client function is worth hooking" could not be answered from a log at
+// all. 512 bytes over the 8MB image costs 64KB of counters and usually lands on
+// one function, which can then be decompiled directly.
+static constexpr int WOW_FINE_SHIFT = 9;       // 512-byte buckets
+static constexpr int WOW_FINE_SLOTS = (int)((WOW_END - WOW_BASE) >> WOW_FINE_SHIFT) + 1;
+static uint32_t g_wowFineCounts[WOW_FINE_SLOTS];
+
+// Prints the top SELF_FINE_TOP buckets of a histogram, largest first. Selection is
+// an insertion pass over a 20-entry list rather than a sort of the whole array,
+// which would mean copying 16-32K entries inside a diagnostic dump.
+static void DumpFineHistogram(const uint32_t* counts, int slots, int shift,
+                              uint64_t total, const char* title,
+                              const char* addrFormat, uintptr_t addrBase) {
+    int idx[SELF_FINE_TOP];
+    int found = 0;
+
+    for (int i = 0; i < slots; i++) {
+        uint32_t c = counts[i];
+        if (!c) continue;
+        int at = found;
+        if (found < SELF_FINE_TOP) {
+            found++;
+        } else if (c > counts[idx[SELF_FINE_TOP - 1]]) {
+            at = SELF_FINE_TOP - 1;
+        } else {
+            continue;
+        }
+        while (at > 0 && c > counts[idx[at - 1]]) {
+            idx[at] = idx[at - 1];
+            at--;
+        }
+        idx[at] = i;
+    }
+
+    if (found == 0 || total == 0) return;
+
+    Log("[SamplingProfiler] === %s ===", title);
+    for (int i = 0; i < found; i++) {
+        uint32_t c = counts[idx[i]];
+        char addr[32];
+        wsprintfA(addr, addrFormat, (unsigned)(addrBase + ((uintptr_t)idx[i] << shift)));
+        Log("[SamplingProfiler]   %-14s %8u samples (%5.2f%%)",
+            addr, c, 100.0 * (double)c / (double)total);
+    }
+}
+
 // A cheap marker: this variable lives inside our own DLL, so its address tells
 // us which module is ours.
 static int g_selfAnchor = 0;
@@ -452,6 +500,7 @@ static void DumpResults() {
     memset(g_pageCounts, 0, sizeof(g_pageCounts));
     memset(g_selfPageCounts, 0, sizeof(g_selfPageCounts));
     memset(g_selfFineCounts, 0, sizeof(g_selfFineCounts));
+    memset(g_wowFineCounts, 0, sizeof(g_wowFineCounts));
 
     // Snapshot loaded modules so system samples can be attributed to a DLL.
     BuildModuleTable();
@@ -502,7 +551,10 @@ static void DumpResults() {
         // our own DLL per 4KB page, and other non-WoW samples per owning module
         // (falling back to the opaque system bucket only when unresolved).
         if (eip >= WOW_BASE && eip <= WOW_END) {
-            g_pageCounts[(eip - WOW_BASE) >> 12]++;
+            uintptr_t woff = eip - WOW_BASE;
+            g_pageCounts[woff >> 12]++;
+            uint32_t wfine = (uint32_t)(woff >> WOW_FINE_SHIFT);
+            if (wfine < WOW_FINE_SLOTS) g_wowFineCounts[wfine]++;
         } else if (g_selfBase && eip >= g_selfBase && eip < g_selfEnd) {
             uintptr_t off = eip - g_selfBase;
             uint32_t pg = (uint32_t)(off >> 12);
@@ -597,40 +649,13 @@ static void DumpResults() {
         printed++;
     }
 
-    // Our own hot spots at 256-byte resolution. Offsets are from the DLL base, so
-    // they resolve directly against the .map of the build named in the startup
-    // banner - narrow enough to land on one function instead of a page of them.
-    {
-        int fineIdx[SELF_FINE_TOP];
-        int fineFound = 0;
-        for (int i = 0; i < SELF_FINE_SLOTS; i++) {
-            uint32_t c = g_selfFineCounts[i];
-            if (!c) continue;
-            int at = fineFound;
-            if (fineFound < SELF_FINE_TOP) {
-                fineFound++;
-            } else if (c > g_selfFineCounts[fineIdx[SELF_FINE_TOP - 1]]) {
-                at = SELF_FINE_TOP - 1;
-            } else {
-                continue;
-            }
-            while (at > 0 && c > g_selfFineCounts[fineIdx[at - 1]]) {
-                fineIdx[at] = fineIdx[at - 1];
-                at--;
-            }
-            fineIdx[at] = i;
-        }
-
-        if (fineFound > 0) {
-            Log("[SamplingProfiler] === wow_optimize.dll HOT SPOTS (256-byte resolution) ===");
-            for (int i = 0; i < fineFound; i++) {
-                uint32_t c = g_selfFineCounts[fineIdx[i]];
-                Log("[SamplingProfiler]   wowopt+0x%05X  %8u samples (%5.2f%%)",
-                    (unsigned)((uintptr_t)fineIdx[i] << SELF_FINE_SHIFT),
-                    c, 100.0 * (double)c / (double)total);
-            }
-        }
-    }
+    // Our own hot spots at 256-byte resolution, then the client's at 512-byte.
+    // Both are narrow enough to land on a single function, which the 4KB page
+    // buckets in the ranking above cannot do.
+    DumpFineHistogram(g_selfFineCounts, SELF_FINE_SLOTS, SELF_FINE_SHIFT, total,
+                      "wow_optimize.dll HOT SPOTS (256-byte resolution)", "wowopt+0x%05X", 0);
+    DumpFineHistogram(g_wowFineCounts, WOW_FINE_SLOTS, WOW_FINE_SHIFT, total,
+                      "wow.exe HOT SPOTS (512-byte resolution)", "0x%08X", WOW_BASE);
 
     Log("[SamplingProfiler] === END PROFILE ===");
 }
