@@ -165,6 +165,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/mip_bias_governor.h
     src/diagnostics/perf_diagnostics.cpp
     src/diagnostics/perf_diagnostics.h
+    src/diagnostics/frame_bench.cpp
+    src/diagnostics/frame_bench.h
     src/runtime_vm/lua_xpcall_fast.cpp
     src/runtime_vm/lua_xpcall_fast.h
     src/runtime_vm/lua_getmetafield_fast.cpp

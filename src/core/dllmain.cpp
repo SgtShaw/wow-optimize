@@ -404,6 +404,7 @@ static void StopFreezeWatchdog() {
 #include "saved_vars_async.h"
 #include "event_coalescer.h"
 #include "loading_state.h"
+#include "diagnostics/frame_bench.h"
 #include "luaS_newlstr_sse2.h"
 #include "lua_bytecode_pre_compiler.h"
 #include "hook_prefetch.h"
@@ -4432,6 +4433,7 @@ static void DumpPeriodicStats() {
 #endif
     if (Config::g_settings.OptAnimationLod) AnimationLod::LogStats();
     if (Config::g_settings.OptNameplateThrottle) NameplateThrottle::LogStats();
+    FrameBench::Report("periodic");
 }
 
 // ================================================================
@@ -4535,6 +4537,11 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     // NO IsBadReadPtr - it breaks guard pages and causes mouse-triggered crashes
     // when cursor/UI redraw happens during device state transitions.
     __try {
+        // A true per-frame boundary: sub_69E220 is reached only through the render
+        // vtable, once per presented frame. It is the one place that can measure
+        // frame time honestly, so the benchmark is fed from here.
+        FrameBench::OnPresent(FrameBench::Source::SwapHook);
+
         // Ensure deferred field updates and coalesced world states are flushed 
         // on the main thread every frame boundary, even when the client is running
         // with VSync off / uncapped framerates (which bypass hooked_Sleep).
@@ -6447,6 +6454,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // loading state that the DBC cache, deferred field updates, LuaOpcache and the
     // texture unload queue use as a safety gate. EventCoalescer, when enabled, hangs
     // its dedup queue off this same detour.
+    FrameBench::Init();
     LoadingState::Init();
 #if !TEST_DISABLE_EVENT_COALESCER
     EventCoalescer::Init();
@@ -9670,6 +9678,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 FlushSavedVarsAsyncSynchronously();
 #endif
                 ClearAssetPathCache();
+                // The distribution is the point of the whole session; emit it
+                // before the log is finalized or it is lost on every normal exit.
+                FrameBench::Report("session end");
                 LogFinalizeOnProcessExit(
                     "wow_optimize.dll: process terminating, hooks removed, skipping cleanup");
                 break;
