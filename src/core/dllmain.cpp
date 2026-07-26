@@ -6692,7 +6692,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool luaGlobalCacheOk = Config::g_settings.OptLuaOpcache && InstallLuaGlobalCache();
 
     // memset hook - 1108 callers
-    bool hotFuncOk = Config::g_settings.OptStrStrSse2 && InstallHotFunctionOptimizations();
+    bool hotFuncOk = Config::g_settings.OptFastMemsetOpt && InstallHotFunctionOptimizations();
 
     bool memcpyFastOk = false; // Config::g_settings.OptStrStrSse2 && InstallMemcpyFast();
 
@@ -6706,7 +6706,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Fast String Compare (strncmp) - 1013 callers
 #if !TEST_DISABLE_STRING_OPS_FAST
-    bool fastStrncmpOk = Config::g_settings.OptStrStrSse2 && InstallFastStrncmp();
+    bool fastStrncmpOk = Config::g_settings.OptFastStrnicmpOpt && InstallFastStrncmp();
 #else
     bool fastStrncmpOk = false;
 #endif

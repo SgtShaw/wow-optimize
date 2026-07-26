@@ -64,6 +64,11 @@ namespace Config {
         // interned. Default off: it duplicates work the engine already does
         // (hash, bucket walk, compare) and falls through to the original on a
         // miss, so a miss costs both - and its value has never been measured.
+        // Both of these had a launcher switch whose ini key nothing read, so the
+        // hooks installed regardless and a tester bisecting string corruption got
+        // no signal from turning them off.
+        bool OptFastMemsetOpt = true;    // SSE2 memset replacement (0x0040BB80)
+        bool OptFastStrnicmpOpt = true;  // SSE2 _strnicmp replacement (0x0076E780)
         bool OptLuaSNewLstrFast = false;
         bool OptStrStrSse2 = false;
         bool OptStrCatFast = false;

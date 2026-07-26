@@ -198,6 +198,8 @@ namespace Config {
         g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 0, iniPath.c_str()) != 0;
 
         // Graphics & Sound
+        g_settings.OptFastMemsetOpt       = GetPrivateProfileIntA("Graphics_Sound", "FastMemsetOpt", 1, iniPath.c_str()) != 0;
+        g_settings.OptFastStrnicmpOpt     = GetPrivateProfileIntA("UI_Lua", "FastStrnicmpOpt", 1, iniPath.c_str()) != 0;
         g_settings.OptLuaSNewLstrFast     = GetPrivateProfileIntA("UI_Lua", "LuaSNewLstrFast", 0, iniPath.c_str()) != 0;
         g_settings.OptStrStrSse2          = GetPrivateProfileIntA("Graphics_Sound", "StrStrSse2", 0, iniPath.c_str()) != 0;
         g_settings.OptStrCatFast          = GetPrivateProfileIntA("Graphics_Sound", "StrCatFast", 0, iniPath.c_str()) != 0;
