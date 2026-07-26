@@ -13,6 +13,7 @@
 
 #include "frame_bench.h"
 #include "core/config.h"
+#include "crash_dumper.h"
 #include "version.h"
 
 extern "C" void Log(const char* fmt, ...);
@@ -43,6 +44,43 @@ static LARGE_INTEGER g_last  = {};
 static Source        g_source = Source::None;
 static bool          g_ready  = false;
 
+// ---- slow-frame attribution -------------------------------------------------
+//
+// The distribution says how bad the hitches are; it cannot say what caused them.
+// A tester log showed p50 at 2.4ms and p99.9 at 17.4ms - a sevenfold spread in an
+// empty area - with no way to tell what those frames were doing.
+//
+// The event trace already records the state transitions that explain most stalls
+// (loading boundaries, lua_State swaps, device resets, cache invalidations). It is
+// only useful if something asks for it at the right moment, so a frame that runs
+// far past the session's own median asks for it.
+//
+// The threshold is relative, not a fixed millisecond count: at 400fps a 20ms frame
+// is a severe hitch, while during a heavy raid it is an ordinary one. A fixed
+// threshold would either miss every hitch on a fast machine or fire constantly on
+// a slow one.
+static constexpr double SLOW_FRAME_FACTOR   = 5.0;    // times the running median
+static constexpr double SLOW_FRAME_FLOOR_MS = 8.0;    // never report below this
+static constexpr DWORD  SLOW_FRAME_QUIET_MS = 2000;   // spacing between reports
+
+static double g_medianMs      = 0.0;   // refreshed periodically from the histogram
+static uint64_t g_medianAtFrame = 0;
+static DWORD  g_lastSlowReport = 0;
+static uint64_t g_slowFrames  = 0;
+
+static void ComputePercentiles(const double* wanted, double* out, int n);
+
+// Recomputing the median every frame would walk 1000 buckets per frame. Every 512
+// frames is often enough for a threshold and costs nothing measurable.
+static void RefreshMedian() {
+    if (g_frames - g_medianAtFrame < 512 && g_medianMs > 0.0) return;
+    g_medianAtFrame = g_frames;
+    static const double half[] = { 0.50 };
+    double p[1] = {};
+    ComputePercentiles(half, p, 1);
+    g_medianMs = p[0];
+}
+
 static const char* SourceName(Source s) {
     switch (s) {
         case Source::D3D9Present: return "D3D9 Present";
@@ -72,6 +110,10 @@ void Init() {
     g_over33 = g_over50 = g_over100 = 0.0;
     g_last.QuadPart = 0;
     g_source = Source::None;
+    g_medianMs = 0.0;
+    g_medianAtFrame = 0;
+    g_lastSlowReport = 0;
+    g_slowFrames = 0;
     g_ready = QueryPerformanceFrequency(&g_freq) && g_freq.QuadPart > 0;
 }
 
@@ -91,6 +133,24 @@ static void Accumulate(double ms) {
     int b = (int)(ms / BUCKET_MS);
     if (b >= BUCKET_COUNT) g_overflow++;
     else                   g_buckets[b]++;
+
+    RefreshMedian();
+
+    double threshold = g_medianMs * SLOW_FRAME_FACTOR;
+    if (threshold < SLOW_FRAME_FLOOR_MS) threshold = SLOW_FRAME_FLOOR_MS;
+    if (ms < threshold) return;
+
+    g_slowFrames++;
+
+    // Report at most one in a while. A burst of hitches shares one cause, and the
+    // logging itself must not become part of the problem it is describing.
+    DWORD now = GetTickCount();
+    if (g_lastSlowReport != 0 && (now - g_lastSlowReport) < SLOW_FRAME_QUIET_MS) return;
+    g_lastSlowReport = now;
+
+    Log("[FrameBench] slow frame: %.1f ms (%.1fx the %.2f ms median) - recent events:",
+        ms, ms / (g_medianMs > 0.0 ? g_medianMs : 1.0), g_medianMs);
+    CrashDumper::DumpTrace(4);
 }
 
 void OnPresent(Source src) {
@@ -163,6 +223,11 @@ void Report(const char* reason) {
         g_over33,  100.0 * g_over33  / (double)g_frames,
         g_over50,  100.0 * g_over50  / (double)g_frames,
         g_over100, 100.0 * g_over100 / (double)g_frames);
+    if (g_slowFrames > 0) {
+        Log("[FrameBench]   %llu frames ran past %.1fx the median; see the "
+            "\"slow frame\" lines above for what each was doing",
+            (unsigned long long)g_slowFrames, SLOW_FRAME_FACTOR);
+    }
 }
 
 } // namespace FrameBench
