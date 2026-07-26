@@ -45,7 +45,8 @@ static bool          g_ready  = false;
 
 static const char* SourceName(Source s) {
     switch (s) {
-        case Source::SwapHook: return "swap hook (per present)";
+        case Source::D3D9Present: return "D3D9 Present";
+        case Source::SwapHook:    return "OpenGL swap path";
         default:               return "none";
     }
 }
@@ -130,7 +131,20 @@ static void ComputePercentiles(const double* wanted, double* out, int n) {
 }
 
 void Report(const char* reason) {
-    if (!g_ready || g_frames == 0) return;
+    // Saying nothing when no frames arrived is how the first version of this hid
+    // its own failure: it was fed from the client's OpenGL swap path, which a D3D9
+    // client never reaches, so a log with the hook reporting ACTIVE simply had no
+    // FrameBench lines at all - indistinguishable from the feature not existing.
+    // An instrument that measures nothing has to say so.
+    if (!g_ready) {
+        Log("[FrameBench] no timer available - QueryPerformanceFrequency failed");
+        return;
+    }
+    if (g_frames == 0) {
+        Log("[FrameBench] no frames recorded (%s) - the present hook never fired",
+            reason ? reason : "report");
+        return;
+    }
 
     static const double wanted[] = { 0.50, 0.95, 0.99, 0.999 };
     double pct[4] = {};

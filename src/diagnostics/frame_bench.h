@@ -28,7 +28,8 @@ namespace FrameBench {
 // the source is named in the report.
 enum class Source {
     None,
-    SwapHook,        // sub_69E220, the client's present - one call per frame
+    D3D9Present,     // IDirect3DDevice9::Present - the boundary for D3D9 clients
+    SwapHook,        // sub_69E220 - the client's OpenGL present path
 };
 
 void Init();
