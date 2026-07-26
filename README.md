@@ -58,9 +58,17 @@ A bug fix release, driven mostly by issue #46.
 
 **Removed**
 
-- **Animation LOD** is gone. It skipped the client's bone-update call for background models, but that call also applies each model's *placement* — so throttled models held stale positions and juddered whenever the camera moved. The premise was wrong, not the tuning.
-- Five more toggles that did nothing at all.
-- **Spatial Culling & Parallel Frustum Culler** is now **Async Frustum Culling** — only the async half was ever real.
+Three features shipped on the same assumption — that skipping an engine call per frame only skips work — and all three were wrong about what that call does. Each was reported as visual corruption by testers before it was understood:
+
+- **Animation LOD.** The bone-update call it skipped also applies each model's *placement*, so throttled models held stale positions and juddered whenever the camera moved.
+- **Async Frustum Culling.** It precomputed visibility on worker threads against a frustum the frame had not established yet, so objects popped in and out at the wrong distance and models flickered at the draw distance — above about 125 fps, where several frames shared one cache generation.
+- **Nameplate Throttle.** The call it skipped drives shared UI and render state rather than one nameplate's cosmetics, which is how it managed to break Skada as well as make nameplates blink.
+
+And a set of features that never did anything at all. Some had a switch the DLL never read; some hooked an address that was not the start of the function they meant; one printed "Subsystem Active" in every log while never installing its hook:
+
+- Camera Collision Raycast Throttle, Floating Combat Text Coalescer, Addon Message Coalescing, plus internal modules for aura coalescing, mesh skinning (three separate ones) and the SavedVariables serializer.
+
+Every hook address in the DLL has since been verified against the binary, every launcher switch is now read by the code behind it, and a build-time check keeps it that way.
 
 **Restored**
 
@@ -88,14 +96,11 @@ This release adds the thing the project never had: a way to tell whether a chang
 
 ### Upgrading
 
-Settings carry over, with two renames. If you had these set in `wow_optimize.ini`, re-enable them under their new names:
+Settings carry over. Nothing needs to be reset — keys for removed features are simply ignored from now on.
 
-| Old key | New key |
-|---|---|
-| `LuaFileCache` | `ModuleHandleCache` |
-| `SpatialCulling` | `AsyncCulling` (moved to `[Graphics_Sound]`) |
+One rename is worth knowing about: `LuaFileCache` gated a module-handle cache rather than anything to do with Lua files, and is now `ModuleHandleCache`. If you had it on, turn the new one on.
 
-In both cases the old key gated something other than what its name said; the dead half is gone and the working half kept its behaviour.
+If you had **Animation LOD**, **Async Frustum Culling** (previously "Spatial Culling & Parallel Frustum Culler") or **Nameplate Throttle** enabled, those are gone; the artifacts they caused go with them and there is nothing to re-enable.
 
 **Still open:** a crash reported a while after `alt+F4`. If you hit it, please attach `Crashes\wow_crash_*.dmp` and the timestamped `Logs\wow_optimize_<date>_<time>.log`.
 

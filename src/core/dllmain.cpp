@@ -54,7 +54,6 @@
 #include "d3d9_state_cache.h"
 #include "d3d9_render_thread.h"
 #include "frame_limiter.h"
-#include "saved_vars_async_serializer.h"
 #include "net_packet_offload.h"
 #include "predictive_prefetch.h"
 #include "guid_lookup_cache.h"
@@ -3390,9 +3389,6 @@ static HANDLE WINAPI hooked_CreateFileA(LPCSTR lpFileName, DWORD dwAccess, DWORD
             extern bool ContainsWTF(const char* path);
             const char* luaExt = strrchr(lpFileName, '.');
             if (ContainsWTF(lpFileName) && luaExt && _stricmp(luaExt, ".lua") == 0) {
-                #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
-                SavedVarsAsyncSerializer::FlushFile(lpFileName);
-                #endif
                 #if !TEST_DISABLE_SAVED_VARS_ASYNC
                 if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
                     extern void TrackSVHandle(HANDLE h);
@@ -3439,9 +3435,6 @@ static HANDLE WINAPI hooked_CreateFileW(LPCWSTR lpFileName, DWORD dwAccess, DWOR
         extern bool ContainsWTF(const char* path);
         const char* luaExt = strrchr(buf, '.');
         if (ContainsWTF(buf) && luaExt && _stricmp(luaExt, ".lua") == 0) {
-            #if !TEST_DISABLE_SAVED_VARS_SERIALIZER
-            SavedVarsAsyncSerializer::FlushFile(buf);
-            #endif
             #if !TEST_DISABLE_SAVED_VARS_ASYNC
             if (dwAccess & (GENERIC_WRITE | FILE_WRITE_DATA | GENERIC_ALL)) {
                 extern void TrackSVHandle(HANDLE h);
@@ -7686,20 +7679,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[FrameLimiter] DISABLED via TEST_DISABLE_FRAME_LIMITER");
 #endif
 
-    Log("");
-    Log("--- Lock-Free SavedVariables Serializer ---");
-#if !TEST_DISABLE_SAVED_VARS_SERIALIZER
-    bool savedVarsSerializerOk = false;
-    if (Config::g_settings.OptSavedVarsSerializer && !RunningUnderTranslation()) {
-        savedVarsSerializerOk = SavedVarsAsyncSerializer::Init();
-    } else {
-        Log("[SavedVarsSerializer] DISABLED via configuration (wow_opt.ini)%s",
-            RunningUnderTranslation() ? " [forced off: Wine/Rosetta]" : "");
-    }
-#else
-    bool savedVarsSerializerOk = false;
-    Log("[SavedVarsSerializer] DISABLED via TEST_DISABLE_SAVED_VARS_SERIALIZER");
-#endif
 
 
     Log("");
@@ -9800,7 +9779,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             D3D9RenderThread::Shutdown();
             D3D9StateCache::Shutdown();
             FrameLimiter::Shutdown();
-            SavedVarsAsyncSerializer::Shutdown();
             NetPacketOffload::Shutdown();
             PredictivePrefetch::Shutdown();
             GuidLookupCache::Shutdown();

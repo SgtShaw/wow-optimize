@@ -280,8 +280,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/d3d9_render_thread.h
     src/hooks_subsystems/frame_limiter.cpp
     src/hooks_subsystems/frame_limiter.h
-    src/runtime_vm/saved_vars_async_serializer.cpp
-    src/runtime_vm/saved_vars_async_serializer.h
     src/hooks_subsystems/guid_lookup_cache.cpp
     src/hooks_subsystems/guid_lookup_cache.h
     src/simd_math/simd_math_fast.cpp
