@@ -1366,6 +1366,12 @@ static void RunPeriodicMaintenanceOnMainThread() {
     if (g_mainThreadId == 0 || GetCurrentThreadId() != g_mainThreadId)
         return;
 
+    // Everything below is this DLL's own work on the game's main thread, so it
+    // lands inside a frame. When a hitch is reported, the first question is
+    // whether we caused it, and this is the probe that answers it. The inner
+    // probes attribute further once this one fires.
+    StallProbe maintenanceProbe("periodic maintenance", 4.0);
+
     DWORD nowTick = GetTickCount();
 
     if (g_nextStatsDumpTick == 0) {
@@ -1403,7 +1409,10 @@ static void RunPeriodicMaintenanceOnMainThread() {
         if (g_nextMiCollectTick == 0) {
             g_nextMiCollectTick = nowTick + 60000;
         } else if ((LONG)(nowTick - g_nextMiCollectTick) >= 0) {
-            mi_collect(true);
+            {
+                StallProbe probe("60s safety mi_collect", 4.0);
+                mi_collect(true);
+            }
             g_nextMiCollectTick = nowTick + 60000;
         }
     }
@@ -7919,7 +7928,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
         // cache shedders above have already freed their memory into mimalloc; bounded
         // (fires once per RED transition, not per frame).
         struct ShedMiCollect { static void Go(Level lv, void*) {
-            if (lv >= PRESSURE_RED) mi_collect(true);
+            if (lv >= PRESSURE_RED) {
+                StallProbe probe("pressure RED mi_collect", 4.0);
+                mi_collect(true);
+            }
         }};
         RegisterShedCallback(ShedMiCollect::Go, nullptr);
 

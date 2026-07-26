@@ -44,6 +44,7 @@ static std::atomic<int> g_pendingWork{0}; // 0=none, 1=proactive mi_collect, 2=f
 extern "C" void Log(const char* fmt, ...);
 extern "C" void mi_collect(bool force);
 #include <mimalloc.h>
+#include "crash_dumper.h"
 
 // Get largest free virtual memory block
 static SIZE_T GetLargestFreeBlock() {
@@ -86,7 +87,10 @@ static void ForceHeapCompaction() {
     
     // Also trigger mimalloc collection
     // (mimalloc is our global allocator replacement)
-    mi_collect(true);
+    {
+        StallProbe probe("ForceHeapCompaction mi_collect", 4.0);
+        mi_collect(true);
+    }
 }
 
 // Forward declaration for loading mode check
@@ -168,9 +172,12 @@ extern "C" void HeapCompactor_RunPendingWork() {
         // A tester's session climbed to 3533 MB of mimalloc commit with 223 MB of
         // VA free and a 1 MB largest block, and every compaction pass achieved
         // nothing. Decommit for the duration of this pass only, then restore.
-        mi_option_set(mi_option_purge_decommits, 1);
-        mi_collect(true);
-        mi_option_set(mi_option_purge_decommits, 0);
+        {
+            StallProbe probe("critical mi_collect (decommit)", 4.0);
+            mi_option_set(mi_option_purge_decommits, 1);
+            mi_collect(true);
+            mi_option_set(mi_option_purge_decommits, 0);
+        }
 
         ForceHeapCompaction();
         g_compactionsTriggered++;
@@ -178,7 +185,10 @@ extern "C" void HeapCompactor_RunPendingWork() {
         Log("[HeapCompactor] After compaction: LargestFreeBlock=%uMB (%+dMB)",
             (unsigned)(after / (1024*1024)), (int)((after - before) / (1024*1024)));
     } else {
-        mi_collect(true);
+        {
+            StallProbe probe("compaction mi_collect", 4.0);
+            mi_collect(true);
+        }
         g_compactionsTriggered++;
     }
 }

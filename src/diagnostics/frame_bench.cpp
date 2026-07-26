@@ -148,9 +148,13 @@ static void Accumulate(double ms) {
     if (g_lastSlowReport != 0 && (now - g_lastSlowReport) < SLOW_FRAME_QUIET_MS) return;
     g_lastSlowReport = now;
 
-    Log("[FrameBench] slow frame: %.1f ms (%.1fx the %.2f ms median) - recent events:",
+    // Only events from inside the stalled frame can explain it. Anything older is
+    // coincidence, and printing it reads as a diagnosis. The window is the frame
+    // itself plus a small margin for work that started just before the boundary.
+    DWORD window = (DWORD)(ms + 0.5) + 50;
+    Log("[FrameBench] slow frame: %.1f ms (%.1fx the %.2f ms median) - events within it:",
         ms, ms / (g_medianMs > 0.0 ? g_medianMs : 1.0), g_medianMs);
-    CrashDumper::DumpTrace(4);
+    CrashDumper::DumpTrace(8, window);
 }
 
 void OnPresent(Source src) {

@@ -186,11 +186,15 @@ void LogPerformanceSnapshot(double elapsedMs) {
         }
     }
         
-    // 4. What happened just before the spike. A state transition landing inside a
-    // stutter (loading boundary, device reset, cache invalidation) is almost always
-    // the explanation, and it is the one thing a raw frame time cannot tell us.
-    Log("[PerfDiag]   Recent events:");
-    CrashDumper::DumpTrace(16);
+    // 4. What happened inside the spike. A state transition landing in a stutter
+    // (loading boundary, device reset, cache invalidation) is almost always the
+    // explanation, and it is the one thing a raw frame time cannot tell us.
+    //
+    // Bounded to the stutter itself. Unbounded, this printed whatever was newest
+    // in the ring, which in a quiet session is a loading screen from minutes ago -
+    // an unrelated event presented as the cause.
+    Log("[PerfDiag]   Events within the stutter:");
+    CrashDumper::DumpTrace(16, (DWORD)(elapsedMs + 0.5) + 50);
 
     // 5. Feature usage. Only features that recorded activity are listed - printing
     // every active feature meant ~70 lines of "calls=0" per stutter, because

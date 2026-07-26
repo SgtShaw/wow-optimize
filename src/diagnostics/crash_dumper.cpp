@@ -988,7 +988,7 @@ void Trace(const char* fmt, ...) {
     InterlockedExchange(&e.complete, 1);
 }
 
-void DumpTrace(int count) {
+int DumpTrace(int count, DWORD maxAgeMs) {
     if (count > EVENT_TRACE_SIZE) count = EVENT_TRACE_SIZE;
     LONG pos = InterlockedCompareExchange(&s_eventTracePos, 0, 0);
     DWORD now = GetTickCount();
@@ -997,12 +997,17 @@ void DumpTrace(int count) {
     for (int i = 0; i < count && i < pos; i++) {
         EventTraceEntry& e = s_eventTrace[(pos - 1 - i) & EVENT_TRACE_MASK];
         if (!e.complete) continue;
-        Log("    -%6ums  TID=%-5lu %s", (unsigned)(now - e.tick), e.threadId, e.text);
+        DWORD age = now - e.tick;
+        // The ring is ordered, so the first entry past the window ends the walk.
+        if (maxAgeMs != 0 && age > maxAgeMs) break;
+        Log("    -%6ums  TID=%-5lu %s", (unsigned)age, e.threadId, e.text);
         printed++;
     }
     if (printed == 0) {
-        Log("    (no events recorded)");
+        Log(maxAgeMs != 0 ? "    (nothing traced in this window)"
+                          : "    (no events recorded)");
     }
+    return printed;
 }
 
 void RecordHookCall(const char* hookName, uintptr_t addr) {
@@ -1028,6 +1033,35 @@ void RecordHookCallHot(const char* hookName, uintptr_t addr) {
 }
 
 } // namespace CrashDumper
+
+LARGE_INTEGER StallProbeBegin() {
+    LARGE_INTEGER t;
+    QueryPerformanceCounter(&t);
+    return t;
+}
+
+void StallProbeEnd(const char* what, const LARGE_INTEGER& start, double thresholdMs) {
+    static LARGE_INTEGER freq = {};
+    if (freq.QuadPart == 0) {
+        QueryPerformanceFrequency(&freq);
+        if (freq.QuadPart == 0) return;
+    }
+    LARGE_INTEGER end;
+    QueryPerformanceCounter(&end);
+    double ms = (double)(end.QuadPart - start.QuadPart) * 1000.0 / (double)freq.QuadPart;
+    if (ms >= thresholdMs) {
+        CrashDumper::Trace("STALL %s took %.1f ms", what, ms);
+    }
+}
+
+StallProbe::StallProbe(const char* what, double thresholdMs)
+    : m_what(what), m_thresholdMs(thresholdMs) {
+    m_start = StallProbeBegin();
+}
+
+StallProbe::~StallProbe() {
+    StallProbeEnd(m_what, m_start, m_thresholdMs);
+}
 
 extern "C" void CrashDumper_Trace(const char* fmt, ...) {
     if (!fmt) return;

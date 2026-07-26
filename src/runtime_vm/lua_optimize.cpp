@@ -1765,7 +1765,9 @@ void OnMainThreadSleep(DWORD mainThreadId, double frameMs) {
             ClearAddonPreload();
 
             State.gcOptimized = false;
+            LARGE_INTEGER collectStart = StallProbeBegin();
             mi_collect(true);
+            StallProbeEnd("lua_State swap mi_collect", collectStart, 4.0);
 
             g_pendingInjectState = currentL;
             InterlockedExchange(&g_frameScriptInjected, 0);
