@@ -72,7 +72,6 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "AsyncCulling", "0", iniPath.c_str());
 
             // Combat & Network
             WritePrivateProfileStringA("Combat_Net", "CombatLogLeakFix", "1", iniPath.c_str());
@@ -184,7 +183,6 @@ namespace Config {
         g_settings.OptAsyncTerrainLoader  = GetPrivateProfileIntA("UI_Lua", "AsyncTerrainLoader", 0, iniPath.c_str()) != 0;
         g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 0, iniPath.c_str()) != 0;
         g_settings.OptMipBiasGovernor     = GetPrivateProfileIntA("UI_Lua", "MipBiasGovernor", 0, iniPath.c_str()) != 0;
-        g_settings.OptAsyncCulling        = GetPrivateProfileIntA("Graphics_Sound", "AsyncCulling", 0, iniPath.c_str()) != 0;
 
         // Combat & Network
         g_settings.OptCombatLogLeakFix    = GetPrivateProfileIntA("Combat_Net", "CombatLogLeakFix", 1, iniPath.c_str()) != 0;

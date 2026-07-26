@@ -51,7 +51,6 @@
 #include "lua_yield_fast.h"
 #include "lua_getn_fast.h"
 #include "loading_defrag.h"
-#include "async_culling.h"
 #include "d3d9_state_cache.h"
 #include "d3d9_render_thread.h"
 #include "frame_limiter.h"
@@ -4653,11 +4652,9 @@ static SwapPresentTiming_fn orig_SwapPresentTiming = nullptr;
 // hooked_Sleep tick, which is gated to fire at most once every 8ms - i.e. it
 // stops tracking frames at all above ~125fps.
 extern "C" void WowOpt_OnFrameBoundary() {
-#if !TEST_DISABLE_ASYNC_CULLING
-    if (Config::g_settings.OptAsyncCulling) {
-        AsyncCulling::OnFrameStart();
-    }
-#endif
+    // Nothing ages per frame right now. Kept as the single place for work that
+    // must, so it never goes back into the hooked_Sleep tick - that one is gated
+    // to 8ms and stops tracking frames at all above ~125fps.
 }
 
 static int __fastcall hooked_SwapPresent_TimingOnly(void* This, void* unused) {
@@ -7665,14 +7662,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[LoadingDefrag] DISABLED via TEST_DISABLE_LOADING_DEFRAG");
 #endif
 
-    Log("");
-    Log("--- Async Visual Frustum Culling Cache ---");
-#if !TEST_DISABLE_ASYNC_CULLING
-    bool asyncCullingOk = Config::g_settings.OptAsyncCulling && !RunningUnderTranslation() && AsyncCulling::Init();
-#else
-    bool asyncCullingOk = false;
-    Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
-#endif
 
     Log("");
     Log("--- D3D9 Render State Cache & Render Thread ---");
@@ -9826,7 +9815,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             HeapCompactor_Shutdown();
             VersionChecker_Shutdown();
             LoadingDefrag::Shutdown();
-            AsyncCulling::Shutdown();
             ShutdownAsyncIoWorker();
             D3D9RenderThread::Shutdown();
             D3D9StateCache::Shutdown();

@@ -280,8 +280,6 @@ add_library(wow_optimize SHARED
     src/allocators/memory_pressure_governor.h
     src/allocators/loading_defrag.cpp
     src/allocators/loading_defrag.h
-    src/hooks_subsystems/async_culling.cpp
-    src/hooks_subsystems/async_culling.h
     src/hooks_subsystems/d3d9_state_cache.cpp
     src/hooks_subsystems/d3d9_state_cache.h
     src/hooks_subsystems/d3d9_render_thread.cpp

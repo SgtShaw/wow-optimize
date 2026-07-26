@@ -43,7 +43,6 @@ namespace Config {
         bool OptAsyncTerrainLoader = false;
         bool OptRcuObjMgr = false;
         bool OptMipBiasGovernor = false;
-        bool OptAsyncCulling = false;
         
         // Combat & Network
         bool OptCombatLogLeakFix = true; // Proven fix: extend combat log retention 300s->1800s (writes the retention CVar). Default on.
