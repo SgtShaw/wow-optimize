@@ -100,7 +100,6 @@
 #include "hooks_subsystems/nameplate_culling.h"
 #include "hooks_subsystems/texture_unload_delay.h"
 #include "hooks_subsystems/m2_matrix_simd.h"
-#include "simd_math/animation_lod.h"
 #include "hooks_subsystems/nameplate_throttle.h"
 #include "hooks_subsystems/minimap_refresh_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
@@ -1468,11 +1467,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             if (Config::g_settings.OptDefragLf) {
                 LoadingDefrag::OnFrame();
             }
-#if !TEST_DISABLE_ASYNC_CULLING
-            if (Config::g_settings.OptDbcLookupCache) {
-                AsyncCulling::OnFrameStart();
-            }
-#endif
 #if !TEST_DISABLE_PREDICTIVE_PREFETCH
             PredictivePrefetch::OnFrame();
 #endif
@@ -4431,7 +4425,6 @@ static void DumpPeriodicStats() {
         SamplingProfiler::DumpNow();
     }
 #endif
-    if (Config::g_settings.OptAnimationLod) AnimationLod::LogStats();
     if (Config::g_settings.OptNameplateThrottle) NameplateThrottle::LogStats();
     FrameBench::Report("periodic");
 }
@@ -4530,6 +4523,8 @@ typedef void (__fastcall* SwapPresent_fn)(void*, void*);
 static SwapPresent_fn orig_SwapPresent = nullptr;
 static uint64_t g_glFinishSkips = 0;
 
+extern "C" void WowOpt_OnFrameBoundary();
+
 static void __fastcall hooked_SwapPresent(void* This, void* unused) {
     char* T = (char*)This;
 
@@ -4541,6 +4536,7 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
         // vtable, once per presented frame. It is the one place that can measure
         // frame time honestly, so the benchmark is fed from here.
         FrameBench::OnPresent(FrameBench::Source::SwapHook);
+        WowOpt_OnFrameBoundary();
 
         // Ensure deferred field updates and coalesced world states are flushed 
         // on the main thread every frame boundary, even when the client is running
@@ -4652,8 +4648,21 @@ static bool InstallSwapPresentHook() {
 typedef int (__fastcall* SwapPresentTiming_fn)(void*, void*);
 static SwapPresentTiming_fn orig_SwapPresentTiming = nullptr;
 
+// Work that must happen exactly once per presented frame, called from both
+// present paths. Anything that ages per frame belongs here rather than in the
+// hooked_Sleep tick, which is gated to fire at most once every 8ms - i.e. it
+// stops tracking frames at all above ~125fps.
+extern "C" void WowOpt_OnFrameBoundary() {
+#if !TEST_DISABLE_ASYNC_CULLING
+    if (Config::g_settings.OptAsyncCulling) {
+        AsyncCulling::OnFrameStart();
+    }
+#endif
+}
+
 static int __fastcall hooked_SwapPresent_TimingOnly(void* This, void* unused) {
     FrameBench::OnPresent(FrameBench::Source::SwapHook);
+    WowOpt_OnFrameBoundary();
     return orig_SwapPresentTiming(This, unused);
 }
 
@@ -7843,7 +7852,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptNameplateCulling) NameplateCulling::Init();
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
     if (Config::g_settings.OptM2MatrixSimd) M2MatrixSimd::Init();
-    AnimationLod::Init();  // self-gates on OptAnimationLod
     NameplateThrottle::Init();  // self-gates on OptNameplateThrottle
     if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();

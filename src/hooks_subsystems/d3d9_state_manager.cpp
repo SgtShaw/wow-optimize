@@ -22,6 +22,9 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Per-frame work that must run on a true frame boundary (see dllmain).
+extern "C" void WowOpt_OnFrameBoundary();
+
 // ================================================================
 // Memory validation
 // ================================================================
@@ -479,6 +482,7 @@ static HRESULT __stdcall Hooked_Present(void* dev, const RECT* src, const RECT* 
     CheckDeviceChange(dev);
     InterlockedIncrement64(&g_statCalls[15]);
     FrameBench::OnPresent(FrameBench::Source::D3D9Present);
+    WowOpt_OnFrameBoundary();
     return g_orig_Present(dev, src, dst, hOverride, dirty);
 }
 
