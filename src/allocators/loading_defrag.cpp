@@ -69,9 +69,17 @@ static DWORD WINAPI DefragWorkerThread(LPVOID) {
     while (!g_shutdown.load(std::memory_order_relaxed)) {
         // Wait for a loading screen trigger
         WaitForSingleObject(g_defragEvent, INFINITE);
-        
+
         if (g_shutdown.load(std::memory_order_relaxed)) break;
-        
+
+        // Reset before deciding, not after acting. The event is manual-reset, and
+        // the reset used to live inside the branch below - so a wake-up that found
+        // loading already finished left the event signalled forever and this loop
+        // span at full speed on one core for the rest of the session. Reaching that
+        // state became easy once the initial world entry started opening and
+        // closing the loading window back to back.
+        ResetEvent(g_defragEvent);
+
         if (g_loadingActive.load(std::memory_order_acquire)) {
             // Step 1: Pre-warm mimalloc caches for the new zone
             PerformSpeculativePrecommit();
@@ -98,8 +106,6 @@ static DWORD WINAPI DefragWorkerThread(LPVOID) {
             // and stalls the main thread for several seconds after loading completes.
             
             Log("[LoadingDefrag] Defragmenter loop finished (compactions run: %d)", compactionCount);
-            
-            ResetEvent(g_defragEvent);
         }
     }
     

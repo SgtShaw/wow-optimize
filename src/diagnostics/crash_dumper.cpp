@@ -16,7 +16,8 @@
 #include <intrin.h>
 
 #include <dbghelp.h>
-#pragma comment(lib, "dbghelp.lib")
+// Deliberately no #pragma comment(lib, "dbghelp.lib"): the one entry point we need
+// is resolved at run time from System32 (see ResolveSystemMiniDumpWriteDump).
 #pragma comment(lib, "psapi.lib")
 
 extern "C" void Log(const char* fmt, ...);
@@ -336,6 +337,37 @@ static void WriteTextReport(EXCEPTION_POINTERS* ep) {
 // ================================================================
 // Windows minidump (no ScanMemory to avoid loader-lock slowness)
 // ================================================================
+// MiniDumpWriteDump is resolved from the copy of dbghelp.dll in System32, never
+// from whatever sits next to Wow.exe.
+//
+// Statically importing it means the loader takes the game directory first, and
+// private WoW installs routinely ship their own dbghelp - a tester's crash landed
+// inside X:\games\chromiecraft\dbghelp.dll at +0x36E74 while writing the dump. A
+// crash handler that crashes is worse than none: it turns a recoverable fault into
+// a wedged process with the main thread dead inside the handler, and destroys the
+// evidence for the fault that started it.
+typedef BOOL (WINAPI *MiniDumpWriteDump_fn)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE,
+                                            PMINIDUMP_EXCEPTION_INFORMATION,
+                                            PMINIDUMP_USER_STREAM_INFORMATION,
+                                            PMINIDUMP_CALLBACK_INFORMATION);
+
+static MiniDumpWriteDump_fn ResolveSystemMiniDumpWriteDump() {
+    static MiniDumpWriteDump_fn s_fn = nullptr;
+    static bool s_tried = false;
+    if (s_tried) return s_fn;
+    s_tried = true;
+
+    char path[MAX_PATH];
+    UINT n = GetSystemDirectoryA(path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH - 16) return nullptr;
+    lstrcatA(path, "\\dbghelp.dll");
+
+    HMODULE h = LoadLibraryA(path);
+    if (!h) return nullptr;
+    s_fn = (MiniDumpWriteDump_fn)GetProcAddress(h, "MiniDumpWriteDump");
+    return s_fn;
+}
+
 static void WriteMinidump(EXCEPTION_POINTERS* ep) {
     CreateDirectoryA("Crashes", NULL);
 
@@ -347,17 +379,33 @@ static void WriteMinidump(EXCEPTION_POINTERS* ep) {
               tm_buf.tm_year + 1900, tm_buf.tm_mon + 1, tm_buf.tm_mday,
               tm_buf.tm_hour, tm_buf.tm_min, tm_buf.tm_sec);
 
-    HANDLE hFile = CreateFileA(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-    if (hFile != INVALID_HANDLE_VALUE) {
-        MINIDUMP_EXCEPTION_INFORMATION mdei;
-        mdei.ThreadId           = GetCurrentThreadId();
-        mdei.ExceptionPointers  = ep;
-        mdei.ClientPointers     = FALSE;
+    MiniDumpWriteDump_fn writeDump = ResolveSystemMiniDumpWriteDump();
+    if (!writeDump) {
+        Log("[CrashDumper] System dbghelp.dll unavailable - text report only");
+    } else {
+        HANDLE hFile = CreateFileA(filename, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+        if (hFile != INVALID_HANDLE_VALUE) {
+            MINIDUMP_EXCEPTION_INFORMATION mdei;
+            mdei.ThreadId           = GetCurrentThreadId();
+            mdei.ExceptionPointers  = ep;
+            mdei.ClientPointers     = FALSE;
 
-        MiniDumpWriteDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
-                          MiniDumpWithIndirectlyReferencedMemory,
-                          &mdei, NULL, NULL);
-        CloseHandle(hFile);
+            // MiniDumpWithIndirectlyReferencedMemory walks pointers and allocates
+            // while doing it. The fault being reported is often address-space
+            // exhaustion, which is exactly when that walk fails, so the dump is
+            // guarded and downgraded rather than allowed to take the handler down.
+            __try {
+                if (!writeDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                               MiniDumpWithIndirectlyReferencedMemory,
+                               &mdei, NULL, NULL)) {
+                    writeDump(GetCurrentProcess(), GetCurrentProcessId(), hFile,
+                              MiniDumpNormal, &mdei, NULL, NULL);
+                }
+            } __except (EXCEPTION_EXECUTE_HANDLER) {
+                Log("[CrashDumper] minidump writer faulted - text report stands");
+            }
+            CloseHandle(hFile);
+        }
     }
 
     DWORD code = ep->ExceptionRecord->ExceptionCode;
