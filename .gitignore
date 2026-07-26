@@ -1,4 +1,5 @@
 build/
+build_*/
 out/
 x64/
 x86/
