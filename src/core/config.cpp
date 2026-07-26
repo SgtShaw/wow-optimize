@@ -77,8 +77,6 @@ namespace Config {
             WritePrivateProfileStringA("Combat_Net", "CombatLogParser", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogIncremental", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "EventCoalescer", "0", iniPath.c_str());  // #42: hides buffs/countdowns — off by default
-            WritePrivateProfileStringA("Combat_Net", "UnitAuraCoalesce", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NetAddonCoalescer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsSerializer", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsAsync", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "0", iniPath.c_str());
@@ -186,8 +184,6 @@ namespace Config {
         g_settings.OptCombatLogParser     = GetPrivateProfileIntA("Combat_Net", "CombatLogParser", 0, iniPath.c_str()) != 0;
         g_settings.OptCombatLogIncremental = GetPrivateProfileIntA("Combat_Net", "CombatLogIncremental", 0, iniPath.c_str()) != 0;
         g_settings.OptEventCoalescer      = GetPrivateProfileIntA("Combat_Net", "EventCoalescer", 0, iniPath.c_str()) != 0;
-        g_settings.OptUnitAuraCoalesce    = GetPrivateProfileIntA("Combat_Net", "UnitAuraCoalesce", 0, iniPath.c_str()) != 0;
-        g_settings.OptNetAddonCoalescer   = GetPrivateProfileIntA("Combat_Net", "NetAddonCoalescer", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsSerializer = GetPrivateProfileIntA("Combat_Net", "SavedVarsSerializer", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsAsync      = GetPrivateProfileIntA("Combat_Net", "SavedVarsAsync", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsPretoken   = GetPrivateProfileIntA("Combat_Net", "SavedVarsPretoken", 0, iniPath.c_str()) != 0;

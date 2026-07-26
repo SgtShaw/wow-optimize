@@ -48,8 +48,6 @@ namespace Config {
         bool OptCombatLogParser = false;
         bool OptCombatLogIncremental = false;
         bool OptEventCoalescer = false;
-        bool OptUnitAuraCoalesce = false;
-        bool OptNetAddonCoalescer = false;
         bool OptSavedVarsSerializer = false;
         bool OptSavedVarsAsync = false;
         bool OptSavedVarsPretoken = false;

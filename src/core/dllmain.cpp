@@ -440,9 +440,7 @@ void ClearCombatLogCache();
 #include "sound_mixer_opt.h"
 #include "lua_gc_governor.h"
 #include "async_tex_loader.h"
-#include "unit_aura_coalesce.h"
 #include "saved_vars_pretoken.h"
-#include "net_addon_coalescer.h"
 #include "mip_bias_governor.h"
 #include "perf_diagnostics.h"
 #include "adaptive_farclip.h"
@@ -1521,7 +1519,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             AdaptiveFarclip::OnFrame((float)elapsedMs);
 #endif
 #if !TEST_DISABLE_NET_ADDON_COALESCER
-            NetAddonCoalescer::OnFrame();
 #endif
 #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
             MipBiasGovernor::UpdateMipBias(elapsedMs);
@@ -7895,7 +7892,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Unit Aura Update Coalescing ---");
-    if (Config::g_settings.OptUnitAuraCoalesce) UnitAuraCoalesce::Init();
 
     Log("");
     Log("--- SavedVariables Pretoken Caching ---");
@@ -7903,7 +7899,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Net Addon message Coalescer ---");
-    if (Config::g_settings.OptNetAddonCoalescer) NetAddonCoalescer::Init();
 
     Log("");
     Log("--- Mipmap Bias Governor ---");
@@ -9854,9 +9849,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             RcuObjMgr::Shutdown();
             AsyncTerrainLoader::Shutdown();
             AsyncTexLoader::Shutdown();
-            UnitAuraCoalesce::Shutdown();
             SavedVarsPretoken::Shutdown();
-            NetAddonCoalescer::Shutdown();
             MipBiasGovernor::Shutdown();
             PerfDiagnostics::Shutdown();
             CrashDumper::Shutdown();
