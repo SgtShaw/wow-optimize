@@ -282,10 +282,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/frame_limiter.h
     src/runtime_vm/saved_vars_async_serializer.cpp
     src/runtime_vm/saved_vars_async_serializer.h
-    src/simd_math/simd_skinning.cpp
-    src/simd_math/simd_skinning.h
-    src/simd_math/parallel_m2_skinning.cpp
-    src/simd_math/parallel_m2_skinning.h
     src/hooks_subsystems/guid_lookup_cache.cpp
     src/hooks_subsystems/guid_lookup_cache.h
     src/simd_math/simd_math_fast.cpp
@@ -296,8 +292,6 @@ add_library(wow_optimize SHARED
     src/allocators/lua_alloc_pool.h
     src/hooks_subsystems/world_state_coalesce.cpp
     src/hooks_subsystems/world_state_coalesce.h
-    src/hooks_subsystems/hw_vertex_skinning.cpp
-    src/hooks_subsystems/hw_vertex_skinning.h
     src/hooks_subsystems/net_packet_offload.cpp
     src/hooks_subsystems/net_packet_offload.h
     src/hooks_subsystems/predictive_prefetch.cpp

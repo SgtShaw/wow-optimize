@@ -55,16 +55,13 @@
 #include "d3d9_render_thread.h"
 #include "frame_limiter.h"
 #include "saved_vars_async_serializer.h"
-#include "simd_skinning.h"
 #include "net_packet_offload.h"
 #include "predictive_prefetch.h"
-#include "parallel_m2_skinning.h"
 #include "guid_lookup_cache.h"
 #include "simd_math_fast.h"
 #include "combatlog_incremental.h"
 #include "lua_alloc_pool.h"
 #include "world_state_coalesce.h"
-#include "hw_vertex_skinning.h"
 #include "hooks_subsystems/dynamic_shadow_scaler.h"
 #include "hooks_subsystems/sound_coalescer.h"
 #include "hooks_subsystems/aura_preload_cache.h"
@@ -7704,14 +7701,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[SavedVarsSerializer] DISABLED via TEST_DISABLE_SAVED_VARS_SERIALIZER");
 #endif
 
-    Log("");
-    Log("--- SIMD AVX2 Mesh Skinning Accelerator ---");
-#if !TEST_DISABLE_SIMD_SKINNING
-    bool simdSkinningOk = Config::g_settings.OptStrStrSse2 && SimdSkinning::Init();
-#else
-    bool simdSkinningOk = false;
-    Log("[SimdSkinning] DISABLED via TEST_DISABLE_SIMD_SKINNING");
-#endif
 
     Log("");
     Log("--- Parallel Network Packet Offloader ---");
@@ -7739,7 +7728,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Parallel M2 Geometry SIMD Skinning ---");
-    bool parallelM2Ok = Config::g_settings.OptStrStrSse2 && !RunningUnderTranslation() && ParallelM2Skinning::Init();
 
     Log("");
     Log("--- Lock-Free Object GUID Lookup Cache ---");
@@ -7763,7 +7751,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Hardware-Accelerated Vertex Skinning ---");
-    bool hwSkinningOk = Config::g_settings.OptStrStrSse2 && HwVertexSkinning::Init();
 
     Log("");
     Log("--- FMOD Sound Mixer Optimizer ---");
@@ -9814,16 +9801,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             D3D9StateCache::Shutdown();
             FrameLimiter::Shutdown();
             SavedVarsAsyncSerializer::Shutdown();
-            SimdSkinning::Shutdown();
             NetPacketOffload::Shutdown();
             PredictivePrefetch::Shutdown();
-            ParallelM2Skinning::Shutdown();
             GuidLookupCache::Shutdown();
             SimdMathFast::Shutdown();
             CombatLogIncremental::Shutdown();
             LuaAllocPool::Shutdown();
             WorldStateCoalesce::Shutdown();
-            HwVertexSkinning::Shutdown();
             SoundMixerOpt::Shutdown();
             LuaGCGovernor::Shutdown();
             AdaptiveFarclip::Shutdown();
