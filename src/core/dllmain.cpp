@@ -6518,7 +6518,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
     EventCoalescer::Init();
 #endif
 #if !TEST_DISABLE_LUAS_NEWLSTR_SSE2
-    LuaSNewlstr::Init();
+    // The launcher has always offered a switch for this; nothing read it, so the
+    // hook installed unconditionally and a tester turning it off saw no change.
+    if (Config::g_settings.OptLuaSNewLstrFast) {
+        LuaSNewlstr::Init();
+    } else {
+        Log("[luaS_newlstr] disabled via configuration (opt-in)");
+    }
 #endif
     CrashDumper::RegisterFeature("LuaVMCache");
     CrashDumper::RegisterFeature("LuaGetTableCache");

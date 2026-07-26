@@ -61,6 +61,11 @@ namespace Config {
         bool OptNameplateMT = false;
 
         // Graphics & Sound
+        // Hooks luaS_newlstr, through which every Lua string in the game is
+        // interned. Default off: it duplicates work the engine already does
+        // (hash, bucket walk, compare) and falls through to the original on a
+        // miss, so a miss costs both - and its value has never been measured.
+        bool OptLuaSNewLstrFast = false;
         bool OptStrStrSse2 = false;
         bool OptStrCatFast = false;
         bool OptSoundMixerOpt = false;
