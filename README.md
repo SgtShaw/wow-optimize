@@ -46,23 +46,45 @@ A bug fix release, driven mostly by issue #46.
 **Fixed**
 
 - Loading screen no longer stays up after the world has finished loading
-- Models no longer flicker in crowded scenes
 - Fatal `ERROR #134 Invalid function pointer` at login on clients that don't load a third-party Lua extension library
 - Multi-second freezes during addon loading and `/reload`
-- Loading-screen detection no longer requires the `!LuaBoost` addon — it now works on any install
+- Async frustum culling no longer makes objects pop in and out at the wrong distance, or models flicker at the draw distance, above ~125 fps
+- Loading-screen detection no longer requires the `!LuaBoost` addon — it now works on any install, and the initial login load is covered too
 - The end of the session log is no longer lost when the game exits
 
-**Launcher**
+**Faster**
 
-- Removed five toggles that did nothing
-- **Spatial Culling & Parallel Frustum Culler** is now **Async Frustum Culling** — only the async half was ever real
-- Restored two that had been removed by mistake: **Lua C-API inline cache suite** and **adaptive Lua GC governor** (both still opt-in)
+- The SSE2 `memset` replacement now actually delivers its win. Its own two diagnostic counters were costing more than the work they measured; the function is about 2.3x faster than the client's `rep stosd` instead of 3%.
+
+**Removed**
+
+- **Animation LOD** is gone. It skipped the client's bone-update call for background models, but that call also applies each model's *placement* — so throttled models held stale positions and juddered whenever the camera moved. The premise was wrong, not the tuning.
+- Five more toggles that did nothing at all.
+- **Spatial Culling & Parallel Frustum Culler** is now **Async Frustum Culling** — only the async half was ever real.
+
+**Restored**
+
+- **Lua C-API inline cache suite** and **adaptive Lua GC governor**, both removed by mistake in an earlier audit (both still opt-in).
 
 **Diagnostics**
 
-- Crash reports, Lua error dumps and stutter dumps now open with an event trace showing what happened in the seconds before the problem
-- Dumps no longer bury that in ~70 lines of unused counters
-- The startup banner reports the exact build a log came from
+This release adds the thing the project never had: a way to tell whether a change helped.
+
+- **Frame-time benchmark.** Every presented frame is measured at `IDirect3DDevice9::Present` and reported as a distribution, not an average — an average hides exactly the stutters players report:
+
+  ```
+  73581 frames over 183.5s, source: D3D9 Present, config CDFBB03D, build 3.17.0
+  avg 2.49 ms (401.0 fps)   p50 2.40   p95 3.50   p99 4.20   p99.9 17.40   max 1975.45
+  janky frames: >33ms 38 (0.05%)  >50ms 25 (0.03%)  >100ms 15 (0.02%)
+  ```
+
+  The report carries a fingerprint of your settings, so two runs can be compared and each proven to have used the configuration it claims.
+
+- **Slow frames explain themselves.** A frame that runs far past the session's own median pulls the recent event trace, so a hitch comes with what happened during it — a device reset, a UI reload, a cache invalidation.
+
+- Crash reports, Lua error dumps and stutter dumps all open with that same event trace, instead of ~70 lines of unused counters.
+- The sampling profiler resolves hot code to individual functions rather than 4 KB pages, for both the client and this DLL.
+- The startup banner reports the exact build a log came from.
 
 ### Upgrading
 
@@ -101,12 +123,36 @@ Older releases: see the [Releases page](https://github.com/suprepupre/wow-optimi
 
 ## Current Status
 
-### Performance Metrics (Real-World Testing)
-- **Frame time**: Smoother frametimes in addon-heavy raids
-- **CPU usage**: Noticeable reduction in addon-heavy gameplay
-- **Lua operations**: Faster table lookups (getstr/rawgeti caches) and library fast paths
-- **Timing cache**: High QPC cache hit rate
-- **String formatting**: High fast path hit rate
+### Performance
+
+Honest answer: for most of this project's life there was no way to tell whether a
+given optimization helped, and the numbers that used to sit here were adjectives.
+v3.17.0 adds the measurement, so this section can now only claim what has actually
+been measured.
+
+**Measured**
+
+- **`memset` replacement**: 2.3x faster than the client's own `rep stosd` at the
+  sizes engine code clears (5.05 ns/call vs 11.76), benchmarked over 4.8M calls per
+  variant. Until this release its own diagnostic counters ate 56% of that, leaving
+  a 3% win.
+- **DLL overhead**: about 6.9% of main-thread samples in a light scene, from the
+  sampling profiler. That is the cost side; whether each individual feature earns
+  it back is not established for most of them.
+
+**Not measured, and not claimed**
+
+Whether the Lua fast-path suite, the DBC caches or the async loaders are net wins
+in real play. Each is opt-in, and the frame-time benchmark now makes an A/B a
+matter of two logs on the same route with one toggle changed. Numbers will replace
+this paragraph as they come in.
+
+**How to measure your own**
+
+Play a normal session and quit the game normally, then read the `[FrameBench]`
+block at the end of `Logs\wow_optimize_<date>_<time>.log`. Compare `p95`/`p99`
+between runs — not the average, which hides stutter. The `config` fingerprint in
+the line confirms the two runs really differed only where you intended.
 
 ---
 
@@ -570,6 +616,12 @@ Recent events:
 ```
 
 The startup banner reports the exact build the log came from (`v3.17.0 (build abc1234)`), so please don't trim the first lines.
+
+If the complaint is stuttering rather than a crash, look for `slow frame` lines — each one names how far past your session's own median that frame ran, and what was happening during it:
+
+```
+[FrameBench] slow frame: 102.9 ms (16.3x the 6.30 ms median) - recent events:
+```
 
 | Problem | Solution |
 |---------|----------|
