@@ -515,8 +515,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/packet_processing_throttle.h
     src/hooks_subsystems/nameplate_culling.cpp
     src/hooks_subsystems/nameplate_culling.h
-    src/hooks_subsystems/nameplate_throttle.cpp
-    src/hooks_subsystems/nameplate_throttle.h
     src/hooks_subsystems/texture_unload_delay.cpp
     src/hooks_subsystems/texture_unload_delay.h
     src/hooks_subsystems/m2_matrix_simd.cpp
