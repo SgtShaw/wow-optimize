@@ -251,18 +251,5 @@ void Shutdown() {
     Log("[AsyncSoundLoader] Stats: Preloaded %lld sound effects.", g_preloads);
 }
 
-// Asynchronous Sound I/O Task
-void OptimizeSub80E1B0_AsyncSound(const char* soundPath) {
-    if (soundPath && soundPath[0] != '\0') {
-        PreloadSound(std::string(soundPath));
-    }
-}
-
-// Asynchronous Resource Buffer Loader
-void OptimizeSub7976A0_AsyncResourceBuffer(const char* resPath) {
-    if (resPath && resPath[0] != '\0') {
-        PreloadSound(std::string(resPath));
-    }
-}
 
 } // namespace AsyncSoundLoader

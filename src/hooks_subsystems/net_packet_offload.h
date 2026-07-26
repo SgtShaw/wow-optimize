@@ -13,8 +13,6 @@ bool Init();
 // Shut down hooks and join threads
 void Shutdown();
 
-// Feature 49 (0x006909A0): Branchless Opcode Dispatch Table
-int OptimizeSub6909A0_BranchlessOpcode(uint16_t opcode, void* packetData);
 
 } // namespace NetPacketOffload
 

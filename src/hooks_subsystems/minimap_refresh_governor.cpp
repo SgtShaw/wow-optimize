@@ -23,12 +23,4 @@ namespace MinimapRefreshGovernor {
         return false;
     }
 
-    // Feature 18 (0x00923D50): Throttled Minimap Blip Refresh Engine
-    bool OptimizeSub923D50_MinimapThrottle(DWORD tickCount) {
-        if (tickCount - g_lastRefreshTime < REFRESH_INTERVAL_MS) {
-            return true;
-        }
-        g_lastRefreshTime = tickCount;
-        return false;
-    }
 }

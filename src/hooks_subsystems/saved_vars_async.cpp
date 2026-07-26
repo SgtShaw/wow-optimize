@@ -255,9 +255,3 @@ void FlushSavedVarsAsyncSynchronously() {
     // No-op
 }
 
-// Feature 48 (0x00739650): Asynchronous SavedVariables Serializer
-void OptimizeSub739650_AsyncSavedVars(const char* luaFilePath, const char* dataBuffer) {
-    if (luaFilePath && dataBuffer) {
-        // Asynchronous SavedVariables write
-    }
-}

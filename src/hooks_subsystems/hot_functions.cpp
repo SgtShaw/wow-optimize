@@ -115,60 +115,17 @@ bool InstallHotFunctionOptimizations() {
     return true;
 }
 
-void UninstallHotFunctionOptimizations() {
-    MH_DisableHook((void*)0x0040BB80);
-    MH_RemoveHook((void*)0x0040BB80);
-
+// Reports only; it deliberately does not remove the detour. This is the hottest
+// function the DLL hooks, and pulling its trampoline out while another thread is
+// inside it buys nothing at process exit.
+void ReportHotFunctionStats() {
     uint64_t calls = g_memset_calls;
     uint64_t simd = g_simd_path;
 
-    if (calls > 0) {
-        Log("[FastMemset] Stats: %llu total calls, %llu SIMD path",
-            calls, simd);
+    if (calls == 0) {
+        Log("[FastMemset] No calls recorded");
+        return;
     }
-}
-
-// Feature 5 (0x00476DB0): Inlined Accessor Function
-int OptimizeSub476DB0_InlineAccessor(int objectPtr) {
-    if (!objectPtr) return 0;
-    return *(int*)(objectPtr + 4);
-}
-
-// Feature 38 (0x006CA330): Inlined Field Copy
-void OptimizeSub6CA330_InlineCopy(void* dest, const void* src) {
-    if (dest && src) {
-        *(uint64_t*)dest = *(const uint64_t*)src;
-    }
-}
-
-// Feature 39 (0x00909330): Inlined Short-Circuit Evaluator
-int OptimizeSub909330_InlineEval(int thisPtr, short a2, int a3) {
-    if (!thisPtr) return 0;
-    return (a2 != 0) ? (thisPtr + a3) : 0;
-}
-
-// Feature 41 (0x00508320): Inlined Pair Comparison
-int OptimizeSub508320_InlinePairCmp(int a1, int a2) {
-    return (a1 == a2) ? 1 : 0;
-}
-
-// Feature 44 (0x006EF860): Inlined String Copy with Length
-int OptimizeSub6EF860_InlineStrCopy(int thisPtr, int srcPtr) {
-    if (!thisPtr || !srcPtr) return 0;
-    const char* str = (const char*)srcPtr;
-    size_t len = strlen(str);
-    memcpy((void*)thisPtr, str, len + 1);
-    return (int)len;
-}
-
-// Feature 53 (0x0090BDA0): Inlined Short-Circuit Evaluator
-int OptimizeSub90BDA0_InlineShortCircuit(int thisPtr, short a2, int a3) {
-    if (!thisPtr) return 0;
-    return (a2 > 0) ? (thisPtr + a3) : 0;
-}
-
-// Feature 55 (0x0057C720): Branchless Conditional Arithmetic Select
-int OptimizeSub57C720_BranchlessCond(int cond, int valA, int valB) {
-    int mask = -(int)(cond != 0);
-    return (valA & mask) | (valB & ~mask);
+    Log("[FastMemset] Stats: %llu calls, %llu took the SIMD path (%.1f%%)",
+        calls, simd, (double)simd * 100.0 / (double)calls);
 }

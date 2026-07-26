@@ -127,46 +127,4 @@ void UninstallMemcpyFast()
     }
 }
 
-// Feature 3 (0x00842DA0): Inlined Fast Small Buffer Memory Copy
-void* OptimizeSub842DA0_FastMemcpy(void* dest, const void* src, size_t count) {
-    if (!dest || !src || count == 0) return dest;
-    if (count <= 16) {
-        __movsb((unsigned char*)dest, (const unsigned char*)src, count);
-    } else {
-        _mm_storeu_si128((__m128i*)dest, _mm_loadu_si128((const __m128i*)src));
-        if (count > 16) {
-            __movsb((unsigned char*)dest + 16, (const unsigned char*)src + 16, count - 16);
-        }
-    }
-    return dest;
-}
 
-// Feature 2 (0x00695FD0): Pre-allocated Memory Pool for Frequent Allocs
-static __declspec(align(16)) char g_poolBlock[65536];
-static volatile long g_poolOffset = 0;
-
-void* OptimizeSub695FD0_PoolAlloc(size_t size) {
-    if (size == 0 || size > 4096) return nullptr;
-    size = (size + 15) & ~15; // Align to 16 bytes
-    long offset = InterlockedExchangeAdd(&g_poolOffset, (long)size);
-    if ((size_t)offset + size > sizeof(g_poolBlock)) {
-        InterlockedExchangeAdd(&g_poolOffset, -(long)size); // Rollback
-        return nullptr;
-    }
-    return g_poolBlock + offset;
-}
-
-// Branchless Conditional Copy
-void OptimizeSub621070_BranchlessCopy(void* dest, const void* src, size_t count, int condition) {
-    // Branchless: mask is all-ones if condition != 0, all-zeros otherwise
-    size_t mask = (size_t)(-(int)(condition != 0));
-    size_t effectiveCount = count & mask;
-    if (effectiveCount > 0 && dest && src) {
-        memcpy(dest, src, effectiveCount);
-    }
-}
-
-// Pre-allocated Object Memory Pool Allocator
-void* OptimizeSub839270_ObjPoolAlloc(size_t size) {
-    return OptimizeSub695FD0_PoolAlloc(size);
-}

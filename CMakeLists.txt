@@ -212,10 +212,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/regex_cache.h
     src/simd_math/trig_lut.cpp
     src/simd_math/trig_lut.h
-    src/hooks_subsystems/data_caches.cpp
-    src/hooks_subsystems/data_caches.h
-    src/hooks_subsystems/compute_caches.cpp
-    src/hooks_subsystems/compute_caches.h
     src/hooks_subsystems/spell_cache.cpp
     src/hooks_subsystems/spell_cache.h
     src/runtime_vm/lua_bytecode_cache.cpp
@@ -230,8 +226,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/crt_char_fast.h
     src/hooks_subsystems/crt_wchar_fast.cpp
     src/hooks_subsystems/crt_wchar_fast.h
-    src/hooks_subsystems/tls_cache.cpp
-    src/hooks_subsystems/tls_cache.h
     src/hooks_subsystems/stream_cache.cpp
     src/hooks_subsystems/stream_cache.h
     src/runtime_vm/lua_this_cache.cpp
@@ -499,8 +493,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/nameplate_culling.h
     src/hooks_subsystems/texture_unload_delay.cpp
     src/hooks_subsystems/texture_unload_delay.h
-    src/hooks_subsystems/m2_matrix_simd.cpp
-    src/hooks_subsystems/m2_matrix_simd.h
     src/hooks_subsystems/minimap_refresh_governor.cpp
     src/hooks_subsystems/minimap_refresh_governor.h
     src/hooks_subsystems/spell_effect_culling.cpp

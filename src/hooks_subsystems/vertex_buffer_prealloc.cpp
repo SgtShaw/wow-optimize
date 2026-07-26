@@ -77,45 +77,4 @@ void FreeBuffer(void* ptr) {
     _aligned_free(ptr);
 }
 
-// Feature 52 (0x004DAB40): Memory Pool Slot Allocator
-static __declspec(align(16)) uint8_t s_poolSlotStorage[32768];
-static volatile LONG s_poolSlotOffset = 0;
-
-void* OptimizeSub4DAB40_PoolSlotAlloc(size_t size) {
-    if (size == 0 || size > 2048) return nullptr;
-    size = (size + 15) & ~15;
-    LONG off = InterlockedExchangeAdd(&s_poolSlotOffset, (LONG)size);
-    if ((size_t)off + size > sizeof(s_poolSlotStorage)) {
-        InterlockedExchangeAdd(&s_poolSlotOffset, -(LONG)size);
-        return nullptr;
-    }
-    return s_poolSlotStorage + off;
-}
-
-// Feature 59 (0x004C74F0): Object Memory Pool Slot
-static __declspec(align(16)) uint8_t s_objPoolStorage[32768];
-static volatile LONG s_objPoolOffset = 0;
-
-void* OptimizeSub4C74F0_ObjPoolAlloc(size_t size) {
-    if (size == 0 || size > 2048) return nullptr;
-    size = (size + 15) & ~15;
-    LONG off = InterlockedExchangeAdd(&s_objPoolOffset, (LONG)size);
-    if ((size_t)off + size > sizeof(s_objPoolStorage)) {
-        InterlockedExchangeAdd(&s_objPoolOffset, -(LONG)size);
-        return nullptr;
-    }
-    return s_objPoolStorage + off;
-}
-
-// Feature 60 (0x00927A40): Lock-Free Atomic Slot Memory Update
-bool OptimizeSub927A40_LockFreeUpdate(volatile LONG* slot, const void* src, void* dst, size_t size) {
-    if (!slot || !src || !dst || size == 0) return false;
-    if (InterlockedCompareExchange(slot, 1, 0) == 0) {
-        memcpy(dst, src, size);
-        InterlockedExchange(slot, 0);
-        return true;
-    }
-    return false;
-}
-
 } // namespace VertexBufferPrealloc

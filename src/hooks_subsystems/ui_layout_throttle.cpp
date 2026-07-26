@@ -44,8 +44,4 @@ namespace UILayoutThrottle {
         g_frameUpdateCounts.clear();
     }
 
-    // Feature 34 (0x00865270): Throttled UI Layout Recalculation
-    bool OptimizeSub865270_UILayoutThrottle(void* frame, DWORD currentTick) {
-        return ShouldThrottle(frame);
-    }
 }

@@ -38,12 +38,6 @@ void Shutdown() {
     Log("[DbcFileCache] Stats: %lld hits, %lld misses", g_dbcHits, g_dbcMisses);
 }
 
-// Feature 47 (0x006337D0): Asynchronous DBC Preloader
-void OptimizeSub6337D0_AsyncDBC(const char* dbcFileName) {
-    if (dbcFileName && dbcFileName[0] != '\0') {
-        g_dbcHits++;
-    }
-}
 
 void* LookupRecord(void* dbc, uint32_t id) {
     if (!dbc) return nullptr;

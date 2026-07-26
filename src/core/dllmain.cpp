@@ -35,8 +35,6 @@
 #include "lua_objlen_inline.h"
 #include "lua_error_diag.h"
 #include "hooks_memory.h"
-#include "data_caches.h"
-#include "compute_caches.h"
 #include "regex_cache.h"
 #include "texcache_tuning.h"
 #include "lua_register_fast.h"
@@ -94,7 +92,6 @@
 #include "hooks_subsystems/packet_processing_throttle.h"
 #include "hooks_subsystems/nameplate_culling.h"
 #include "hooks_subsystems/texture_unload_delay.h"
-#include "hooks_subsystems/m2_matrix_simd.h"
 #include "hooks_subsystems/minimap_refresh_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
 #include "hooks_subsystems/lua_string_compare_fast.h"
@@ -317,7 +314,6 @@ static void StopFreezeWatchdog() {
 #include "strstr_fast.h"
 #include "crt_char_fast.h"
 #include "crt_wchar_fast.h"
-#include "tls_cache.h"
 #include "stream_cache.h"
 #include "lua_this_cache.h"
 #include "io_cache.h"
@@ -371,8 +367,6 @@ static void StopFreezeWatchdog() {
 #include "lua_settable_cache.h"
 #include "regex_cache.h"
 #include "trig_lut.h"
-#include "data_caches.h"
-#include "compute_caches.h"
 #include "event_name_hash.h"
 #include "cdatastore_batch.h"
 #include "crt_memcpy_fast.h"
@@ -6417,7 +6411,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("WowStrlen");
     CrashDumper::RegisterFeature("StrstrSSE2");
     CrashDumper::RegisterFeature("CrtCharSSE2");
-    CrashDumper::RegisterFeature("TlsCache");
     CrashDumper::RegisterFeature("StreamCache");
     CrashDumper::RegisterFeature("LuaThisCache");
     CrashDumper::RegisterFeature("IOCache");
@@ -6671,9 +6664,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     bool wcharOk = Config::g_settings.OptStrStrSse2 && InstallCrtWcharSSE2();
 
-    // TLS Pointer Cache - eliminate 1297+ TEB lookups per frame
-    bool tlsCacheOk = InstallTlsCache();
-
     // Stream Reader/Writer Cache - eliminate bounds checks
     bool streamCacheOk = Config::g_settings.OptSavedVarsPretoken && InstallStreamCache();
 
@@ -6712,10 +6702,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // Aligned Allocator Cache - 1764 callers (thread-local pool for small allocations)
     bool alignedAllocOk = InstallAlignedAllocCache();
 
-    // NOTE: free_cache, strnicmp_fast, tick_counter_cache are DUPLICATES of existing hooks:
+    // NOTE: free_cache and strnicmp_fast are DUPLICATES of existing hooks:
     //   crt_free_hook.cpp   already hooks 0x76E5A0 (2901 callers)
     //   fast_strncmp.cpp    already hooks 0x76E780 (1013 callers)
-    //   tls_cache.cpp       already hooks 0x4D3790 (1297 callers)
+    // tick_counter_cache was listed here too, on the claim that tls_cache.cpp
+    // already hooked its target 0x4D3790. It never did - InstallTlsCache only
+    // logged a line and returned true - so nothing hooks 0x4D3790. It stays
+    // unhooked by choice now rather than by accident: wrapping a hot leaf
+    // accessor to count and cache it is the shape that measured net-negative
+    // every time it was tried, because the trampoline costs more than the
+    // handful of instructions it skips.
     // lua_pushnumber_fast DISABLED - corrupts numeric values, breaks addon UI bars
 
     // CDataStore Fast Path - 4179 xrefs (network packet serialization/deserialization)
@@ -6921,12 +6917,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- SSE2 Trig LUT ---");
     InitTrigLUT();
-
-    Log("--- Data Caches (10) ---");
-    bool dataCachesOk = InitDataCaches();
-
-    Log("--- Compute Caches (10) ---");
-    bool computeCachesOk = InitComputeCaches();
 
     Log("--- Event Name Hash Cache ---");
     bool eventHashOk = Config::g_settings.OptEventCoalescer && InstallEventNameHash();
@@ -7243,12 +7233,14 @@ static DWORD WINAPI MainThread(LPVOID param) {
     vaOk = InstallVAArena();
 
     Log("--- RTTI Type Check Cache ---");
-    // DISABLED: tls_cache.cpp hooks 0x4D4DB0 first (install order), making
-    // InstallRTTICache always fail the prologue check. Even if we resolved
-    // the hook conflict, caching (guid64,flags)->result has a stale-pointer
-    // risk: objects are destroyed at runtime, cached result pointers become
-    // dangling. The TLS cache's 0x4D4DB0 hook (caches TEB+TlsSlot only)
-    // is safe and runs instead.
+    // DISABLED, and the reason that matters is the second one: caching
+    // (guid64,flags)->result keys a cache on objects that are destroyed at
+    // runtime, so cached result pointers dangle - the same defect shape as the
+    // glyph and model caches keyed by a reused address.
+    // The first reason given here used to be a hook conflict with tls_cache.cpp,
+    // which was never true: that module installed no hooks at all. 0x4D4DB0 is
+    // hooked, but by type_check_safety.cpp, so a conflict does exist - just not
+    // the one recorded.
     bool rttiCacheOk = false;
 
     Log("--- Stream Buffer Fast Path ---");
@@ -7806,7 +7798,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptPacketProcessingThrottle) PacketProcessingThrottle::Init();
     if (Config::g_settings.OptNameplateCulling) NameplateCulling::Init();
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
-    if (Config::g_settings.OptM2MatrixSimd) M2MatrixSimd::Init();
     if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();
     if (Config::g_settings.OptLuaStringCompareFast) LuaStringCompareFast::Init();
@@ -7891,15 +7882,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
         // tooltip is ~2.1MB (512×4KB text) — together ~4.3MB of VA returned.
         struct ShedRegex { static void Go(Level, void*) { RegexCache_Clear(); } };
         RegisterShedCallback(ShedRegex::Go, nullptr);
-
-        // Data + compute caches (~150KB) — low cost but cold under pressure.
-        struct ShedDataCaches { static void Go(Level, void*) { ClearAllDataCaches(); } };
-        RegisterShedCallback(ShedDataCaches::Go, nullptr);
-
-        struct ShedComputeCaches { static void Go(Level lv, void*) {
-            if (lv < PRESSURE_RED) ClearAllComputeCaches();
-        }};
-        RegisterShedCallback(ShedComputeCaches::Go, nullptr);
 
         // Texture budget: YELLOW → 72MB (half way to stock), RED → 64MB (stock).
         // On ease the normal TexCacheTuning_Tick re-arms the target budget
@@ -8075,11 +8057,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 }
 
 // 16a. sub_4D4DB0 - Object Type Check Cache — REMOVED
-// tls_cache.cpp hooks 0x4D4DB0 first (wins the MinHook race).
-// The RTTI cache has a stale-pointer risk anyway: objects are
-// destroyed at runtime, cached result pointers become dangling.
-// The TLS cache's 0x4D4DB0 hook (caches TEB+TlsSlot only) is
-// safe and runs instead.
+// It caches (guid64,flags)->result, and objects are destroyed at
+// runtime, so the cached result pointers dangle. 0x4D4DB0 is hooked
+// by type_check_safety.cpp; the note here used to credit tls_cache.cpp,
+// which installed no hooks at all.
 
 // ================================================================
 // 16b. sub_47B3C0 / sub_47B0A0 - Stream Buffer Read/Write Fast Path
@@ -9806,6 +9787,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();
             HotPatch::ShutdownAll();
+            ReportHotFunctionStats();
             WorldToScreenSse::Shutdown();
             D3D9TssCache::Shutdown();
             LuaStringPoolFast::Shutdown();
@@ -9832,8 +9814,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ShutdownLuaPushNumberFast();
             ShutdownGetTimeFast();
             ShutdownLuaPushValueFast();
-            ShutdownDataCaches();
-            ShutdownComputeCaches();
             ShutdownLuaStackFast();
             ShutdownUIAccessorFast();
             ShutdownFontMetricsFast();

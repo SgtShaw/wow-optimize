@@ -65,12 +65,5 @@ void OnFrame(float elapsedMs) {
     }
 }
 
-// Feature 24 (0x00859160): Throttled Particle Density Scaler
-bool OptimizeSub859160_ParticleThrottle(int emitterId, float fps) {
-    if (fps < 35.0f && (emitterId % 2 != 0)) {
-        return true; // Skip odd particle emitters under low FPS
-    }
-    return false;
-}
 
 } // namespace ParticleDensityScaler

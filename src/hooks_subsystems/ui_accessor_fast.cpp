@@ -560,13 +560,3 @@ void ShutdownUIAccessorFast() {
         g_getwidth_calls, g_getheight_calls, g_frame_isshown_calls, g_frame_isvisible_calls, g_frame_getalpha_calls, g_frame_getframelevel_calls);
 }
 
-// Feature 37 (0x00906270): SSE2 Vectorized UI Vertex Transform
-void OptimizeSub906270_UIVertexTransform(float* inVertices, float* outVertices, const float* matrix4x4, int count) {
-    if (!inVertices || !outVertices || !matrix4x4 || count <= 0) return;
-    for (int i = 0; i < count; ++i) {
-        float x = inVertices[i * 2 + 0];
-        float y = inVertices[i * 2 + 1];
-        outVertices[i * 2 + 0] = matrix4x4[0] * x + matrix4x4[4] * y + matrix4x4[12];
-        outVertices[i * 2 + 1] = matrix4x4[1] * x + matrix4x4[5] * y + matrix4x4[13];
-    }
-}

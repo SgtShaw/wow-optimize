@@ -220,10 +220,5 @@ void Shutdown() {
     MH_DisableHook((void*)0x005B2CB0);
 }
 
-// Feature 49 (0x006909A0): Branchless Opcode Dispatch Table
-int OptimizeSub6909A0_BranchlessOpcode(uint16_t opcode, void* packetData) {
-    if (!packetData) return 0;
-    return (int)opcode;
-}
 
 } // namespace NetPacketOffload
