@@ -355,8 +355,6 @@ namespace WowOptimizeLauncher {
                 { "Fast SSE2 Memory Clear (FastMemset)", new SettingItem("Graphics_Sound", "FastMemsetOpt", true, null, "SSE2 non-temporal memset replacement for large memory clears at 0x0040BB80.") },
                 { "Fast Case-Insensitive String Compare", new SettingItem("UI_Lua", "FastStrnicmpOpt", true, null, "SSE2 ASCII case-insensitive string comparison replacement at 0x0076E780.") },
                 { "Minimap Blip Refresh Governor", new SettingItem("UI_Lua", "MinimapRefreshGovernor", true, null, "Throttles minimap blip refresh calls at 0x00923D50 to eliminate minimap CPU overhead.") },
-                { "Camera Collision Raycast Throttle", new SettingItem("Graphics_Sound", "CameraCollisionThrottle", true, null, "Throttles redundant camera collision raycasting at 0x00821A20.") },
-                { "Floating Combat Text Coalescer", new SettingItem("Combat_Net", "CombatTextCoalescer", true, null, "Coalesces floating combat text popups at 0x007385C0 to prevent text rendering lag.") },
                 { "UI Layout Recalculation Throttle", new SettingItem("UI_Lua", "UILayoutThrottle", true, null, "Governs UI layout recalculations at 0x00865270 during heavy addon updates.") },
             };
 

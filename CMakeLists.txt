@@ -141,8 +141,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/font_glyph_cache.h
     src/runtime_vm/saved_vars_preload_async.cpp
     src/runtime_vm/saved_vars_preload_async.h
-    src/hooks_subsystems/combat_text_coalescer.cpp
-    src/hooks_subsystems/combat_text_coalescer.h
     src/hooks_subsystems/minimap_throttle.cpp
     src/hooks_subsystems/minimap_throttle.h
     src/hooks_subsystems/dbc_lookup_cache_fast.cpp
@@ -529,8 +527,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/dbc_row_caching.h
     src/hooks_subsystems/network_string_dedup.cpp
     src/hooks_subsystems/network_string_dedup.h
-    src/hooks_subsystems/camera_collision_throttle.cpp
-    src/hooks_subsystems/camera_collision_throttle.h
     src/hooks_subsystems/sound_freq_coalesce.cpp
     src/hooks_subsystems/sound_freq_coalesce.h
     src/hooks_subsystems/aura_update_dedup.cpp

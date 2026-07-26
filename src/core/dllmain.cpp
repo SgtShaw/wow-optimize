@@ -104,7 +104,6 @@
 #include "hooks_subsystems/lua_string_compare_fast.h"
 #include "hooks_subsystems/dbc_row_caching.h"
 #include "hooks_subsystems/network_string_dedup.h"
-#include "hooks_subsystems/camera_collision_throttle.h"
 #include "hooks_subsystems/sound_freq_coalesce.h"
 #include "hooks_subsystems/aura_update_dedup.h"
 #include "hooks_subsystems/ui_texture_caching.h"
@@ -450,7 +449,6 @@ void ClearCombatLogCache();
 #include "m2_bone_simd.h"
 #include "font_glyph_cache.h"
 #include "saved_vars_preload_async.h"
-#include "combat_text_coalescer.h"
 #include "minimap_throttle.h"
 #include "dbc_lookup_cache_fast.h"
 #include "world_to_screen_sse.h"
@@ -7797,7 +7795,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Combat Text Coalescer ---");
-    if (Config::g_settings.OptEventCoalescer) CombatTextCoalescer::Init();
 
     Log("");
     Log("--- Minimap Throttle ---");
@@ -7850,7 +7847,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptLuaStringCompareFast) LuaStringCompareFast::Init();
     if (Config::g_settings.OptDbcRowCaching) DbcRowCaching::Init();
     if (Config::g_settings.OptNetworkStringDedup) NetworkStringDedup::Init();
-    if (Config::g_settings.OptCameraCollisionThrottle) CameraCollisionThrottle::Init();
     if (Config::g_settings.OptSoundFreqCoalesce) SoundFreqCoalesce::Init();
     if (Config::g_settings.OptAuraUpdateDedup) AuraUpdateDedup::Init();
     if (Config::g_settings.OptUiTextureCaching) UiTextureCaching::Init();
@@ -9848,7 +9844,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             ItemDataPrefetch::Shutdown();
             MovementSmoothing::Shutdown();
             FontAlphaFastpath::Shutdown();
-            CombatTextCoalescer::Shutdown();
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();
             WorldToScreenSse::Shutdown();

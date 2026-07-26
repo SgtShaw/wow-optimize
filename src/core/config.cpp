@@ -120,7 +120,6 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "LuaStringCompareFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "DbcRowCaching", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetworkStringDedup", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "CameraCollisionThrottle", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundFreqCoalesce", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "AuraUpdateDedup", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UiTextureCaching", "0", iniPath.c_str());
@@ -241,7 +240,6 @@ namespace Config {
         g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 0, iniPath.c_str()) != 0;
         g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 0, iniPath.c_str()) != 0;
         g_settings.OptNetworkStringDedup = GetPrivateProfileIntA("Combat_Net", "NetworkStringDedup", 0, iniPath.c_str()) != 0;
-        g_settings.OptCameraCollisionThrottle = GetPrivateProfileIntA("General", "CameraCollisionThrottle", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 0, iniPath.c_str()) != 0;
         g_settings.OptAuraUpdateDedup = GetPrivateProfileIntA("Combat_Net", "AuraUpdateDedup", 0, iniPath.c_str()) != 0;
         g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 0, iniPath.c_str()) != 0;

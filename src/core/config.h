@@ -95,7 +95,6 @@ namespace Config {
         bool OptLuaStringCompareFast = true;
         bool OptDbcRowCaching = true;
         bool OptNetworkStringDedup = true;
-        bool OptCameraCollisionThrottle = true;
         bool OptSoundFreqCoalesce = true;
         bool OptAuraUpdateDedup = true;
         bool OptUiTextureCaching = true;
