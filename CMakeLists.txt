@@ -338,12 +338,8 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/saved_vars_async.h
     src/runtime_vm/lua_bytecode_pre_compiler.cpp
     src/runtime_vm/lua_bytecode_pre_compiler.h
-    src/hooks_subsystems/hook_prefetch.cpp
-    src/hooks_subsystems/hook_prefetch.h
     src/hooks_subsystems/hot_patch.cpp
     src/hooks_subsystems/hot_patch.h
-    src/hooks_subsystems/infra_patch.cpp
-    src/hooks_subsystems/infra_patch.h
     src/hooks_subsystems/wow_opt_hooks.cpp
     src/hooks_subsystems/wow_opt_hooks.h
     src/hooks_subsystems/wow_perf_hooks.cpp

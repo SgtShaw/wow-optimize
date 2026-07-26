@@ -399,9 +399,7 @@ static void StopFreezeWatchdog() {
 #include "diagnostics/frame_bench.h"
 #include "luaS_newlstr_sse2.h"
 #include "lua_bytecode_pre_compiler.h"
-#include "hook_prefetch.h"
 #include "hot_patch.h"
-#include "infra_patch.h"
 #include "wow_opt_hooks.h"
 #include "wow_perf_hooks.h"
 #include "wow_extended_hooks.h"
@@ -6524,9 +6522,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("LuaVMCache");
     CrashDumper::RegisterFeature("LuaGetTableCache");
     CrashDumper::RegisterFeature("SavedVarsAsync");
-    CrashDumper::RegisterFeature("HookPrefetch");
     CrashDumper::RegisterFeature("HotPatch");
-    CrashDumper::RegisterFeature("InfraPatch");
     CrashDumper::RegisterFeature("MemoryOpt");
     CrashDumper::RegisterFeature("SourceOpt");
     CrashDumper::RegisterFeature("TlsObjectCache");
@@ -7568,14 +7564,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
     CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
 
-    Log("--- Hook Prefetch (9 hooks) ---");
-    bool hookPrefetchOk = Config::g_settings.OptDbcLookupCache && HookPrefetch::InstallAll();
-
-    Log("--- Hot Patch (20 features) ---");
-    bool hotPatchOk = Config::g_settings.OptDbcLookupCache && HotPatch::InstallAll();
-
-    Log("--- Infra API (50 features) ---");
-    bool infraPatchOk = Config::g_settings.OptDbcLookupCache && InfraPatch::InstallAll();
+    Log("--- Hot Patch ---");
+    if (Config::g_settings.OptDbcLookupCache) HotPatch::InstallAll();
 
     Log("--- WoW.exe Optimization Hooks (20 hooks) ---");
     bool wowOptOk = WowOptHooks::InstallAll();
@@ -9815,6 +9805,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             FontAlphaFastpath::Shutdown();
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();
+            HotPatch::ShutdownAll();
             WorldToScreenSse::Shutdown();
             D3D9TssCache::Shutdown();
             LuaStringPoolFast::Shutdown();
