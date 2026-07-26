@@ -882,6 +882,18 @@ extern "C" void ClearLuaOptCaches() {
     ClearRawGetIInlineCache();
     ClearEventDispatchCache();
     ClearTableCache();
+
+    // The glyph and outline caches are keyed by the font object's address, and a
+    // UI reload destroys and recreates every font object without touching the D3D9
+    // device. Until now they were only flushed from device reset and device change,
+    // so after a /reload the allocator could hand a new font the address of a dead
+    // one and a lookup would return a glyph descriptor rasterized for a different
+    // font - wrong advance widths, characters drawn on top of each other. That is
+    // the "smushed text" seen after reloading, and it is the same defect shape as
+    // the model-pointer table that used to hide corpses: a cache keyed by an
+    // address the engine is free to reuse must be dropped when the owner dies.
+    FontGlyphCache::ClearCache();
+    FontOutlineCache::ClearCache();
 }
 
 // Stats for new hooks (defined with implementations below)
