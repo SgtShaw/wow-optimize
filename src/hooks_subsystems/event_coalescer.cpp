@@ -24,7 +24,7 @@ typedef void(__cdecl *FrameScript_SignalEvent_t)(int eventId, const char* format
 // event must go through the trampoline so it is not re-queued.
 extern void* g_origSignalEvent;
 
-static bool g_active = false;
+namespace EventCoalescer { bool g_active = false; }
 
 // Fixed-size event entry — no C++ objects, safe for SEH
 struct QueuedEvent {
@@ -255,13 +255,9 @@ namespace EventCoalescer {
         }
 
         memset(g_queue, 0, sizeof(g_queue));
-        g_active = true;
+        EventCoalescer::g_active = true;
         Log("[EventCoalescer] ACTIVE (frame-scoped event deduplication)");
         return true;
-    }
-
-    bool IsActive() {
-        return g_active;
     }
 
     bool TryQueue(int eventId, const char* format, void* vaStart) {
@@ -269,7 +265,7 @@ namespace EventCoalescer {
     }
 
     void Shutdown() {
-        g_active = false;
+        EventCoalescer::g_active = false;
         if (g_eventsTotal > 0) {
             Log("[EventCoalescer] Stats: Total %u, Dropped %u (%.1f%% reduction)",
                 g_eventsTotal, g_eventsDropped,

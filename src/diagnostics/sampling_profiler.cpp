@@ -315,6 +315,22 @@ static uintptr_t g_selfEnd  = 0;
 static constexpr int SELF_PAGES = 4096;   // covers a 16MB image
 static uint32_t g_selfPageCounts[SELF_PAGES];
 
+// The 4KB page above ranks our DLL against everything else, but it cannot answer
+// WHICH hook is hot: at this build's code density a single page holds about
+// nineteen functions, so a page that reads 1.97% could be one expensive hook or
+// nineteen cheap ones. Resolving that from a tester log used to mean rebuilding
+// the exact commit just to read its .map, and even then a page listed too many
+// candidates to choose between.
+//
+// So our own image is counted a second time at 256-byte resolution, and reported
+// as its own section rather than merged into the main ranking - splitting our
+// share across eight buckets would push every one of them below the top-N cutoff
+// and hide the very thing this is for.
+static constexpr int SELF_FINE_SHIFT = 8;      // 256-byte buckets
+static constexpr int SELF_FINE_SLOTS = 8192;   // covers a 2MB image (~600KB today)
+static constexpr int SELF_FINE_TOP   = 20;
+static uint32_t g_selfFineCounts[SELF_FINE_SLOTS];
+
 // A cheap marker: this variable lives inside our own DLL, so its address tells
 // us which module is ours.
 static int g_selfAnchor = 0;
@@ -435,6 +451,7 @@ static void DumpResults() {
     // the profile entirely). Each call re-aggregates the current ring contents.
     memset(g_pageCounts, 0, sizeof(g_pageCounts));
     memset(g_selfPageCounts, 0, sizeof(g_selfPageCounts));
+    memset(g_selfFineCounts, 0, sizeof(g_selfFineCounts));
 
     // Snapshot loaded modules so system samples can be attributed to a DLL.
     BuildModuleTable();
@@ -487,8 +504,11 @@ static void DumpResults() {
         if (eip >= WOW_BASE && eip <= WOW_END) {
             g_pageCounts[(eip - WOW_BASE) >> 12]++;
         } else if (g_selfBase && eip >= g_selfBase && eip < g_selfEnd) {
-            uint32_t pg = (uint32_t)((eip - g_selfBase) >> 12);
+            uintptr_t off = eip - g_selfBase;
+            uint32_t pg = (uint32_t)(off >> 12);
             if (pg < SELF_PAGES) g_selfPageCounts[pg]++;
+            uint32_t fine = (uint32_t)(off >> SELF_FINE_SHIFT);
+            if (fine < SELF_FINE_SLOTS) g_selfFineCounts[fine]++;
         } else {
             ModRange* m = FindModule(eip);
             if (m) {
@@ -575,6 +595,41 @@ static void DumpResults() {
         Log("[SamplingProfiler] %3d. %-24s  %8llu samples (%5.2f%%)",
             printed + 1, name, (unsigned long long)buckets[i].count, pct);
         printed++;
+    }
+
+    // Our own hot spots at 256-byte resolution. Offsets are from the DLL base, so
+    // they resolve directly against the .map of the build named in the startup
+    // banner - narrow enough to land on one function instead of a page of them.
+    {
+        int fineIdx[SELF_FINE_TOP];
+        int fineFound = 0;
+        for (int i = 0; i < SELF_FINE_SLOTS; i++) {
+            uint32_t c = g_selfFineCounts[i];
+            if (!c) continue;
+            int at = fineFound;
+            if (fineFound < SELF_FINE_TOP) {
+                fineFound++;
+            } else if (c > g_selfFineCounts[fineIdx[SELF_FINE_TOP - 1]]) {
+                at = SELF_FINE_TOP - 1;
+            } else {
+                continue;
+            }
+            while (at > 0 && c > g_selfFineCounts[fineIdx[at - 1]]) {
+                fineIdx[at] = fineIdx[at - 1];
+                at--;
+            }
+            fineIdx[at] = i;
+        }
+
+        if (fineFound > 0) {
+            Log("[SamplingProfiler] === wow_optimize.dll HOT SPOTS (256-byte resolution) ===");
+            for (int i = 0; i < fineFound; i++) {
+                uint32_t c = g_selfFineCounts[fineIdx[i]];
+                Log("[SamplingProfiler]   wowopt+0x%05X  %8u samples (%5.2f%%)",
+                    (unsigned)((uintptr_t)fineIdx[i] << SELF_FINE_SHIFT),
+                    c, 100.0 * (double)c / (double)total);
+            }
+        }
     }
 
     Log("[SamplingProfiler] === END PROFILE ===");
