@@ -100,12 +100,28 @@ void ApplyEventKind(EventKind kind) {
             }
             break;
         case EVENT_LOADING_END:
-            if (InterlockedExchange(&g_isLoading, 0) == 1) {
-                LuaGCGovernor::g_isLoading = false;
+            // The first entry into the world is not preceded by PLAYER_LEAVING_WORLD
+            // - there is no world to leave - so the window never opened and the
+            // longest, heaviest load of the session ran with every loading-time
+            // guard switched off. It showed up in the frame benchmark as a single
+            // ~2 second frame counted as gameplay.
+            //
+            // Treating the end event as authoritative closes that: if the window
+            // was never opened, this is the initial load finishing, so open and
+            // close it here to run the same end-of-load work every other transition
+            // gets - releasing the arena, flushing delayed textures, dropping the
+            // caches that the load invalidated.
+            if (InterlockedExchange(&g_isLoading, 0) == 0) {
+                CrashDumper::Trace("LOADING end (initial world entry)");
+                Log("[LoadingState] Initial world entry finished (no preceding "
+                    "PLAYER_LEAVING_WORLD) - running end-of-load cleanup");
+                ReserveLoadingArena();
+            } else {
                 CrashDumper::Trace("LOADING end (PLAYER_ENTERING_WORLD)");
                 Log("[LoadingState] Loading screen finished (PLAYER_ENTERING_WORLD)");
-                ReleaseLoadingArena();
             }
+            LuaGCGovernor::g_isLoading = false;
+            ReleaseLoadingArena();
             break;
         case EVENT_COMBAT_BEGIN:
             LuaGCGovernor::g_inCombat = true;
