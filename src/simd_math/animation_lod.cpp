@@ -3,8 +3,10 @@
 // Description: Animation LOD - throttle skeletal bone updates for background
 //              models in crowded scenes (raids, cities). The "reduce work"
 //              optimization, not "compute faster".
-// Safety & Threading: main-thread only; only ever SKIPS work (never mutates
-//              engine state), and skips exactly the way the engine already does.
+// Safety & Threading: the client calls UpdateBones from more than one thread, so
+//              throttling decisions are taken on the main thread only and every
+//              other thread passes straight through. Only ever SKIPS work (never
+//              mutates engine state), and skips the way the engine already does.
 // ============================================================================
 //
 // The bone-animation function UpdateBones (0x82F0F0, __thiscall(this,a2,a3,a4,
@@ -83,6 +85,9 @@
 
 extern "C" void Log(const char* fmt, ...);
 
+// Set by dllmain once the client's main thread is known.
+extern DWORD g_mainThreadId;
+
 namespace AnimationLod {
 
 typedef int (__thiscall* UpdateBones_fn)(void* pThis, float* a2, int a3, float a4, float a5, float a6);
@@ -159,10 +164,31 @@ static uint64_t g_updatedTotal   = 0;
 
 static inline bool ValidPtr(uintptr_t p) { return p >= 0x10000 && p < 0xFFE00000; }
 
+// The client updates bones from more than one thread. That was not in the design:
+// every piece of crowd state below - the counter, the reference tick, the engaged
+// flag - is shared and unsynchronized, so two threads roll the counter in turn and
+// each sees what the other just reset. A tester log shows the result directly:
+//
+//     [TID: 15388] Throttle ENGAGED: 32 models in frame, interval 2
+//     [TID: 15828] Throttle DISENGAGED: 0 models in frame
+//     [TID: 15388] Throttle ENGAGED: 32 models in frame, interval 2
+//
+// A count of zero is not a scene that emptied, it is the other thread's reset. The
+// throttle flips on and off several times a second, and every flip changes the
+// animation rate of every model at once - which is what players see as flickering,
+// and why weapons and freshly-killed corpses blink out.
+//
+// Throttling decisions are therefore main-thread-only. Models updated from any
+// other thread always take the original path: they are counted by nobody and
+// throttled by nobody, which is correct and, more importantly, deterministic.
+
 static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
                                          float* a2, int a3, float a4, float a5, float a6)
 {
     if (!ValidPtr((uintptr_t)pThis) || !orig_UpdateBones) return 0;
+
+    if (g_mainThreadId != 0 && GetCurrentThreadId() != g_mainThreadId)
+        return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
 
     __try {
         uintptr_t self = (uintptr_t)pThis;
@@ -212,6 +238,22 @@ static int __fastcall Hooked_UpdateBones(void* pThis, void* /*edx*/,
 
         uint32_t tick = *(uint32_t*)(animCtx + 20);   // current animation tick
         uint32_t last = *(uint32_t*)(self + 60);      // tick this model last updated
+
+        // A model that has never completed an update must never be throttled. The
+        // work path is what first fills in derived state the caller relies on -
+        // notably the bounding magnitude at +136, which is what the scene culls
+        // against; leaving it at zero makes the model cull away entirely.
+        //
+        // This is reachable because the round-robin table is keyed by the model
+        // pointer, and the client frees and reuses those. A mob dies, its model is
+        // released, a new model lands on the same address, and our stale slot says
+        // "this one updated recently" - so the new model is throttled before it has
+        // ever been computed, and stays invisible until something forces an update.
+        // That is the corpse that only reappears once you click its loot sparkle.
+        if (last == 0) {
+            g_updatedTotal++;
+            return orig_UpdateBones(pThis, a2, a3, a4, a5, a6);
+        }
 
         // Frame boundary: only the reference context's tick marks a frame.
         DWORD nowMs = GetTickCount();
