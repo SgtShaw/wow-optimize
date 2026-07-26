@@ -156,9 +156,8 @@ static int __cdecl DiagLuaError(uintptr_t L) {
     LogEx(LOG_LEVEL_ERROR, "LUA", "  Features with recorded activity:");
     FeatureState features[MAX_TRACKED_FEATURES];
     int fcount = CrashDumper::GetFeatureStates(features, MAX_TRACKED_FEATURES);
-    int active = 0, reported = 0;
+    int reported = 0;
     for (int i = 0; i < fcount; i++) {
-        if (features[i].active) active++;
         if (features[i].callCount == 0 && features[i].errorCount == 0) continue;
         LogEx(LOG_LEVEL_ERROR, "LUA", "    %-28s active=%d calls=%lld errors=%lld",
             features[i].name ? features[i].name : "(null)",
@@ -170,7 +169,6 @@ static int __cdecl DiagLuaError(uintptr_t L) {
     if (reported == 0) {
         LogEx(LOG_LEVEL_ERROR, "LUA", "    (none)");
     }
-    LogEx(LOG_LEVEL_ERROR, "LUA", "  %d of %d registered features active", active, fcount);
 
     LogEx(LOG_LEVEL_ERROR, "LUA", "  Last 32 hook calls:");
     extern void CrashDumper_DumpHookTrace(int count);

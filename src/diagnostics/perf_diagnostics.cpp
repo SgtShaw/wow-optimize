@@ -198,9 +198,8 @@ void LogPerformanceSnapshot(double elapsedMs) {
     Log("[PerfDiag]   Features with recorded activity:");
     FeatureState features[MAX_TRACKED_FEATURES];
     int fcount = CrashDumper::GetFeatureStates(features, MAX_TRACKED_FEATURES);
-    int activeCount = 0, reported = 0;
+    int reported = 0;
     for (int i = 0; i < fcount; i++) {
-        if (features[i].active) activeCount++;
         if (features[i].callCount == 0 && features[i].errorCount == 0) continue;
         Log("[PerfDiag]     %-28s active=%d calls=%lld errors=%lld",
             features[i].name ? features[i].name : "(null)",
@@ -210,7 +209,6 @@ void LogPerformanceSnapshot(double elapsedMs) {
         reported++;
     }
     if (reported == 0) Log("[PerfDiag]     (none)");
-    Log("[PerfDiag]   %d of %d registered features active", activeCount, fcount);
 
     // 6. Dump last hook trace to pinpoint exactly what ran during this lag spike
     Log("[PerfDiag]   Last 16 hook calls before stutter:");

@@ -157,16 +157,12 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_jit_compiler.h
     src/hooks_subsystems/async_sound_loader.cpp
     src/hooks_subsystems/async_sound_loader.h
-    src/simd_math/m2_lod_bias.cpp
-    src/simd_math/m2_lod_bias.h
     src/runtime_vm/saved_vars_pretoken.cpp
     src/runtime_vm/saved_vars_pretoken.h
     src/hooks_subsystems/net_addon_coalescer.cpp
     src/hooks_subsystems/net_addon_coalescer.h
     src/hooks_subsystems/mip_bias_governor.cpp
     src/hooks_subsystems/mip_bias_governor.h
-    src/hooks_subsystems/spatial_culling.cpp
-    src/hooks_subsystems/spatial_culling.h
     src/diagnostics/perf_diagnostics.cpp
     src/diagnostics/perf_diagnostics.h
     src/runtime_vm/lua_xpcall_fast.cpp
@@ -498,8 +494,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/unit_max_power_cache.h
     src/hooks_subsystems/mouse_clip_release.cpp
     src/hooks_subsystems/mouse_clip_release.h
-    src/hooks_subsystems/loading_screen_opt.cpp
-    src/hooks_subsystems/loading_screen_opt.h
     src/hooks_subsystems/combat_log_filter.cpp
     src/hooks_subsystems/combat_log_filter.h
     src/hooks_subsystems/sound_volume_limit.cpp

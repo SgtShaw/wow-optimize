@@ -43,9 +43,8 @@ namespace Config {
         bool OptAsyncTexLoader = false;
         bool OptAsyncTerrainLoader = false;
         bool OptRcuObjMgr = false;
-        bool OptM2LodBias = false;
         bool OptMipBiasGovernor = false;
-        bool OptSpatialCulling = false;
+        bool OptAsyncCulling = false;
         
         // Combat & Network
         bool OptCombatLogLeakFix = true; // Proven fix: extend combat log retention 300s->1800s (writes the retention CVar). Default on.
@@ -73,7 +72,6 @@ namespace Config {
         bool OptD3d9RenderThread = false;
 
         // 10 new features
-        bool OptLoadingScreenOpt = true;
         bool OptCombatLogFilter = true;
         bool OptSoundVolumeLimit = true;
         bool OptUILayoutThrottle = true;

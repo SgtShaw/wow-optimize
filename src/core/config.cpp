@@ -72,9 +72,8 @@ namespace Config {
             WritePrivateProfileStringA("UI_Lua", "AsyncTexLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "AsyncTerrainLoader", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "RcuObjMgr", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "M2LodBias", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MipBiasGovernor", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "SpatialCulling", "0", iniPath.c_str());
+            WritePrivateProfileStringA("Graphics_Sound", "AsyncCulling", "0", iniPath.c_str());
 
             // Combat & Network
             WritePrivateProfileStringA("Combat_Net", "CombatLogLeakFix", "1", iniPath.c_str());
@@ -102,7 +101,6 @@ namespace Config {
             WritePrivateProfileStringA("Graphics_Sound", "D3d9RenderThread", "0", iniPath.c_str());
 
             // 10 new features defaults
-            WritePrivateProfileStringA("Graphics_Sound", "LoadingScreenOpt", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "CombatLogFilter", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "0", iniPath.c_str());
@@ -187,9 +185,8 @@ namespace Config {
         g_settings.OptAsyncTexLoader      = GetPrivateProfileIntA("UI_Lua", "AsyncTexLoader", 0, iniPath.c_str()) != 0;
         g_settings.OptAsyncTerrainLoader  = GetPrivateProfileIntA("UI_Lua", "AsyncTerrainLoader", 0, iniPath.c_str()) != 0;
         g_settings.OptRcuObjMgr           = GetPrivateProfileIntA("UI_Lua", "RcuObjMgr", 0, iniPath.c_str()) != 0;
-        g_settings.OptM2LodBias           = GetPrivateProfileIntA("UI_Lua", "M2LodBias", 0, iniPath.c_str()) != 0;
         g_settings.OptMipBiasGovernor     = GetPrivateProfileIntA("UI_Lua", "MipBiasGovernor", 0, iniPath.c_str()) != 0;
-        g_settings.OptSpatialCulling      = GetPrivateProfileIntA("UI_Lua", "SpatialCulling", 0, iniPath.c_str()) != 0;
+        g_settings.OptAsyncCulling        = GetPrivateProfileIntA("Graphics_Sound", "AsyncCulling", 0, iniPath.c_str()) != 0;
 
         // Combat & Network
         g_settings.OptCombatLogLeakFix    = GetPrivateProfileIntA("Combat_Net", "CombatLogLeakFix", 1, iniPath.c_str()) != 0;
@@ -226,7 +223,6 @@ namespace Config {
         g_settings.OptD3d9RenderThread = false;
 
         // Parse Features 21-30
-        g_settings.OptLoadingScreenOpt   = GetPrivateProfileIntA("Graphics_Sound", "LoadingScreenOpt", 0, iniPath.c_str()) != 0;
         g_settings.OptCombatLogFilter    = GetPrivateProfileIntA("Combat_Net", "CombatLogFilter", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 0, iniPath.c_str()) != 0;
         g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 0, iniPath.c_str()) != 0;

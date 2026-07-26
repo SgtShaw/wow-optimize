@@ -420,8 +420,6 @@ void QueuePresent(IDirect3DDevice9* device, const RECT* src, const RECT* dest, H
     QueueCommand(cmd);
 }
 
-#include "loading_screen_opt.h"
-
 static HRESULT WINAPI Hooked_DrawPrimitive(IDirect3DDevice9* device, D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount) {
     if (g_isActive.load(std::memory_order_relaxed) && GetCurrentThreadId() == g_mainThreadId) {
         RenderCommand cmd;

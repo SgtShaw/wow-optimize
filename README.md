@@ -54,7 +54,8 @@ A bug fix release, driven mostly by issue #46.
 
 **Launcher**
 
-- Removed three toggles that did nothing
+- Removed five toggles that did nothing
+- **Spatial Culling & Parallel Frustum Culler** is now **Async Frustum Culling** — only the async half was ever real
 - Restored two that had been removed by mistake: **Lua C-API inline cache suite** and **adaptive Lua GC governor** (both still opt-in)
 
 **Diagnostics**
@@ -65,7 +66,14 @@ A bug fix release, driven mostly by issue #46.
 
 ### Upgrading
 
-Settings carry over. If you previously edited `wow_optimize.ini` by hand, note that `LuaFileCache` is gone and the loader cache it actually controlled is now its own `ModuleHandleCache` toggle.
+Settings carry over, with two renames. If you had these set in `wow_optimize.ini`, re-enable them under their new names:
+
+| Old key | New key |
+|---|---|
+| `LuaFileCache` | `ModuleHandleCache` |
+| `SpatialCulling` | `AsyncCulling` (moved to `[Graphics_Sound]`) |
+
+In both cases the old key gated something other than what its name said; the dead half is gone and the working half kept its behaviour.
 
 **Still open:** a crash reported a while after `alt+F4`. If you hit it, please attach `Crashes\wow_crash_*.dmp` and the timestamped `Logs\wow_optimize_<date>_<time>.log`.
 

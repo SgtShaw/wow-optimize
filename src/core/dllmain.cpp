@@ -86,7 +86,6 @@
 #include "hooks_subsystems/saved_vars_backup.h"
 #include "hooks_subsystems/unit_max_power_cache.h"
 #include "hooks_subsystems/mouse_clip_release.h"
-#include "hooks_subsystems/loading_screen_opt.h"
 #include "hooks_subsystems/combat_log_filter.h"
 #include "hooks_subsystems/sound_volume_limit.h"
 #include "hooks_subsystems/ui_layout_throttle.h"
@@ -443,13 +442,11 @@ void ClearCombatLogCache();
 #include "tls_object_cache.h"
 #include "sound_mixer_opt.h"
 #include "lua_gc_governor.h"
-#include "m2_lod_bias.h"
 #include "async_tex_loader.h"
 #include "unit_aura_coalesce.h"
 #include "saved_vars_pretoken.h"
 #include "net_addon_coalescer.h"
 #include "mip_bias_governor.h"
-#include "spatial_culling.h"
 #include "perf_diagnostics.h"
 #include "adaptive_farclip.h"
 #include "m2_bone_simd.h"
@@ -1532,14 +1529,8 @@ static void WINAPI hooked_Sleep(DWORD ms) {
 #if !TEST_DISABLE_ADAPTIVE_FARCLIP
             AdaptiveFarclip::OnFrame((float)elapsedMs);
 #endif
-#if !TEST_DISABLE_M2_LOD_BIAS
-            M2LodBias::UpdateLodBias(elapsedMs);
-#endif
 #if !TEST_DISABLE_NET_ADDON_COALESCER
             NetAddonCoalescer::OnFrame();
-#endif
-#if !TEST_DISABLE_SPATIAL_CULLING
-            SpatialCulling::OnFrame();
 #endif
 #if !TEST_DISABLE_MIP_BIAS_GOVERNOR
             MipBiasGovernor::UpdateMipBias(elapsedMs);
@@ -7601,7 +7592,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Async Visual Frustum Culling Cache ---");
 #if !TEST_DISABLE_ASYNC_CULLING
-    bool asyncCullingOk = Config::g_settings.OptSpatialCulling && !RunningUnderTranslation() && AsyncCulling::Init();
+    bool asyncCullingOk = Config::g_settings.OptAsyncCulling && !RunningUnderTranslation() && AsyncCulling::Init();
 #else
     bool asyncCullingOk = false;
     Log("[AsyncCulling] DISABLED via TEST_DISABLE_ASYNC_CULLING");
@@ -7771,7 +7762,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptMouseClipRelease) MouseClipRelease::Init();
 
     Log("--- 10 More New Performance & Stability Features ---");
-    if (Config::g_settings.OptLoadingScreenOpt) LoadingScreenOpt::Init();
     if (Config::g_settings.OptCombatLogFilter) CombatLogFilter::Init();
     if (Config::g_settings.OptSoundVolumeLimit) SoundVolumeLimit::Init();
     if (Config::g_settings.OptUILayoutThrottle) UILayoutThrottle::Init();
@@ -7835,7 +7825,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- M2 LOD Bias Control ---");
-    if (Config::g_settings.OptM2LodBias) M2LodBias::Init();
 
     Log("");
     Log("--- Lock-Free Texture Loader ---");
@@ -7859,7 +7848,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Spatial Culling Grid ---");
-    if (Config::g_settings.OptSpatialCulling) SpatialCulling::Init();
 
     Log("");
     Log("--- Performance Diagnostics Monitor ---");
@@ -9782,7 +9770,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             M2BoneSimd::Shutdown();
             FontGlyphCache::Shutdown();
             SavedVarsPreloadAsync::Shutdown();
-            LoadingScreenOpt::Shutdown();
             CombatLogFilter::Shutdown();
             SoundVolumeLimit::Shutdown();
             UILayoutThrottle::Shutdown();
@@ -9802,13 +9789,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             LuaJitCompiler::Shutdown();
             RcuObjMgr::Shutdown();
             AsyncTerrainLoader::Shutdown();
-            M2LodBias::Shutdown();
             AsyncTexLoader::Shutdown();
             UnitAuraCoalesce::Shutdown();
             SavedVarsPretoken::Shutdown();
             NetAddonCoalescer::Shutdown();
             MipBiasGovernor::Shutdown();
-            SpatialCulling::Shutdown();
             PerfDiagnostics::Shutdown();
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
