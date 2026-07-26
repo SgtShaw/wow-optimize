@@ -4631,6 +4631,58 @@ static bool InstallSwapPresentHook() {
 }
 
 // ================================================================
+// Frame-boundary timing detour (used only when the optimizing swap
+// hook above is not installed)
+// ================================================================
+//
+// sub_69E220 is the only true frame boundary available: reached solely through
+// the render vtable, exactly once per presented frame. The optimizing hook above
+// already reports each frame to FrameBench, but it is gated behind OptVulkanDXVK,
+// which is off by default - so without this the benchmark would silently record
+// nothing for most users, which is worse than having no benchmark at all.
+//
+// Deliberately thin: report the frame, call the original, nothing else. It adds
+// no behaviour of its own, so it cannot influence what it is measuring.
+// Disassembly-verified: int __thiscall sub_69E220(void *this) - the instance
+// pointer arrives in ECX and there are no stack arguments, so a __fastcall detour
+// with an unused second register parameter matches exactly and no stack cleanup
+// is involved. The return value is propagated: unlike the optimizing hook above,
+// which reimplements the body and never reaches the original, this one wraps it,
+// so discarding EAX would change what the caller sees.
+typedef int (__fastcall* SwapPresentTiming_fn)(void*, void*);
+static SwapPresentTiming_fn orig_SwapPresentTiming = nullptr;
+
+static int __fastcall hooked_SwapPresent_TimingOnly(void* This, void* unused) {
+    FrameBench::OnPresent(FrameBench::Source::SwapHook);
+    return orig_SwapPresentTiming(This, unused);
+}
+
+static bool InstallSwapTimingHook() {
+    void* target = (void*)0x0069E220;
+
+    unsigned char* p = (unsigned char*)target;
+    if (p[0] != 0x56 || p[1] != 0x8B || p[2] != 0xF1) {
+        Log("[FrameBench] Swap timing hook: BAD PROLOGUE at 0x%08X (expected 56 8B F1)",
+            (uintptr_t)target);
+        return false;
+    }
+
+    if (WineSafe_CreateHook(target, (void*)hooked_SwapPresent_TimingOnly,
+                            (void**)&orig_SwapPresentTiming) != MH_OK) {
+        Log("[FrameBench] Swap timing hook: MH_CreateHook FAILED");
+        return false;
+    }
+    if (WO_EnableHook(target) != MH_OK) {
+        Log("[FrameBench] Swap timing hook: MH_EnableHook FAILED");
+        orig_SwapPresentTiming = nullptr;
+        return false;
+    }
+
+    Log("[FrameBench] Frame timing ACTIVE (sub_69E220, measurement only)");
+    return true;
+}
+
+// ================================================================
 // Shared: FNV-1a hash for C strings
 // ================================================================
 static inline uint64_t ComputeCStringHash(const char* s) {
@@ -6715,6 +6767,13 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("--- Swap/Present ---");
     bool swapOk = Config::g_settings.OptVulkanDXVK && InstallSwapPresentHook();
+
+    // Only one detour can own an address, and the optimizing hook already reports
+    // every frame. Fall back to the measurement-only detour so the benchmark works
+    // in every configuration rather than only the DXVK one.
+    if (!swapOk) {
+        InstallSwapTimingHook();
+    }
 
     Log("--- Lua Table Rehash ---");
     bool tableReshapeOk = Config::g_settings.OptLuaOpcache && InstallLuaHResizeHook();

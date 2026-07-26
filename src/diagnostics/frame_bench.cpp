@@ -74,26 +74,12 @@ void Init() {
     g_ready = QueryPerformanceFrequency(&g_freq) && g_freq.QuadPart > 0;
 }
 
-void OnPresent(Source src) {
-    if (!g_ready) return;
-
-    LARGE_INTEGER now;
-    QueryPerformanceCounter(&now);
-
-    LONGLONG prev = g_last.QuadPart;
-    g_last = now;
-
-    // First frame after start or after a load has no meaningful predecessor.
-    if (prev == 0) {
-        g_source = src;
-        return;
-    }
-    if (LuaOpt::IsLoadingMode()) return;
-
-    double ms = (double)(now.QuadPart - prev) * 1000.0 / (double)g_freq.QuadPart;
+// Accumulation is kept separate from the clock so the distribution can be
+// exercised on known input: given a synthetic series of frame times, the
+// percentiles it reports are checkable without running the game.
+static void Accumulate(double ms) {
     if (ms <= 0.0) return;
 
-    g_source = src;
     g_frames++;
     g_sumMs += ms;
     if (ms > g_maxMs) g_maxMs = ms;
@@ -104,6 +90,24 @@ void OnPresent(Source src) {
     int b = (int)(ms / BUCKET_MS);
     if (b >= BUCKET_COUNT) g_overflow++;
     else                   g_buckets[b]++;
+}
+
+void OnPresent(Source src) {
+    if (!g_ready) return;
+
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+
+    LONGLONG prev = g_last.QuadPart;
+    g_last = now;
+    g_source = src;
+
+    // First frame after start has no meaningful predecessor. A frame that spans a
+    // loading screen is discarded for the same reason: the gap is load time, not
+    // frame time, and one cold zone load would own the whole tail.
+    if (prev == 0 || LuaOpt::IsLoadingMode()) return;
+
+    Accumulate((double)(now.QuadPart - prev) * 1000.0 / (double)g_freq.QuadPart);
 }
 
 // Walks the histogram once, filling in every requested percentile in order.
