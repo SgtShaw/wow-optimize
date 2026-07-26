@@ -41,31 +41,27 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.17.0
 
-A bug-hunt release. Issue #46 ("world loads but the loading screen doesn't go away") turned out to be four separate defects stacked on top of each other, and finding them meant rebuilding the diagnostics first.
+A bug fix release, driven mostly by issue #46.
 
-**The loading screen hang is fixed.** Three things were causing it:
+**Fixed**
 
-- **A 1 MB cache wipe on every Lua table resize.** The Lua inline cache was cleared with a full `memset` on each `luaH_resize` — tens of thousands of times during addon load — right before a counter invalidated it anyway. The game really was running behind the loading screen; the frame loop just never got a turn. A tester profile had **52% of all CPU samples** inside that one `memset`. Invalidation is now O(1).
-- **The same mistake on every GC step**, wiping a second 96 KB cache under an exclusive lock. Also O(1) now.
-- **Multi-second stalls inside our own error logging.** Every `ERROR` line forced two disk syncs, and a misread `lua_State` field made every *caught* Lua error look unhandled — so an addon probing the API through `pcall` triggered a ~78-line, ~850 ms dump each time.
+- Loading screen no longer stays up after the world has finished loading
+- Models no longer flicker in crowded scenes
+- Fatal `ERROR #134 Invalid function pointer` at login on clients that don't load a third-party Lua extension library
+- Multi-second freezes during addon loading and `/reload`
+- Loading-screen detection no longer requires the `!LuaBoost` addon — it now works on any install
+- The end of the session log is no longer lost when the game exits
 
-**Model flickering is fixed.** The animation LOD throttle was switching on and off about **ten times a second** in crowded scenes, changing the animation rate of every background model at once. WoW runs several animation clocks at the same time (the world, plus UI model frames like portraits and the dressing room), and any clock change was being treated as a new frame, so the crowd counter alternated between the real count and near zero. It now measures against a single reference clock and needs a genuine drop in crowd size before disengaging.
+**Launcher**
 
-**Fatal `ERROR #134` on clean clients is fixed.** WoW validates every C function pointer handed to the Lua VM and kills the process if it falls outside its own code range. Our Lua fast paths were only legal because some clients happen to load a third-party library that widens that range — without it, enabling them crashed at login. We now ask the client whether a pointer is acceptable and skip the fast path instead of crashing. The validation range is deliberately **not** patched.
+- Removed three toggles that did nothing
+- Restored two that had been removed by mistake: **Lua C-API inline cache suite** and **adaptive Lua GC governor** (both still opt-in)
 
-**Loading-screen detection no longer needs the addon.** The DLL derives the loading window from the client's own event stream. Previously it came only from `!LuaBoost`, so for anyone without the addon every "bypass this while loading" guard silently never engaged. Two more paths that could suppress it were fixed as well.
+**Diagnostics**
 
-**Diagnostics you can act on.** Crash reports, Lua error dumps and stutter dumps now open with an event trace — the state transitions leading up to the problem, newest first, with timestamps:
-
-```
-Recent events:
-    -    23ms  TID=900   LUA state swap (UI reload) - new VM settling
-    - 27810ms  TID=900   LOADING begin (PLAYER_LEAVING_WORLD)
-```
-
-Dumps also list only features with recorded activity instead of ~70 lines of `calls=0`, the session log is now flushed on exit (its tail used to be lost exactly when a session ended badly), and the startup banner reports the true build hash so a log can be matched to source.
-
-**Launcher.** Three toggles that did nothing were removed (their modules are gone). Two that had been removed by mistake are back — the **Lua C-API inline cache suite**, which gates roughly sixty hooks and had no way to be enabled, and the **adaptive Lua GC governor**, which was only ever inert because the state it reacts to was never being set.
+- Crash reports, Lua error dumps and stutter dumps now open with an event trace showing what happened in the seconds before the problem
+- Dumps no longer bury that in ~70 lines of unused counters
+- The startup banner reports the exact build a log came from
 
 ### Upgrading
 
