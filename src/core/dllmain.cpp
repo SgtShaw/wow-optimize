@@ -59,7 +59,6 @@
 #include "combatlog_incremental.h"
 #include "lua_alloc_pool.h"
 #include "world_state_coalesce.h"
-#include "hooks_subsystems/dynamic_shadow_scaler.h"
 #include "hooks_subsystems/sound_coalescer.h"
 #include "hooks_subsystems/aura_preload_cache.h"
 #include "hooks_subsystems/dbc_file_cache.h"
@@ -1505,7 +1504,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
-            DynamicShadowScaler::OnFrame((float)elapsedMs);
             ParticleDensityScaler::OnFrame((float)elapsedMs);
             // LuaGcGovernor::OnFrame((float)elapsedMs); // Disabled duplicate governor
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
@@ -7818,7 +7816,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- 20 New Subsystem Performance & Stability Features ---");
-    if (Config::g_settings.OptDynamicShadowScaler) DynamicShadowScaler::Init();
     if (Config::g_settings.OptSoundCoalescer) SoundCoalescer::Init();
     if (Config::g_settings.OptAuraPreloadCache) AuraPreloadCache::Init();
     if (Config::g_settings.OptDbcFileCache) DbcFileCache::Init();

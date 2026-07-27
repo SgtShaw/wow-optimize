@@ -425,8 +425,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/sound_buffer_guard.h
     src/hooks_subsystems/sound_update_guard.h
 
-    src/hooks_subsystems/dynamic_shadow_scaler.cpp
-    src/hooks_subsystems/dynamic_shadow_scaler.h
     src/hooks_subsystems/sound_coalescer.cpp
     src/hooks_subsystems/sound_coalescer.h
     src/hooks_subsystems/aura_preload_cache.cpp

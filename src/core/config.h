@@ -119,7 +119,6 @@ namespace Config {
         bool OptCombatLogAsync = true;
         bool OptCombatTextFont = true;
         bool OptDbcFileCache = true;
-        bool OptDynamicShadowScaler = true;
         bool OptFontOutlineCache = true;
         bool OptMouseClipRelease = true;
         bool OptNameplateDistanceCvar = true;
