@@ -385,7 +385,6 @@ static void StopFreezeWatchdog() {
 #include "sound_buffer_guard.h"
 #include "sound_update_guard.h"
 #include "lua_vm_engine.h"
-#include "lua_vm_phase3.h"
 #include "lua_gettable_cache.h"
 #include "saved_vars_async.h"
 #include "event_coalescer.h"
@@ -7192,11 +7191,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #endif
     CrashDumper::RegisterFeature("LuaVMEngine");
     CrashDumper::FeatureSetActive("LuaVMEngine", vmEngineOk);
-
-    Log("--- Lua VM Phase3 Optimizations ---");
-    bool vmPhase3Ok = LuaVMPhase3::Init();
-    CrashDumper::RegisterFeature("LuaVMPhase3");
-    CrashDumper::FeatureSetActive("LuaVMPhase3", vmPhase3Ok);
 
     Log("--- Hardware Cursor ---");
     bool cursorOk = Config::g_settings.OptCvarNullGuard && InstallHardwareCursorHooks();

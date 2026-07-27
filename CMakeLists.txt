@@ -324,8 +324,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_newkey_safety.h
     src/runtime_vm/lua_vm_engine.cpp
     src/runtime_vm/lua_vm_engine.h
-    src/runtime_vm/lua_vm_phase3.cpp
-    src/runtime_vm/lua_vm_phase3.h
     src/runtime_vm/lua_gettable_cache.cpp
     src/runtime_vm/lua_gettable_cache.h
     src/hooks_subsystems/saved_vars_async.cpp

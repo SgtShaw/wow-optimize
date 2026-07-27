@@ -317,7 +317,7 @@ Replacements for WoW's own statically-linked CRT routines at verified addresses:
 - SSE2 frustum AABB-vs-4-planes cull
 - SSE2 BGRA↔ARGB batch swap, premultiplied alpha
 - Network GUID SSE2 unpacking — `CDataStore::GetWowGUID` (0x76DC20)
-- SSE2 quaternion normalize *(enabled — robust double-precision math)*
+- SSE2 quaternion normalize *(enabled — normalizes in double precision)*
 - Particle simulation throttling — `CParticleEmitter::SimulateParticle` (0x981D40) *(disabled — 0x981D40 is the particle spawn/init routine, not a skippable advance; throttling it left particles uninitialized, rendering as colored flashes)*
 
 > The generic msvcrt CRT mem/char SSE2 paths (`crt_mem_fastpath`, `crt_char_fast`) are **disabled** — WoW links its CRT statically, so hooking msvcrt exports had little effect and risked VA exhaustion.
@@ -691,5 +691,4 @@ MIT License - use, modify, and distribute freely.
 | [LuaBoost](https://github.com/suprepupre/LuaBoost) | Addon-side GC control, loading-screen helpers, shared APIs for addon authors |
 | [WA_SafeGuard](https://github.com/suprepupre/WA_SafeGuard) | Backs up WeakAuras so a forced disconnect cannot wipe your auras |
 | [DefileAlert](https://github.com/suprepupre/DefileAlert) | Instant Defile target callout for the Lich King encounter |
-| [DSPlates](https://github.com/suprepupre/DSPlates) | Divine Storm icon on enemy nameplates, with range checking (Paladin) |
 
