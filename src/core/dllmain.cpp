@@ -1457,7 +1457,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             }
 
             LuaOpt::OnMainThreadSleep(g_mainThreadId, elapsedMs);
-            FontMetrics_OnFrame();
 #if !TEST_DISABLE_LUA_GETTIME_FAST
             if (Config::g_settings.OptLuaGetTimeFast) {
                 LuaGetTimeFast_NewFrame();
@@ -4695,6 +4694,7 @@ extern "C" void WowOpt_OnFrameBoundary() {
     // fallback, because a fallback here would be the double increment.
     LuaVMEngine_FrameTick();
     ObjVisCache::OnFrame();
+    FontMetrics_OnFrame();
 #if !TEST_DISABLE_PARTICLE_THROTTLE
     IncrementParticleFrameCount();
 #endif

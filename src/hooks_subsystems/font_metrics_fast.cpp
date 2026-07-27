@@ -109,12 +109,35 @@ static const uintptr_t ADDR_FONTSTRING_TYPEID = 0x00B4792C;
 struct FontStringCacheEntry {
     void* obj;
     const char* text; // Pointer to the internal text buffer (at obj+244)
+    uint32_t textHash; // Contents of that buffer, not just where it lives
     double width;
     double height;
     uint32_t frame;
     bool hasWidth;
     bool hasHeight;
 };
+
+// The entry used to be validated by comparing the text POINTER. WoW reuses a
+// font string's buffer and rewrites it in place, so the pointer stays identical
+// across a SetText and the comparison passes for a string that no longer says
+// the same thing - handing back the previous string's width. A wrong width is
+// exactly how text ends up drawn on top of itself.
+//
+// Hashing the first 64 bytes plus the length costs a fraction of the real
+// measurement call this cache exists to skip.
+static inline uint32_t HashText(const char* s) {
+    if (!s) return 0;
+    uint32_t h = 2166136261u;
+    int i = 0;
+    for (; i < 64 && s[i]; i++) {
+        h ^= (unsigned char)s[i];
+        h *= 16777619u;
+    }
+    while (s[i]) i++;              // length matters: "abc" vs "abcabc..."
+    h ^= (uint32_t)i;
+    h *= 16777619u;
+    return h;
+}
 
 static constexpr int FONT_CACHE_SIZE = 2048;
 static constexpr int FONT_CACHE_MASK = FONT_CACHE_SIZE - 1;
@@ -135,6 +158,7 @@ static void InvalidateFontStringCache(void* obj) {
     if (g_fontStringCache[idx].obj == obj) {
         g_fontStringCache[idx].obj = nullptr;
         g_fontStringCache[idx].text = nullptr;
+        g_fontStringCache[idx].textHash = 0;
         g_fontStringCache[idx].hasWidth = false;
         g_fontStringCache[idx].hasHeight = false;
         g_fontStringCache[idx].frame = 0;
@@ -187,8 +211,10 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
                 const char* text = *(const char**)((char*)obj + 244);
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
+                uint32_t th = HashText(text);
                 if (g_fontStringCache[idx].obj == obj && 
                     g_fontStringCache[idx].text == text &&
+                    g_fontStringCache[idx].textHash == th &&
                     g_fontStringCache[idx].frame == g_fontCacheFrame && 
                     g_fontStringCache[idx].hasWidth) {
                     pushnumber_fn(L, g_fontStringCache[idx].width);
@@ -204,6 +230,7 @@ static int __cdecl hook_GetStringWidth(uintptr_t L) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
                 g_fontStringCache[idx].text = text;
+                g_fontStringCache[idx].textHash = th;
                 g_fontStringCache[idx].width = final_w;
                 g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasWidth = true;
@@ -234,8 +261,10 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
                 const char* text = *(const char**)((char*)obj + 244);
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 uint32_t idx = HashObj(obj);
+                uint32_t th = HashText(text);
                 if (g_fontStringCache[idx].obj == obj && 
                     g_fontStringCache[idx].text == text &&
+                    g_fontStringCache[idx].textHash == th &&
                     g_fontStringCache[idx].frame == g_fontCacheFrame && 
                     g_fontStringCache[idx].hasHeight) {
                     pushnumber_fn(L, g_fontStringCache[idx].height);
@@ -251,6 +280,7 @@ static int __cdecl hook_GetStringHeight(uintptr_t L) {
                 #if !TEST_DISABLE_FONT_METRICS_LOCK_FREE
                 g_fontStringCache[idx].obj = obj;
                 g_fontStringCache[idx].text = text;
+                g_fontStringCache[idx].textHash = th;
                 g_fontStringCache[idx].height = final_h;
                 g_fontStringCache[idx].frame = g_fontCacheFrame;
                 g_fontStringCache[idx].hasHeight = true;
