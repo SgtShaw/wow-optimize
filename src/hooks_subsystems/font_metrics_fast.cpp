@@ -64,9 +64,22 @@ static __forceinline void* GetCFrameFromLuaTable(uintptr_t L, int idx) {
     uintptr_t nodes = *(uintptr_t*)(t + 0x14); // t->node
     if (!IsValidPtr(nodes)) return nullptr;
 
-    int size = 1 << *(unsigned char*)(t + 9); // 1 << t->lsizes
+    // lsizenode is at +11 and a Node is 40 bytes. Both were wrong here - +9 and
+    // 32 - which is the stock Lua 5.1 layout rather than WoW's. The engine's own
+    // luaH_getstr settles it: it reads the size byte from [table+0Bh] and indexes
+    // the node array with lea eax,[eax+eax*4] / lea eax,[edx+eax*8], i.e. idx*40.
+    // ui_accessor_fast.cpp does the identical walk with the right constants; this
+    // copy of it did not.
+    //
+    // The effect is worse than a failed lookup. A wrong size gives a wrong loop
+    // bound and a wrong stride reads every node after the first at a misaligned
+    // address, so the scan can land on a userdata belonging to a different font
+    // string, pass the type check, and return it. The caller then measures that
+    // object instead - a real width, for the wrong text. Text laid out with
+    // another string's width is text drawn on top of itself.
+    int size = 1 << *(unsigned char*)(t + 11); // 1 << t->lsizenode
     for (int i = 0; i < size; i++) {
-        uintptr_t node = nodes + i * 32; // sizeof(Node) is 32
+        uintptr_t node = nodes + i * 40; // sizeof(Node) is 40 in WoW's Lua
         int key_tt = *(int*)(node + 24); // TKey.tt
         if (key_tt == 3) { // LUA_TNUMBER
             double key_val = *(double*)(node + 16); // TKey.value
