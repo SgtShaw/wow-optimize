@@ -277,6 +277,7 @@ namespace WowOptimizeLauncher {
         private FlowLayoutPanel uiLuaFlow;
         private FlowLayoutPanel combatNetFlow;
         private FlowLayoutPanel graphicsSoundFlow;
+        private FlowLayoutPanel experimentalFlow;
         private TextBox searchBox;
 
         // Background image
@@ -314,8 +315,8 @@ namespace WowOptimizeLauncher {
                 // General
                 { "Precise Sleep Frame Pacing", new SettingItem("General", "SleepPrecision", true, null, "Enforces millisecond-accurate frame-rate sleep pacing to reduce input lag and stabilize frame delivery.") },
                 { "Keep a Log File per Session", new SettingItem("General", "SessionLogs", true, null, "Writes a separate timestamped log for every session, so two runs can be compared. Older ones are deleted automatically (SessionLogsToKeep in wow_opt.ini, default 10). Turn off to keep only the single overwritten wow_optimize.log.") },
-                { "Adaptive Shadow Quality (experimental)", new SettingItem("Graphics_Sound", "QualityGovernor", false, null, "Lowers shadow quality only while the frame-time tail shows the machine cannot keep up, and restores your own setting when it recovers. Never goes above what you chose. Off by default and skipped by Enable All.", true) },
-                { "Lua Stack API Fast Paths (experimental)", new SettingItem("UI_Lua", "LuaStackFast", false, null, "Replaces 16 core Lua stack functions, including lua_remove, lua_insert and lua_replace. Off by default and skipped by Enable All: it is under investigation for addon errors where an argument arrives missing or wrong.", true) },
+                { "Adaptive Shadow Quality", new SettingItem("Graphics_Sound", "QualityGovernor", false, null, "Lowers shadow quality only while the frame-time tail shows the machine cannot keep up, and restores your own setting when it recovers. Never goes above what you chose. Off by default and skipped by Enable All.", true) },
+                { "Lua Stack API Fast Paths", new SettingItem("UI_Lua", "LuaStackFast", false, null, "Replaces 16 core Lua stack functions, including lua_remove, lua_insert and lua_replace. Off by default and skipped by Enable All: it is under investigation for addon errors where an argument arrives missing or wrong.", true) },
                 { "Memory Pressure Governor", new SettingItem("General", "MemoryPressure", true, null, "Sheds caches and adjusts texture footprint dynamically under critical 32-bit virtual address (VA) space limits.") },
                 { "Heap Compactor", new SettingItem("General", "HeapCompactor", true, null, "Defragments the client heap every 5 seconds to prevent Out-Of-Memory (OOM) crashes during teleports.") },
                 { "Lock-Free Heap Defragmenter", new SettingItem("General", "DefragLf", false, null, "Experimental defragmentation on the main thread using lock-free structures. Bypasses standard heap serialization.") },
@@ -742,17 +743,20 @@ namespace WowOptimizeLauncher {
             TabPage tpUiLua = CreateTabPage("UI & LUA");
             TabPage tpCombatNet = CreateTabPage("COMBAT & NET");
             TabPage tpGraphicsSound = CreateTabPage("GRAPHICS & SOUND");
+            TabPage tpExperimental = CreateTabPage("EXPERIMENTAL");
 
             tabs.TabPages.Add(tpGeneral);
             tabs.TabPages.Add(tpUiLua);
             tabs.TabPages.Add(tpCombatNet);
             tabs.TabPages.Add(tpGraphicsSound);
+            tabs.TabPages.Add(tpExperimental);
 
             // Get the scroll panels from each tab page
             generalFlow = (FlowLayoutPanel)((Panel)tpGeneral.Controls[0]).Controls[0];
             uiLuaFlow = (FlowLayoutPanel)((Panel)tpUiLua.Controls[0]).Controls[0];
             combatNetFlow = (FlowLayoutPanel)((Panel)tpCombatNet.Controls[0]).Controls[0];
             graphicsSoundFlow = (FlowLayoutPanel)((Panel)tpGraphicsSound.Controls[0]).Controls[0];
+            experimentalFlow = (FlowLayoutPanel)((Panel)tpExperimental.Controls[0]).Controls[0];
 
             // Add "ENABLE ALL IN ..." buttons at top of each flow
             btnEnableGeneral = CreateCategoryButton("ENABLE ALL IN GENERAL");
@@ -771,6 +775,20 @@ namespace WowOptimizeLauncher {
             btnEnableGfx.Click += delegate { ToggleCategoryAction("Graphics_Sound", btnEnableGfx, "GRAPHICS & SOUND"); };
             graphicsSoundFlow.Controls.Add(btnEnableGfx);
 
+            // No "enable all" button here on purpose. These are the switches that
+            // are meant to be turned on one at a time, by someone who wants to
+            // find out what one of them does.
+            Label expNote = new Label();
+            expNote.Text = "Under investigation, or new enough that nobody has proven them yet.\r\n"
+                         + "Turn on ONE at a time, play, and send the log - that is what makes them\r\n"
+                         + "either real features or deleted ones. Left off by Enable All.";
+            expNote.AutoSize = false;
+            expNote.Size = new Size(tabs.Width - 60, 58);
+            expNote.ForeColor = Color.FromArgb(150, 163, 178);
+            expNote.Font = new Font("Segoe UI", 8f, FontStyle.Regular);
+            expNote.Margin = new Padding(10, 6, 10, 10);
+            experimentalFlow.Controls.Add(expNote);
+
             // Populate checkboxes
             foreach (KeyValuePair<string, SettingItem> pair in settingsMap) {
                 string name = pair.Key;
@@ -780,6 +798,13 @@ namespace WowOptimizeLauncher {
                 data.Ctrl = chk;
 
                 chk.CheckedChanged += delegate { UpdateActiveModulesCount(); };
+
+                // The ini section still decides where the value is written; this
+                // flag only decides which tab the switch is shown on.
+                if (data.Experimental) {
+                    experimentalFlow.Controls.Add(chk);
+                    continue;
+                }
 
                 switch (data.Section) {
                     case "General":

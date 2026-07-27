@@ -1,7 +1,8 @@
 // ============================================================================
 // Module: quality_governor.cpp
-// Description: Lowers shadow quality when frames are consistently slow, and
-//              restores the player's own value when they are not.
+// Description: One quality dial for the settings that cost GPU time. Turns it
+//              down while the frame-time tail says the machine cannot keep up,
+//              and back up to the player's own values when it can.
 // Safety & Threading: Main thread only.
 // ============================================================================
 
@@ -23,120 +24,191 @@ extern "C" void Log(const char* fmt, ...);
 
 namespace QualityGovernor {
 
-// The engine's CVar setter. Called directly rather than through a trampoline:
-// this module does not hook it, it only observes writes reported to NoteCVarWrite.
 typedef char (__fastcall* CVar_Set_fn)(void* cvar, void* edx, const char* value,
                                        char a3, char a4, char a5, char a6);
 static const CVar_Set_fn g_cvarSet = (CVar_Set_fn)0x007668C0;
 
 // ---------------------------------------------------------------------------
-// What this manages
+// One dial, not three controllers
 //
-// Shadows only, deliberately. Draw distance and particle density already have
-// their own scalers; adding a second opinion on the same setting produces two
-// controllers fighting over one value, which is a worse failure than either alone.
-// Shadows are the setting that has no governor, having lost the previous one for
-// being unable to read what the player had chosen.
+// This replaces DynamicShadowScaler, AdaptiveFarclip and ParticleDensityScaler.
+// All three had the same shape and the same defect: an EMA over 1000/elapsed,
+// thresholds a single frame could cross, and no idea what the player had chosen.
+// The shadow one changed quality several times a minute while a tester walked
+// around; the farclip one restores above 58fps and reduces below 55, a three-frame
+// band that anyone playing near 60 crosses constantly.
+//
+// Three independent controllers also means three separate opinions about how the
+// machine is doing, arrived at from the same frames. One dial with defined steps
+// is easier to reason about and produces one decision instead of three.
+//
+// Step 0 is always exactly what the player set. Each step adds a reduction; no
+// step ever exceeds the player's value, and level 0 shadows are never reached
+// because shadows switched off entirely look like a fault, not an adaptation.
 // ---------------------------------------------------------------------------
-static const char* const CVAR_NAME = "extShadowQuality";
+enum Managed { M_PARTICLES = 0, M_SHADOWS, M_FARCLIP, M_COUNT };
 
-// A step down is worth taking only if it buys something. One level at a time,
-// never below 1: level 0 turns shadows off entirely and looks like a bug to the
-// player rather than an adaptation.
-static const int MIN_LEVEL = 1;
+struct Setting {
+    const char* cvar;
+    bool        isFloat;
+    void*       obj;        // learned by watching a write go past
+    double      userValue;  // the player's own value: the ceiling
+    double      current;    // what is set now
+    bool        known;
+};
+
+static Setting g_set[M_COUNT] = {
+    { "particleDensity",  true,  nullptr, 0.0, 0.0, false },
+    { "extShadowQuality", false, nullptr, 0.0, 0.0, false },
+    { "farclip",          true,  nullptr, 0.0, 0.0, false },
+};
+
+// A setting with an existing owner is left alone.
+//
+// ParticleDensityScaler still owns particleDensity when it is switched on, and
+// AdaptiveFarclip owns farclip whenever MemoryPressure is - which is most
+// installs. Two controllers writing one CVar from two different opinions is worse
+// than either of them alone, so the governor stands down rather than compete, and
+// says so at startup. Shadows have no other owner since DynamicShadowScaler was
+// removed, so they are always managed.
+static bool g_managed[M_COUNT] = { false, true, false };
+
+static void DecideOwnership() {
+    g_managed[M_PARTICLES] = !Config::g_settings.OptParticleDensityScaler;
+    g_managed[M_SHADOWS]   = true;
+    g_managed[M_FARCLIP]   = !Config::g_settings.OptMemoryPressure;
+}
+
+// What each step does, as a fraction of the player's own value. Particles go
+// first because fewer of them is the least noticeable while moving; draw distance
+// goes last because shortening it changes what you can see coming.
+static const int MAX_STEP = 3;
+static double StepFactor(int which, int step) {
+    switch (which) {
+        case M_PARTICLES: return (step >= 1) ? 0.60 : 1.0;
+        case M_SHADOWS:   return (step >= 2) ? 0.0  : 1.0;   // handled as -1 level
+        case M_FARCLIP:   return (step >= 3) ? 0.75 : 1.0;
+    }
+    return 1.0;
+}
 
 // ---------------------------------------------------------------------------
-// Thresholds
-//
-// Both are on the 95th percentile of the last few seconds, not on an
-// instantaneous frame rate. The scaler this replaces smoothed 1000/elapsed with
-// an EMA and switched on thresholds a single frame could cross, so walking
-// through a zone moved shadow quality several times a minute. What a player
-// notices is the tail.
-//
-// The two thresholds do not touch, and the dwell periods are asymmetric: quick to
-// help, slow to undo. Together that makes oscillation impossible - recovering
-// requires 30 seconds of frames comfortably better than the level that triggered
-// a reduction.
+// Thresholds. Both on the 95th percentile of the last few seconds, never on an
+// instantaneous frame rate. The bands do not touch and the dwells are asymmetric:
+// quick to help, slow to undo. Recovering takes 30 seconds of frames comfortably
+// better than the level that triggered a reduction, so it cannot oscillate.
 // ---------------------------------------------------------------------------
-static const double DEGRADE_P95_MS = 33.0;   // sustained worse than ~30fps at p95
-static const double RESTORE_P95_MS = 20.0;   // sustained better than ~50fps at p95
+static const double DEGRADE_P95_MS   = 33.0;
+static const double RESTORE_P95_MS   = 20.0;
 static const DWORD  DEGRADE_DWELL_MS = 5000;
 static const DWORD  RESTORE_DWELL_MS = 30000;
 static const DWORD  MIN_ACTION_GAP_MS = 10000;
 
-// ---------------------------------------------------------------------------
-// State
-// ---------------------------------------------------------------------------
-static void*  g_cvar        = nullptr;  // the CVar object, learned from a write
-static int    g_userLevel   = -1;       // the player's own value. -1 = not seen yet
-static int    g_current     = -1;       // what we last set, or the user's value
-static bool   g_writingOurs = false;    // guards against reading back our own write
-
+static int    g_step        = 0;
+static bool   g_writingOurs = false;
 static DWORD  g_badSince    = 0;
 static DWORD  g_goodSince   = 0;
 static DWORD  g_lastAction  = 0;
 static int    g_featureToken = -1;
-static int    g_reductions  = 0;
-
+static int    g_deepest     = 0;
 static bool   g_enabled     = false;
+
+static int Find(const char* name) {
+    for (int i = 0; i < M_COUNT; i++) {
+        if (_stricmp(g_set[i].cvar, name) == 0) return i;
+    }
+    return -1;
+}
+
+void NoteCVarObject(void* cvar, const char* name) {
+    if (!g_enabled || !cvar || !name) return;
+    int i = Find(name);
+    if (i >= 0 && g_managed[i]) g_set[i].obj = cvar;
+}
 
 void NoteCVarWrite(const char* name, const char* value) {
     if (!g_enabled || !name || !value) return;
-    if (_stricmp(name, CVAR_NAME) != 0) return;
+    int i = Find(name);
+    if (i < 0 || !g_managed[i]) return;
 
-    // Our own write coming back around. Recording it would turn a reduction into
-    // the new ceiling, and the player's setting would ratchet down and never
-    // return - which is exactly the failure that made the previous version
-    // destroy people's graphics settings.
+    // Our own write coming back around. Recording it would make a reduction the
+    // new ceiling, and the player's setting would ratchet down and never return -
+    // which is exactly how the feature this replaces destroyed people's settings.
     if (g_writingOurs) return;
 
-    int v = atoi(value);
-    if (v < 0 || v > 16) return;
+    double v = atof(value);
+    if (v < 0.0 || v > 100000.0) return;
 
-    g_userLevel = v;
-    g_current   = v;
-    Log("[QualityGovernor] Player's shadow quality is %d - that is the ceiling", v);
+    g_set[i].userValue = v;
+    g_set[i].current   = v;
+    g_set[i].known     = true;
+    Log("[QualityGovernor] Player's %s is %.3g - that is the ceiling", g_set[i].cvar, v);
 }
 
-// The CVar object is not something this module can look up; it arrives with the
-// first write the client makes. Until then there is nothing to act on.
-void NoteCVarObject(void* cvar, const char* name) {
-    if (!g_enabled || !cvar || !name) return;
-    if (_stricmp(name, CVAR_NAME) != 0) return;
-    g_cvar = cvar;
-}
+static void Write(int i, double value, const char* why) {
+    Setting& s = g_set[i];
+    if (!s.obj || !s.known) return;
 
-static void Apply(int level, const char* why) {
-    if (!g_cvar || level == g_current) return;
-
-    char buf[16];
-    _snprintf(buf, sizeof(buf), "%d", level);
+    char buf[32];
+    if (s.isFloat) _snprintf(buf, sizeof(buf), "%.3f", value);
+    else           _snprintf(buf, sizeof(buf), "%d", (int)(value + 0.5));
     buf[sizeof(buf) - 1] = '\0';
 
     g_writingOurs = true;
     __try {
-        g_cvarSet(g_cvar, nullptr, buf, 1, 0, 0, 0);
+        g_cvarSet(s.obj, nullptr, buf, 1, 0, 0, 0);
     } __except (EXCEPTION_EXECUTE_HANDLER) {
         g_writingOurs = false;
         return;
     }
     g_writingOurs = false;
 
-    Log("[QualityGovernor] Shadow quality %d -> %d (%s, p95 %.1f ms, player's setting is %d)",
-        g_current, level, why, FrameBench::RecentP95Ms(), g_userLevel);
-    CrashDumper::Trace("QualityGovernor: shadows %d -> %d (%s)", g_current, level, why);
+    Log("[QualityGovernor] %s %.3g -> %s (%s, p95 %.1f ms, player's value %.3g)",
+        s.cvar, s.current, buf, why, FrameBench::RecentP95Ms(), s.userValue);
+    s.current = value;
+}
 
-    g_current = level;
+// Applies the whole dial position at once, so the three settings can never drift
+// out of agreement about which step they are on.
+static void ApplyStep(int step, const char* why) {
+    if (step < 0) step = 0;
+    if (step > MAX_STEP) step = MAX_STEP;
+
+    for (int i = 0; i < M_COUNT; i++) {
+        Setting& s = g_set[i];
+        if (!g_managed[i] || !s.known || !s.obj) continue;
+
+        double target;
+        if (i == M_SHADOWS) {
+            // Integer levels, and never below 1.
+            target = (step >= 2) ? (s.userValue - 1.0) : s.userValue;
+            if (target < 1.0) target = 1.0;
+            if (target > s.userValue) target = s.userValue;
+        } else {
+            target = s.userValue * StepFactor(i, step);
+        }
+
+        if (target != s.current) Write(i, target, why);
+    }
+
+    g_step = step;
     g_lastAction = GetTickCount();
+    if (step > g_deepest) g_deepest = step;
+    CrashDumper::Trace("QualityGovernor: step %d (%s)", step, why);
     CrashDumper::FeatureHit(g_featureToken);
 }
 
 void OnFrame() {
-    if (!g_enabled || g_userLevel < 0 || !g_cvar) return;
+    if (!g_enabled) return;
+
+    bool anyKnown = false;
+    for (int i = 0; i < M_COUNT; i++) {
+        if (g_managed[i] && g_set[i].known && g_set[i].obj) { anyKnown = true; break; }
+    }
+    if (!anyKnown) return;
 
     double p95 = FrameBench::RecentP95Ms();
-    if (p95 <= 0.0) return;                 // not enough frames yet
+    if (p95 <= 0.0) return;            // not enough frames to have an opinion
 
     DWORD now = GetTickCount();
 
@@ -147,9 +219,8 @@ void OnFrame() {
         g_badSince = 0;
         if (g_goodSince == 0) g_goodSince = now;
     } else {
-        // Between the two thresholds: neither condition holds, so neither timer
-        // runs. This band is what stops a value hovering near a threshold from
-        // being treated as a sustained trend.
+        // Between the bands neither timer runs. This is what stops a value
+        // hovering near a threshold from being read as a sustained trend.
         g_badSince = 0;
         g_goodSince = 0;
         return;
@@ -158,15 +229,10 @@ void OnFrame() {
     if (g_lastAction != 0 && (now - g_lastAction) < MIN_ACTION_GAP_MS) return;
 
     if (g_badSince != 0 && (now - g_badSince) >= DEGRADE_DWELL_MS) {
-        if (g_current > MIN_LEVEL) {
-            Apply(g_current - 1, "frames sustained slow");
-            g_reductions++;
-        }
+        if (g_step < MAX_STEP) ApplyStep(g_step + 1, "frames sustained slow");
         g_badSince = 0;
     } else if (g_goodSince != 0 && (now - g_goodSince) >= RESTORE_DWELL_MS) {
-        if (g_current < g_userLevel) {
-            Apply(g_current + 1, "frames recovered");
-        }
+        if (g_step > 0) ApplyStep(g_step - 1, "frames recovered");
         g_goodSince = 0;
     }
 }
@@ -178,25 +244,34 @@ bool Init() {
         return false;
     }
     g_featureToken = CrashDumper::FeatureTokenForCounting("QualityGovernor");
-    Log("[QualityGovernor] Active - shadow quality follows the frame-time tail, "
-        "never above the player's own setting (degrade p95>%.0fms/%us, restore "
-        "p95<%.0fms/%us)",
+    DecideOwnership();
+
+    Log("[QualityGovernor] Active - follows the frame-time tail, never above the "
+        "player's own values (down at p95>%.0fms for %us, up at p95<%.0fms for %us)",
         DEGRADE_P95_MS, DEGRADE_DWELL_MS / 1000, RESTORE_P95_MS, RESTORE_DWELL_MS / 1000);
+    for (int i = 0; i < M_COUNT; i++) {
+        if (g_managed[i]) {
+            Log("[QualityGovernor]   manages %s", g_set[i].cvar);
+        } else {
+            Log("[QualityGovernor]   leaves %s alone - another scaler owns it", g_set[i].cvar);
+        }
+    }
     return true;
 }
 
 void Shutdown() {
     if (!g_enabled) return;
 
-    // Put the player's setting back. The previous version could not do this - it
-    // never knew what to restore - and left people with shadows it had lowered.
-    if (g_userLevel >= 0 && g_current != g_userLevel) {
-        Apply(g_userLevel, "restoring the player's setting on shutdown");
-    }
-    if (g_reductions > 0) {
-        Log("[QualityGovernor] Reduced shadow quality %d time(s) this session", g_reductions);
+    // Put the player's own values back. The features this replaces could not do
+    // this - they never knew what to restore - and left people with settings they
+    // had not chosen and could not account for.
+    if (g_step != 0) ApplyStep(0, "restoring the player's settings on shutdown");
+
+    if (g_deepest > 0) {
+        Log("[QualityGovernor] Reduced quality this session, deepest step %d of %d",
+            g_deepest, MAX_STEP);
     } else {
-        Log("[QualityGovernor] Never had to reduce shadow quality this session");
+        Log("[QualityGovernor] Never had to reduce quality this session");
     }
 }
 
