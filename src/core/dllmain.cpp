@@ -2419,6 +2419,43 @@ static BOOL WINAPI hooked_ReadFile_Inner(HANDLE hFile, LPVOID lpBuffer,
     }
 }
 
+// Times reads during a loading screen and does nothing else - straight through to
+// the original, no cache, no locks, no read-ahead, no prefetch queue.
+//
+// The MPQ cache above is compiled out by CRASH_TEST_DISABLE_READFILE because it
+// serialized on a lock and froze landings. That switch also removed the only thing
+// counting reads, so the load report had no way to say how much of a load is the
+// disk - and one tester log shows a single load taking 32 seconds with no way to
+// look inside it. Measuring does not require the cache, so this path keeps the
+// measurement and leaves the cache switched off.
+static BOOL WINAPI hooked_ReadFile_TimingOnly(HANDLE hFile, LPVOID lpBuffer,
+    DWORD nBytesToRead, LPDWORD lpBytesRead, LPOVERLAPPED lpOverlapped)
+{
+    if (!LoadingState::IsLoading())
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+
+    static LARGE_INTEGER freq = {};
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER a, b;
+    QueryPerformanceCounter(&a);
+    BOOL r = orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+    QueryPerformanceCounter(&b);
+    if (freq.QuadPart) {
+        double ms = (double)(b.QuadPart - a.QuadPart) * 1000.0 / (double)freq.QuadPart;
+        LoadingState::NoteRead(ms, (lpBytesRead && r) ? *lpBytesRead : 0u);
+    }
+    return r;
+}
+
+static bool InstallReadFileTimingHook() {
+    void* p = (void*)GetProcAddress(GetModuleHandleA("kernel32.dll"), "ReadFile");
+    if (!p) return false;
+    if (MH_CreateHook(p, (void*)hooked_ReadFile_TimingOnly, (void**)&orig_ReadFile) != MH_OK) return false;
+    if (WO_EnableHook(p) != MH_OK) return false;
+    Log("ReadFile hook: TIMING ONLY (MPQ cache stays off; measures the disk share of a load)");
+    return true;
+}
+
 static bool InstallReadFileHook() {
     g_cacheInitialized = true;
     InitPrefetchSlots();
@@ -6691,8 +6728,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
 #if !CRASH_TEST_DISABLE_READFILE
     bool readOk  = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallReadFileHook();
 #else
-    bool readOk  = false;
-    Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
+    // The cache stays off; the measurement does not have to go with it.
+    bool readOk  = InstallReadFileTimingHook();
+    if (!readOk) Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
 #endif
     // The load report counts time spent in the ReadFile hook. If that hook is not
     // in, the report must say so rather than print a confident zero.
