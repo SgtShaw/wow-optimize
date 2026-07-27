@@ -36,6 +36,8 @@ namespace Config {
             // General
             WritePrivateProfileStringA("General", "SleepPrecision", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "SleepPrecisionValue", "8", iniPath.c_str());
+            WritePrivateProfileStringA("General", "SessionLogs", "1", iniPath.c_str());
+            WritePrivateProfileStringA("General", "SessionLogsToKeep", "10", iniPath.c_str());
             WritePrivateProfileStringA("General", "MemoryPressure", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "HeapCompactor", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "DefragLf", "0", iniPath.c_str());
@@ -135,6 +137,8 @@ namespace Config {
         // General
         g_settings.OptSleepPrecision      = GetPrivateProfileIntA("General", "SleepPrecision", 1, iniPath.c_str()) != 0;
         g_settings.SleepPrecisionValue    = GetPrivateProfileIntA("General", "SleepPrecisionValue", 8, iniPath.c_str());
+        g_settings.OptSessionLogs         = GetPrivateProfileIntA("General", "SessionLogs", 1, iniPath.c_str()) != 0;
+        g_settings.SessionLogsToKeep      = GetPrivateProfileIntA("General", "SessionLogsToKeep", 10, iniPath.c_str());
         g_settings.OptMemoryPressure      = GetPrivateProfileIntA("General", "MemoryPressure", 1, iniPath.c_str()) != 0;
         g_settings.OptHeapCompactor       = GetPrivateProfileIntA("General", "HeapCompactor", 1, iniPath.c_str()) != 0;
         g_settings.OptDefragLf            = GetPrivateProfileIntA("General", "DefragLf", 0, iniPath.c_str()) != 0;

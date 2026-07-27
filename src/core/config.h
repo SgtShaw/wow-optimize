@@ -7,6 +7,14 @@ namespace Config {
         // General & Memory
         bool OptSleepPrecision = true;
         int SleepPrecisionValue = 8;
+        // One log per session preserves earlier runs, which is the whole point
+        // when a tester is comparing two configurations - a single overwritten
+        // file keeps only the last one. Turning this off restores that older
+        // behaviour for anyone who would rather not accumulate files.
+        bool OptSessionLogs = true;
+        // How many session logs to keep. The oldest beyond this are deleted at
+        // startup, so the folder stops growing without anyone having to tidy it.
+        int SessionLogsToKeep = 10;
         bool OptMemoryPressure = true;
         bool OptHeapCompactor = true;
         bool OptDefragLf = false;

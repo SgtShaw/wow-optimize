@@ -1016,6 +1016,56 @@ static DWORD WINAPI LogThreadProc(LPVOID) {
     return 0;
 }
 
+// Deletes the oldest session logs, keeping the newest `keep`. The timestamp in the
+// name is YYYY-MM-DD_HH-MM-SS, so sorting the names as text sorts them by time and
+// no file has to be opened to find out how old it is.
+//
+// Matches only names whose next character is a digit: wow_optimize_proxy.log lives
+// in the same folder and is not ours to delete.
+static void PruneSessionLogs(int keep) {
+    if (keep <= 0) return;
+
+    static const int MAX_TRACKED = 512;
+    static char names[MAX_TRACKED][64];
+    int count = 0;
+
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA("Logs\\wow_optimize_*.log", &fd);
+    if (h == INVALID_HANDLE_VALUE) return;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        const char* tail = fd.cFileName + 13;          // past "wow_optimize_"
+        if (*tail < '0' || *tail > '9') continue;
+        if (strlen(fd.cFileName) >= sizeof(names[0])) continue;
+        if (count < MAX_TRACKED) {
+            lstrcpynA(names[count], fd.cFileName, sizeof(names[0]));
+            count++;
+        }
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+
+    if (count <= keep) return;
+
+    // Newest first. Insertion sort: a few hundred names at startup, once.
+    for (int i = 1; i < count; i++) {
+        char tmp[64];
+        lstrcpynA(tmp, names[i], sizeof(tmp));
+        int j = i - 1;
+        while (j >= 0 && strcmp(names[j], tmp) < 0) {
+            lstrcpynA(names[j + 1], names[j], sizeof(names[0]));
+            j--;
+        }
+        lstrcpynA(names[j + 1], tmp, sizeof(names[0]));
+    }
+
+    for (int i = keep; i < count; i++) {
+        char path[MAX_PATH];
+        _snprintf(path, sizeof(path), "Logs\\%s", names[i]);
+        path[sizeof(path) - 1] = '\0';
+        DeleteFileA(path);
+    }
+}
+
 static void LogOpen() {
     CreateDirectoryA("Logs", NULL);
     
@@ -1025,18 +1075,26 @@ static void LogOpen() {
         g_log = fopen("Logs\\wow_optimize.log", "w");
     }
     
-    // 2. Session log with timestamp (wow_optimize_YYYY-MM-DD_HH-MM-SS.log) to preserve history
-    SYSTEMTIME st;
-    GetLocalTime(&st);
-    char sessionPath[MAX_PATH];
-    _snprintf(sessionPath, sizeof(sessionPath), "Logs\\wow_optimize_%04d-%02d-%02d_%02d-%02d-%02d.log",
-              st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
-    sessionPath[sizeof(sessionPath) - 1] = '\0';
-    g_sessionLog = _fsopen(sessionPath, "w", _SH_DENYNO);
-    if (!g_sessionLog) {
-        g_sessionLog = fopen(sessionPath, "w");
+    // 2. Session log with timestamp (wow_optimize_YYYY-MM-DD_HH-MM-SS.log) to preserve history.
+    //
+    // The overwritten file above is the "one log like before" - it has never gone
+    // away. This second one exists because comparing two configurations needs both
+    // runs, and a single file keeps only the last. What it lacked was an end: left
+    // alone the folder grows for as long as someone keeps playing.
+    if (Config::g_settings.OptSessionLogs) {
+        SYSTEMTIME st;
+        GetLocalTime(&st);
+        char sessionPath[MAX_PATH];
+        _snprintf(sessionPath, sizeof(sessionPath), "Logs\\wow_optimize_%04d-%02d-%02d_%02d-%02d-%02d.log",
+                  st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+        sessionPath[sizeof(sessionPath) - 1] = '\0';
+        g_sessionLog = _fsopen(sessionPath, "w", _SH_DENYNO);
+        if (!g_sessionLog) {
+            g_sessionLog = fopen(sessionPath, "w");
+        }
+        PruneSessionLogs(Config::g_settings.SessionLogsToKeep);
     }
-    
+
     static const unsigned char bom[] = { 0xEF, 0xBB, 0xBF };
     if (g_log) {
         fwrite(bom, 1, 3, g_log);
