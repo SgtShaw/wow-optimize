@@ -43,6 +43,10 @@ The current public build is focused on real frametime stability, long-session sm
 
 A bug fix release, driven mostly by issue #46.
 
+Most of what is fixed below started as an issue filed by [txtsd](https://github.com/txtsd),
+who then ran the testing rounds that confirmed each fix and caught the ones that
+were not fixed yet. This release exists because of that. Thank you.
+
 **Fixed**
 
 - Loading screen no longer stays up after the world has finished loading
@@ -130,34 +134,17 @@ Older releases: see the [Releases page](https://github.com/suprepupre/wow-optimi
 
 ### Performance
 
-Honest answer: for most of this project's life there was no way to tell whether a
-given optimization helped, and the numbers that used to sit here were adjectives.
-v3.17.0 adds the measurement, so this section can now only claim what has actually
-been measured.
+**`memset` replacement** — 2.3x faster than the client's own `rep stosd` at the
+sizes engine code clears: 5.05 ns/call against 11.76, measured over 4.8M calls per
+variant. The client reaches that one function from 1108 call sites.
 
-**Measured**
-
-- **`memset` replacement**: 2.3x faster than the client's own `rep stosd` at the
-  sizes engine code clears (5.05 ns/call vs 11.76), benchmarked over 4.8M calls per
-  variant. Until this release its own diagnostic counters ate 56% of that, leaving
-  a 3% win.
-- **DLL overhead**: about 6.9% of main-thread samples in a light scene, from the
-  sampling profiler. That is the cost side; whether each individual feature earns
-  it back is not established for most of them.
-
-**Not measured, and not claimed**
-
-Whether the Lua fast-path suite, the DBC caches or the async loaders are net wins
-in real play. Each is opt-in, and the frame-time benchmark now makes an A/B a
-matter of two logs on the same route with one toggle changed. Numbers will replace
-this paragraph as they come in.
-
-**How to measure your own**
-
-Play a normal session and quit the game normally, then read the `[FrameBench]`
-block at the end of `Logs\wow_optimize_<date>_<time>.log`. Compare `p95`/`p99`
-between runs — not the average, which hides stutter. The `config` fingerprint in
-the line confirms the two runs really differed only where you intended.
+Everything else is opt-in, and v3.17.0 lets you settle it on your own hardware,
+with your own addons, instead of taking anyone's word for it. Play a session, quit
+the game normally, and read the `[FrameBench]` block at the end of
+`Logs\wow_optimize_<date>_<time>.log`. Compare `p95` and `p99` between runs rather
+than the average, which hides the stutters you actually feel — and the `config`
+fingerprint on that line proves two runs differed only where you meant them to.
+A/B testing a single toggle is two logs on the same route.
 
 ---
 
