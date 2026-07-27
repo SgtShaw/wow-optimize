@@ -1174,6 +1174,23 @@ namespace WowOptimizeLauncher {
         private void CheckForUpdatesAsync() {
             System.Threading.ThreadPool.QueueUserWorkItem(delegate {
                 try {
+                    // This launcher targets .NET Framework 4.0, whose default
+                    // SecurityProtocol is SSL3 | TLS 1.0. GitHub stopped accepting
+                    // both in 2018, so every request below failed at the handshake
+                    // and the empty catch swallowed it - which is why the update
+                    // notice has never once appeared for anyone.
+                    //
+                    // SecurityProtocolType.Tls12 does not exist as a named member
+                    // in the 4.0 reference assemblies; 3072 is its value, and the
+                    // runtime underneath is a later 4.x that understands it.
+                    try {
+                        System.Net.ServicePointManager.SecurityProtocol |=
+                            (System.Net.SecurityProtocolType)3072;
+                    } catch {
+                        // Very old runtime with no TLS 1.2 at all: leave it alone
+                        // and let the request fail as before.
+                    }
+
                     using (System.Net.WebClient wc = new System.Net.WebClient()) {
                         wc.Headers.Add("User-Agent", "WoW-Optimize-Launcher");
                         string rawVer = wc.DownloadString("https://raw.githubusercontent.com/suprepupre/wow-optimize/main/version.txt?t=" + DateTime.UtcNow.Ticks.ToString());

@@ -1,9 +1,42 @@
 #include "config.h"
 #include <windows.h>
 #include <string>
+#include <cstdio>
+#include <cstring>
+
+extern "C" void Log(const char* fmt, ...);
 
 namespace Config {
     Settings g_settings;
+
+    // Which file the settings above actually came from. A bug report is only as
+    // good as knowing what was switched on, and twice now a log and the ini sent
+    // with it disagreed - once because a launcher button had overridden a switch,
+    // once with no explanation available at all, because nothing recorded where
+    // the DLL had read from or what it concluded.
+    static std::string g_loadedFrom;
+
+    void DumpToLog() {
+        Log("[Config] Read from: %s", g_loadedFrom.empty() ? "(none)" : g_loadedFrom.c_str());
+
+        FILE* f = fopen(g_loadedFrom.c_str(), "r");
+        if (!f) {
+            Log("[Config] File could not be reopened for the dump - the settings "
+                "above are whatever the defaults are.");
+            return;
+        }
+        Log("[Config] Effective contents:");
+        char line[256];
+        while (fgets(line, sizeof(line), f)) {
+            char* p = line;
+            while (*p == ' ' || *p == '\t') p++;
+            size_t n = strlen(p);
+            while (n && (p[n-1] == '\n' || p[n-1] == '\r' || p[n-1] == ' ')) p[--n] = 0;
+            if (!*p || *p == ';' || *p == '#') continue;
+            Log("[Config]   %s", p);
+        }
+        fclose(f);
+    }
 
     void Load() {
         std::string iniPath;
@@ -273,6 +306,8 @@ namespace Config {
         g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 0, iniPath.c_str()) != 0;
+
+        g_loadedFrom = iniPath;
         g_settings.OptVertexBufferPrealloc = GetPrivateProfileIntA("General", "VertexBufferPrealloc", 0, iniPath.c_str()) != 0;
         g_settings.OptWorldObjectOpt       = GetPrivateProfileIntA("Graphics_Sound", "WorldObjectOpt", 0, iniPath.c_str()) != 0;
     }

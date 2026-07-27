@@ -6446,6 +6446,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // where the LargestBlock=14MB fragmentation comes from. The old sequence
     // waited 5s then installed, missing the entire early-init allocation stream.
     LogOpen();
+    Config::DumpToLog();
     Log("========================================");
 #ifndef WOW_OPTIMIZE_GIT_HASH
 #define WOW_OPTIMIZE_GIT_HASH "unknown"

@@ -148,6 +148,10 @@ namespace Config {
 
     // Load settings from wow_opt.ini
     void Load();
+
+    // Writes the resolved ini path and its contents to the log. Call after Load
+    // and after logging is up, so every report says what was actually enabled.
+    void DumpToLog();
 }
 
 #endif // WOW_OPT_CONFIG_H
