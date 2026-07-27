@@ -1,14 +1,7 @@
-<table width="100%">
-<tr>
-<td bgcolor="#ff4d4d">
-
-WARNING
-
-Using this tool on the Warmane server is strictly prohibited and will result in a permanent ban. The Warmane anti cheat flags performance injectors and memory optimization tools as illegal software regardless of intent. Players must avoid using this optimization tool on Warmane servers to protect their accounts from being permanently banned.
-
-</td>
-</tr>
-</table>
+> [!CAUTION]
+> **Do not use this on Warmane.** Their anti-cheat flags performance injectors and
+> memory optimization tools as illegal software regardless of intent, and the
+> result is a permanent ban on your account.
 
 # wow_optimize
 
@@ -688,3 +681,15 @@ wow-optimize/
 ## License
 
 MIT License - use, modify, and distribute freely.
+
+---
+
+## Also for WoW 3.3.5a
+
+| Project | What it does |
+|---|---|
+| [LuaBoost](https://github.com/suprepupre/LuaBoost) | Addon-side GC control, loading-screen helpers, shared APIs for addon authors |
+| [WA_SafeGuard](https://github.com/suprepupre/WA_SafeGuard) | Backs up WeakAuras so a forced disconnect cannot wipe your auras |
+| [DefileAlert](https://github.com/suprepupre/DefileAlert) | Instant Defile target callout for the Lich King encounter |
+| [DSPlates](https://github.com/suprepupre/DSPlates) | Divine Storm icon on enemy nameplates, with range checking (Paladin) |
+
