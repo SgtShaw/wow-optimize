@@ -4788,6 +4788,7 @@ extern "C" void WowOpt_OnFrameBoundary() {
     ObjVisCache::OnFrame();
     FontMetrics_OnFrame();
     QualityGovernor::OnFrame();
+    CvarWatchdog_Check();
 #if !TEST_DISABLE_PARTICLE_THROTTLE
     IncrementParticleFrameCount();
 #endif
