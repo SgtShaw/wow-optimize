@@ -2175,7 +2175,32 @@ static void RemoveCacheForHandle(HANDLE hFile) {
     }
 }
 
+static BOOL WINAPI hooked_ReadFile_Inner(HANDLE hFile, LPVOID lpBuffer,
+    DWORD nBytesToRead, LPDWORD lpBytesRead, LPOVERLAPPED lpOverlapped);
+
+// Times reads while a loading screen is up, so the load report can say how much
+// of a load is the disk. Two QueryPerformanceCounter calls, and only during a
+// load - gameplay never reaches this branch.
 static BOOL WINAPI hooked_ReadFile(HANDLE hFile, LPVOID lpBuffer,
+    DWORD nBytesToRead, LPDWORD lpBytesRead, LPOVERLAPPED lpOverlapped)
+{
+    if (!LoadingState::IsLoading())
+        return hooked_ReadFile_Inner(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+
+    static LARGE_INTEGER freq = {};
+    if (freq.QuadPart == 0) QueryPerformanceFrequency(&freq);
+    LARGE_INTEGER a, b;
+    QueryPerformanceCounter(&a);
+    BOOL r = hooked_ReadFile_Inner(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+    QueryPerformanceCounter(&b);
+    if (freq.QuadPart) {
+        double ms = (double)(b.QuadPart - a.QuadPart) * 1000.0 / (double)freq.QuadPart;
+        LoadingState::NoteRead(ms, (lpBytesRead && r) ? *lpBytesRead : 0u);
+    }
+    return r;
+}
+
+static BOOL WINAPI hooked_ReadFile_Inner(HANDLE hFile, LPVOID lpBuffer,
     DWORD nBytesToRead, LPDWORD lpBytesRead, LPOVERLAPPED lpOverlapped)
 {
     // Skip: overlapped I/O, non-MPQ, or not initialized
@@ -9811,6 +9836,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             HotPatch::ShutdownAll();
             ReportHotFunctionStats();
             CrashDumper::ReportFeatureActivity();
+            LoadingState::ReportLoadTimes();
             WorldToScreenSse::Shutdown();
             D3D9TssCache::Shutdown();
             LuaStringPoolFast::Shutdown();
