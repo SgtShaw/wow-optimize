@@ -11,6 +11,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include <algorithm>
 #include "frame_bench.h"
 #include "core/config.h"
 #include "crash_dumper.h"
@@ -117,6 +118,36 @@ void Init() {
     g_ready = QueryPerformanceFrequency(&g_freq) && g_freq.QuadPart > 0;
 }
 
+// Rolling window of the most recent frame times, for RecentP95Ms.
+//
+// The session histogram above answers "how did this run go" and is deliberately
+// cumulative - it must not forget, or two runs stop being comparable. Anything
+// reacting to conditions needs the opposite: what the last few seconds looked
+// like. Separate storage rather than a second meaning for the same numbers.
+static constexpr int RECENT_SIZE = 512;
+static float    g_recent[RECENT_SIZE];
+static int      g_recentCount = 0;
+static int      g_recentPos   = 0;
+
+static void NoteRecent(double ms) {
+    g_recent[g_recentPos] = (float)ms;
+    g_recentPos = (g_recentPos + 1) % RECENT_SIZE;
+    if (g_recentCount < RECENT_SIZE) g_recentCount++;
+}
+
+double RecentP95Ms() {
+    int n = g_recentCount;
+    if (n < 64) return 0.0;          // too early to have an opinion
+
+    float copy[RECENT_SIZE];
+    for (int i = 0; i < n; i++) copy[i] = g_recent[i];
+    std::sort(copy, copy + n);
+
+    int idx = (int)(n * 0.95);
+    if (idx >= n) idx = n - 1;
+    return (double)copy[idx];
+}
+
 // Accumulation is kept separate from the clock so the distribution can be
 // exercised on known input: given a synthetic series of frame times, the
 // percentiles it reports are checkable without running the game.
@@ -133,6 +164,8 @@ static void Accumulate(double ms) {
     int b = (int)(ms / BUCKET_MS);
     if (b >= BUCKET_COUNT) g_overflow++;
     else                   g_buckets[b]++;
+
+    NoteRecent(ms);
 
     RefreshMedian();
 

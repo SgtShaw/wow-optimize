@@ -91,6 +91,7 @@
 #include "hooks_subsystems/nameplate_culling.h"
 #include "hooks_subsystems/texture_unload_delay.h"
 #include "hooks_subsystems/minimap_refresh_governor.h"
+#include "hooks_subsystems/quality_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
 #include "hooks_subsystems/lua_string_compare_fast.h"
 #include "hooks_subsystems/dbc_row_caching.h"
@@ -4788,6 +4789,7 @@ extern "C" void WowOpt_OnFrameBoundary() {
     LuaVMEngine_FrameTick();
     ObjVisCache::OnFrame();
     FontMetrics_OnFrame();
+    QualityGovernor::OnFrame();
 #if !TEST_DISABLE_PARTICLE_THROTTLE
     IncrementParticleFrameCount();
 #endif
@@ -7952,6 +7954,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptPacketProcessingThrottle) PacketProcessingThrottle::Init();
     if (Config::g_settings.OptNameplateCulling) NameplateCulling::Init();
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
+    QualityGovernor::Init();
     if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();
     if (Config::g_settings.OptLuaStringCompareFast) LuaStringCompareFast::Init();
@@ -9943,6 +9946,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             FontAlphaFastpath::Shutdown();
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();
+            QualityGovernor::Shutdown();
             HotPatch::ShutdownAll();
             ReportHotFunctionStats();
             CrashDumper::ReportFeatureActivity();
