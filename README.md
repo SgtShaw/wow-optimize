@@ -726,7 +726,7 @@ Recent events:
     -110351ms  TID=900   D3D9 device Reset (dev=0x0EB1AA90)
 ```
 
-The startup banner reports the exact build the log came from (`v3.17.0 (build abc1234)`), so please don't trim the first lines.
+The startup banner reports the exact build the log came from (`v3.18.0 (build abc1234)`), so please don't trim the first lines.
 
 If the complaint is stuttering rather than a crash, look for `slow frame` lines — each one names how far past your session's own median that frame ran, and what was happening during it:
 
