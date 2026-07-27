@@ -13,6 +13,7 @@
 #include <cmath>
 
 extern "C" void Log(const char* fmt, ...);
+#include "crash_dumper.h"
 
 namespace SimdMathFast {
 
@@ -21,11 +22,14 @@ namespace SimdMathFast {
 // Input: matrix is 4x4 row-major, vector is 3-component float (w implicitly 1.0f)
 typedef void (__cdecl *MatVec3Mul_fn)(float* outVec, const float* inVec, const float* matrix);
 static MatVec3Mul_fn orig_MatVec3Mul = nullptr;
+static int g_featureToken = -1;
 
 static void __cdecl Hooked_MatVec3Mul(float* outVec, const float* inVec, const float* matrix) {
 #if TEST_DISABLE_SIMD_MATH_FAST
     orig_MatVec3Mul(outVec, inVec, matrix);
 #else
+    CrashDumper::FeatureHit(g_featureToken);
+
     // Double-precision staging prevents rounding artifacts (first-person snaps)
     double x = inVec[0];
     double y = inVec[1];
@@ -104,6 +108,7 @@ bool Init() {
     }
 
     Log("[SimdMathFast] Active - SSE2 Math Fast Paths ready.");
+    g_featureToken = CrashDumper::FeatureTokenForCounting("MatrixVectorSSE2");
     return true;
 }
 

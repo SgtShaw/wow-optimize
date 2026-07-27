@@ -16,6 +16,7 @@
 #include "dbc_lookup_cache.h"
 
 extern "C" void Log(const char* fmt, ...);
+#include "crash_dumper.h"
 
 static constexpr int CACHE_SIZE = 4096;
 static constexpr int CACHE_MASK = CACHE_SIZE - 1;
@@ -30,6 +31,7 @@ struct DbcRowEntry {
 
 static DbcRowEntry g_cache[CACHE_SIZE];
 static uint64_t   g_hits = 0;
+static int g_featureToken = -1;
 static uint64_t   g_misses = 0;
 
 typedef bool (__thiscall *orig_dbc_getrow_t)(void* store, int recordId, void* outBuf);
@@ -60,6 +62,7 @@ static bool __fastcall Hooked_DbcGetRow(void* store, void* /* edx */, int record
         // If sequence didn't change, the data we read is consistent and valid
         if (s1 == s2 && sk == storeKey && rid == (uint32_t)recordId) {
             g_hits++;
+            CrashDumper::FeatureHit(g_featureToken);
             if (outBuf) {
                 memcpy(outBuf, tempBuf, 0x2A8);
             }
@@ -157,6 +160,7 @@ bool InstallDbcLookupCache()
         return false;
     }
 
+    g_featureToken = CrashDumper::FeatureTokenForCounting("DbcLookupCache");
     Log("[DbcLookupCache] Installed: %d-slot transformed data cache at 0x4CFD20", CACHE_SIZE);
     return true;
 }

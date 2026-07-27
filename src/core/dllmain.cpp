@@ -4410,6 +4410,7 @@ static void DumpPeriodicStats() {
     }
 #endif
     FrameBench::Report("periodic");
+    CrashDumper::ReportFeatureActivity();
 }
 
 // ================================================================
@@ -9809,6 +9810,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             DbcLookupCacheFast::Shutdown();
             HotPatch::ShutdownAll();
             ReportHotFunctionStats();
+            CrashDumper::ReportFeatureActivity();
             WorldToScreenSse::Shutdown();
             D3D9TssCache::Shutdown();
             LuaStringPoolFast::Shutdown();
