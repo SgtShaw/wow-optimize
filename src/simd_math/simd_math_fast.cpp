@@ -14,6 +14,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 namespace SimdMathFast {
 
@@ -109,6 +110,7 @@ bool Init() {
 
     Log("[SimdMathFast] Active - SSE2 Math Fast Paths ready.");
     g_featureToken = CrashDumper::FeatureTokenForCounting("MatrixVectorSSE2");
+    SamplingProfiler::RegisterSelfSymbol("MatVec3Mul_SSE2", (const void*)&Hooked_MatVec3Mul);
     return true;
 }
 

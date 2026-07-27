@@ -312,6 +312,38 @@ static int g_modCount = 0;
 // DLL base) so it maps directly to wow_optimize.map.
 static uintptr_t g_selfBase = 0;
 static uintptr_t g_selfEnd  = 0;
+
+// Our own functions, by absolute address, so a hot spot inside this DLL prints a
+// name instead of an offset nobody can resolve without the matching .map.
+static constexpr int MAX_SELF_SYMBOLS = 64;
+struct SelfSymbol { uintptr_t addr; const char* name; };
+static SelfSymbol g_selfSymbols[MAX_SELF_SYMBOLS] = {};
+static int        g_selfSymbolCount = 0;
+
+void RegisterSelfSymbol(const char* name, const void* addr) {
+    if (!name || !addr || g_selfSymbolCount >= MAX_SELF_SYMBOLS) return;
+    g_selfSymbols[g_selfSymbolCount].addr = (uintptr_t)addr;
+    g_selfSymbols[g_selfSymbolCount].name = name;
+    g_selfSymbolCount++;
+}
+
+// Nearest registered symbol at or below addr, within a sane distance. The bound
+// matters: without it every unregistered hot spot would be attributed to whichever
+// registered function happens to sit lowest in the image, which is worse than
+// admitting we do not know.
+static const char* ResolveSelfSymbol(uintptr_t addr) {
+    const char* best = nullptr;
+    uintptr_t bestDelta = 0x4000;   // 16 KB
+    for (int i = 0; i < g_selfSymbolCount; i++) {
+        if (g_selfSymbols[i].addr > addr) continue;
+        uintptr_t d = addr - g_selfSymbols[i].addr;
+        if (d < bestDelta) {
+            bestDelta = d;
+            best = g_selfSymbols[i].name;
+        }
+    }
+    return best;
+}
 static constexpr int SELF_PAGES = 4096;   // covers a 16MB image
 static uint32_t g_selfPageCounts[SELF_PAGES];
 
@@ -373,7 +405,10 @@ static void DumpFineHistogram(const uint32_t* counts, int slots, int shift,
     for (int i = 0; i < found; i++) {
         uint32_t c = counts[idx[i]];
         char addr[32];
-        wsprintfA(addr, addrFormat, (unsigned)(addrBase + ((uintptr_t)idx[i] << shift)));
+        uintptr_t slotAddr = addrBase + ((uintptr_t)idx[i] << shift);
+        const char* sym = (addrBase == 0) ? ResolveSelfSymbol(g_selfBase + slotAddr) : nullptr;
+        if (sym) wsprintfA(addr, "wowopt!%.20s", sym);
+        else     wsprintfA(addr, addrFormat, (unsigned)slotAddr);
         Log("[SamplingProfiler]   %-14s %8u samples (%5.2f%%)",
             addr, c, 100.0 * (double)c / (double)total);
     }
@@ -683,7 +718,9 @@ static void DumpResults() {
         } else if (g_selfBase && buckets[i].addr >= g_selfBase && buckets[i].addr < g_selfEnd) {
             // A hot page inside our own DLL — label by offset from our base so it
             // maps directly to wow_optimize.map (which of our hooks costs time).
-            wsprintfA(label, "wowopt+0x%05X", (unsigned)(buckets[i].addr - g_selfBase));
+            const char* sym = ResolveSelfSymbol(buckets[i].addr);
+            if (sym) wsprintfA(label, "wowopt!%.24s", sym);
+            else     wsprintfA(label, "wowopt+0x%05X", (unsigned)(buckets[i].addr - g_selfBase));
             name = label;
         } else {
             // Unlisted WoW code region — label by its 4KB page base so the

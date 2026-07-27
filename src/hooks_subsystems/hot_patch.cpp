@@ -10,6 +10,7 @@
 #include "MinHook.h"
 #include "version.h"
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -83,6 +84,7 @@ namespace HotPatch {
             return false;
         }
         g_featureToken = CrashDumper::FeatureTokenForCounting("HotPatch");
+        SamplingProfiler::RegisterSelfSymbol("lua_type_fast", (const void*)&Hooked_LuaType);
         Log("[HotPatch] lua_type fast path: ACTIVE");
         return true;
     }

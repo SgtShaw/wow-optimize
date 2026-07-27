@@ -13,6 +13,7 @@
 #include "MinHook.h"
 #include "hot_functions.h"
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -116,6 +117,7 @@ bool InstallHotFunctionOptimizations() {
     }
     
     g_featureToken = CrashDumper::FeatureTokenForCounting("HotFunctions");
+    SamplingProfiler::RegisterSelfSymbol("memset_SSE2", (const void*)&Hooked_memset);
     Log("[FastMemset] Installed: SSE2 memset replacement (1108 callers, NT >= 2MB)");
     return true;
 }

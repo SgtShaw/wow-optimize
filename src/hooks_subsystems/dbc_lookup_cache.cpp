@@ -17,6 +17,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 static constexpr int CACHE_SIZE = 4096;
 static constexpr int CACHE_MASK = CACHE_SIZE - 1;
@@ -161,6 +162,7 @@ bool InstallDbcLookupCache()
     }
 
     g_featureToken = CrashDumper::FeatureTokenForCounting("DbcLookupCache");
+    SamplingProfiler::RegisterSelfSymbol("dbc_lookup_cache", (const void*)&Hooked_DbcGetRow);
     Log("[DbcLookupCache] Installed: %d-slot transformed data cache at 0x4CFD20", CACHE_SIZE);
     return true;
 }

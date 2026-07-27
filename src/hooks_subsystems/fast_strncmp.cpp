@@ -17,6 +17,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 typedef int (__stdcall *strnicmp_t)(const char*, const char*, size_t);
 static strnicmp_t g_orig = nullptr;
@@ -113,6 +114,7 @@ bool InstallFastStrncmp() {
     }
 
     g_featureToken = CrashDumper::FeatureTokenForCounting("FastStrncmp");
+    SamplingProfiler::RegisterSelfSymbol("strnicmp_fast", (const void*)&Hooked_strnicmp);
     Log("[FastStrnicmp] Installed: _strnicmp replacement (1013 callers)");
     return true;
 }
