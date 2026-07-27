@@ -4530,13 +4530,9 @@ static void __fastcall hooked_SwapPresent(void* This, void* unused) {
         // vtable, once per presented frame. It is the one place that can measure
         // frame time honestly, so the benchmark is fed from here.
         FrameBench::OnPresent(FrameBench::Source::SwapHook);
+        // Flushes the deferred field and world-state queues. That used to be two
+        // explicit calls here, which left the D3D9 path without them.
         WowOpt_OnFrameBoundary();
-
-        // Ensure deferred field updates and coalesced world states are flushed 
-        // on the main thread every frame boundary, even when the client is running
-        // with VSync off / uncapped framerates (which bypass hooked_Sleep).
-        FlushFieldUpdates();
-        WorldStateCoalesce::OnFrame();
 #if !TEST_DISABLE_LUA_GETTIME_FAST
         if (Config::g_settings.OptLuaGetTimeFast) {
             LuaGetTimeFast_NewFrame();
@@ -4647,9 +4643,22 @@ static SwapPresentTiming_fn orig_SwapPresentTiming = nullptr;
 // hooked_Sleep tick, which is gated to fire at most once every 8ms - i.e. it
 // stops tracking frames at all above ~125fps.
 extern "C" void WowOpt_OnFrameBoundary() {
-    // Nothing ages per frame right now. Kept as the single place for work that
-    // must, so it never goes back into the hooked_Sleep tick - that one is gated
-    // to 8ms and stops tracking frames at all above ~125fps.
+    // Deferred unit field writes and coalesced world states must be applied on a
+    // real frame boundary. Addons read unit state the moment an event arrives, so
+    // a descriptor write that is still sitting in a queue is read as stale, and no
+    // further event fires to correct it once the queue drains.
+    //
+    // Both were already flushed from the OpenGL swap hook for exactly this reason,
+    // with a comment about uncapped frame rates bypassing hooked_Sleep - but that
+    // path is sub_69E220, which a D3D9/DXVK client never reaches. On DXVK the only
+    // caller left was the hooked_Sleep tick, gated to one pass every
+    // SleepPrecisionValue ms, so past ~125 fps the flush fell behind the frames
+    // that queued the work.
+    //
+    // Calling from both present paths costs an empty-queue check per frame: each
+    // of these takes its lock, sees head == tail, and returns.
+    FlushFieldUpdates();
+    WorldStateCoalesce::OnFrame();
 }
 
 static int __fastcall hooked_SwapPresent_TimingOnly(void* This, void* unused) {
