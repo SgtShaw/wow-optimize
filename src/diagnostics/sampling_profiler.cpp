@@ -621,7 +621,54 @@ static void DumpResults() {
                   return a.count > b.count;
               });
 
-    // Dump top-N (named functions and hot unlisted regions intermixed by heat)
+    // Separate "the thread was blocked" from "the thread was running code".
+    //
+    // Every sample landing in one of these is the main thread parked in the
+    // kernel with nothing to do - waiting on the present queue, a vsync interval,
+    // an event or an IO completion. Listing them by heat put
+    // NtWaitForAlertByThreadId at the top of a table headed HOT FUNCTIONS, where
+    // it reads as the most expensive thing in the client rather than as proof
+    // that the client had no work at all. A tester session came back with 94.8%
+    // of samples there: 0.9ms of CPU per 16.7ms frame, with every optimization in
+    // this DLL competing for the remaining 5%.
+    //
+    // Knowing which side of that line a session falls on decides whether any CPU
+    // work here can matter, so it is now the first thing the profile says.
+    uint64_t waitSamples = 0;
+    for (int i = 0; i < bucketCount; i++) {
+        const char* n = buckets[i].name;
+        if (!n) continue;
+        if (n[0] == 'N' && n[1] == 't' &&
+            (strncmp(n, "NtWaitFor", 9) == 0 ||
+             strncmp(n, "NtDelayExecution", 16) == 0 ||
+             strncmp(n, "NtRemoveIoCompletion", 20) == 0)) {
+            waitSamples += buckets[i].count;
+        }
+    }
+    uint64_t workSamples = (total > waitSamples) ? (total - waitSamples) : 0;
+    double   workPct     = total ? (100.0 * (double)workSamples / (double)total) : 0.0;
+
+    Log("[SamplingProfiler] === MAIN THREAD: %.1f%% executing, %.1f%% blocked "
+        "(%llu of %llu steady-state samples were a kernel wait) ===",
+        workPct, 100.0 - workPct,
+        (unsigned long long)waitSamples, (unsigned long long)total);
+    if (total >= 1000) {
+        if (workPct < 15.0) {
+            Log("[SamplingProfiler]   The client is not CPU-bound here - it spends "
+                "the frame waiting on the GPU, vsync or a frame limiter. CPU-side "
+                "optimizations cannot show up in this session no matter how good "
+                "they are; uncap the frame rate or profile a heavier scene to get "
+                "a workload where they can.");
+        } else if (workPct > 60.0) {
+            Log("[SamplingProfiler]   The client IS CPU-bound here. The list below "
+                "is where the frame time actually goes.");
+        }
+    }
+
+    // Dump top-N (named functions and hot unlisted regions intermixed by heat).
+    // Two percentages: of everything, and of the time the thread was running -
+    // the second is the one that says how much of a real optimization target
+    // something is, and it is the one that was missing.
     Log("[SamplingProfiler] === TOP %d HOT FUNCTIONS/REGIONS (%llu steady-state samples, %llu skipped: loading/warmup) ===",
         TOP_N, (unsigned long long)total, (unsigned long long)g_skippedSamples);
 
@@ -644,8 +691,10 @@ static void DumpResults() {
             wsprintfA(label, "wow_region_0x%08X", (unsigned)buckets[i].addr);
             name = label;
         }
-        Log("[SamplingProfiler] %3d. %-24s  %8llu samples (%5.2f%%)",
-            printed + 1, name, (unsigned long long)buckets[i].count, pct);
+        double workPctOfEntry = workSamples
+            ? (100.0 * (double)buckets[i].count / (double)workSamples) : 0.0;
+        Log("[SamplingProfiler] %3d. %-24s  %8llu samples (%5.2f%% total, %5.2f%% of executing)",
+            printed + 1, name, (unsigned long long)buckets[i].count, pct, workPctOfEntry);
         printed++;
     }
 
