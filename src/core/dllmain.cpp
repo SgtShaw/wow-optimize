@@ -1569,8 +1569,7 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             LuaGCGovernor::OnFrame(elapsedMs);
 #endif
 #if !TEST_DISABLE_ADAPTIVE_FARCLIP
-            AdaptiveFarclip::OnFrame((float)elapsedMs);
-#endif
+        #endif
 #if !TEST_DISABLE_NET_ADDON_COALESCER
 #endif
 #if !TEST_DISABLE_MIP_BIAS_GOVERNOR

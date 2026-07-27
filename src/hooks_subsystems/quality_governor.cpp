@@ -65,18 +65,19 @@ static Setting g_set[M_COUNT] = {
 
 // A setting with an existing owner is left alone.
 //
-// ParticleDensityScaler still owns particleDensity when it is switched on, and
-// AdaptiveFarclip owns farclip whenever MemoryPressure is - which is most
-// installs. Two controllers writing one CVar from two different opinions is worse
-// than either of them alone, so the governor stands down rather than compete, and
-// says so at startup. Shadows have no other owner since DynamicShadowScaler was
-// removed, so they are always managed.
+// ParticleDensityScaler still owns particleDensity when it is switched on, so the
+// governor stands down from that one rather than compete: two controllers writing
+// one CVar from two different opinions is worse than either alone.
+//
+// Shadows and draw distance have no other owner - DynamicShadowScaler was removed,
+// and AdaptiveFarclip has been reduced to the CVar registration detour it also
+// hosts - so both are always managed. Startup logs which is which.
 static bool g_managed[M_COUNT] = { false, true, false };
 
 static void DecideOwnership() {
     g_managed[M_PARTICLES] = !Config::g_settings.OptParticleDensityScaler;
     g_managed[M_SHADOWS]   = true;
-    g_managed[M_FARCLIP]   = !Config::g_settings.OptMemoryPressure;
+    g_managed[M_FARCLIP]   = true;   // AdaptiveFarclip no longer scales it
 }
 
 // What each step does, as a fraction of the player's own value. Particles go
