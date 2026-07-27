@@ -202,8 +202,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/strncmp_null_guard.h
     src/hooks_subsystems/frame_throttle.cpp
     src/hooks_subsystems/frame_throttle.h
-    src/hooks_subsystems/ui_frame_batch.cpp
-    src/hooks_subsystems/ui_frame_batch.h
     src/runtime_vm/lua_vm_cache.cpp
     src/runtime_vm/lua_vm_cache.h
     src/runtime_vm/lua_settable_cache.cpp

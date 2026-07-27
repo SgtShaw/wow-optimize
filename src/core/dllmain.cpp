@@ -7627,7 +7627,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     }
 
     Log("");
-    Log("--- D3D9 State Manager (15 hooks) ---");
+    Log("--- D3D9 State Manager ---");
     bool d3d9StateOk = InstallD3D9StateManager();
 
     Log("");
