@@ -31,6 +31,12 @@ namespace FrameBench {
 static constexpr int    BUCKET_COUNT = 1000;
 static constexpr double BUCKET_MS    = 0.1;
 
+// A frame longer than this is not a frame; it is a gap during which the frame loop
+// was not running. See the note at the rejection site.
+static constexpr double GAP_MS = 2000.0;
+static uint64_t  g_gaps = 0;
+static double    g_longestGapMs = 0.0;
+
 static uint32_t  g_buckets[BUCKET_COUNT];
 static uint32_t  g_overflow    = 0;
 static uint64_t  g_frames      = 0;
@@ -106,6 +112,8 @@ void Init() {
     memset(g_buckets, 0, sizeof(g_buckets));
     g_overflow = 0;
     g_frames   = 0;
+    g_gaps     = 0;
+    g_longestGapMs = 0.0;
     g_sumMs    = 0.0;
     g_maxMs    = 0.0;
     g_over33 = g_over50 = g_over100 = 0.0;
@@ -205,7 +213,25 @@ void OnPresent(Source src) {
     // frame time, and one cold zone load would own the whole tail.
     if (prev == 0 || LuaOpt::IsLoadingMode()) return;
 
-    Accumulate((double)(now.QuadPart - prev) * 1000.0 / (double)g_freq.QuadPart);
+    double ms = (double)(now.QuadPart - prev) * 1000.0 / (double)g_freq.QuadPart;
+
+    // IsLoadingMode is not enough on its own. LoadingDefrag force-exits the loading
+    // state after 30 s, and the 3.17.0 logs show that happening on 7 of 12 loads -
+    // so for the rest of a long load the client is still on the loading screen while
+    // this code believes it is not. That is how a 41.9-second "frame" reached the
+    // histogram and became p99.9 and max.
+    //
+    // Nothing the player would call a frame takes multiple seconds. Count these
+    // separately rather than dropping them: a gap is real information, it is just
+    // not frame time, and silently discarding it would be the same mistake in the
+    // other direction.
+    if (ms > GAP_MS) {
+        g_gaps++;
+        if (ms > g_longestGapMs) g_longestGapMs = ms;
+        return;
+    }
+
+    Accumulate(ms);
 }
 
 // Walks the histogram once, filling in every requested percentile in order.
@@ -260,6 +286,14 @@ void Report(const char* reason) {
         g_over33,  100.0 * g_over33  / (double)g_frames,
         g_over50,  100.0 * g_over50  / (double)g_frames,
         g_over100, 100.0 * g_over100 / (double)g_frames);
+    if (g_gaps > 0) {
+        // Named, not hidden. These are excluded from every number above, and the
+        // longest of them is usually a loading screen that outlived the 30 s
+        // LoadingDefrag watchdog - which is worth knowing on its own.
+        Log("[FrameBench]   %llu gaps over %.0f s excluded from the above "
+            "(longest %.1f s); a gap that long is a load or a hitch, not a frame",
+            (unsigned long long)g_gaps, GAP_MS / 1000.0, g_longestGapMs / 1000.0);
+    }
     if (g_slowFrames > 0) {
         Log("[FrameBench]   %llu frames ran past %.1fx the median; see the "
             "\"slow frame\" lines above for what each was doing",
