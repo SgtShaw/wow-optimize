@@ -6694,6 +6694,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool readOk  = false;
     Log("ReadFile hook: DISABLED via CRASH_TEST_DISABLE_READFILE");
 #endif
+    // The load report counts time spent in the ReadFile hook. If that hook is not
+    // in, the report must say so rather than print a confident zero.
+    LoadingState::SetReadHookInstalled(readOk);
     bool closeOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallCloseHandleHook();
     bool flushOk = (Config::g_settings.OptDbcLookupCache || Config::g_settings.OptSavedVarsPretoken) && InstallFlushFileBuffersHook();
     Log("--- Async MPQ I/O ---");
