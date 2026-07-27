@@ -47,6 +47,8 @@ were not fixed yet. This release exists because of that. Thank you.
 - Multi-second freezes during addon loading and `/reload`
 - Async frustum culling no longer makes objects pop in and out at the wrong distance, or models flicker at the draw distance, above ~125 fps
 - Loading-screen detection no longer requires the `!LuaBoost` addon — it now works on any install, and the initial login load is covered too
+- Screen flicker and darkening with an overlay running (RTSS, Afterburner, Steam) above ~120 fps. The D3D9 render-state cache was cleared on a timer capped near 125 times a second instead of once per frame, so past that frame rate it stopped keeping up and the device held whatever state the overlay left behind
+- Addon list rendering with overlapping text after a `/reload`, and those entries refusing to toggle
 - The end of the session log is no longer lost when the game exits
 
 **Faster**
