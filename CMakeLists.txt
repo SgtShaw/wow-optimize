@@ -443,8 +443,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/particle_density_scaler.h
     src/hooks_subsystems/addon_msg_limiter.cpp
     src/hooks_subsystems/addon_msg_limiter.h
-    src/hooks_subsystems/mouse_cursor_smooth.cpp
-    src/hooks_subsystems/mouse_cursor_smooth.h
     src/hooks_subsystems/vertex_buffer_prealloc.cpp
     src/hooks_subsystems/vertex_buffer_prealloc.h
     src/hooks_subsystems/world_object_opt.cpp

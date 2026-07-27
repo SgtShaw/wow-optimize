@@ -67,7 +67,6 @@
 #include "hooks_subsystems/lua_gc_governor.h"
 #include "hooks_subsystems/particle_density_scaler.h"
 #include "hooks_subsystems/addon_msg_limiter.h"
-#include "hooks_subsystems/mouse_cursor_smooth.h"
 #include "hooks_subsystems/vertex_buffer_prealloc.h"
 #include "hooks_subsystems/world_object_opt.h"
 #include "hooks_subsystems/nameplate_distance_cvar.h"
@@ -1458,8 +1457,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             }
 
             LuaOpt::OnMainThreadSleep(g_mainThreadId, elapsedMs);
-            LuaVMEngine_FrameTick();
-            ApiCache::OnNewFrame();
             FontMetrics_OnFrame();
 #if !TEST_DISABLE_LUA_GETTIME_FAST
             if (Config::g_settings.OptLuaGetTimeFast) {
@@ -1491,9 +1488,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             if (Config::g_settings.OptMpqMmapVfs) {
                 MpqMmapVfs::OnFrame();
             }
-#if !TEST_DISABLE_OBJ_VIS_CACHE
-            ObjVisCache::OnFrame();
-#endif
             RcuObjMgr::OnFrame();
 #if !TEST_DISABLE_TEXTURE_DECODE_MT
             AsyncTexLoader::OnFrame();
@@ -1507,10 +1501,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             EventCoalescer_Flush();
 #endif
 
-#if !TEST_DISABLE_PARTICLE_THROTTLE
-            IncrementParticleFrameCount();
-#endif
-
             // Enable D3D9 State Manager frame update
             OnFrameD3D9StateManager(g_mainThreadId);
             OnFrameRenderHooks(g_mainThreadId);
@@ -1519,7 +1509,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             DynamicShadowScaler::OnFrame((float)elapsedMs);
             ParticleDensityScaler::OnFrame((float)elapsedMs);
             // LuaGcGovernor::OnFrame((float)elapsedMs); // Disabled duplicate governor
-            MouseCursorSmooth::OnFrame();
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
 #endif
@@ -4659,6 +4648,24 @@ extern "C" void WowOpt_OnFrameBoundary() {
     // of these takes its lock, sees head == tail, and returns.
     FlushFieldUpdates();
     WorldStateCoalesce::OnFrame();
+
+    // Frame counters that bound how long a cached entry stays valid. Both caches
+    // re-validate on hit - the Lua inline cache re-reads the key out of the node,
+    // the object cache re-reads the GUID out of the object - so the counter is not
+    // the only thing standing between a hit and a freed pointer. It is what limits
+    // the exposure to a single frame, and on the hooked_Sleep tick that bound
+    // stretched to however many frames fit between two passes.
+    //
+    // These must advance exactly once per frame: incrementing twice would stamp
+    // entries with a generation that is already stale by the time they are read,
+    // and every lookup would miss. Only one present hook is live per renderer, so
+    // this runs once - and they are deliberately not left on the Sleep tick as a
+    // fallback, because a fallback here would be the double increment.
+    LuaVMEngine_FrameTick();
+    ObjVisCache::OnFrame();
+#if !TEST_DISABLE_PARTICLE_THROTTLE
+    IncrementParticleFrameCount();
+#endif
 }
 
 static int __fastcall hooked_SwapPresent_TimingOnly(void* This, void* unused) {
@@ -7783,7 +7790,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     // LuaGcGovernor::Init(); // Disabled duplicate governor
     if (Config::g_settings.OptParticleDensityScaler) ParticleDensityScaler::Init();
     if (Config::g_settings.OptAddonMsgLimiter) AddonMsgLimiter::Init();
-    if (Config::g_settings.OptMouseCursorSmooth) MouseCursorSmooth::Init();
     if (Config::g_settings.OptVertexBufferPrealloc) VertexBufferPrealloc::Init();
     if (Config::g_settings.OptWorldObjectOpt) WorldObjectOpt::Init();
     if (Config::g_settings.OptNameplateDistanceCvar) NameplateDistanceCvar::Init();

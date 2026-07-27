@@ -122,7 +122,6 @@ namespace Config {
         bool OptDynamicShadowScaler = true;
         bool OptFontOutlineCache = true;
         bool OptMouseClipRelease = true;
-        bool OptMouseCursorSmooth = true;
         bool OptNameplateDistanceCvar = true;
         bool OptParticleDensityScaler = true;
         bool OptSavedVarsBackup = true;
