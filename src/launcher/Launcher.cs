@@ -278,6 +278,7 @@ namespace WowOptimizeLauncher {
         private FlowLayoutPanel combatNetFlow;
         private FlowLayoutPanel graphicsSoundFlow;
         private FlowLayoutPanel experimentalFlow;
+        private Label experimentalNote;
         private TextBox searchBox;
 
         // Background image
@@ -778,6 +779,7 @@ namespace WowOptimizeLauncher {
             // are meant to be turned on one at a time, by someone who wants to
             // find out what one of them does.
             Label expNote = new Label();
+            experimentalNote = expNote;
             expNote.Text = "Under investigation, or new enough that nobody has proven them yet.\r\n"
                          + "Turn on ONE at a time, play, and send the log - that is what makes them\r\n"
                          + "either real features or deleted ones. Left off by Enable All.";
@@ -839,7 +841,7 @@ namespace WowOptimizeLauncher {
             }
 
             if (generalFlow == null || uiLuaFlow == null || combatNetFlow == null ||
-                graphicsSoundFlow == null) {
+                graphicsSoundFlow == null || experimentalFlow == null) {
                 return;
             }
 
@@ -848,6 +850,10 @@ namespace WowOptimizeLauncher {
             uiLuaFlow.Controls.Clear();
             combatNetFlow.Controls.Clear();
             graphicsSoundFlow.Controls.Clear();
+            experimentalFlow.Controls.Clear();
+            if (!hasSearch && experimentalNote != null) {
+                experimentalFlow.Controls.Add(experimentalNote);
+            }
 
             // Category buttons visibility
             if (btnEnableGeneral != null) btnEnableGeneral.Visible = !hasSearch;
@@ -881,11 +887,20 @@ namespace WowOptimizeLauncher {
                     // Restore to original tab flows
                     if (data.Ctrl != null) {
                         data.Ctrl.Visible = true;
-                        switch (data.Section) {
-                            case "General": generalFlow.Controls.Add(data.Ctrl); break;
-                            case "UI_Lua": uiLuaFlow.Controls.Add(data.Ctrl); break;
-                            case "Combat_Net": combatNetFlow.Controls.Add(data.Ctrl); break;
-                            case "Graphics_Sound": graphicsSoundFlow.Controls.Add(data.Ctrl); break;
+                        // Experimental wins over the ini section, exactly as it does
+                        // when the tabs are first built. Routing on Section alone
+                        // here is what emptied the Experimental tab: the first tab
+                        // switch moved both switches onto Graphics & Sound and
+                        // UI & Lua and left the tab with nothing but its note.
+                        if (data.Experimental) {
+                            experimentalFlow.Controls.Add(data.Ctrl);
+                        } else {
+                            switch (data.Section) {
+                                case "General": generalFlow.Controls.Add(data.Ctrl); break;
+                                case "UI_Lua": uiLuaFlow.Controls.Add(data.Ctrl); break;
+                                case "Combat_Net": combatNetFlow.Controls.Add(data.Ctrl); break;
+                                case "Graphics_Sound": graphicsSoundFlow.Controls.Add(data.Ctrl); break;
+                            }
                         }
                     }
                 }
