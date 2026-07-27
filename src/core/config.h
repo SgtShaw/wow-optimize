@@ -12,6 +12,11 @@ namespace Config {
         // file keeps only the last one. Turning this off restores that older
         // behaviour for anyone who would rather not accumulate files.
         bool OptSessionLogs = true;
+        // Reimplements 16 core Lua stack API functions, including the three that
+        // shift values around (lua_remove, lua_insert, lua_replace). Off by
+        // default: an error of one slot there moves every later argument, and the
+        // logs of two testers running it are full of exactly that shape of failure.
+        bool OptLuaStackFast = false;
         // How many session logs to keep. The oldest beyond this are deleted at
         // startup, so the folder stops growing without anyone having to tidy it.
         int SessionLogsToKeep = 10;

@@ -6979,9 +6979,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[PushValueFast] DISABLED via TEST_DISABLE_PUSHVALUE_FAST");
 #endif
 
-    Log("--- Lua Stack Push/Query Fast Paths (8 hooks) ---");
+    Log("--- Lua Stack Push/Query Fast Paths ---");
 #if !TEST_DISABLE_LUA_STACK_FAST
-    bool luaStackFastOk = Config::g_settings.OptLuaNumConvFast && InstallLuaStackFast();
+    // Its own switch now. It used to ride on LuaNumConvFast, whose launcher label
+    // reads "Lua Number Conversion Fast Path" and promises tonumber/gettop/settop -
+    // nothing that suggests sixteen rewrites of the stack API underneath it.
+    bool luaStackFastOk = Config::g_settings.OptLuaStackFast && InstallLuaStackFast();
 #else
     bool luaStackFastOk = false;
     Log("[LuaStackFast] DISABLED via TEST_DISABLE_LUA_STACK_FAST");
