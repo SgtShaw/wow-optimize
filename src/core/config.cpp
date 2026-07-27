@@ -303,7 +303,6 @@ namespace Config {
         g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 0, iniPath.c_str()) != 0;
         g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 0, iniPath.c_str()) != 0;
         g_settings.OptNameplateDistanceCvar= GetPrivateProfileIntA("Combat_Net", "NameplateDistanceCvar", 0, iniPath.c_str()) != 0;
-        g_settings.OptParticleDensityScaler= GetPrivateProfileIntA("Graphics_Sound", "ParticleDensityScaler", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 0, iniPath.c_str()) != 0;

@@ -1563,7 +1563,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
-            ParticleDensityScaler::OnFrame((float)elapsedMs);
             // LuaGcGovernor::OnFrame((float)elapsedMs); // Disabled duplicate governor
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
@@ -7925,7 +7924,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptDbcFileCache) DbcFileCache::Init();
     if (Config::g_settings.OptFontOutlineCache) FontOutlineCache::Init();
     // LuaGcGovernor::Init(); // Disabled duplicate governor
-    if (Config::g_settings.OptParticleDensityScaler) ParticleDensityScaler::Init();
     if (Config::g_settings.OptAddonMsgLimiter) AddonMsgLimiter::Init();
     if (Config::g_settings.OptVertexBufferPrealloc) VertexBufferPrealloc::Init();
     if (Config::g_settings.OptWorldObjectOpt) WorldObjectOpt::Init();

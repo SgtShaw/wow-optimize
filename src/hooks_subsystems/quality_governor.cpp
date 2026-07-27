@@ -65,17 +65,15 @@ static Setting g_set[M_COUNT] = {
 
 // A setting with an existing owner is left alone.
 //
-// ParticleDensityScaler still owns particleDensity when it is switched on, so the
-// governor stands down from that one rather than compete: two controllers writing
-// one CVar from two different opinions is worse than either alone.
-//
-// Shadows and draw distance have no other owner - DynamicShadowScaler was removed,
-// and AdaptiveFarclip has been reduced to the CVar registration detour it also
-// hosts - so both are always managed. Startup logs which is which.
+// Nothing else writes these three any more. DynamicShadowScaler was removed,
+// AdaptiveFarclip and ParticleDensityScaler have been reduced to the CVar
+// bookkeeping they also did, so there is one controller per setting rather than
+// two with different opinions. The table stays because that guarantee is worth
+// checking rather than assuming, and startup logs what it took charge of.
 static bool g_managed[M_COUNT] = { false, true, false };
 
 static void DecideOwnership() {
-    g_managed[M_PARTICLES] = !Config::g_settings.OptParticleDensityScaler;
+    g_managed[M_PARTICLES] = true;   // ParticleDensityScaler no longer scales it
     g_managed[M_SHADOWS]   = true;
     g_managed[M_FARCLIP]   = true;   // AdaptiveFarclip no longer scales it
 }

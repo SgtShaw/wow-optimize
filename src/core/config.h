@@ -141,7 +141,6 @@ namespace Config {
         bool OptFontOutlineCache = true;
         bool OptMouseClipRelease = true;
         bool OptNameplateDistanceCvar = true;
-        bool OptParticleDensityScaler = true;
         bool OptSavedVarsBackup = true;
         bool OptSoundCoalescer = true;
         bool OptSpellOverlayPreload = true;
