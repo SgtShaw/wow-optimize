@@ -2207,6 +2207,17 @@ static BOOL WINAPI hooked_ReadFile_Inner(HANDLE hFile, LPVOID lpBuffer,
     if (lpOverlapped)
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
+    // NULL-buffer guard: WoW may call ReadFile with lpBuffer=NULL to advance the
+    // file pointer during loading/streaming with HD MPQs.
+    //
+    // This used to sit below the two cache serves, which both memcpy into
+    // lpBuffer. A legitimate NULL-buffer call landing on a handle either of them
+    // tracked was a memcpy to address zero. That is what "interferes with WoW file
+    // I/O" meant in the note that disabled the addon RAM-disk, and it is why the
+    // guard belongs above every serve rather than in the middle of them.
+    if (!lpBuffer || !nBytesToRead)
+        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
+
     // Addon file RAM-disk: serve pre-loaded addon files from memory
     if (AddonPreload_TryServe(hFile, lpBuffer, nBytesToRead, lpBytesRead))
         return TRUE;
@@ -2217,11 +2228,6 @@ static BOOL WINAPI hooked_ReadFile_Inner(HANDLE hFile, LPVOID lpBuffer,
     #endif
 
     if (!g_cacheInitialized || !IsMpqHandle(hFile))
-        return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
-
-    // NULL-buffer guard: WoW may call ReadFile with lpBuffer=NULL to advance
-    // the file pointer during loading/streaming with HD MPQs.
-    if (!lpBuffer || !nBytesToRead)
         return orig_ReadFile(hFile, lpBuffer, nBytesToRead, lpBytesRead, lpOverlapped);
 
     // Get the atomic locked cache for this handle to prevent concurrent seek/read races
@@ -7557,6 +7563,10 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // Addon file RAM-disk - pre-load all addon files into memory
 #if !TEST_DISABLE_ADDON_PRELOAD
+    // The RAM-disk is served through the CreateFile/CloseHandle hooks, which only
+    // go in with DbcLookupCache or SavedVarsPretoken. Tell it so it can decline
+    // rather than read thousands of files it will never be asked for.
+    AddonPreload_SetFileHooksInstalled(fileOk && closeOk);
     bool addonPreloadOk = InitAddonPreload();
 #else
     bool addonPreloadOk = false;
