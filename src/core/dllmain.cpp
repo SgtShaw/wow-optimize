@@ -6670,7 +6670,8 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("MemoryOpt");
     CrashDumper::RegisterFeature("SourceOpt");
     CrashDumper::RegisterFeature("TlsObjectCache");
-    Log("[CrashDumper] Registered %d features for tracking", MAX_TRACKED_FEATURES);
+    Log("[CrashDumper] Registered %d features for tracking (capacity %d)",
+        CrashDumper::RegisteredFeatureCount(), MAX_TRACKED_FEATURES);
 
     Log("--- DXVK Vulkan Integration ---");
     Log("[VulkanDXVK] Config option: %s", Config::g_settings.OptVulkanDXVK ? "ENABLED (d3d9.dll proxy required in game directory)" : "DISABLED");

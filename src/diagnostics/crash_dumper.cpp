@@ -47,6 +47,7 @@ struct HookTraceEntry {
     uintptr_t   addr;       // Address being hooked or accessed
     DWORD       tick;       // GetTickCount when called
     DWORD       threadId;   // Thread that made the call
+    LONG        repeats;    // Consecutive identical calls collapsed into this slot
 };
 
 static HookTraceEntry s_hookTrace[HOOK_TRACE_SIZE] = {};
@@ -479,8 +480,8 @@ static void WriteHookTrace(HANDLE hFile) {
         HookTraceEntry& e = s_hookTrace[idx];
         if (!e.hookName) continue;
         int len = sprintf_s(buf, sizeof(buf),
-            "  [%02d] TID=%5lu tick=%10lu addr=0x%08X %s\n",
-            i, e.threadId, e.tick, (unsigned)e.addr, e.hookName);
+            "  [%02d] TID=%5lu tick=%10lu addr=0x%08X %s x%ld\n",
+            i, e.threadId, e.tick, (unsigned)e.addr, e.hookName, e.repeats + 1);
         if (len > 0) WriteFile(hFile, buf, (DWORD)strlen(buf), &written, NULL);
     }
 }
@@ -616,9 +617,9 @@ static void __cdecl Hooked_WowAssert(const char* msg, int arg1, int arg2) {
             int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
             HookTraceEntry& e = s_hookTrace[idx];
             if (e.hookName) {
-                Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+                Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago, x%ld)",
                     i, e.hookName, (unsigned)e.addr, e.threadId,
-                    GetTickCount() - e.tick);
+                    GetTickCount() - e.tick, e.repeats + 1);
             }
         }
 
@@ -653,9 +654,9 @@ static BOOL WINAPI Hooked_TerminateProcess(HANDLE hProcess, UINT uExitCode) {
                 int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
                 HookTraceEntry& e = s_hookTrace[idx];
                 if (e.hookName) {
-                    Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+                    Log("!!!   LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago, x%ld)",
                         i, e.hookName, (unsigned)e.addr, e.threadId,
-                        GetTickCount() - e.tick);
+                        GetTickCount() - e.tick, e.repeats + 1);
                 }
             }
 
@@ -722,6 +723,38 @@ static LPTOP_LEVEL_EXCEPTION_FILTER WINAPI Hooked_SetUnhandledExceptionFilter(LP
 // ================================================================
 // Top-level unhandled exception filter
 // ================================================================
+// For an access violation the exception record carries the two facts that actually
+// identify the bug: whether the faulting instruction was reading or writing, and
+// which address it touched. Only the instruction pointer was ever logged, so a
+// crash inside memcpy could not be told apart from a crash writing into a device
+// surface - the difference between a bad source and a bad destination, which is the
+// difference between two entirely different features.
+static void LogAccessViolationDetail(EXCEPTION_RECORD* er) {
+    if (!er || er->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return;
+    if (er->NumberParameters < 2) return;
+
+    ULONG_PTR op   = er->ExceptionInformation[0];
+    ULONG_PTR addr = er->ExceptionInformation[1];
+    const char* what = (op == 0) ? "READING from" :
+                       (op == 1) ? "WRITING to"   :
+                       (op == 8) ? "EXECUTING"    : "accessing";
+
+    // Naming the region turns the address into a cause rather than a number.
+    const char* region;
+    if (addr < 0x10000)             region = "null page - a null pointer plus a small offset";
+    else if (addr >= 0x80000000)    region = "kernel space - almost always a corrupted pointer";
+    else {
+        MEMORY_BASIC_INFORMATION mbi;
+        if (VirtualQuery((LPCVOID)addr, &mbi, sizeof(mbi)) == 0) region = "unqueryable";
+        else if (mbi.State == MEM_FREE)    region = "freed or never mapped - a stale pointer, or a view that was unmapped";
+        else if (mbi.State == MEM_RESERVE) region = "reserved but not committed";
+        else if (mbi.Protect & PAGE_NOACCESS) region = "committed but no-access";
+        else region = "mapped and committed - a length or stride overran it";
+    }
+
+    Log("!!! FAULT: %s 0x%08X (%s)", what, (unsigned)addr, region);
+}
+
 static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
     // One-shot: only dump the first unhandled crash
     if (InterlockedCompareExchange(&s_dumped, 1, 0) != 0)
@@ -736,6 +769,8 @@ static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
 
     Log("!!! CRASH !!! 0x%08X (%s) at 0x%08X TID=%lu",
         code, ExceptionName(code), crashAddr, GetCurrentThreadId());
+
+    LogAccessViolationDetail(ep->ExceptionRecord);
 
     if (ep->ContextRecord) {
         CONTEXT* ctx = ep->ContextRecord;
@@ -826,9 +861,9 @@ static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
         int idx = (hpos - 1 - i) & HOOK_TRACE_MASK;
         HookTraceEntry& e = s_hookTrace[idx];
         if (e.hookName) {
-            Log("!!! LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago)",
+            Log("!!! LAST HOOK[%d]: %s @ 0x%08X (TID=%lu, %ums ago, x%ld)",
                 i, e.hookName, (unsigned)e.addr, e.threadId,
-                GetTickCount() - e.tick);
+                GetTickCount() - e.tick, e.repeats + 1);
         }
     }
 
@@ -950,6 +985,12 @@ int FeatureTokenForCounting(const char* name) {
         s_features[token].counted = true;
     }
     return token;
+}
+
+int RegisteredFeatureCount() {
+    LONG count = InterlockedCompareExchange(&s_featureCount, 0, 0);
+    if (count > MAX_TRACKED_FEATURES) count = MAX_TRACKED_FEATURES;
+    return (int)count;
 }
 
 void FeatureHit(int token) {
@@ -1088,6 +1129,29 @@ int DumpTrace(int count, DWORD maxAgeMs) {
 }
 
 void RecordHookCall(const char* hookName, uintptr_t addr) {
+    // Collapse consecutive identical calls instead of letting them consume slots.
+    //
+    // The ring is meant to answer "what was happening just before the crash", and
+    // it could not: UIAccessor_IsShown is called often enough that even at the 1/64
+    // sampling below it filled all 256 slots, so every crash report in four tester
+    // logs showed the same hook in all five printed entries and nothing rarer
+    // survived. It read like evidence pointing at one module when it was only ever
+    // showing whichever hook ran most.
+    //
+    // The check races: two threads can both decide to extend the same slot, and the
+    // repeat count is then approximate. That is fine for a flight recorder, and far
+    // cheaper than serialising a path this hot.
+    LONG last = InterlockedCompareExchange(&s_hookTracePos, 0, 0);
+    if (last > 0) {
+        HookTraceEntry& prev = s_hookTrace[(last - 1) & HOOK_TRACE_MASK];
+        if (prev.hookName == hookName && prev.threadId == GetCurrentThreadId()) {
+            InterlockedIncrement(&prev.repeats);
+            prev.tick = GetTickCount();
+            prev.addr = addr;
+            return;
+        }
+    }
+
     // Lock-free: atomic increment gives us a unique slot
     LONG pos = InterlockedIncrement(&s_hookTracePos) - 1;
     int idx = pos & HOOK_TRACE_MASK;
@@ -1095,6 +1159,7 @@ void RecordHookCall(const char* hookName, uintptr_t addr) {
     s_hookTrace[idx].addr = addr;
     s_hookTrace[idx].tick = GetTickCount();
     s_hookTrace[idx].threadId = GetCurrentThreadId();
+    s_hookTrace[idx].repeats = 0;
 }
 
 void RecordHookCallHot(const char* hookName, uintptr_t addr) {
