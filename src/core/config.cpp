@@ -251,14 +251,8 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "AnimBlendCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "SavedVarsOpt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "ItemDataPrefetch", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MovementSmoothing", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "0", iniPath.c_str());
 
-            WritePrivateProfileStringA("Combat_Net", "PacketProcessingThrottle", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NameplateCulling", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
@@ -266,20 +260,7 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "LuaStringCompareFast", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "DbcRowCaching", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "NetworkStringDedup", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "SoundFreqCoalesce", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "AuraUpdateDedup", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "UiTextureCaching", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "WmoCullingOpt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FastFloatParse", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "HeapAllocationTracker", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CrtMimalloc", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "SpellCooldownCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "GuidStringCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FrameScriptMemOpt", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "CombatEventLimit", "0", iniPath.c_str());
         }
 
         // Read all settings
