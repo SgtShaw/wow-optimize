@@ -33,8 +33,6 @@ namespace Config {
         bool OptTimingFix = false;
         bool OptCvarNullGuard = true; // Safe default: enabled
         bool OptFrameLimiter = false;
-        bool OptMpqMmapVfs = false;
-        bool OptMpqPrefetch = false;
         bool OptObjVisCache = false;
         bool OptDbcPreload = false;
         bool OptOomGovernor = false;

@@ -64,10 +64,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/combatlog_buffer.h
     src/threading/addon_dispatcher.cpp
     src/threading/addon_dispatcher.h
-    src/hooks_subsystems/mpq_prefetch.cpp
-    src/hooks_subsystems/mpq_prefetch.h
-    src/hooks_subsystems/mpq_mmap_vfs.cpp
-    src/hooks_subsystems/mpq_mmap_vfs.h
     src/hooks_subsystems/mpq_async_decompress.cpp
     src/hooks_subsystems/mpq_async_decompress.h
     src/hooks_subsystems/obj_vis_cache.cpp

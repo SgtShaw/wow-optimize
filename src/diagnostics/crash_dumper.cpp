@@ -755,6 +755,74 @@ static void LogAccessViolationDetail(EXCEPTION_RECORD* er) {
     Log("!!! FAULT: %s 0x%08X (%s)", what, (unsigned)addr, region);
 }
 
+// ================================================================
+// First-chance probe
+//
+// SetUnhandledExceptionFilter only fires for exceptions nobody handles. Any
+// __except frame above the fault swallows it first, and the client has plenty of
+// those - so a crash can end the session with our filter never running at all.
+// A druid-shapeshift report looked exactly like that: the log stops mid-line, no
+// crash report, no shutdown notice, no TerminateProcess notice.
+//
+// A vectored handler runs before every frame-based handler and before the
+// unhandled filter, so it sees the fault whatever becomes of it afterwards. It
+// has to stay cheap - it is entered for every exception on every thread,
+// including ordinary handled ones - and it must never change what the process
+// does, hence EXCEPTION_CONTINUE_SEARCH on every path.
+// ================================================================
+static volatile LONG s_firstChanceLogged = 0;
+static const LONG FIRST_CHANCE_LOG_LIMIT = 8;
+
+static bool IsFatalClass(DWORD code) {
+    switch (code) {
+    case EXCEPTION_ACCESS_VIOLATION:
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+    case EXCEPTION_PRIV_INSTRUCTION:
+    case EXCEPTION_STACK_OVERFLOW:
+    case EXCEPTION_INT_DIVIDE_BY_ZERO:
+    case EXCEPTION_ARRAY_BOUNDS_EXCEEDED:
+    case EXCEPTION_IN_PAGE_ERROR:
+        return true;
+    default:
+        return false;   // C++ throws, breakpoints, DXVK's own control flow
+    }
+}
+
+static LONG CALLBACK WowOpt_FirstChanceProbe(EXCEPTION_POINTERS* ep) {
+    if (!ep || !ep->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
+    DWORD code = ep->ExceptionRecord->ExceptionCode;
+    if (!IsFatalClass(code)) return EXCEPTION_CONTINUE_SEARCH;
+
+    uintptr_t at = (uintptr_t)ep->ExceptionRecord->ExceptionAddress;
+
+    // Always cheap: a mark in the ring costs no I/O and survives into whatever
+    // report does eventually get written.
+    CrashDumper::Trace("first-chance %s at 0x%08X TID=%lu",
+                       ExceptionName(code), (unsigned)at, GetCurrentThreadId());
+
+    // Log the first few properly, then fall silent, so a path that faults in a
+    // loop behind a __except cannot fill the disk.
+    if (InterlockedIncrement(&s_firstChanceLogged) <= FIRST_CHANCE_LOG_LIMIT) {
+        Log("!!! FIRST-CHANCE %s at 0x%08X TID=%lu - handled or not, it happened",
+            ExceptionName(code), (unsigned)at, GetCurrentThreadId());
+        LogAccessViolationDetail(ep->ExceptionRecord);
+
+        HMODULE hMod = nullptr;
+        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                               (LPCSTR)at, &hMod) && hMod) {
+            char modPath[MAX_PATH] = "";
+            GetModuleFileNameA(hMod, modPath, sizeof(modPath));
+            const char* slash = strrchr(modPath, '\\');
+            Log("!!!   in %s+0x%08X", slash ? slash + 1 : modPath,
+                (unsigned)(at - (uintptr_t)hMod));
+        }
+        LogFlushImmediate();
+    }
+
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+
 static LONG WINAPI WowOpt_UnhandledExceptionFilter(EXCEPTION_POINTERS* ep) {
     // One-shot: only dump the first unhandled crash
     if (InterlockedCompareExchange(&s_dumped, 1, 0) != 0)
@@ -895,6 +963,10 @@ bool Init() {
     InterlockedExchange(&s_hookTracePos, 0);
 
     s_prevFilter = SetUnhandledExceptionFilter(WowOpt_UnhandledExceptionFilter);
+
+    // Runs ahead of every frame-based handler, so a fault that something else
+    // catches still leaves a record. See the note on WowOpt_FirstChanceProbe.
+    AddVectoredExceptionHandler(1, WowOpt_FirstChanceProbe);
 
     // Hook WoW's internal assertion handler (sub_8889B0)
     // This fires on ERROR #134 "Fatal Condition" which bypasses Windows exceptions

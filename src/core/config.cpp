@@ -36,8 +36,6 @@ static const BoolSetting kBoolSettings[] = {
     { "General", "TimingFix", &Settings::OptTimingFix },
     { "General", "CvarNullGuard", &Settings::OptCvarNullGuard },
     { "General", "FrameLimiter", &Settings::OptFrameLimiter },
-    { "General", "MpqMmapVfs", &Settings::OptMpqMmapVfs },
-    { "General", "MpqPrefetch", &Settings::OptMpqPrefetch },
     { "General", "ObjVisCache", &Settings::OptObjVisCache },
     { "General", "DbcPreload", &Settings::OptDbcPreload },
     { "General", "OomGovernor", &Settings::OptOomGovernor },
@@ -194,8 +192,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("General", "TimingFix", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CvarNullGuard", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "FrameLimiter", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MpqMmapVfs", "0", iniPath.c_str());
-            WritePrivateProfileStringA("General", "MpqPrefetch", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "ObjVisCache", "1", iniPath.c_str());
             WritePrivateProfileStringA("General", "DbcPreload", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "OomGovernor", "0", iniPath.c_str());
@@ -278,8 +274,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptTimingFix           = GetPrivateProfileIntA("General", "TimingFix", 0, iniPath.c_str()) != 0;
         g_settings.OptCvarNullGuard       = GetPrivateProfileIntA("General", "CvarNullGuard", 1, iniPath.c_str()) != 0;
         g_settings.OptFrameLimiter        = GetPrivateProfileIntA("General", "FrameLimiter", 0, iniPath.c_str()) != 0;
-        g_settings.OptMpqMmapVfs          = GetPrivateProfileIntA("General", "MpqMmapVfs", 0, iniPath.c_str()) != 0;
-        g_settings.OptMpqPrefetch         = GetPrivateProfileIntA("General", "MpqPrefetch", 0, iniPath.c_str()) != 0;
         g_settings.OptObjVisCache         = GetPrivateProfileIntA("General", "ObjVisCache", 1, iniPath.c_str()) != 0;
         g_settings.OptDbcPreload          = GetPrivateProfileIntA("General", "DbcPreload", 0, iniPath.c_str()) != 0;
         g_settings.OptOomGovernor         = GetPrivateProfileIntA("General", "OomGovernor", 0, iniPath.c_str()) != 0;

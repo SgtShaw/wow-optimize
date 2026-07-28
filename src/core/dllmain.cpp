@@ -272,8 +272,6 @@ static void StopFreezeWatchdog() {
 #include "combatlog_optimize.h"
 #include "combatlog_buffer.h"
 #include "addon_dispatcher.h"
-#include "mpq_prefetch.h"
-#include "mpq_mmap_vfs.h"
 #include "mpq_async_decompress.h"
 #include "obj_vis_cache.h"
 #include "nameplate_batch.h"
@@ -1507,12 +1505,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
                 AddonDispatcher::OnFrame(g_mainThreadId);
             }
 #endif
-#if !TEST_DISABLE_MPQ_PREFETCH
-            MPQPrefetch::OnFrame(g_mainThreadId);
-#endif
-            if (Config::g_settings.OptMpqMmapVfs) {
-                MpqMmapVfs::OnFrame();
-            }
             RcuObjMgr::OnFrame();
 #if !TEST_DISABLE_TEXTURE_DECODE_MT
             AsyncTexLoader::OnFrame();
@@ -6577,8 +6569,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("CombatLogBuffer");
     CrashDumper::RegisterFeature("ObjVisCache");
     CrashDumper::RegisterFeature("AddonDispatcher");
-    CrashDumper::RegisterFeature("MPQPrefetch");
-    CrashDumper::RegisterFeature("MpqMmapVfs");
     CrashDumper::RegisterFeature("NameplateMT");
     CrashDumper::RegisterFeature("NetworkGUID");
     CrashDumper::RegisterFeature("UICache");
@@ -7407,15 +7397,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- Predictive MPQ Prefetching ---");
 #if !TEST_DISABLE_MPQ_PREFETCH
-    bool mpqPrefetchOk = Config::g_settings.OptMpqPrefetch && MPQPrefetch::Init();
 #else
-    Log("[MPQPrefetch] DISABLED via TEST_DISABLE_MPQ_PREFETCH");
     bool mpqPrefetchOk = false;
 #endif
 
     Log("");
     Log("--- Memory-Mapped MPQ VFS & Parallel Decompressor ---");
-    bool mpqMmapVfsOk = (Config::g_settings.OptMpqMmapVfs || Config::g_settings.OptDbcPreload) && MpqMmapVfs::Init();
     if (Config::g_settings.OptMpqAsyncDecompress) MpqAsyncDecompress::Init();
 
     Log("");
@@ -9804,12 +9791,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
                 AddonDispatcher::Shutdown();
             }
 #endif
-#if !TEST_DISABLE_MPQ_PREFETCH
-            MPQPrefetch::Shutdown();
-#endif
-            if (Config::g_settings.OptMpqMmapVfs) {
-                MpqMmapVfs::Shutdown();
-            }
 #if !TEST_DISABLE_OBJ_VIS_CACHE
             ObjVisCache::Shutdown();
 #endif
