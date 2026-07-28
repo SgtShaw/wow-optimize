@@ -60,39 +60,21 @@
 #include "lua_alloc_pool.h"
 #include "world_state_coalesce.h"
 #include "hooks_subsystems/sound_coalescer.h"
-#include "hooks_subsystems/dbc_file_cache.h"
-#include "hooks_subsystems/font_outline_cache.h"
 #include "hooks_subsystems/lua_gc_governor.h"
 #include "hooks_subsystems/particle_density_scaler.h"
 #include "hooks_subsystems/vertex_buffer_prealloc.h"
-#include "hooks_subsystems/world_object_opt.h"
-#include "hooks_subsystems/camera_shake_opt.h"
-#include "hooks_subsystems/combat_text_font.h"
 #include "hooks_subsystems/saved_vars_backup.h"
-#include "hooks_subsystems/unit_max_power_cache.h"
 #include "hooks_subsystems/mouse_clip_release.h"
 #include "hooks_subsystems/combat_log_filter.h"
 #include "hooks_subsystems/sound_volume_limit.h"
 #include "hooks_subsystems/ui_layout_throttle.h"
 #include "hooks_subsystems/terrain_height_cache.h"
-#include "hooks_subsystems/anim_blend_cache.h"
-#include "hooks_subsystems/saved_vars_opt.h"
-#include "hooks_subsystems/movement_smoothing.h"
 #include "hooks_subsystems/font_alpha_fastpath.h"
 
 #include "hooks_subsystems/texture_unload_delay.h"
 #include "hooks_subsystems/minimap_refresh_governor.h"
 #include "hooks_subsystems/quality_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
-#include "hooks_subsystems/lua_string_compare_fast.h"
-#include "hooks_subsystems/dbc_row_caching.h"
-#include "hooks_subsystems/sound_freq_coalesce.h"
-#include "hooks_subsystems/ui_texture_caching.h"
-#include "hooks_subsystems/wmo_culling_opt.h"
-#include "hooks_subsystems/fast_float_parse.h"
-#include "hooks_subsystems/heap_allocation_tracker.h"
-#include "hooks_subsystems/spell_cooldown_cache.h"
-#include "hooks_subsystems/frame_script_mem_opt.h"
 
 // Forward declaration - Log() defined later in this file
 extern "C" void Log(const char* fmt, ...);
@@ -870,7 +852,6 @@ extern "C" void ClearLuaOptCaches() {
     // the model-pointer table that used to hide corpses: a cache keyed by an
     // address the engine is free to reuse must be dropped when the owner dies.
     FontGlyphCache::ClearCache();
-    FontOutlineCache::ClearCache();
 }
 
 // Stats for new hooks (defined with implementations below)
@@ -7909,15 +7890,9 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- 20 New Subsystem Performance & Stability Features ---");
     if (Config::g_settings.OptSoundCoalescer) SoundCoalescer::Init();
-    if (Config::g_settings.OptDbcFileCache) DbcFileCache::Init();
-    if (Config::g_settings.OptFontOutlineCache) FontOutlineCache::Init();
     // LuaGcGovernor::Init(); // Disabled duplicate governor
     if (Config::g_settings.OptVertexBufferPrealloc) VertexBufferPrealloc::Init();
-    if (Config::g_settings.OptWorldObjectOpt) WorldObjectOpt::Init();
-    if (Config::g_settings.OptCameraShakeOpt) CameraShakeOpt::Init();
-    if (Config::g_settings.OptCombatTextFont) CombatTextFont::Init();
     if (Config::g_settings.OptSavedVarsBackup) SavedVarsBackup::Init();
-    if (Config::g_settings.OptUnitMaxPowerCache) UnitMaxPowerCache::Init();
     if (Config::g_settings.OptMouseClipRelease) MouseClipRelease::Init();
 
     Log("--- 10 More New Performance & Stability Features ---");
@@ -7925,24 +7900,12 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptSoundVolumeLimit) SoundVolumeLimit::Init();
     if (Config::g_settings.OptUILayoutThrottle) UILayoutThrottle::Init();
     if (Config::g_settings.OptTerrainHeightCache) TerrainHeightCache::Init();
-    if (Config::g_settings.OptAnimBlendCache) AnimBlendCache::Init();
-    if (Config::g_settings.OptSavedVarsOpt) SavedVarsOpt::Init();
-    if (Config::g_settings.OptMovementSmoothing) MovementSmoothing::Init();
     if (Config::g_settings.OptFontAlphaFastpath) FontAlphaFastpath::Init();
 
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
     QualityGovernor::Init();
     if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();
-    if (Config::g_settings.OptLuaStringCompareFast) LuaStringCompareFast::Init();
-    if (Config::g_settings.OptDbcRowCaching) DbcRowCaching::Init();
-    if (Config::g_settings.OptSoundFreqCoalesce) SoundFreqCoalesce::Init();
-    if (Config::g_settings.OptUiTextureCaching) UiTextureCaching::Init();
-    if (Config::g_settings.OptWmoCullingOpt) WmoCullingOpt::Init();
-    if (Config::g_settings.OptFastFloatParse) FastFloatParse::Init();
-    if (Config::g_settings.OptHeapAllocationTracker) HeapAllocationTracker::Init();
-    if (Config::g_settings.OptSpellCooldownCache) SpellCooldownCache::Init();
-    if (Config::g_settings.OptFrameScriptMemOpt) FrameScriptMemOpt::Init();
 
     Log("");
     Log("--- World-to-Screen SSE Math ---");
@@ -9912,9 +9875,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SoundVolumeLimit::Shutdown();
             UILayoutThrottle::Shutdown();
             TerrainHeightCache::Shutdown();
-            AnimBlendCache::Shutdown();
-            SavedVarsOpt::Shutdown();
-            MovementSmoothing::Shutdown();
             FontAlphaFastpath::Shutdown();
             MinimapThrottle::Shutdown();
             DbcLookupCacheFast::Shutdown();

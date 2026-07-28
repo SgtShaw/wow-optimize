@@ -100,9 +100,6 @@ namespace Config {
         bool OptSoundVolumeLimit = true;
         bool OptUILayoutThrottle = true;
         bool OptTerrainHeightCache = true;
-        bool OptAnimBlendCache = true;
-        bool OptSavedVarsOpt = true;
-        bool OptMovementSmoothing = true;
         bool OptFontAlphaFastpath = true;
 
         bool OptTextureUnloadDelay = false;
@@ -111,29 +108,14 @@ namespace Config {
         bool OptMpqAsyncDecompress = false;
         bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;
-        bool OptLuaStringCompareFast = true;
-        bool OptDbcRowCaching = true;
-        bool OptSoundFreqCoalesce = true;
-        bool OptUiTextureCaching = true;
-        bool OptWmoCullingOpt = true;
-        bool OptFastFloatParse = true;
-        bool OptHeapAllocationTracker = true;
         bool OptCrtMimalloc = false;
-        bool OptSpellCooldownCache = true;
-        bool OptFrameScriptMemOpt = true;
 
         // Previously Init'd unconditionally (ignored their launcher toggles).
         // Default true = preserve the old always-on behavior; now disableable.
-        bool OptCameraShakeOpt = true;
-        bool OptCombatTextFont = true;
-        bool OptDbcFileCache = true;
-        bool OptFontOutlineCache = true;
         bool OptMouseClipRelease = true;
         bool OptSavedVarsBackup = true;
         bool OptSoundCoalescer = true;
-        bool OptUnitMaxPowerCache = true;
         bool OptVertexBufferPrealloc = true;
-        bool OptWorldObjectOpt = true;
     };
 
     extern Settings g_settings;

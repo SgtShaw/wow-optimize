@@ -87,9 +87,6 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "SoundVolumeLimit", &Settings::OptSoundVolumeLimit },
     { "UI_Lua", "UILayoutThrottle", &Settings::OptUILayoutThrottle },
     { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
-    { "Graphics_Sound", "AnimBlendCache", &Settings::OptAnimBlendCache },
-    { "General", "SavedVarsOpt", &Settings::OptSavedVarsOpt },
-    { "General", "MovementSmoothing", &Settings::OptMovementSmoothing },
     { "UI_Lua", "FontAlphaFastpath", &Settings::OptFontAlphaFastpath },
     { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
     { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
@@ -98,26 +95,11 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "SimdMatrixTransform", &Settings::OptSimdMatrixTransform },
     { "UI_Lua", "MinimapRefreshGovernor", &Settings::OptMinimapRefreshGovernor },
     { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
-    { "UI_Lua", "LuaStringCompareFast", &Settings::OptLuaStringCompareFast },
-    { "Graphics_Sound", "DbcRowCaching", &Settings::OptDbcRowCaching },
-    { "Graphics_Sound", "SoundFreqCoalesce", &Settings::OptSoundFreqCoalesce },
-    { "UI_Lua", "UiTextureCaching", &Settings::OptUiTextureCaching },
-    { "Graphics_Sound", "WmoCullingOpt", &Settings::OptWmoCullingOpt },
-    { "UI_Lua", "FastFloatParse", &Settings::OptFastFloatParse },
-    { "General", "HeapAllocationTracker", &Settings::OptHeapAllocationTracker },
     { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
-    { "UI_Lua", "SpellCooldownCache", &Settings::OptSpellCooldownCache },
-    { "UI_Lua", "FrameScriptMemOpt", &Settings::OptFrameScriptMemOpt },
-    { "General", "CameraShakeOpt", &Settings::OptCameraShakeOpt },
-    { "UI_Lua", "CombatTextFont", &Settings::OptCombatTextFont },
-    { "Graphics_Sound", "DbcFileCache", &Settings::OptDbcFileCache },
-    { "UI_Lua", "FontOutlineCache", &Settings::OptFontOutlineCache },
     { "General", "MouseClipRelease", &Settings::OptMouseClipRelease },
     { "General", "SavedVarsBackup", &Settings::OptSavedVarsBackup },
     { "Graphics_Sound", "SoundCoalescer", &Settings::OptSoundCoalescer },
-    { "UI_Lua", "UnitMaxPowerCache", &Settings::OptUnitMaxPowerCache },
     { "General", "VertexBufferPrealloc", &Settings::OptVertexBufferPrealloc },
-    { "Graphics_Sound", "WorldObjectOpt", &Settings::OptWorldObjectOpt },
 };
 
 static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolSettings[0]));
@@ -392,9 +374,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 0, iniPath.c_str()) != 0;
         g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 0, iniPath.c_str()) != 0;
         g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptAnimBlendCache     = GetPrivateProfileIntA("Graphics_Sound", "AnimBlendCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptSavedVarsOpt       = GetPrivateProfileIntA("General", "SavedVarsOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptMovementSmoothing  = GetPrivateProfileIntA("General", "MovementSmoothing", 0, iniPath.c_str()) != 0;
         g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 0, iniPath.c_str()) != 0;
 
         // Parse Features 31-50
@@ -405,30 +384,15 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
         g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;
-        g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 0, iniPath.c_str()) != 0;
-        g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 0, iniPath.c_str()) != 0;
-        g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 0, iniPath.c_str()) != 0;
-        g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 0, iniPath.c_str()) != 0;
-        g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 0, iniPath.c_str()) != 0;
-        g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
-        g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 0, iniPath.c_str()) != 0;
 
         // Previously Init'd unconditionally - now read from their launcher keys.
         // Default 1 preserves the old always-on behavior; they are now disableable.
-        g_settings.OptCameraShakeOpt       = GetPrivateProfileIntA("General", "CameraShakeOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptCombatTextFont       = GetPrivateProfileIntA("UI_Lua", "CombatTextFont", 0, iniPath.c_str()) != 0;
-        g_settings.OptDbcFileCache         = GetPrivateProfileIntA("Graphics_Sound", "DbcFileCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 0, iniPath.c_str()) != 0;
         g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 0, iniPath.c_str()) != 0;
-        g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 0, iniPath.c_str()) != 0;
 
         g_loadedFrom = iniPath;
         g_settings.OptVertexBufferPrealloc = GetPrivateProfileIntA("General", "VertexBufferPrealloc", 0, iniPath.c_str()) != 0;
-        g_settings.OptWorldObjectOpt       = GetPrivateProfileIntA("Graphics_Sound", "WorldObjectOpt", 0, iniPath.c_str()) != 0;
     }
 }

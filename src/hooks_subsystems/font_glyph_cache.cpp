@@ -4,7 +4,6 @@
 #include "MinHook.h"
 #include "version.h"
 #include "font_glyph_cache.h"
-#include "font_outline_cache.h"
 
 extern "C" void Log(const char* fmt, ...);
 extern volatile LONG g_deviceResetCounter;
@@ -100,7 +99,6 @@ static char __cdecl Hooked_GxuLoadGlyph(void* fontObj, unsigned int charCode, in
                 lastResetCounter, currentResetCounter);
             lastResetCounter = currentResetCounter;
             ClearCache();
-            FontOutlineCache::ClearCache();
             deviceChangeTime = GetTickCount();
         }
 

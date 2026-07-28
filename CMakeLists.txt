@@ -429,26 +429,14 @@ add_library(wow_optimize SHARED
 
     src/hooks_subsystems/sound_coalescer.cpp
     src/hooks_subsystems/sound_coalescer.h
-    src/hooks_subsystems/dbc_file_cache.cpp
-    src/hooks_subsystems/dbc_file_cache.h
-    src/hooks_subsystems/font_outline_cache.cpp
-    src/hooks_subsystems/font_outline_cache.h
     src/hooks_subsystems/lua_gc_governor.cpp
     src/hooks_subsystems/lua_gc_governor.h
     src/hooks_subsystems/particle_density_scaler.cpp
     src/hooks_subsystems/particle_density_scaler.h
     src/hooks_subsystems/vertex_buffer_prealloc.cpp
     src/hooks_subsystems/vertex_buffer_prealloc.h
-    src/hooks_subsystems/world_object_opt.cpp
-    src/hooks_subsystems/world_object_opt.h
-    src/hooks_subsystems/camera_shake_opt.cpp
-    src/hooks_subsystems/camera_shake_opt.h
-    src/hooks_subsystems/combat_text_font.cpp
-    src/hooks_subsystems/combat_text_font.h
     src/hooks_subsystems/saved_vars_backup.cpp
     src/hooks_subsystems/saved_vars_backup.h
-    src/hooks_subsystems/unit_max_power_cache.cpp
-    src/hooks_subsystems/unit_max_power_cache.h
     src/hooks_subsystems/mouse_clip_release.cpp
     src/hooks_subsystems/mouse_clip_release.h
     src/hooks_subsystems/combat_log_filter.cpp
@@ -459,12 +447,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/ui_layout_throttle.h
     src/hooks_subsystems/terrain_height_cache.cpp
     src/hooks_subsystems/terrain_height_cache.h
-    src/hooks_subsystems/anim_blend_cache.cpp
-    src/hooks_subsystems/anim_blend_cache.h
-    src/hooks_subsystems/saved_vars_opt.cpp
-    src/hooks_subsystems/saved_vars_opt.h
-    src/hooks_subsystems/movement_smoothing.cpp
-    src/hooks_subsystems/movement_smoothing.h
     src/hooks_subsystems/font_alpha_fastpath.cpp
     src/hooks_subsystems/font_alpha_fastpath.h
     src/hooks_subsystems/texture_unload_delay.cpp
@@ -473,24 +455,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/minimap_refresh_governor.h
     src/hooks_subsystems/spell_effect_culling.cpp
     src/hooks_subsystems/spell_effect_culling.h
-    src/hooks_subsystems/lua_string_compare_fast.cpp
-    src/hooks_subsystems/lua_string_compare_fast.h
-    src/hooks_subsystems/dbc_row_caching.cpp
-    src/hooks_subsystems/dbc_row_caching.h
-    src/hooks_subsystems/sound_freq_coalesce.cpp
-    src/hooks_subsystems/sound_freq_coalesce.h
-    src/hooks_subsystems/ui_texture_caching.cpp
-    src/hooks_subsystems/ui_texture_caching.h
-    src/hooks_subsystems/wmo_culling_opt.cpp
-    src/hooks_subsystems/wmo_culling_opt.h
-    src/hooks_subsystems/fast_float_parse.cpp
-    src/hooks_subsystems/fast_float_parse.h
-    src/hooks_subsystems/heap_allocation_tracker.cpp
-    src/hooks_subsystems/heap_allocation_tracker.h
-    src/hooks_subsystems/spell_cooldown_cache.cpp
-    src/hooks_subsystems/spell_cooldown_cache.h
-    src/hooks_subsystems/frame_script_mem_opt.cpp
-    src/hooks_subsystems/frame_script_mem_opt.h
 )
 
 target_link_libraries(wow_optimize PRIVATE
