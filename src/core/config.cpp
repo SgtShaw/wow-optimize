@@ -16,26 +16,171 @@ namespace Config {
     // the DLL had read from or what it concluded.
     static std::string g_loadedFrom;
 
+// Generated from the reads in Load(): every boolean setting, the ini section and
+// key it comes from, and the field it lands in.
+struct BoolSetting {
+    const char*   section;
+    const char*   key;
+    bool Settings::* field;
+};
+
+static const BoolSetting kBoolSettings[] = {
+    { "General", "SleepPrecision", &Settings::OptSleepPrecision },
+    { "General", "SessionLogs", &Settings::OptSessionLogs },
+    { "UI_Lua", "LuaStackFast", &Settings::OptLuaStackFast },
+    { "Graphics_Sound", "QualityGovernor", &Settings::OptQualityGovernor },
+    { "General", "MemoryPressure", &Settings::OptMemoryPressure },
+    { "General", "HeapCompactor", &Settings::OptHeapCompactor },
+    { "General", "DefragLf", &Settings::OptDefragLf },
+    { "General", "VulkanDXVK", &Settings::OptVulkanDXVK },
+    { "General", "TimingFix", &Settings::OptTimingFix },
+    { "General", "CvarNullGuard", &Settings::OptCvarNullGuard },
+    { "General", "FrameLimiter", &Settings::OptFrameLimiter },
+    { "General", "MpqMmapVfs", &Settings::OptMpqMmapVfs },
+    { "General", "MpqPrefetch", &Settings::OptMpqPrefetch },
+    { "General", "ObjVisCache", &Settings::OptObjVisCache },
+    { "General", "DbcPreload", &Settings::OptDbcPreload },
+    { "General", "OomGovernor", &Settings::OptOomGovernor },
+    { "General", "HardwareCursor", &Settings::OptHardwareCursor },
+    { "General", "SamplingProfiler", &Settings::OptSamplingProfiler },
+    { "General", "MimallocLarge", &Settings::OptMimallocLarge },
+    { "General", "VaArena", &Settings::OptVaArena },
+    { "General", "CompatMode", &Settings::OptCompatMode },
+    { "UI_Lua", "UIFrameBatch", &Settings::OptUIFrameBatch },
+    { "UI_Lua", "AddonDispatcher", &Settings::OptAddonDispatcher },
+    { "UI_Lua", "UIFrameAccessorFast", &Settings::OptUIFrameAccessorFast },
+    { "UI_Lua", "FontMetricsFast", &Settings::OptFontMetricsFast },
+    { "UI_Lua", "ModuleHandleCache", &Settings::OptModuleHandleCache },
+    { "UI_Lua", "FrameScriptDispatch", &Settings::OptFrameScriptDispatch },
+    { "UI_Lua", "LuaNumConvFast", &Settings::OptLuaNumConvFast },
+    { "UI_Lua", "LuaOpcache", &Settings::OptLuaOpcache },
+    { "UI_Lua", "LuaGcCoalesce", &Settings::OptLuaGcCoalesce },
+    { "UI_Lua", "LuaJIT", &Settings::OptLuaJIT },
+    { "UI_Lua", "LuaGetTimeFast", &Settings::OptLuaGetTimeFast },
+    { "UI_Lua", "AsyncTexLoader", &Settings::OptAsyncTexLoader },
+    { "UI_Lua", "AsyncTerrainLoader", &Settings::OptAsyncTerrainLoader },
+    { "UI_Lua", "RcuObjMgr", &Settings::OptRcuObjMgr },
+    { "UI_Lua", "MipBiasGovernor", &Settings::OptMipBiasGovernor },
+    { "Combat_Net", "CombatLogLeakFix", &Settings::OptCombatLogLeakFix },
+    { "Combat_Net", "CombatLogParser", &Settings::OptCombatLogParser },
+    { "Combat_Net", "CombatLogIncremental", &Settings::OptCombatLogIncremental },
+    { "Combat_Net", "EventCoalescer", &Settings::OptEventCoalescer },
+    { "Combat_Net", "SavedVarsSerializer", &Settings::OptSavedVarsSerializer },
+    { "Combat_Net", "SavedVarsAsync", &Settings::OptSavedVarsAsync },
+    { "Combat_Net", "SavedVarsPretoken", &Settings::OptSavedVarsPretoken },
+    { "Combat_Net", "UnitAuraFast", &Settings::OptUnitAuraFast },
+    { "Combat_Net", "NetworkGuidSse2", &Settings::OptNetworkGuidSse2 },
+    { "Combat_Net", "GetSpellInfoCache", &Settings::OptGetSpellInfoCache },
+    { "Combat_Net", "PacketOffload", &Settings::OptPacketOffload },
+    { "Combat_Net", "NameplateMT", &Settings::OptNameplateMT },
+    { "Graphics_Sound", "FastMemsetOpt", &Settings::OptFastMemsetOpt },
+    { "UI_Lua", "FastStrnicmpOpt", &Settings::OptFastStrnicmpOpt },
+    { "UI_Lua", "LuaSNewLstrFast", &Settings::OptLuaSNewLstrFast },
+    { "Graphics_Sound", "StrStrSse2", &Settings::OptStrStrSse2 },
+    { "Graphics_Sound", "StrCatFast", &Settings::OptStrCatFast },
+    { "Graphics_Sound", "SoundMixerOpt", &Settings::OptSoundMixerOpt },
+    { "Graphics_Sound", "AudioDecodeMt", &Settings::OptAudioDecodeMt },
+    { "Graphics_Sound", "DbcLookupCache", &Settings::OptDbcLookupCache },
+    { "Graphics_Sound", "WorldStateCoalesce", &Settings::OptWorldStateCoalesce },
+    { "Graphics_Sound", "D3d9RenderThread", &Settings::OptD3d9RenderThread },
+    { "Combat_Net", "CombatLogFilter", &Settings::OptCombatLogFilter },
+    { "Graphics_Sound", "SoundVolumeLimit", &Settings::OptSoundVolumeLimit },
+    { "UI_Lua", "UILayoutThrottle", &Settings::OptUILayoutThrottle },
+    { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
+    { "Graphics_Sound", "AnimBlendCache", &Settings::OptAnimBlendCache },
+    { "General", "SavedVarsOpt", &Settings::OptSavedVarsOpt },
+    { "Combat_Net", "ItemDataPrefetch", &Settings::OptItemDataPrefetch },
+    { "General", "MovementSmoothing", &Settings::OptMovementSmoothing },
+    { "UI_Lua", "FontAlphaFastpath", &Settings::OptFontAlphaFastpath },
+    { "Combat_Net", "PacketProcessingThrottle", &Settings::OptPacketProcessingThrottle },
+    { "Combat_Net", "NameplateCulling", &Settings::OptNameplateCulling },
+    { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
+    { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
+    { "Graphics_Sound", "M2BoneMt", &Settings::OptM2BoneMt },
+    { "General", "MpqAsyncDecompress", &Settings::OptMpqAsyncDecompress },
+    { "Graphics_Sound", "SimdMatrixTransform", &Settings::OptSimdMatrixTransform },
+    { "UI_Lua", "MinimapRefreshGovernor", &Settings::OptMinimapRefreshGovernor },
+    { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
+    { "UI_Lua", "LuaStringCompareFast", &Settings::OptLuaStringCompareFast },
+    { "Graphics_Sound", "DbcRowCaching", &Settings::OptDbcRowCaching },
+    { "Combat_Net", "NetworkStringDedup", &Settings::OptNetworkStringDedup },
+    { "Graphics_Sound", "SoundFreqCoalesce", &Settings::OptSoundFreqCoalesce },
+    { "Combat_Net", "AuraUpdateDedup", &Settings::OptAuraUpdateDedup },
+    { "UI_Lua", "UiTextureCaching", &Settings::OptUiTextureCaching },
+    { "Graphics_Sound", "WmoCullingOpt", &Settings::OptWmoCullingOpt },
+    { "UI_Lua", "FastFloatParse", &Settings::OptFastFloatParse },
+    { "General", "HeapAllocationTracker", &Settings::OptHeapAllocationTracker },
+    { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
+    { "UI_Lua", "SpellCooldownCache", &Settings::OptSpellCooldownCache },
+    { "Combat_Net", "GuidStringCache", &Settings::OptGuidStringCache },
+    { "UI_Lua", "FrameScriptMemOpt", &Settings::OptFrameScriptMemOpt },
+    { "Combat_Net", "CombatEventLimit", &Settings::OptCombatEventLimit },
+    { "Combat_Net", "AddonMsgLimiter", &Settings::OptAddonMsgLimiter },
+    { "Combat_Net", "AuraPreloadCache", &Settings::OptAuraPreloadCache },
+    { "Combat_Net", "CDataStoreBuffering", &Settings::OptCDataStoreBuffering },
+    { "General", "CameraShakeOpt", &Settings::OptCameraShakeOpt },
+    { "Combat_Net", "CombatLogAsync", &Settings::OptCombatLogAsync },
+    { "UI_Lua", "CombatTextFont", &Settings::OptCombatTextFont },
+    { "Graphics_Sound", "DbcFileCache", &Settings::OptDbcFileCache },
+    { "UI_Lua", "FontOutlineCache", &Settings::OptFontOutlineCache },
+    { "General", "MouseClipRelease", &Settings::OptMouseClipRelease },
+    { "Combat_Net", "NameplateDistanceCvar", &Settings::OptNameplateDistanceCvar },
+    { "General", "SavedVarsBackup", &Settings::OptSavedVarsBackup },
+    { "Graphics_Sound", "SoundCoalescer", &Settings::OptSoundCoalescer },
+    { "Combat_Net", "SpellOverlayPreload", &Settings::OptSpellOverlayPreload },
+    { "UI_Lua", "UnitMaxPowerCache", &Settings::OptUnitMaxPowerCache },
+    { "General", "VertexBufferPrealloc", &Settings::OptVertexBufferPrealloc },
+    { "Graphics_Sound", "WorldObjectOpt", &Settings::OptWorldObjectOpt },
+};
+
+static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolSettings[0]));
+
     void DumpToLog() {
         Log("[Config] Read from: %s", g_loadedFrom.empty() ? "(none)" : g_loadedFrom.c_str());
 
-        FILE* f = fopen(g_loadedFrom.c_str(), "r");
-        if (!f) {
-            Log("[Config] File could not be reopened for the dump - the settings "
-                "above are whatever the defaults are.");
-            return;
+        // This used to print the ini file and call it "Effective contents". It was
+        // neither effective nor complete: a setting the launcher never wrote is
+        // absent from the file, so it silently took its compiled default and left
+        // no trace in the log at all. Four tester logs were read on the assumption
+        // that a key's absence meant the feature was not in play, when it actually
+        // meant the feature was running on a default nobody had chosen.
+        // SavedVarsPretoken - which by itself gates the whole Win32 file-hook suite
+        // and the CDataStore batcher - was invisible in every one of them.
+        //
+        // So report the resolved value of every setting and say where it came from.
+        // Present-and-on, present-and-off, and absent-so-defaulted are three
+        // different states, and the log has to keep them apart.
+        const char* path = g_loadedFrom.c_str();
+        bool haveFile = !g_loadedFrom.empty() &&
+                        GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES;
+        if (!haveFile) {
+            Log("[Config] No ini file was read - every value below is a default.");
         }
-        Log("[Config] Effective contents:");
-        char line[256];
-        while (fgets(line, sizeof(line), f)) {
-            char* p = line;
-            while (*p == ' ' || *p == '\t') p++;
-            size_t n = strlen(p);
-            while (n && (p[n-1] == '\n' || p[n-1] == '\r' || p[n-1] == ' ')) p[--n] = 0;
-            if (!*p || *p == ';' || *p == '#') continue;
-            Log("[Config]   %s", p);
+
+        Log("[Config] Resolved settings (%d); \"default\" means absent from the file:",
+            kBoolSettingCount);
+
+        int fromFile = 0, defaulted = 0;
+        for (int i = 0; i < kBoolSettingCount; i++) {
+            const BoolSetting& e = kBoolSettings[i];
+            bool value = g_settings.*(e.field);
+
+            // Asking twice with opposite defaults is how absence is detected: a key
+            // that is present returns its own value both times.
+            bool present = false;
+            if (haveFile) {
+                present = GetPrivateProfileIntA(e.section, e.key, 0, path) ==
+                          GetPrivateProfileIntA(e.section, e.key, 1, path);
+            }
+            if (present) fromFile++; else defaulted++;
+
+            Log("[Config]   [%s] %s=%d%s", e.section, e.key, value ? 1 : 0,
+                present ? "" : "   (default - not in file)");
         }
-        fclose(f);
+
+        Log("[Config]   [General] SleepPrecisionValue=%d", g_settings.SleepPrecisionValue);
+        Log("[Config]   [General] SessionLogsToKeep=%d", g_settings.SessionLogsToKeep);
+        Log("[Config] %d set in the file, %d left at defaults.", fromFile, defaulted);
     }
 
     void Load() {
