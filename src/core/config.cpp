@@ -89,11 +89,8 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
     { "Graphics_Sound", "AnimBlendCache", &Settings::OptAnimBlendCache },
     { "General", "SavedVarsOpt", &Settings::OptSavedVarsOpt },
-    { "Combat_Net", "ItemDataPrefetch", &Settings::OptItemDataPrefetch },
     { "General", "MovementSmoothing", &Settings::OptMovementSmoothing },
     { "UI_Lua", "FontAlphaFastpath", &Settings::OptFontAlphaFastpath },
-    { "Combat_Net", "PacketProcessingThrottle", &Settings::OptPacketProcessingThrottle },
-    { "Combat_Net", "NameplateCulling", &Settings::OptNameplateCulling },
     { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
     { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
     { "Graphics_Sound", "M2BoneMt", &Settings::OptM2BoneMt },
@@ -103,31 +100,21 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
     { "UI_Lua", "LuaStringCompareFast", &Settings::OptLuaStringCompareFast },
     { "Graphics_Sound", "DbcRowCaching", &Settings::OptDbcRowCaching },
-    { "Combat_Net", "NetworkStringDedup", &Settings::OptNetworkStringDedup },
     { "Graphics_Sound", "SoundFreqCoalesce", &Settings::OptSoundFreqCoalesce },
-    { "Combat_Net", "AuraUpdateDedup", &Settings::OptAuraUpdateDedup },
     { "UI_Lua", "UiTextureCaching", &Settings::OptUiTextureCaching },
     { "Graphics_Sound", "WmoCullingOpt", &Settings::OptWmoCullingOpt },
     { "UI_Lua", "FastFloatParse", &Settings::OptFastFloatParse },
     { "General", "HeapAllocationTracker", &Settings::OptHeapAllocationTracker },
     { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
     { "UI_Lua", "SpellCooldownCache", &Settings::OptSpellCooldownCache },
-    { "Combat_Net", "GuidStringCache", &Settings::OptGuidStringCache },
     { "UI_Lua", "FrameScriptMemOpt", &Settings::OptFrameScriptMemOpt },
-    { "Combat_Net", "CombatEventLimit", &Settings::OptCombatEventLimit },
-    { "Combat_Net", "AddonMsgLimiter", &Settings::OptAddonMsgLimiter },
-    { "Combat_Net", "AuraPreloadCache", &Settings::OptAuraPreloadCache },
-    { "Combat_Net", "CDataStoreBuffering", &Settings::OptCDataStoreBuffering },
     { "General", "CameraShakeOpt", &Settings::OptCameraShakeOpt },
-    { "Combat_Net", "CombatLogAsync", &Settings::OptCombatLogAsync },
     { "UI_Lua", "CombatTextFont", &Settings::OptCombatTextFont },
     { "Graphics_Sound", "DbcFileCache", &Settings::OptDbcFileCache },
     { "UI_Lua", "FontOutlineCache", &Settings::OptFontOutlineCache },
     { "General", "MouseClipRelease", &Settings::OptMouseClipRelease },
-    { "Combat_Net", "NameplateDistanceCvar", &Settings::OptNameplateDistanceCvar },
     { "General", "SavedVarsBackup", &Settings::OptSavedVarsBackup },
     { "Graphics_Sound", "SoundCoalescer", &Settings::OptSoundCoalescer },
-    { "Combat_Net", "SpellOverlayPreload", &Settings::OptSpellOverlayPreload },
     { "UI_Lua", "UnitMaxPowerCache", &Settings::OptUnitMaxPowerCache },
     { "General", "VertexBufferPrealloc", &Settings::OptVertexBufferPrealloc },
     { "Graphics_Sound", "WorldObjectOpt", &Settings::OptWorldObjectOpt },
@@ -407,13 +394,10 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 0, iniPath.c_str()) != 0;
         g_settings.OptAnimBlendCache     = GetPrivateProfileIntA("Graphics_Sound", "AnimBlendCache", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsOpt       = GetPrivateProfileIntA("General", "SavedVarsOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptItemDataPrefetch   = GetPrivateProfileIntA("Combat_Net", "ItemDataPrefetch", 0, iniPath.c_str()) != 0;
         g_settings.OptMovementSmoothing  = GetPrivateProfileIntA("General", "MovementSmoothing", 0, iniPath.c_str()) != 0;
         g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 0, iniPath.c_str()) != 0;
 
         // Parse Features 31-50
-        g_settings.OptPacketProcessingThrottle = GetPrivateProfileIntA("Combat_Net", "PacketProcessingThrottle", 0, iniPath.c_str()) != 0;
-        g_settings.OptNameplateCulling = GetPrivateProfileIntA("Combat_Net", "NameplateCulling", 0, iniPath.c_str()) != 0;
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
         g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 0, iniPath.c_str()) != 0;
         g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
@@ -423,34 +407,24 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;
         g_settings.OptLuaStringCompareFast = GetPrivateProfileIntA("UI_Lua", "LuaStringCompareFast", 0, iniPath.c_str()) != 0;
         g_settings.OptDbcRowCaching = GetPrivateProfileIntA("Graphics_Sound", "DbcRowCaching", 0, iniPath.c_str()) != 0;
-        g_settings.OptNetworkStringDedup = GetPrivateProfileIntA("Combat_Net", "NetworkStringDedup", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundFreqCoalesce = GetPrivateProfileIntA("Graphics_Sound", "SoundFreqCoalesce", 0, iniPath.c_str()) != 0;
-        g_settings.OptAuraUpdateDedup = GetPrivateProfileIntA("Combat_Net", "AuraUpdateDedup", 0, iniPath.c_str()) != 0;
         g_settings.OptUiTextureCaching = GetPrivateProfileIntA("UI_Lua", "UiTextureCaching", 0, iniPath.c_str()) != 0;
         g_settings.OptWmoCullingOpt = GetPrivateProfileIntA("Graphics_Sound", "WmoCullingOpt", 0, iniPath.c_str()) != 0;
         g_settings.OptFastFloatParse = GetPrivateProfileIntA("UI_Lua", "FastFloatParse", 0, iniPath.c_str()) != 0;
         g_settings.OptHeapAllocationTracker = GetPrivateProfileIntA("General", "HeapAllocationTracker", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellCooldownCache = GetPrivateProfileIntA("UI_Lua", "SpellCooldownCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptGuidStringCache = GetPrivateProfileIntA("Combat_Net", "GuidStringCache", 0, iniPath.c_str()) != 0;
         g_settings.OptFrameScriptMemOpt = GetPrivateProfileIntA("UI_Lua", "FrameScriptMemOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptCombatEventLimit = GetPrivateProfileIntA("Combat_Net", "CombatEventLimit", 0, iniPath.c_str()) != 0;
 
         // Previously Init'd unconditionally - now read from their launcher keys.
         // Default 1 preserves the old always-on behavior; they are now disableable.
-        g_settings.OptAddonMsgLimiter      = GetPrivateProfileIntA("Combat_Net", "AddonMsgLimiter", 0, iniPath.c_str()) != 0;
-        g_settings.OptAuraPreloadCache     = GetPrivateProfileIntA("Combat_Net", "AuraPreloadCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptCDataStoreBuffering  = GetPrivateProfileIntA("Combat_Net", "CDataStoreBuffering", 0, iniPath.c_str()) != 0;
         g_settings.OptCameraShakeOpt       = GetPrivateProfileIntA("General", "CameraShakeOpt", 0, iniPath.c_str()) != 0;
-        g_settings.OptCombatLogAsync       = GetPrivateProfileIntA("Combat_Net", "CombatLogAsync", 0, iniPath.c_str()) != 0;
         g_settings.OptCombatTextFont       = GetPrivateProfileIntA("UI_Lua", "CombatTextFont", 0, iniPath.c_str()) != 0;
         g_settings.OptDbcFileCache         = GetPrivateProfileIntA("Graphics_Sound", "DbcFileCache", 0, iniPath.c_str()) != 0;
         g_settings.OptFontOutlineCache     = GetPrivateProfileIntA("UI_Lua", "FontOutlineCache", 0, iniPath.c_str()) != 0;
         g_settings.OptMouseClipRelease     = GetPrivateProfileIntA("General", "MouseClipRelease", 0, iniPath.c_str()) != 0;
-        g_settings.OptNameplateDistanceCvar= GetPrivateProfileIntA("Combat_Net", "NameplateDistanceCvar", 0, iniPath.c_str()) != 0;
         g_settings.OptSavedVarsBackup      = GetPrivateProfileIntA("General", "SavedVarsBackup", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundCoalescer       = GetPrivateProfileIntA("Graphics_Sound", "SoundCoalescer", 0, iniPath.c_str()) != 0;
-        g_settings.OptSpellOverlayPreload  = GetPrivateProfileIntA("Combat_Net", "SpellOverlayPreload", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitMaxPowerCache    = GetPrivateProfileIntA("UI_Lua", "UnitMaxPowerCache", 0, iniPath.c_str()) != 0;
 
         g_loadedFrom = iniPath;

@@ -102,12 +102,9 @@ namespace Config {
         bool OptTerrainHeightCache = true;
         bool OptAnimBlendCache = true;
         bool OptSavedVarsOpt = true;
-        bool OptItemDataPrefetch = true;
         bool OptMovementSmoothing = true;
         bool OptFontAlphaFastpath = true;
 
-        bool OptPacketProcessingThrottle = true;
-        bool OptNameplateCulling = true;
         bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = true;
         bool OptM2BoneMt = false;
@@ -116,34 +113,24 @@ namespace Config {
         bool OptSpellEffectCulling = true;
         bool OptLuaStringCompareFast = true;
         bool OptDbcRowCaching = true;
-        bool OptNetworkStringDedup = true;
         bool OptSoundFreqCoalesce = true;
-        bool OptAuraUpdateDedup = true;
         bool OptUiTextureCaching = true;
         bool OptWmoCullingOpt = true;
         bool OptFastFloatParse = true;
         bool OptHeapAllocationTracker = true;
         bool OptCrtMimalloc = false;
         bool OptSpellCooldownCache = true;
-        bool OptGuidStringCache = true;
         bool OptFrameScriptMemOpt = true;
-        bool OptCombatEventLimit = true;
 
         // Previously Init'd unconditionally (ignored their launcher toggles).
         // Default true = preserve the old always-on behavior; now disableable.
-        bool OptAddonMsgLimiter = true;
-        bool OptAuraPreloadCache = true;
-        bool OptCDataStoreBuffering = true;
         bool OptCameraShakeOpt = true;
-        bool OptCombatLogAsync = true;
         bool OptCombatTextFont = true;
         bool OptDbcFileCache = true;
         bool OptFontOutlineCache = true;
         bool OptMouseClipRelease = true;
-        bool OptNameplateDistanceCvar = true;
         bool OptSavedVarsBackup = true;
         bool OptSoundCoalescer = true;
-        bool OptSpellOverlayPreload = true;
         bool OptUnitMaxPowerCache = true;
         bool OptVertexBufferPrealloc = true;
         bool OptWorldObjectOpt = true;
