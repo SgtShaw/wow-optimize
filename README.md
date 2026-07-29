@@ -35,24 +35,31 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.18.0
 
-Forty-three features were removed because they never ran, two real optimizations
-went in because the logs said where the time actually goes, and the settings that
-were quietly overwriting your graphics options are gone.
+Forty-six modules were removed because they never ran, three optimizations went
+in because the logs said where the time actually goes, and the settings that were
+quietly overwriting your graphics options are gone.
 
 Thanks to [txtsd](https://github.com/txtsd), whose testing confirmed the 3.17.0
 text-rendering fix, and to everyone who sent a log — every measured item below
 came out of one.
 
-**Forty-three features that did nothing at all**
+**Forty-six modules that did nothing at all**
 
 They appeared in the log at startup and had settings behind them. None installed
 a hook, patched anything, or was called from anywhere. `Init()` was
 `return true;` and the rest of the module was never entered.
 
-Forty-one of the forty-four had no launcher switch at all, and read a default of
-off, so nobody was running them — they were dead weight rather than active
-mistakes. Two separate minimap throttles existed, neither wired to anything. A
-JIT compiler sat behind a LuaJIT setting on a client that has no JIT.
+Most had no launcher switch at all and read a default of off, so nobody was
+running them — dead weight rather than active mistakes. Two separate minimap
+throttles existed, neither wired to anything. A JIT compiler sat behind a LuaJIT
+setting on a client that has no JIT. Two files shared a name and a namespace
+differing by one letter's case, and only one of them was ever wired up.
+
+Three of them had callers and still did nothing: a throttle whose enable flag was
+initialised to false and never set, a particle skip that asked a frustum nobody
+filled, and a "font alpha fast path" that turned alpha blending off whenever it
+should have left it alone — which would have painted text as solid rectangles had
+anything reached it.
 
 Two looked alive on inspection and were not. `ItemDataPrefetch::PrefetchItem` was
 an empty body under a comment saying the work was unsafe, called twice per item
@@ -67,14 +74,16 @@ Every tester log says so outright.
 What is left is a much shorter list of things that actually run: eleven settings
 are on unless you turn them off, and every one of them now has a switch.
 
-**Two optimizations that came from measurements, not guesses**
+**Three optimizations that came from measurements, not guesses**
 
 - **The client asks the heap how big every block is, then throws the answer
-  away.** WoW's `free` wrapper calls `_msize` and discards the result — a heap
-  lookup, sometimes a lock, on every single deallocation, from over a hundred
-  call sites. Two independent profiles measured that call at 8.09% and 10.59% of
-  the time the main thread spent executing. It is gone. Nothing else about the
-  call changes.
+  away.** Both the `free` wrapper and the allocation wrapper call `_msize` and
+  discard the result — a heap lookup, sometimes a lock, on every single
+  allocation and every deallocation, from over a hundred call sites. Two
+  independent profiles measured that call at 8.09% and 10.59% of the time the
+  main thread spent executing. Both are gone; nothing else about either call
+  changes. A three-minute session with the fix in place reports 67,776
+  allocations and 28,393 deallocations served without it.
 
 - **`tostring` on numbers is about 50x cheaper.** It was the single largest
   target in this project's own domain — 10.74% of execution in a CPU-bound
