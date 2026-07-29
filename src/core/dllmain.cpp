@@ -112,6 +112,69 @@ static void FreezeClassifyAddr(uintptr_t addr, char* out) {
     wsprintfA(out, "0x%08X", (unsigned)addr);
 }
 
+// What every other thread in the process was doing when the main thread stalled.
+//
+// A raid session produced seven real stalls, the longest 10.5 seconds - confirmed
+// independently by FrameBench, which counted them as gaps and kept them out of
+// the frame statistics. The main thread's stack named the waiter every time:
+// sub_774DA0, WoW's own lock, spinning and then waiting on an event. So the main
+// thread is blocked on something another thread holds, and the report said
+// nothing whatsoever about that other thread.
+//
+// That is the whole question. This answers it by naming, for every other thread
+// in the process, the module and offset it was executing.
+//
+// Safe to call here: the watchdog thread does nothing between the suspend and the
+// resume except read a register, so it cannot want a lock the suspended thread is
+// holding. The stall is already in progress, so a few microseconds of extra
+// suspension changes nothing.
+static void FreezeDumpOtherThreads(DWORD mainTid) {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) {
+        Log("!!!   (could not enumerate threads)");
+        return;
+    }
+
+    DWORD selfPid = GetCurrentProcessId();
+    DWORD watchdogTid = GetCurrentThreadId();
+    int reported = 0;
+
+    THREADENTRY32 te;
+    te.dwSize = sizeof(te);
+    if (Thread32First(snap, &te)) {
+        Log("!!!   OTHER THREADS AT THE MOMENT OF THE STALL:");
+        do {
+            if (te.th32OwnerProcessID != selfPid) continue;
+            if (te.th32ThreadID == mainTid || te.th32ThreadID == watchdogTid) continue;
+            if (reported >= 24) break;
+
+            HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT,
+                                  FALSE, te.th32ThreadID);
+            if (!h) continue;
+
+            uintptr_t eip = 0;
+            if (SuspendThread(h) != (DWORD)-1) {
+                CONTEXT c;
+                c.ContextFlags = CONTEXT_CONTROL;
+                if (GetThreadContext(h, &c)) eip = (uintptr_t)c.Eip;
+                ResumeThread(h);
+            }
+            CloseHandle(h);
+
+            if (eip) {
+                char where[128];
+                FreezeClassifyAddr(eip, where);
+                Log("!!!     TID=%-6lu %s", te.th32ThreadID, where);
+                reported++;
+            }
+        } while (Thread32Next(snap, &te));
+    }
+    CloseHandle(snap);
+
+    if (reported == 0) Log("!!!     (none could be read)");
+}
+
+
 // On a real freeze, snapshot WHERE the main thread is actually stuck. The EIP
 // tells us whether it's blocked in a syscall (ntdll = a wait) and the stack
 // return addresses tell us who called it: d3d9.dll/vulkan = DXVK GPU/pipeline
@@ -230,6 +293,9 @@ static DWORD WINAPI FreezeWatchdogProc(LPVOID) {
                 }
                 if (suspects == 0)
                     Log("!!!   (no error/recently-active DLL feature -- stall is WoW-internal)");
+
+                FreezeDumpOtherThreads(g_mainThreadId);
+
                 Log("!!! END FREEZE REPORT !!!");
             }
 
