@@ -1330,6 +1330,17 @@ static Sleep_fn orig_Sleep = nullptr;
 static double g_sleepFreq = 0.0;
 static double g_rdtscFreqMhz = 0.0;  // RDTSC frequency in MHz for easy calculation
 
+// Above this smoothed frame time the client is not holding a steady rate, and the
+// busy-wait in PreciseSleep stops paying for itself. 20ms is just under 50fps -
+// past that, precision is not what the frame is short of.
+static const double SPIN_ABORT_FRAME_MS = 20.0;
+
+// Non-atomic on purpose: these are diagnostic counts on the Sleep path, and a
+// lost increment costs a slightly low number where an interlocked operation
+// would cost time on every short sleep.
+static volatile LONG g_spinTaken   = 0;
+static volatile LONG g_spinSkipped = 0;
+
 static void PreciseSleep(double milliseconds) {
     // Use RDTSC for polling instead of QPC syscalls
     uint64_t startRDTSC = __rdtsc();
@@ -1535,6 +1546,31 @@ static void WINAPI hooked_Sleep(DWORD ms) {
                 orig_Sleep(ms);
                 return;
             }
+
+            // PreciseSleep does not sleep - for a 1ms wait it spins
+            // SwitchToThread for most of it and then _mm_pause. That is a fair
+            // trade while frames are comfortably inside their budget, because
+            // sub-millisecond pacing is what stops a steady frame rate from
+            // wobbling.
+            //
+            // It stops being a fair trade the moment frames are late. Pacing a
+            // frame precisely does nothing for one that already missed, and the
+            // cycles burned spinning are exactly the cycles it needed. Worse, the
+            // cost lands hardest when the machine is CPU-bound, which is when it
+            // can least afford it.
+            //
+            // So above a smoothed frame time that means "not keeping up", hand
+            // the time back to the scheduler instead. The reading is 0.0 until
+            // enough frames have been measured, which keeps the old behaviour as
+            // the default rather than the exception.
+            double smoothed = FrameBench::SmoothedFrameMs();
+            if (smoothed > SPIN_ABORT_FRAME_MS) {
+                ++g_spinSkipped;
+                orig_Sleep(ms);
+                return;
+            }
+
+            ++g_spinTaken;
             PreciseSleep((double)ms);
             return;
         }
@@ -4479,6 +4515,11 @@ static void DumpPeriodicStats() {
     FrameBench::Report("periodic");
     CrashDumper::ReportFeatureActivity();
     ReportCrtFreeStats();
+    if (g_spinTaken > 0 || g_spinSkipped > 0) {
+        Log("[SleepPrecision] busy-wait taken %ld, handed back %ld (frames over "
+            "%.0f ms give the time to the scheduler instead)",
+            (long)g_spinTaken, (long)g_spinSkipped, SPIN_ABORT_FRAME_MS);
+    }
     LuaFastPath::LogStats();
     ObjVisCache::LogStats();
     FontGlyphCache::LogStats();
