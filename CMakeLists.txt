@@ -421,8 +421,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/combat_log_filter.h
     src/hooks_subsystems/sound_volume_limit.cpp
     src/hooks_subsystems/sound_volume_limit.h
-    src/hooks_subsystems/ui_layout_throttle.cpp
-    src/hooks_subsystems/ui_layout_throttle.h
     src/hooks_subsystems/terrain_height_cache.cpp
     src/hooks_subsystems/terrain_height_cache.h
     src/hooks_subsystems/texture_unload_delay.cpp

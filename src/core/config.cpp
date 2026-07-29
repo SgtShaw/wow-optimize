@@ -83,7 +83,6 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "D3d9RenderThread", &Settings::OptD3d9RenderThread },
     { "Combat_Net", "CombatLogFilter", &Settings::OptCombatLogFilter },
     { "Graphics_Sound", "SoundVolumeLimit", &Settings::OptSoundVolumeLimit },
-    { "UI_Lua", "UILayoutThrottle", &Settings::OptUILayoutThrottle },
     { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
     { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
     { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
@@ -247,7 +246,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             // 10 new features defaults
             WritePrivateProfileStringA("Combat_Net", "CombatLogFilter", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "0", iniPath.c_str());
 
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
@@ -347,7 +345,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         // Parse Features 21-30
         g_settings.OptCombatLogFilter    = GetPrivateProfileIntA("Combat_Net", "CombatLogFilter", 0, iniPath.c_str()) != 0;
         g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 0, iniPath.c_str()) != 0;
-        g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 0, iniPath.c_str()) != 0;
         g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 0, iniPath.c_str()) != 0;
 
         // Parse Features 31-50

@@ -109,7 +109,6 @@ namespace Config {
         // addons - see the note in combat_log_filter.cpp.
         bool OptCombatLogFilter = false;
         bool OptSoundVolumeLimit = false;
-        bool OptUILayoutThrottle = false;
         bool OptTerrainHeightCache = false;
 
         bool OptTextureUnloadDelay = false;

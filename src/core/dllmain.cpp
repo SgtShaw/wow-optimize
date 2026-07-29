@@ -66,7 +66,6 @@
 #include "hooks_subsystems/mouse_clip_release.h"
 #include "hooks_subsystems/combat_log_filter.h"
 #include "hooks_subsystems/sound_volume_limit.h"
-#include "hooks_subsystems/ui_layout_throttle.h"
 #include "hooks_subsystems/terrain_height_cache.h"
 
 #include "hooks_subsystems/texture_unload_delay.h"
@@ -407,7 +406,6 @@ void ClearCombatLogCache();
 #include "hooks_memory.h"
 #include "hooks_async.h"
 
-extern "C" void IncrementParticleFrameCount();
 
 #include "version.h"
 #include "config.h"
@@ -4751,7 +4749,6 @@ extern "C" void WowOpt_OnFrameBoundary() {
     QualityGovernor::OnFrame();
     CvarWatchdog_Check();
 #if !TEST_DISABLE_PARTICLE_THROTTLE
-    IncrementParticleFrameCount();
 #endif
 }
 
@@ -7881,7 +7878,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("--- 10 More New Performance & Stability Features ---");
     if (Config::g_settings.OptCombatLogFilter) CombatLogFilter::Init();
     if (Config::g_settings.OptSoundVolumeLimit) SoundVolumeLimit::Init();
-    if (Config::g_settings.OptUILayoutThrottle) UILayoutThrottle::Init();
     if (Config::g_settings.OptTerrainHeightCache) TerrainHeightCache::Init();
 
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
@@ -9842,7 +9838,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             FontGlyphCache::Shutdown();
             CombatLogFilter::Shutdown();
             SoundVolumeLimit::Shutdown();
-            UILayoutThrottle::Shutdown();
             TerrainHeightCache::Shutdown();
             QualityGovernor::Shutdown();
             HotPatch::ShutdownAll();

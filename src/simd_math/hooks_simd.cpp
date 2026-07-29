@@ -334,9 +334,6 @@ static volatile long g_matMulCalls    = 0;
 static volatile long g_quatNormCalls  = 0;
 static volatile long g_frustumCalls   = 0;
 static volatile long g_frustumCulled  = 0;
-static float g_activeFrustum[24] = {0};
-static bool g_hasActiveFrustum = false;
-static uint32_t g_particleFrameCount = 0;
 static volatile long g_rayTriangleCalls = 0;
 static volatile long g_rayTriangleIntersects = 0;
 
@@ -787,54 +784,23 @@ static void __fastcall Hooked_IsPointVisible(void* ecx, void* edx, const float* 
 }
 #endif
 
-extern "C" void IncrementParticleFrameCount() {
-    g_particleFrameCount++;
-}
+// SSE2_IsSphereVisible and the per-frame particle counter went with the throttle
+// below - it was the only thing that read either of them, and the frustum they
+// tested against was never populated.
 
-extern "C" bool SSE2_IsSphereVisible(float x, float y, float z, float radius) {
-    if (!g_hasActiveFrustum) return true;
-    __try {
-        const float* planes = g_activeFrustum;
-        for (int i = 0; i < 6; ++i) {
-            float nx = planes[i * 4 + 0];
-            float ny = planes[i * 4 + 1];
-            float nz = planes[i * 4 + 2];
-            float d  = planes[i * 4 + 3];
-            
-            float dist = nx * x + ny * y + nz * z + d;
-            if (dist < -radius) {
-                return false;
-            }
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-        return true;
-    }
-    return true;
-}
-
-#if !TEST_DISABLE_PARTICLE_THROTTLE
-typedef int (__fastcall *SimulateParticle_t)(void* self, void* edx, int particle, float timeStep, float* transformMatrix);
-static SimulateParticle_t orig_SimulateParticle = nullptr;
-
-
-static int __fastcall Hooked_SimulateParticle(void* self, void* edx, int particle, float timeStep, float* transformMatrix) {
-    __try {
-        if (transformMatrix && (uintptr_t)transformMatrix >= 0x10000 && (uintptr_t)transformMatrix < 0xFFE00000) {
-            float x = transformMatrix[12];
-            float y = transformMatrix[13];
-            float z = transformMatrix[14];
-            
-            if (!SSE2_IsSphereVisible(x, y, z, 25.0f)) {
-                if ((g_particleFrameCount % 10) != 0) {
-                    return 0;
-                }
-            }
-        }
-    } __except (EXCEPTION_EXECUTE_HANDLER) {
-    }
-    return orig_SimulateParticle(self, edx, particle, timeStep, transformMatrix);
-}
-#endif
+// A particle throttle used to sit here: it hooked
+// CParticleEmitter::SimulateParticle and, for particles outside the view
+// frustum, simulated them only every tenth frame.
+//
+// It could never have done that. The test it relied on, SSE2_IsSphereVisible,
+// begins with "if (!g_hasActiveFrustum) return true" - and nothing ever set
+// that flag or filled g_activeFrustum, so every particle was reported visible
+// and the throttle never engaged. It was also compiled out.
+//
+// Not revived. Skipping an engine call per frame because the object looks
+// off-screen is the exact shape of AnimationLod, AsyncCulling and
+// NameplateThrottle, all three of which were removed after testers reported
+// them as visual corruption.
 
 #if !TEST_DISABLE_MATRIX_TRANSFORM_SSE2
 typedef float* (__cdecl *MatrixVectorTransform_t)(float* result, float* vec, float* mat);
@@ -1055,18 +1021,6 @@ bool InstallSimdHooks(void) {
         Log("[SimdHooks] Ray-Triangle 16-bit: fill ADDR_WOW_RAY_TRIANGLE_16BIT");
     }
 
-#if !TEST_DISABLE_PARTICLE_THROTTLE
-    Log("[SimdHooks] Hooking CParticleEmitter::SimulateParticle at 0x00981D40");
-    if (WineSafe_CreateHook((void*)0x00981D40, (void*)Hooked_SimulateParticle, (void**)&orig_SimulateParticle) == MH_OK) {
-        if (WO_EnableHook((void*)0x00981D40) == MH_OK) {
-            Log("[SimdHooks] CParticleEmitter::SimulateParticle hook ACTIVE");
-        } else {
-            Log("[SimdHooks] CParticleEmitter::SimulateParticle hook enable FAILED");
-        }
-    } else {
-        Log("[SimdHooks] CParticleEmitter::SimulateParticle hook creation FAILED");
-    }
-#endif
 
     // Hooking 3D Vector Cross Product (0x005FEC70)
 #if !TEST_DISABLE_VEC3_CROSS_SSE2
