@@ -45,15 +45,14 @@ came out of one.
 
 **Forty-three features that did nothing at all**
 
-They had switches, they appeared in the log at startup, and thirty-five of them
-ran on every install by default. None installed a hook, patched anything, or was
-called from anywhere. `Init()` was `return true;` and the rest of the module was
-never entered.
+They appeared in the log at startup and had settings behind them. None installed
+a hook, patched anything, or was called from anywhere. `Init()` was
+`return true;` and the rest of the module was never entered.
 
-Some were reachable only through another feature's switch, so enabling that one
-quietly initialised something inert. Two separate minimap throttles existed,
-neither wired to anything. A JIT compiler sat behind a LuaJIT setting on a client
-that has no JIT.
+Forty-one of the forty-four had no launcher switch at all, and read a default of
+off, so nobody was running them — they were dead weight rather than active
+mistakes. Two separate minimap throttles existed, neither wired to anything. A
+JIT compiler sat behind a LuaJIT setting on a client that has no JIT.
 
 Two looked alive on inspection and were not. `ItemDataPrefetch::PrefetchItem` was
 an empty body under a comment saying the work was unsafe, called twice per item
@@ -65,10 +64,8 @@ as a pointer — which is presumably why nothing ever called it.
 `Storm.dll`, and 3.3.5a links Storm into the executable — there is no such file.
 Every tester log says so outright.
 
-This is why several rounds of "turn feature X off and try again" produced nothing
-useful: the switches being toggled were attached to code that does not execute.
-**Nothing in the DLL now runs on every install without a way to switch it off**,
-which was true of thirty-five settings before this release.
+What is left is a much shorter list of things that actually run: eleven settings
+are on unless you turn them off, and every one of them now has a switch.
 
 **Two optimizations that came from measurements, not guesses**
 

@@ -3,6 +3,16 @@
 #define WOW_OPT_CONFIG_H
 
 namespace Config {
+    // The initialisers below are not the defaults anyone actually gets. Load()
+    // overwrites every one of them from GetPrivateProfileIntA, whose own default
+    // argument is what applies when a key is absent from wow_opt.ini - which it
+    // is for anything the launcher never writes.
+    //
+    // They had drifted apart on ten settings, and reading this file instead of
+    // the ini call led me to state in the release notes that thirty-five removed
+    // features "ran on every install". They did not: their ini-read default was
+    // zero, so they were off for everyone. Keep these two in step, and when the
+    // question is what a player is actually running, read Load().
     struct Settings {
         // General & Memory
         bool OptSleepPrecision = true;
@@ -33,7 +43,7 @@ namespace Config {
         bool OptTimingFix = false;
         bool OptCvarNullGuard = true; // Safe default: enabled
         bool OptFrameLimiter = false;
-        bool OptObjVisCache = false;
+        bool OptObjVisCache = true;
         bool OptDbcPreload = false;
         bool OptOomGovernor = false;
         bool OptHardwareCursor = false;
@@ -98,15 +108,15 @@ namespace Config {
         // anything happening between two units outside your group never reaches
         // addons - see the note in combat_log_filter.cpp.
         bool OptCombatLogFilter = false;
-        bool OptSoundVolumeLimit = true;
-        bool OptUILayoutThrottle = true;
-        bool OptTerrainHeightCache = true;
+        bool OptSoundVolumeLimit = false;
+        bool OptUILayoutThrottle = false;
+        bool OptTerrainHeightCache = false;
 
         bool OptTextureUnloadDelay = false;
-        bool OptM2MatrixSimd = true;
+        bool OptM2MatrixSimd = false;
         bool OptM2BoneMt = false;
         bool OptMpqAsyncDecompress = false;
-        bool OptSpellEffectCulling = true;
+        bool OptSpellEffectCulling = false;
         // Drops a dead _msize from WoW's free wrapper. Measured at 8-10% of
         // main-thread execution in two tester profiles.
         // SSE2 quaternion normalize. Off by default: the client's version is
@@ -122,10 +132,10 @@ namespace Config {
 
         // Previously Init'd unconditionally (ignored their launcher toggles).
         // Default true = preserve the old always-on behavior; now disableable.
-        bool OptMouseClipRelease = true;
-        bool OptSavedVarsBackup = true;
-        bool OptSoundCoalescer = true;
-        bool OptVertexBufferPrealloc = true;
+        bool OptMouseClipRelease = false;
+        bool OptSavedVarsBackup = false;
+        bool OptSoundCoalescer = false;
+        bool OptVertexBufferPrealloc = false;
     };
 
     extern Settings g_settings;
