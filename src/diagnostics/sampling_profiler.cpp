@@ -383,6 +383,37 @@ static bool IsWaitSymbol(const char* n) {
            strncmp(n, "NtRemoveIoCompletion", 20) == 0;
 }
 
+// Finds the single most-sampled instruction address inside a 4KB page.
+//
+// The ranked list groups unnamed client code by page, which is far too coarse to
+// act on - one page holds a dozen functions. But the ring still holds every raw
+// sample address when the report is built, so the exact peak is recoverable, and
+// one address resolves to one function in a disassembler where a page does not.
+//
+// Runs once per reported region at dump time only. The counter array is static
+// rather than stack because 16KB is more than a comfortable frame, and it is
+// reused across regions since the passes are sequential.
+static uint32_t s_pageExact[4096];
+
+static uintptr_t HottestAddressInPage(uintptr_t pageBase) {
+    memset(s_pageExact, 0, sizeof(s_pageExact));
+
+    uint64_t written = g_writeIdx;
+    uint64_t count   = (written < RING_SIZE) ? written : RING_SIZE;
+
+    for (uint64_t i = 0; i < count; i++) {
+        uintptr_t eip = g_ring[i];
+        if (eip - pageBase < 4096) s_pageExact[eip - pageBase]++;
+    }
+
+    uint32_t  best = 0;
+    uintptr_t at   = 0;
+    for (int off = 0; off < 4096; off++) {
+        if (s_pageExact[off] > best) { best = s_pageExact[off]; at = pageBase + off; }
+    }
+    return at;
+}
+
 static void DumpFineHistogram(const uint32_t* counts, int slots, int shift,
                               uint64_t total, const char* title,
                               const char* addrFormat, uintptr_t addrBase) {
@@ -729,9 +760,16 @@ static void DumpResults() {
             else     wsprintfA(label, "wowopt+0x%05X", (unsigned)(buckets[i].addr - g_selfBase));
             name = label;
         } else {
-            // Unlisted WoW code region — label by its 4KB page base so the
-            // region can be decompiled directly from the dump.
-            wsprintfA(label, "wow_region_0x%08X", (unsigned)buckets[i].addr);
+            // Unlisted WoW code region. Labelling it by page base alone was not
+            // enough to act on: a 4KB page holds a dozen functions, and even the
+            // 512-byte histogram below spans about five, so "6.76% is in this
+            // region" never identified anything. The raw sample addresses are
+            // still in the ring at this point, so name the single hottest
+            // instruction in the page as well - that one resolves to exactly one
+            // function in a disassembler.
+            uintptr_t peak = HottestAddressInPage(buckets[i].addr);
+            if (peak) wsprintfA(label, "wow!0x%08X", (unsigned)peak);
+            else      wsprintfA(label, "wow_region_0x%08X", (unsigned)buckets[i].addr);
             name = label;
         }
         if (IsWaitSymbol(buckets[i].name)) {
