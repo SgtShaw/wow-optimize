@@ -91,7 +91,6 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "M2BoneMt", &Settings::OptM2BoneMt },
     { "General", "MpqAsyncDecompress", &Settings::OptMpqAsyncDecompress },
     { "Graphics_Sound", "SimdMatrixTransform", &Settings::OptSimdMatrixTransform },
-    { "UI_Lua", "MinimapRefreshGovernor", &Settings::OptMinimapRefreshGovernor },
     { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
     { "General", "CrtFreeMsize", &Settings::OptCrtFreeMsize },
     { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
@@ -255,7 +254,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqAsyncDecompress", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "MinimapRefreshGovernor", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "CrtMimalloc", "0", iniPath.c_str());
         }
@@ -358,7 +356,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqAsyncDecompress = GetPrivateProfileIntA("General", "MpqAsyncDecompress", 0, iniPath.c_str()) != 0;
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
-        g_settings.OptMinimapRefreshGovernor = GetPrivateProfileIntA("UI_Lua", "MinimapRefreshGovernor", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtFreeMsize = GetPrivateProfileIntA("General", "CrtFreeMsize", 1, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;

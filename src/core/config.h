@@ -104,7 +104,6 @@ namespace Config {
         bool OptM2MatrixSimd = true;
         bool OptM2BoneMt = false;
         bool OptMpqAsyncDecompress = false;
-        bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;
         // Drops a dead _msize from WoW's free wrapper. Measured at 8-10% of
         // main-thread execution in two tester profiles.

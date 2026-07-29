@@ -57,7 +57,6 @@
 #include "guid_lookup_cache.h"
 #include "simd_math_fast.h"
 #include "combatlog_incremental.h"
-#include "lua_alloc_pool.h"
 #include "world_state_coalesce.h"
 #include "hooks_subsystems/sound_coalescer.h"
 #include "hooks_subsystems/lua_gc_governor.h"
@@ -72,7 +71,6 @@
 #include "hooks_subsystems/font_alpha_fastpath.h"
 
 #include "hooks_subsystems/texture_unload_delay.h"
-#include "hooks_subsystems/minimap_refresh_governor.h"
 #include "hooks_subsystems/quality_governor.h"
 #include "hooks_subsystems/spell_effect_culling.h"
 
@@ -357,7 +355,6 @@ static void StopFreezeWatchdog() {
 #include "loading_state.h"
 #include "diagnostics/frame_bench.h"
 #include "luaS_newlstr_sse2.h"
-#include "lua_bytecode_pre_compiler.h"
 #include "hot_patch.h"
 #include "wow_opt_hooks.h"
 #include "wow_perf_hooks.h"
@@ -399,14 +396,7 @@ void ClearCombatLogCache();
 #include "adaptive_farclip.h"
 #include "m2_bone_simd.h"
 #include "font_glyph_cache.h"
-#include "saved_vars_preload_async.h"
-#include "minimap_throttle.h"
-#include "dbc_lookup_cache_fast.h"
-#include "world_to_screen_sse.h"
-#include "d3d9_tss_cache.h"
-#include "lua_string_pool_fast.h"
 #include "async_sound_loader.h"
-#include "lua_jit_compiler.h"
 #include "rcu_obj_mgr.h"
 #include "async_terrain_loader.h"
 
@@ -4496,11 +4486,9 @@ static void DumpPeriodicStats() {
     ReportCrtFreeStats();
     LuaFastPath::LogStats();
     ObjVisCache::LogStats();
-    DbcLookupCacheFast::LogStats();
     FontGlyphCache::LogStats();
     ApiCache::LogStats();
     D3D9StateCache::LogStats();
-    LuaStringPoolFast::LogStats();
     AsyncSoundLoader::LogStats();
     LuaGcGovernor::LogStats();
     VertexBufferPrealloc::LogStats();
@@ -7677,9 +7665,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool bytecodePreCompilerOk = false;
     Log("[LuaPreCompile] DISABLED (addon file-prefetch adds I/O pressure on VA-tight HD clients)");
 #else
-    bool bytecodePreCompilerOk = LuaBytecodePreCompiler::Init();
 #endif
-    CrashDumper::RegisterFeature("LuaBytecodePreCompiler");
 
     Log("--- Hot Patch ---");
     if (Config::g_settings.OptDbcLookupCache) HotPatch::InstallAll();
@@ -7841,7 +7827,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Thread-Local Lua Allocator Pool ---");
-    bool luaPoolOk = LuaAllocPool::Init();
 
     Log("");
     Log("--- Coalesced World State Updates ---");
@@ -7873,18 +7858,15 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Async SavedVariables Preloader ---");
-    if (Config::g_settings.OptSavedVarsAsync && !RunningUnderTranslation()) SavedVarsPreloadAsync::Init();
 
     Log("");
     Log("--- Combat Text Coalescer ---");
 
     Log("");
     Log("--- Minimap Throttle ---");
-    if (Config::g_settings.OptEventCoalescer) MinimapThrottle::Init();
 
     Log("");
     Log("--- Fast DBC Lookup Cache ---");
-    if (Config::g_settings.OptDbcLookupCache) DbcLookupCacheFast::Init();
 
     Log("");
     Log("--- 20 New Subsystem Performance & Stability Features ---");
@@ -7903,20 +7885,16 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
     QualityGovernor::Init();
-    if (Config::g_settings.OptMinimapRefreshGovernor) MinimapRefreshGovernor::Init();
     if (Config::g_settings.OptSpellEffectCulling) SpellEffectCulling::Init();
 
     Log("");
     Log("--- World-to-Screen SSE Math ---");
-    if (Config::g_settings.OptStrStrSse2) WorldToScreenSse::Init();
 
     Log("");
     Log("--- D3D9 Texture Stage State Cache ---");
-    if (Config::g_settings.OptVulkanDXVK) D3D9TssCache::Init();
 
     Log("");
     Log("--- Lua String Symbol Pool ---");
-    if (Config::g_settings.OptLuaOpcache) LuaStringPoolFast::Init();
 
     Log("");
     Log("--- Async Sound FX Loader ---");
@@ -7924,7 +7902,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     Log("");
     Log("--- Lua VM Bytecode JIT Compiler ---");
-    if (Config::g_settings.OptLuaJIT) LuaJitCompiler::Init();
 
     Log("");
     Log("--- RCU Object Manager Traverser ---");
@@ -9856,31 +9833,23 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             GuidLookupCache::Shutdown();
             SimdMathFast::Shutdown();
             CombatLogIncremental::Shutdown();
-            LuaAllocPool::Shutdown();
             WorldStateCoalesce::Shutdown();
             SoundMixerOpt::Shutdown();
             LuaGCGovernor::Shutdown();
             AdaptiveFarclip::Shutdown();
             M2BoneSimd::Shutdown();
             FontGlyphCache::Shutdown();
-            SavedVarsPreloadAsync::Shutdown();
             CombatLogFilter::Shutdown();
             SoundVolumeLimit::Shutdown();
             UILayoutThrottle::Shutdown();
             TerrainHeightCache::Shutdown();
             FontAlphaFastpath::Shutdown();
-            MinimapThrottle::Shutdown();
-            DbcLookupCacheFast::Shutdown();
             QualityGovernor::Shutdown();
             HotPatch::ShutdownAll();
             ReportHotFunctionStats();
             CrashDumper::ReportFeatureActivity();
             LoadingState::ReportLoadTimes();
-            WorldToScreenSse::Shutdown();
-            D3D9TssCache::Shutdown();
-            LuaStringPoolFast::Shutdown();
             AsyncSoundLoader::Shutdown();
-            LuaJitCompiler::Shutdown();
             RcuObjMgr::Shutdown();
             AsyncTerrainLoader::Shutdown();
             AsyncTexLoader::Shutdown();
@@ -9892,7 +9861,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             ShutdownCombatLogParser();
-            LuaBytecodePreCompiler::Shutdown();
 #if !TEST_DISABLE_SAVED_VARS_ASYNC
             ShutdownSavedVarsAsync();
 #endif

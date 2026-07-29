@@ -135,20 +135,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/quality_governor.h
     src/hooks_subsystems/font_glyph_cache.cpp
     src/hooks_subsystems/font_glyph_cache.h
-    src/runtime_vm/saved_vars_preload_async.cpp
-    src/runtime_vm/saved_vars_preload_async.h
-    src/hooks_subsystems/minimap_throttle.cpp
-    src/hooks_subsystems/minimap_throttle.h
-    src/hooks_subsystems/dbc_lookup_cache_fast.cpp
-    src/hooks_subsystems/dbc_lookup_cache_fast.h
-    src/simd_math/world_to_screen_sse.cpp
-    src/simd_math/world_to_screen_sse.h
-    src/hooks_subsystems/d3d9_tss_cache.cpp
-    src/hooks_subsystems/d3d9_tss_cache.h
-    src/runtime_vm/lua_string_pool_fast.cpp
-    src/runtime_vm/lua_string_pool_fast.h
-    src/runtime_vm/lua_jit_compiler.cpp
-    src/runtime_vm/lua_jit_compiler.h
     src/hooks_subsystems/async_sound_loader.cpp
     src/hooks_subsystems/async_sound_loader.h
     src/runtime_vm/saved_vars_pretoken.cpp
@@ -276,8 +262,6 @@ add_library(wow_optimize SHARED
     src/simd_math/simd_math_fast.h
     src/hooks_subsystems/combatlog_incremental.cpp
     src/hooks_subsystems/combatlog_incremental.h
-    src/allocators/lua_alloc_pool.cpp
-    src/allocators/lua_alloc_pool.h
     src/hooks_subsystems/world_state_coalesce.cpp
     src/hooks_subsystems/world_state_coalesce.h
     src/hooks_subsystems/net_packet_offload.cpp
@@ -324,8 +308,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/lua_gettable_cache.h
     src/hooks_subsystems/saved_vars_async.cpp
     src/hooks_subsystems/saved_vars_async.h
-    src/runtime_vm/lua_bytecode_pre_compiler.cpp
-    src/runtime_vm/lua_bytecode_pre_compiler.h
     src/hooks_subsystems/hot_patch.cpp
     src/hooks_subsystems/hot_patch.h
     src/hooks_subsystems/wow_opt_hooks.cpp
@@ -447,8 +429,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/font_alpha_fastpath.h
     src/hooks_subsystems/texture_unload_delay.cpp
     src/hooks_subsystems/texture_unload_delay.h
-    src/hooks_subsystems/minimap_refresh_governor.cpp
-    src/hooks_subsystems/minimap_refresh_governor.h
     src/hooks_subsystems/spell_effect_culling.cpp
     src/hooks_subsystems/spell_effect_culling.h
 )
