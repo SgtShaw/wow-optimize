@@ -19,8 +19,14 @@ bool Init() {
     return true;
 }
 
-void Shutdown() {
+// Printed from the periodic report. Shutdown does not run - the DLL exits via
+// TerminateProcess - so anything reported only from there is never seen.
+void LogStats() {
     Log("[LuaGcGovernor] Stats: Performed %lld adaptive garbage collection steps", g_gcStepsRun.load());
+}
+
+void Shutdown() {
+    LogStats();
 }
 
 void OnFrame(float elapsedMs) {

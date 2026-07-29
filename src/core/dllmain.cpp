@@ -4501,6 +4501,10 @@ static void DumpPeriodicStats() {
     ApiCache::LogStats();
     D3D9StateCache::LogStats();
     LuaStringPoolFast::LogStats();
+    AsyncSoundLoader::LogStats();
+    LuaGcGovernor::LogStats();
+    VertexBufferPrealloc::LogStats();
+    LuaBytecodeCache::LogStats();
 }
 
 // ================================================================
