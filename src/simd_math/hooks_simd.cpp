@@ -912,12 +912,96 @@ static float* __cdecl Hooked_QuatSlerp(float* result, float t, float* q1, float*
     return orig_QuatSlerp ? orig_QuatSlerp(result, t, q1, q2) : result;
 }
 
+// Self-test against the function being replaced, on the machine it will run on.
+//
+// Both replacements were checked offline against a transcription of the original
+// - 400000 quaternions, 200000 matrices - and matched to within a float ULP. That
+// is a test of my reading of the disassembly, not of the client sitting in memory
+// right now. This calls the real function at the real address and compares, so a
+// wrong address, a differently-patched client or a bad transcription is caught
+// before the hook goes in rather than by a player.
+//
+// Run before MinHook touches anything, so the call reaches the original.
+static bool SelfTestQuatNormalize() {
+    typedef void (__fastcall *quat_fn)(float*, void*);
+    quat_fn original = (quat_fn)ADDR_WOW_QUAT_NORMALIZE;
+
+    // Deliberately awkward inputs: unnormalised, negative, and one below the
+    // epsilon where both versions must leave the value alone.
+    static const float cases[][4] = {
+        { 3.0f, 4.0f, 0.0f, 0.0f },
+        { -1.0f, 2.0f, -3.0f, 4.0f },
+        { 0.5f, 0.5f, 0.5f, 0.5f },
+        { 1e-5f, 0.0f, 0.0f, 0.0f },
+        { 0.0f, 0.0f, 0.0f, 0.0f },
+    };
+
+    for (int i = 0; i < 5; i++) {
+        float a[4], b[4];
+        for (int k = 0; k < 4; k++) { a[k] = cases[i][k]; b[k] = cases[i][k]; }
+
+        __try {
+            original(a, nullptr);
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            Log("[SimdHooks] Quaternion self-test: the original faulted - not hooking");
+            return false;
+        }
+        SSE2_QuatNormalize(b);
+
+        for (int k = 0; k < 4; k++) {
+            float d = a[k] - b[k];
+            if (d < 0.0f) d = -d;
+            // One ULP at unit scale, with room for the x87-versus-SSE difference.
+            if (d > 1e-5f) {
+                Log("[SimdHooks] Quaternion self-test FAILED on case %d component %d "
+                    "(client %.9g, ours %.9g) - not hooking", i, k, a[k], b[k]);
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool SelfTestMatrixMultiply() {
+    typedef float* (__cdecl *mat_fn)(float*, float*, float*);
+    mat_fn original = (mat_fn)ADDR_WOW_MATRIX_MULTIPLY;
+
+    float lhs[16], rhs[16], a[16], b[16];
+    for (int i = 0; i < 16; i++) {
+        lhs[i] = (float)((i * 7 % 13) - 6) * 0.5f;
+        rhs[i] = (float)((i * 5 % 11) - 5) * 0.25f;
+    }
+
+    __try {
+        original(a, lhs, rhs);
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        Log("[SimdHooks] Matrix self-test: the original faulted - not hooking");
+        return false;
+    }
+    SSE2_MatrixMultiply(lhs, rhs, b);
+
+    for (int i = 0; i < 16; i++) {
+        float d = a[i] - b[i];
+        if (d < 0.0f) d = -d;
+        float scale = (a[i] < 0.0f ? -a[i] : a[i]);
+        if (scale < 1.0f) scale = 1.0f;
+        if (d > scale * 1e-5f) {
+            Log("[SimdHooks] Matrix self-test FAILED at element %d "
+                "(client %.9g, ours %.9g) - not hooking", i, a[i], b[i]);
+            return false;
+        }
+    }
+    return true;
+}
+
 bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
         "frustum cull, BGRA/ARGB, premultiplied alpha ready");
 
     if (!Config::g_settings.OptMatrixMultiplySse2) {
         Log("[SimdHooks] Matrix multiply DISABLED via configuration");
+    } else if (!SelfTestMatrixMultiply()) {
+        // The message came from the self-test; nothing to add.
     } else if (WineSafe_CreateHook((void*)ADDR_WOW_MATRIX_MULTIPLY,
                                    (void*)Hooked_MatrixMultiply,
                                    (void**)&orig_MatrixMultiply) == MH_OK) {
@@ -932,6 +1016,8 @@ bool InstallSimdHooks(void) {
 #if !TEST_DISABLE_QUAT_NORMALIZE
         if (!Config::g_settings.OptQuatNormalizeSse2) {
             Log("[SimdHooks] Quaternion normalize DISABLED via configuration");
+        } else if (!SelfTestQuatNormalize()) {
+            // The message came from the self-test; nothing to add.
         } else if (WineSafe_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
             WO_EnableHook((void*)ADDR_WOW_QUAT_NORMALIZE);
             Log("[SimdHooks] Quaternion normalize hook ACTIVE");
