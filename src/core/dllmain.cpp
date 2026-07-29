@@ -4493,6 +4493,7 @@ static void DumpPeriodicStats() {
 #endif
     FrameBench::Report("periodic");
     CrashDumper::ReportFeatureActivity();
+    ReportCrtFreeStats();
 }
 
 // ================================================================

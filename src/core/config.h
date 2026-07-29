@@ -106,6 +106,9 @@ namespace Config {
         bool OptMpqAsyncDecompress = false;
         bool OptMinimapRefreshGovernor = true;
         bool OptSpellEffectCulling = true;
+        // Drops a dead _msize from WoW's free wrapper. Measured at 8-10% of
+        // main-thread execution in two tester profiles.
+        bool OptCrtFreeMsize = true;
         bool OptCrtMimalloc = false;
 
         // Previously Init'd unconditionally (ignored their launcher toggles).
