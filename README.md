@@ -35,7 +35,7 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.18.0
 
-Thirty-three features were removed because they never ran, two real optimizations
+Forty-three features were removed because they never ran, two real optimizations
 went in because the logs said where the time actually goes, and the settings that
 were quietly overwriting your graphics options are gone.
 
@@ -43,12 +43,17 @@ Thanks to [txtsd](https://github.com/txtsd), whose testing confirmed the 3.17.0
 text-rendering fix, and to everyone who sent a log — every measured item below
 came out of one.
 
-**Thirty-three features that did nothing at all**
+**Forty-three features that did nothing at all**
 
-They had switches, they appeared in the log at startup, and thirteen of them ran
-on every install by default. None of them installed a hook, patched anything, or
-was called from anywhere. `Init()` was `return true;` and the rest of the module
-was never entered.
+They had switches, they appeared in the log at startup, and thirty-five of them
+ran on every install by default. None installed a hook, patched anything, or was
+called from anywhere. `Init()` was `return true;` and the rest of the module was
+never entered.
+
+Some were reachable only through another feature's switch, so enabling that one
+quietly initialised something inert. Two separate minimap throttles existed,
+neither wired to anything. A JIT compiler sat behind a LuaJIT setting on a client
+that has no JIT.
 
 Two looked alive on inspection and were not. `ItemDataPrefetch::PrefetchItem` was
 an empty body under a comment saying the work was unsafe, called twice per item
