@@ -937,7 +937,9 @@ bool InstallSimdHooks(void) {
     if (ADDR_WOW_QUAT_NORMALIZE) {
         Log("[SimdHooks] Quaternion normalize hook target: 0x%08X", ADDR_WOW_QUAT_NORMALIZE);
 #if !TEST_DISABLE_QUAT_NORMALIZE
-        if (WineSafe_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
+        if (!Config::g_settings.OptQuatNormalizeSse2) {
+            Log("[SimdHooks] Quaternion normalize DISABLED via configuration");
+        } else if (WineSafe_CreateHook((void*)ADDR_WOW_QUAT_NORMALIZE, (void*)Hooked_QuatNormalize, (void**)&orig_QuatNormalize) == MH_OK) {
             WO_EnableHook((void*)ADDR_WOW_QUAT_NORMALIZE);
             Log("[SimdHooks] Quaternion normalize hook ACTIVE");
         } else {

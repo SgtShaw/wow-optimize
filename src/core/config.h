@@ -107,6 +107,10 @@ namespace Config {
         bool OptSpellEffectCulling = true;
         // Drops a dead _msize from WoW's free wrapper. Measured at 8-10% of
         // main-thread execution in two tester profiles.
+        // SSE2 quaternion normalize. Off by default: the client's version is
+        // 3.13% of execution in a CPU-bound profile and the replacement matches
+        // it to one ULP, but it has never been run in a game.
+        bool OptQuatNormalizeSse2 = false;
         bool OptCrtFreeMsize = true;
         bool OptCrtMimalloc = false;
 
