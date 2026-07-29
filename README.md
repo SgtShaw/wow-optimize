@@ -78,8 +78,8 @@ are on unless you turn them off, and every one of them now has a switch.
 
 - **The client asks the heap how big every block is, then throws the answer
   away.** Both the `free` wrapper and the allocation wrapper call `_msize` and
-  discard the result — a heap lookup, sometimes a lock, on every single
-  allocation and every deallocation, from over a hundred call sites. Two
+  discard the result — a walk into the heap on every single allocation and every
+  deallocation, from over a hundred call sites. Two
   independent profiles measured that call at 8.09% and 10.59% of the time the
   main thread spent executing. Both are gone; nothing else about either call
   changes. A three-minute session with the fix in place reports 67,776

@@ -25,9 +25,18 @@ extern "C" void Log(const char* fmt, ...);
 //   }
 //
 // The _msize result is computed and thrown away on every call, and it is not
-// cheap to compute: _msize (0x4112F8) ends in HeapSize(hHeap, 0, Block), and on
-// the small-block-heap path it takes _lock(4) first. So every deallocation in
-// the client pays a heap lookup, sometimes a lock, for a number nobody reads.
+// free: _msize (0x4112F8) ends in HeapSize(hHeap, 0, Block). So every
+// deallocation in the client pays a walk into the heap for a number nobody
+// reads.
+//
+// It has a second path that takes _lock(4) first, through the MSVC 6 small-block
+// heap, and an earlier version of this comment claimed that cost too. It should
+// not have: _heap_init picks the mode from __heap_select, which returns the
+// system heap whenever the platform is NT and the major version is 5 or above.
+// That is every Windows since 2000, so the locking path is dead on any machine
+// this runs on. The measured win is a HeapSize call per allocation and per free,
+// nothing more - which was enough to move RtlSizeHeap from 8-10% of main-thread
+// execution to 1.28%.
 //
 // Two independent tester profiles put RtlSizeHeap at 8.09% and 10.59% of the
 // time the main thread spent executing, and this wrapper has over a hundred call
