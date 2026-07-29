@@ -6813,6 +6813,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
 
     // CRT Free Hook - 2901 callers (#2 most called)
     bool crtFreeOk = InstallCrtFreeHook();
+    InstallCrtAllocHook();
 
     // Aligned Allocator Cache - 1764 callers (thread-local pool for small allocations)
     bool alignedAllocOk = InstallAlignedAllocCache();

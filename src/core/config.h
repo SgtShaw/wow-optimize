@@ -117,6 +117,7 @@ namespace Config {
         // against the client's version numerically, never run in a game.
         bool OptMatrixMultiplySse2 = false;
         bool OptCrtFreeMsize = true;
+        bool OptCrtAllocMsize = true;
         bool OptCrtMimalloc = false;
 
         // Previously Init'd unconditionally (ignored their launcher toggles).

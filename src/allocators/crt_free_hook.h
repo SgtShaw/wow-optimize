@@ -9,6 +9,10 @@
 #include <cstdint>
 
 bool InstallCrtFreeHook();
+
+// Same defect on the allocation wrapper. Separate switch - see the note in the
+// .cpp on why these are not one setting.
+bool InstallCrtAllocHook();
 void UninstallCrtFreeHook();
 
 // Prints how many deallocations went through the replacement, or says plainly

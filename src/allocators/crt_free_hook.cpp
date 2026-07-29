@@ -58,6 +58,42 @@ static crt_free_wrapper_t g_orig      = nullptr;
 static bool               g_installed = false;
 static int                g_token     = -1;
 
+// The allocation wrapper has the same defect, and allocation is at least as hot
+// as deallocation. From the binary at 0x0076E540:
+//
+//   void* __stdcall sub_76E540(int size, int a2, DWORD exitCode, char flags) {
+//       size_t n = (size + 7) & 0xFFFFFFF8;
+//       void* p = (flags & 8) ? calloc(1, n) : malloc(n);
+//       if (p) { _msize(p); return p; }        // discarded again
+//       sub_76E4E0(a2, exitCode);              // out-of-memory reporter
+//       return nullptr;
+//   }
+//
+// The replacement does the same rounding and the same choice between calloc and
+// malloc, and skips the dead _msize.
+//
+// It does not reimplement the out-of-memory path. sub_76E4E0 is __usercall with
+// its first argument in EAX, which would need inline assembly to call correctly,
+// and getting that subtly wrong on the path where memory has already run out is
+// not a trade worth making. On failure this delegates to the original wrapper,
+// which retries the allocation - failing again, at which point it reports the way
+// it always did. One extra failed allocation when the process is already out of
+// memory costs nothing.
+//
+// The rounding is done in unsigned arithmetic. The original is machine code and
+// simply wraps; (size + 7) on a signed int near INT_MAX is undefined in C++.
+static const uintptr_t WOW_ALLOC_WRAPPER = 0x0076E540;
+
+typedef void* (__stdcall *wow_alloc_wrapper_t)(int size, int a2, DWORD exitCode, char flags);
+typedef void* (__cdecl   *crt_malloc_t)(size_t);
+typedef void* (__cdecl   *crt_calloc_t)(size_t, size_t);
+
+static const crt_malloc_t   g_crt_malloc = (crt_malloc_t)0x00415074;
+static const crt_calloc_t   g_crt_calloc = (crt_calloc_t)0x00416A56;
+static wow_alloc_wrapper_t  g_origAlloc  = nullptr;
+static bool                 g_allocInstalled = false;
+static volatile LONG        g_allocCalls = 0;
+
 // Deliberately a non-atomic 32-bit counter, and deliberately not 64-bit.
 //
 // An interlocked increment on every free would be a real cost on one of the
@@ -75,6 +111,17 @@ int __stdcall Hooked_CrtFree(void* block, int a2, int a3, int a4) {
     ++g_calls;
     if (block) g_wow_free(block);
     return 1;
+}
+
+void* __stdcall Hooked_WowAlloc(int size, int a2, DWORD exitCode, char flags) {
+    ++g_allocCalls;
+
+    unsigned rounded = ((unsigned)size + 7u) & 0xFFFFFFF8u;
+    void* p = (flags & 8) ? g_crt_calloc(1, rounded) : g_crt_malloc(rounded);
+    if (p) return p;
+
+    // Out of memory: hand it back to the original, which reports it properly.
+    return g_origAlloc(size, a2, exitCode, flags);
 }
 
 bool InstallCrtFreeHook() {
@@ -100,15 +147,59 @@ bool InstallCrtFreeHook() {
     return true;
 }
 
+// Separate switch from the free side on purpose. This one replaces more of the
+// original than that one did, and it sits on the allocation path, so it has to be
+// possible to turn off by itself rather than only together with a change that
+// might be behaving perfectly well.
+bool InstallCrtAllocHook() {
+    if (!Config::g_settings.OptCrtAllocMsize) {
+        Log("[CrtAlloc] DISABLED via configuration");
+        return false;
+    }
+
+    void* target = (void*)WOW_ALLOC_WRAPPER;
+    if (WineSafe_CreateHook(target, (void*)Hooked_WowAlloc, (void**)&g_origAlloc) != MH_OK) {
+        Log("[CrtAlloc] ERROR: could not create hook at 0x%08X", (unsigned)WOW_ALLOC_WRAPPER);
+        return false;
+    }
+    if (MH_EnableHook(target) != MH_OK) {
+        Log("[CrtAlloc] ERROR: could not enable hook at 0x%08X", (unsigned)WOW_ALLOC_WRAPPER);
+        return false;
+    }
+
+    g_allocInstalled = true;
+    Log("[CrtAlloc] ACTIVE at 0x%08X - dropping the discarded _msize from every allocation",
+        (unsigned)WOW_ALLOC_WRAPPER);
+    return true;
+}
+
 void UninstallCrtFreeHook() {
-    if (!g_installed) return;
-    void* target = (void*)WOW_FREE_WRAPPER;
-    MH_DisableHook(target);
-    MH_RemoveHook(target);
-    g_installed = false;
+    if (g_installed) {
+        void* target = (void*)WOW_FREE_WRAPPER;
+        MH_DisableHook(target);
+        MH_RemoveHook(target);
+        g_installed = false;
+    }
+    if (g_allocInstalled) {
+        void* target = (void*)WOW_ALLOC_WRAPPER;
+        MH_DisableHook(target);
+        MH_RemoveHook(target);
+        g_allocInstalled = false;
+    }
+}
+
+void ReportCrtAllocStats() {
+    if (!g_allocInstalled) {
+        Log("[CrtAlloc] not installed - no allocations were measured");
+        return;
+    }
+    Log("[CrtAlloc] at least %lu allocations served, each one a HeapSize call "
+        "not made", (unsigned long)g_allocCalls);
 }
 
 void ReportCrtFreeStats() {
+    ReportCrtAllocStats();
+
     // Never measured and measured zero are different answers; say which.
     if (!g_installed) {
         Log("[CrtFree] not installed - no deallocations were measured");

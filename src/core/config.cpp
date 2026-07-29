@@ -94,6 +94,7 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "QuatNormalizeSse2", &Settings::OptQuatNormalizeSse2 },
     { "Graphics_Sound", "MatrixMultiplySse2", &Settings::OptMatrixMultiplySse2 },
     { "General", "CrtFreeMsize", &Settings::OptCrtFreeMsize },
+    { "General", "CrtAllocMsize", &Settings::OptCrtAllocMsize },
     { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
     { "General", "MouseClipRelease", &Settings::OptMouseClipRelease },
     { "General", "SavedVarsBackup", &Settings::OptSavedVarsBackup },
@@ -359,6 +360,7 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptQuatNormalizeSse2 = GetPrivateProfileIntA("Graphics_Sound", "QuatNormalizeSse2", 0, iniPath.c_str()) != 0;
         g_settings.OptMatrixMultiplySse2 = GetPrivateProfileIntA("Graphics_Sound", "MatrixMultiplySse2", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtFreeMsize = GetPrivateProfileIntA("General", "CrtFreeMsize", 1, iniPath.c_str()) != 0;
+        g_settings.OptCrtAllocMsize = GetPrivateProfileIntA("General", "CrtAllocMsize", 1, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
 
         // Previously Init'd unconditionally - now read from their launcher keys.
