@@ -37,6 +37,17 @@ extern "C" void Log(const char* fmt, ...);
 // free, same return value. It has to call WoW's free at 0x412FC7 rather than
 // this DLL's, because the DLL links its own static CRT and returning a WoW-heap
 // block through that would corrupt the heap.
+//
+// Calling 0x412FC7 by address is safe with the mimalloc redirect on, which is the
+// obvious worry: that address is itself detoured by Hooked_free in hooks_memory,
+// which dispatches on mi_is_in_heap_region, so a mimalloc block still reaches
+// mi_free. Jumping to the address lands in the detour rather than past it, and
+// the number of calls arriving there is unchanged - only the _msize beside them
+// is gone.
+//
+// With that redirect on, the removed call was costing more than a HeapSize:
+// _msize is detoured too (hooked_msize in dllmain), so it was a region check plus
+// mi_usable_size, still discarded.
 static const uintptr_t WOW_FREE_WRAPPER = 0x0076E5A0;
 
 typedef int  (__stdcall *crt_free_wrapper_t)(void* block, int, int, int);
