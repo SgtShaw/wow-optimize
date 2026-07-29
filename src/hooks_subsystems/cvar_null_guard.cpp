@@ -27,15 +27,36 @@ static char __fastcall Hooked_7668C0(void* ecx, void* edx, char* Str1, char a3, 
         return 1;
     }
 
+    // This overrides two CVars the client asked to set, on every install, and it
+    // lives here rather than under the setting named for it: OptTimingFix gates
+    // the GetTickCount, timeGetTime, QPC and SysInfo hooks, not this. Nothing in
+    // the launcher mentions it, so a player reading "safety hooks to prevent
+    // crashes" would not expect their timing method to be pinned.
+    //
+    // Left running rather than moved, because it has shipped this way for a long
+    // time and quietly taking it away is its own risk. It now says so once in the
+    // log, so the behaviour is at least visible to whoever reads one.
 #if !TEST_DISABLE_TIMING_FIX
     if (ecx && Str1) {
         const char* name = *(const char**)((char*)ecx + 20);
         if (name && (uintptr_t)name >= 0x10000 && (uintptr_t)name <= 0xFFE00000) {
             char c0 = name[0];
             if (c0 == 't' || c0 == 'T') {
+                static bool s_saidMethod = false, s_saidError = false;
                 if (_stricmp(name, "timingMethod") == 0) {
+                    if (!s_saidMethod) {
+                        s_saidMethod = true;
+                        Log("[CvarNullGuard] Forcing timingMethod to 2 (client asked "
+                            "for \"%s\") - this is on for everyone, independently of "
+                            "the TimingFix setting", Str1 ? Str1 : "(null)");
+                    }
                     Str1 = (char*)"2";
                 } else if (_stricmp(name, "timingTestError") == 0) {
+                    if (!s_saidError) {
+                        s_saidError = true;
+                        Log("[CvarNullGuard] Forcing timingTestError to 0 (client "
+                            "asked for \"%s\")", Str1 ? Str1 : "(null)");
+                    }
                     Str1 = (char*)"0";
                 }
             }
