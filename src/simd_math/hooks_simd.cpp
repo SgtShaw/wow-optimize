@@ -301,7 +301,12 @@ void SSE2_Vec3Cross(const float* __restrict a,
 }
 
 #ifndef ADDR_WOW_MATRIX_MULTIPLY
-#define ADDR_WOW_MATRIX_MULTIPLY 0x00000000
+// CMatrix::Multiply. The placeholder here was 0 for as long as the SSE2
+// implementation beside it has existed, so the hook was never installed and the
+// utility function had no caller. Verified from the binary: __cdecl, signature
+// float* (float* out, float* lhs, float* rhs), computing the standard
+// out[row][col] = sum over k of lhs[row][k] * rhs[k][col].
+#define ADDR_WOW_MATRIX_MULTIPLY 0x004C1F00
 #endif
 #ifndef ADDR_WOW_QUAT_NORMALIZE
 #define ADDR_WOW_QUAT_NORMALIZE 0x00979110
@@ -707,6 +712,22 @@ static char __cdecl Hooked_RayTriangle16(const float* ray, const float* vertices
 }
 #endif
 
+// Argument order differs from SSE2_MatrixMultiply, which takes (lhs, rhs, out)
+// while the client's takes (out, lhs, rhs). Getting that backwards would produce
+// a plausible-looking wrong matrix rather than a crash, so it is spelled out.
+//
+// Neither version tolerates the output aliasing an input - the client's writes
+// out[0] and then reads lhs[1] afterwards - so callers cannot be aliasing, and
+// this one loads all of rhs up front regardless.
+typedef float* (__cdecl *MatrixMultiply_t)(float* out, float* lhs, float* rhs);
+static MatrixMultiply_t orig_MatrixMultiply = nullptr;
+
+static float* __cdecl Hooked_MatrixMultiply(float* out, float* lhs, float* rhs) {
+    InterlockedIncrement(&g_matMulCalls);
+    SSE2_MatrixMultiply(lhs, rhs, out);
+    return out;
+}
+
 #if !TEST_DISABLE_QUAT_NORMALIZE
 typedef void (__fastcall *QuatNormalize_t)(float* ecx, void* edx);
 static QuatNormalize_t orig_QuatNormalize = nullptr;
@@ -929,10 +950,16 @@ bool InstallSimdHooks(void) {
     Log("[SimdHooks] SSE2 matrix multiply, quaternion normalize, "
         "frustum cull, BGRA/ARGB, premultiplied alpha ready");
 
-    if (ADDR_WOW_MATRIX_MULTIPLY)
-        Log("[SimdHooks] Matrix multiply hook target: 0x%08X", ADDR_WOW_MATRIX_MULTIPLY);
-    else
-        Log("[SimdHooks] Matrix multiply: fill ADDR_WOW_MATRIX_MULTIPLY");
+    if (!Config::g_settings.OptMatrixMultiplySse2) {
+        Log("[SimdHooks] Matrix multiply DISABLED via configuration");
+    } else if (WineSafe_CreateHook((void*)ADDR_WOW_MATRIX_MULTIPLY,
+                                   (void*)Hooked_MatrixMultiply,
+                                   (void**)&orig_MatrixMultiply) == MH_OK) {
+        WO_EnableHook((void*)ADDR_WOW_MATRIX_MULTIPLY);
+        Log("[SimdHooks] Matrix multiply hook ACTIVE at 0x%08X", ADDR_WOW_MATRIX_MULTIPLY);
+    } else {
+        Log("[SimdHooks] Matrix multiply hook FAILED at 0x%08X", ADDR_WOW_MATRIX_MULTIPLY);
+    }
 
     if (ADDR_WOW_QUAT_NORMALIZE) {
         Log("[SimdHooks] Quaternion normalize hook target: 0x%08X", ADDR_WOW_QUAT_NORMALIZE);

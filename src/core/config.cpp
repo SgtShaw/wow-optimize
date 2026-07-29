@@ -93,6 +93,7 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "SimdMatrixTransform", &Settings::OptSimdMatrixTransform },
     { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
     { "Graphics_Sound", "QuatNormalizeSse2", &Settings::OptQuatNormalizeSse2 },
+    { "Graphics_Sound", "MatrixMultiplySse2", &Settings::OptMatrixMultiplySse2 },
     { "General", "CrtFreeMsize", &Settings::OptCrtFreeMsize },
     { "General", "CrtMimalloc", &Settings::OptCrtMimalloc },
     { "General", "MouseClipRelease", &Settings::OptMouseClipRelease },
@@ -359,6 +360,7 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;
         g_settings.OptQuatNormalizeSse2 = GetPrivateProfileIntA("Graphics_Sound", "QuatNormalizeSse2", 0, iniPath.c_str()) != 0;
+        g_settings.OptMatrixMultiplySse2 = GetPrivateProfileIntA("Graphics_Sound", "MatrixMultiplySse2", 0, iniPath.c_str()) != 0;
         g_settings.OptCrtFreeMsize = GetPrivateProfileIntA("General", "CrtFreeMsize", 1, iniPath.c_str()) != 0;
         g_settings.OptCrtMimalloc = GetPrivateProfileIntA("General", "CrtMimalloc", 0, iniPath.c_str()) != 0;
 

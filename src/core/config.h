@@ -111,6 +111,9 @@ namespace Config {
         // 3.13% of execution in a CPU-bound profile and the replacement matches
         // it to one ULP, but it has never been run in a game.
         bool OptQuatNormalizeSse2 = false;
+        // SSE2 4x4 matrix multiply. Off by default for the same reason: verified
+        // against the client's version numerically, never run in a game.
+        bool OptMatrixMultiplySse2 = false;
         bool OptCrtFreeMsize = true;
         bool OptCrtMimalloc = false;
 
