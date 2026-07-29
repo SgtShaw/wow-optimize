@@ -123,8 +123,28 @@ int __stdcall Hooked_CrtFree(void* block, int a2, int a3, int a4) {
     return 1;
 }
 
+// Size census.
+//
+// A slab allocator for small fixed-size blocks is a standard suggestion for this
+// client, and it may well be right - but it rests on a premise nobody here has
+// checked: that the client's allocations are overwhelmingly small. This hook
+// already sees every size that passes through the wrapper, so the premise costs
+// one array increment to test.
+//
+// Buckets are powers of two up to 64KB, then one overflow bin.
+static constexpr int ALLOC_BUCKETS = 18;
+static volatile LONG g_allocSizes[ALLOC_BUCKETS] = {};
+
+static inline void NoteAllocSize(unsigned bytes) {
+    int b = 0;
+    unsigned v = bytes >> 4;          // 0-15 bytes lands in bucket 0
+    while (v && b < ALLOC_BUCKETS - 1) { v >>= 1; ++b; }
+    ++g_allocSizes[b];
+}
+
 void* __stdcall Hooked_WowAlloc(int size, int a2, DWORD exitCode, char flags) {
     ++g_allocCalls;
+    NoteAllocSize((unsigned)size);
 
     unsigned rounded = ((unsigned)size + 7u) & 0xFFFFFFF8u;
     void* p = (flags & 8) ? g_crt_calloc(1, rounded) : g_crt_malloc(rounded);
@@ -207,6 +227,24 @@ void ReportCrtAllocStats() {
     }
     Log("[CrtAlloc] at least %lu allocations served, each one a HeapSize call "
         "not made", (unsigned long)g_allocCalls);
+
+    LONG total = 0;
+    for (int i = 0; i < ALLOC_BUCKETS; i++) total += g_allocSizes[i];
+    if (total <= 0) return;
+
+    Log("[CrtAlloc] size distribution - the number that decides whether a small "
+        "block pool is worth building:");
+    for (int i = 0; i < ALLOC_BUCKETS; i++) {
+        if (!g_allocSizes[i]) continue;
+        unsigned lo = (i == 0) ? 0u : (16u << i);
+        unsigned hi = (32u << i) - 1u;
+        if (i == ALLOC_BUCKETS - 1)
+            Log("[CrtAlloc]     %8u+       %8ld (%5.1f%%)", lo,
+                (long)g_allocSizes[i], 100.0 * g_allocSizes[i] / total);
+        else
+            Log("[CrtAlloc]     %8u-%-8u %8ld (%5.1f%%)", lo, hi,
+                (long)g_allocSizes[i], 100.0 * g_allocSizes[i] / total);
+    }
 }
 
 void ReportCrtFreeStats() {
