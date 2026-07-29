@@ -556,11 +556,21 @@ void OnCreateDevice(IDirect3DDevice9* device) {
     Log("[D3D9StateCache] Active - Redundant render state filtering successfully hooked on main thread");
 }
 
+// Printed from the periodic report. Shutdown does not run - the DLL exits via
+// TerminateProcess - so anything reported only from there is never seen.
+void LogStats() {
+    Log("[D3D9StateCache] redundancy skips - textures %ld, render states %ld, "
+        "stage states %ld, samplers %ld, transforms %ld, viewports %ld, "
+        "vs constants %ld",
+        g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(),
+        g_samplerSkips.load(), g_transformSkips.load(), g_viewportSkips.load(),
+        g_vsConstantSkips.load());
+}
+
 void Shutdown() {
     InvalidateLatencyQueries(false);
     CleanVBCache();
-    Log("[D3D9StateCache] Redundancy Skips: Textures: %ld, RenderStates: %ld, StageStates: %ld, Samplers: %ld, Transforms: %ld, Viewports: %ld, VSConstants: %ld",
-        g_textureSkips.load(), g_renderStateSkips.load(), g_stageStateSkips.load(), g_samplerSkips.load(), g_transformSkips.load(), g_viewportSkips.load(), g_vsConstantSkips.load());
+    LogStats();
 }
 
 void InvalidateAllCaches(bool safeToRelease) {

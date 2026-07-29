@@ -23,6 +23,7 @@ namespace ApiCache {
 
 bool Init();
 void Shutdown();
+void LogStats();
 void ClearCache();
 
 struct Stats {

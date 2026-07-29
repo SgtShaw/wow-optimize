@@ -4498,6 +4498,9 @@ static void DumpPeriodicStats() {
     ObjVisCache::LogStats();
     DbcLookupCacheFast::LogStats();
     FontGlyphCache::LogStats();
+    ApiCache::LogStats();
+    D3D9StateCache::LogStats();
+    LuaStringPoolFast::LogStats();
 }
 
 // ================================================================

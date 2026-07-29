@@ -12,6 +12,7 @@ bool Init();
 
 // Shut down the hooks and release resources
 void Shutdown();
+void LogStats();
 
 // Handle device creation (resolve pointers and install hooks)
 void OnCreateDevice(struct IDirect3DDevice9* device);

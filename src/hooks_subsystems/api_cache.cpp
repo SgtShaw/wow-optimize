@@ -616,13 +616,9 @@ bool Init() {
     return true;
 }
 
-void Shutdown() {
-    if (!g_active) return;
-    g_active = false;
-
-    MH_DisableHook((void*)ADDR_GetItemInfo);
-    MH_DisableHook((void*)ADDR_GetSpellInfo);
-
+// Printed from the periodic report. Shutdown does not run - the DLL exits via
+// TerminateProcess - so anything reported only from there is never seen.
+void LogStats() {
     long itemTotal  = g_itemHits  + g_itemMisses;
     long spellTotal = g_spellHits + g_spellMisses;
 
@@ -630,11 +626,20 @@ void Shutdown() {
         Log("[ApiCache] GetItemInfo: %ld hits, %ld misses (%.1f%% hit rate)",
             g_itemHits, g_itemMisses, (double)g_itemHits / itemTotal * 100.0);
     }
-
     if (spellTotal > 0) {
         Log("[ApiCache] GetSpellInfo: %ld hits, %ld misses (%.1f%% hit rate)",
             g_spellHits, g_spellMisses, (double)g_spellHits / spellTotal * 100.0);
     }
+}
+
+void Shutdown() {
+    if (!g_active) return;
+    g_active = false;
+
+    MH_DisableHook((void*)ADDR_GetItemInfo);
+    MH_DisableHook((void*)ADDR_GetSpellInfo);
+
+    LogStats();
 }
 
 void ClearCache() {

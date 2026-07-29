@@ -35,10 +35,16 @@ bool Init() {
     return true;
 }
 
+// Printed from the periodic report. Shutdown does not run - the DLL exits via
+// TerminateProcess - so anything reported only from there is never seen.
+void LogStats() {
+    Log("[LuaStringPoolFast] %lld hits, %lld misses in string pool", g_hits, g_misses);
+}
+
 void Shutdown() {
+    LogStats();
     WinLockGuard lock(g_poolMutex);
     g_symbolPool.clear();
-    Log("[LuaStringPoolFast] Stats: %lld hits, %lld misses in string pool", g_hits, g_misses);
 }
 
 
