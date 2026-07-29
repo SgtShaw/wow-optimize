@@ -101,7 +101,6 @@ namespace Config {
         bool OptSoundVolumeLimit = true;
         bool OptUILayoutThrottle = true;
         bool OptTerrainHeightCache = true;
-        bool OptFontAlphaFastpath = true;
 
         bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = true;

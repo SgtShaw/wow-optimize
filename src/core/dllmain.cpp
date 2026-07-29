@@ -68,7 +68,6 @@
 #include "hooks_subsystems/sound_volume_limit.h"
 #include "hooks_subsystems/ui_layout_throttle.h"
 #include "hooks_subsystems/terrain_height_cache.h"
-#include "hooks_subsystems/font_alpha_fastpath.h"
 
 #include "hooks_subsystems/texture_unload_delay.h"
 #include "hooks_subsystems/quality_governor.h"
@@ -7883,7 +7882,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptSoundVolumeLimit) SoundVolumeLimit::Init();
     if (Config::g_settings.OptUILayoutThrottle) UILayoutThrottle::Init();
     if (Config::g_settings.OptTerrainHeightCache) TerrainHeightCache::Init();
-    if (Config::g_settings.OptFontAlphaFastpath) FontAlphaFastpath::Init();
 
     if (Config::g_settings.OptTextureUnloadDelay) TextureUnloadDelay::Init();
     QualityGovernor::Init();
@@ -9845,7 +9843,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SoundVolumeLimit::Shutdown();
             UILayoutThrottle::Shutdown();
             TerrainHeightCache::Shutdown();
-            FontAlphaFastpath::Shutdown();
             QualityGovernor::Shutdown();
             HotPatch::ShutdownAll();
             ReportHotFunctionStats();

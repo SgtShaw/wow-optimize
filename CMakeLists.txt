@@ -425,8 +425,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/ui_layout_throttle.h
     src/hooks_subsystems/terrain_height_cache.cpp
     src/hooks_subsystems/terrain_height_cache.h
-    src/hooks_subsystems/font_alpha_fastpath.cpp
-    src/hooks_subsystems/font_alpha_fastpath.h
     src/hooks_subsystems/texture_unload_delay.cpp
     src/hooks_subsystems/texture_unload_delay.h
     src/hooks_subsystems/spell_effect_culling.cpp

@@ -85,7 +85,6 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "SoundVolumeLimit", &Settings::OptSoundVolumeLimit },
     { "UI_Lua", "UILayoutThrottle", &Settings::OptUILayoutThrottle },
     { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
-    { "UI_Lua", "FontAlphaFastpath", &Settings::OptFontAlphaFastpath },
     { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
     { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
     { "Graphics_Sound", "M2BoneMt", &Settings::OptM2BoneMt },
@@ -249,7 +248,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("Graphics_Sound", "SoundVolumeLimit", "0", iniPath.c_str());
             WritePrivateProfileStringA("UI_Lua", "UILayoutThrottle", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "TerrainHeightCache", "0", iniPath.c_str());
-            WritePrivateProfileStringA("UI_Lua", "FontAlphaFastpath", "0", iniPath.c_str());
 
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "0", iniPath.c_str());
@@ -350,7 +348,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSoundVolumeLimit   = GetPrivateProfileIntA("Graphics_Sound", "SoundVolumeLimit", 0, iniPath.c_str()) != 0;
         g_settings.OptUILayoutThrottle   = GetPrivateProfileIntA("UI_Lua", "UILayoutThrottle", 0, iniPath.c_str()) != 0;
         g_settings.OptTerrainHeightCache = GetPrivateProfileIntA("Graphics_Sound", "TerrainHeightCache", 0, iniPath.c_str()) != 0;
-        g_settings.OptFontAlphaFastpath  = GetPrivateProfileIntA("UI_Lua", "FontAlphaFastpath", 0, iniPath.c_str()) != 0;
 
         // Parse Features 31-50
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
