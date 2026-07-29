@@ -3716,28 +3716,17 @@ bool InitPhase2(lua_State* L) {
 #endif // TEST_DISABLE_ALL_PHASE2
 }
 
-void Shutdown() {
-    if (g_active) {
-        if (!IsWine()) {
-            MH_DisableHook((void*)ADDR_str_format);
-        }
-        // On Wine/Rosetta, string.format was replaced via Lua API.
-        // No MH_DisableHook needed - the replacement is just a data pointer
-        // in Lua's table. WoW will clean up Lua state on exit anyway.
-    }
-
-#if !TEST_DISABLE_ALL_PHASE2
-    for (int i = 0; i < NUM_FUNC_HOOKS; i++) {
-        if (g_funcHooks[i].hooked && g_funcHooks[i].address) {
-            if (!IsWine()) {
-                MH_DisableHook((void*)g_funcHooks[i].address);
-            }
-            // On Wine/Rosetta: Lua API replacements are cleaned up with Lua state
-            g_funcHooks[i].hooked = false;
-        }
-    }
-#endif
-
+// Prints every fast-path counter.
+//
+// This used to live inside Shutdown(), which is the problem: the DLL exits via
+// TerminateProcess to avoid deadlocking on background threads, so Shutdown()
+// does not run and none of these numbers ever reached a log. Four tester logs
+// contain not one [FastPath] counter line between them - which reads exactly
+// like every fast path being unused, when it only means nobody printed them.
+//
+// It is called from the periodic report instead, alongside FrameBench and the
+// feature-activity block, both of which demonstrably do appear in those logs.
+void LogStats() {
     long fmtTotal = g_formatFastHits + g_formatFallbacks;
     if (fmtTotal > 0) {
         Log("[FastPath] Format: %ld fast, %ld fallback (%.1f%%)",
@@ -3798,7 +3787,31 @@ void Shutdown() {
         Log("[FastPath] Math.Sqrt: %ld fast, %ld fallback", g_mathSqrtHits, g_mathSqrtFallbacks);
     if (g_strRepHits > 0 || g_strRepFallbacks > 0)
         Log("[FastPath] StrRep: %ld fast, %ld fallback", g_strRepHits, g_strRepFallbacks);
+}
 
+void Shutdown() {
+    if (g_active) {
+        if (!IsWine()) {
+            MH_DisableHook((void*)ADDR_str_format);
+        }
+        // On Wine/Rosetta, string.format was replaced via Lua API.
+        // No MH_DisableHook needed - the replacement is just a data pointer
+        // in Lua's table. WoW will clean up Lua state on exit anyway.
+    }
+
+#if !TEST_DISABLE_ALL_PHASE2
+    for (int i = 0; i < NUM_FUNC_HOOKS; i++) {
+        if (g_funcHooks[i].hooked && g_funcHooks[i].address) {
+            if (!IsWine()) {
+                MH_DisableHook((void*)g_funcHooks[i].address);
+            }
+            // On Wine/Rosetta: Lua API replacements are cleaned up with Lua state
+            g_funcHooks[i].hooked = false;
+        }
+    }
+#endif
+
+    LogStats();
     g_active = false;
     g_phase2Active = false;
 }

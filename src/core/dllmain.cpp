@@ -4494,6 +4494,7 @@ static void DumpPeriodicStats() {
     FrameBench::Report("periodic");
     CrashDumper::ReportFeatureActivity();
     ReportCrtFreeStats();
+    LuaFastPath::LogStats();
 }
 
 // ================================================================
