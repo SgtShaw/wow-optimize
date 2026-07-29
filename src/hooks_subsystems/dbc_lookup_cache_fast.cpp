@@ -35,10 +35,18 @@ bool Init() {
     return true;
 }
 
+// Printed from the periodic report, not only from Shutdown. The DLL exits
+// through TerminateProcess to avoid deadlocking on background threads, so
+// Shutdown does not run and these numbers reached no log at all - four tester
+// sessions contain none of them.
+void LogStats() {
+    Log("[DbcLookupCacheFast] %lld hits, %lld misses", g_hits, g_misses);
+}
+
 void Shutdown() {
+    LogStats();
     WinLockGuard lock(g_cacheMutex);
     g_nameCache.clear();
-    Log("[DbcLookupCacheFast] Stats: %lld hits, %lld misses", g_hits, g_misses);
 }
 
 } // namespace DbcLookupCacheFast

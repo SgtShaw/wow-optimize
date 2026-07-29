@@ -4495,6 +4495,9 @@ static void DumpPeriodicStats() {
     CrashDumper::ReportFeatureActivity();
     ReportCrtFreeStats();
     LuaFastPath::LogStats();
+    ObjVisCache::LogStats();
+    DbcLookupCacheFast::LogStats();
+    FontGlyphCache::LogStats();
 }
 
 // ================================================================

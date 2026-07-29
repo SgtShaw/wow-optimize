@@ -192,13 +192,20 @@ bool Init() {
     return true;
 }
 
+// Printed from the periodic report, not only from Shutdown. The DLL exits
+// through TerminateProcess to avoid deadlocking on background threads, so
+// Shutdown does not run and these numbers reached no log at all - four tester
+// sessions contain none of them.
+void LogStats() {
+    Log("[FontGlyphCache] %lld hits, %lld misses (%.1f%% hit rate)",
+        g_hits, g_misses,
+        (g_hits + g_misses) ? (100.0 * g_hits / (g_hits + g_misses)) : 0.0);
+}
+
 void Shutdown() {
+    LogStats();
     MH_DisableHook((void*)0x006C8CC0);
-    
     ClearCache();
-    
-    Log("[FontGlyphCache] Stats: %lld hits, %lld misses (%.1f%% hit rate)", 
-        g_hits, g_misses, (g_hits + g_misses) ? (100.0 * g_hits / (g_hits + g_misses)) : 0.0);
 }
 
 void ClearCache() {
