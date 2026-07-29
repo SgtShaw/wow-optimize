@@ -117,7 +117,6 @@ namespace Config {
 
         bool OptTextureUnloadDelay = false;
         bool OptM2MatrixSimd = false;
-        bool OptM2BoneMt = false;
         bool OptMpqAsyncDecompress = false;
         bool OptSpellEffectCulling = false;
         // Drops a dead _msize from WoW's free wrapper. Measured at 8-10% of

@@ -129,8 +129,6 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/async_tex_loader.h
     src/hooks_subsystems/adaptive_farclip.cpp
     src/hooks_subsystems/adaptive_farclip.h
-    src/simd_math/m2_bone_simd.cpp
-    src/simd_math/m2_bone_simd.h
     src/hooks_subsystems/quality_governor.cpp
     src/hooks_subsystems/quality_governor.h
     src/hooks_subsystems/font_glyph_cache.cpp

@@ -87,7 +87,6 @@ static const BoolSetting kBoolSettings[] = {
     { "Graphics_Sound", "TerrainHeightCache", &Settings::OptTerrainHeightCache },
     { "Graphics_Sound", "TextureUnloadDelay", &Settings::OptTextureUnloadDelay },
     { "Graphics_Sound", "M2MatrixSimd", &Settings::OptM2MatrixSimd },
-    { "Graphics_Sound", "M2BoneMt", &Settings::OptM2BoneMt },
     { "General", "MpqAsyncDecompress", &Settings::OptMpqAsyncDecompress },
     { "Graphics_Sound", "SimdMatrixTransform", &Settings::OptSimdMatrixTransform },
     { "Graphics_Sound", "SpellEffectCulling", &Settings::OptSpellEffectCulling },
@@ -251,7 +250,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
 
             WritePrivateProfileStringA("Graphics_Sound", "TextureUnloadDelay", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "M2MatrixSimd", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Graphics_Sound", "M2BoneMt", "0", iniPath.c_str());
             WritePrivateProfileStringA("General", "MpqAsyncDecompress", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SimdMatrixTransform", "0", iniPath.c_str());
             WritePrivateProfileStringA("Graphics_Sound", "SpellEffectCulling", "0", iniPath.c_str());
@@ -352,7 +350,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         // Parse Features 31-50
         g_settings.OptTextureUnloadDelay = GetPrivateProfileIntA("Graphics_Sound", "TextureUnloadDelay", 0, iniPath.c_str()) != 0;
         g_settings.OptM2MatrixSimd = GetPrivateProfileIntA("Graphics_Sound", "M2MatrixSimd", 0, iniPath.c_str()) != 0;
-        g_settings.OptM2BoneMt = GetPrivateProfileIntA("Graphics_Sound", "M2BoneMt", 0, iniPath.c_str()) != 0;
         g_settings.OptMpqAsyncDecompress = GetPrivateProfileIntA("General", "MpqAsyncDecompress", 0, iniPath.c_str()) != 0;
         g_settings.OptSimdMatrixTransform = GetPrivateProfileIntA("Graphics_Sound", "SimdMatrixTransform", 0, iniPath.c_str()) != 0;
         g_settings.OptSpellEffectCulling = GetPrivateProfileIntA("Graphics_Sound", "SpellEffectCulling", 0, iniPath.c_str()) != 0;

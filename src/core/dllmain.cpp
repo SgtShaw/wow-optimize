@@ -391,7 +391,6 @@ void ClearCombatLogCache();
 #include "mip_bias_governor.h"
 #include "perf_diagnostics.h"
 #include "adaptive_farclip.h"
-#include "m2_bone_simd.h"
 #include "font_glyph_cache.h"
 #include "async_sound_loader.h"
 #include "rcu_obj_mgr.h"
@@ -7888,11 +7887,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     if (Config::g_settings.OptMemoryPressure) AdaptiveFarclip::Init();
 
     Log("");
-    Log("--- M2 Bone SIMD Acceleration ---");
-    if ((Config::g_settings.OptM2MatrixSimd || Config::g_settings.OptM2BoneMt) && !RunningUnderTranslation()) M2BoneSimd::Init();
-    else if (RunningUnderTranslation()) Log("[M2BoneSimd] DISABLED [forced off: Wine/Rosetta]");
-
-    Log("");
     Log("--- Font Glyph Cache ---");
     if (Config::g_settings.OptFontMetricsFast) FontGlyphCache::Init();
 
@@ -9874,7 +9868,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             SoundMixerOpt::Shutdown();
             LuaGCGovernor::Shutdown();
             AdaptiveFarclip::Shutdown();
-            M2BoneSimd::Shutdown();
             FontGlyphCache::Shutdown();
             CombatLogFilter::Shutdown();
             SoundVolumeLimit::Shutdown();
