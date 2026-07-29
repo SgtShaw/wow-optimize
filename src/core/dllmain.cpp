@@ -4493,6 +4493,8 @@ static void DumpPeriodicStats() {
     LuaGcGovernor::LogStats();
     VertexBufferPrealloc::LogStats();
     LuaBytecodeCache::LogStats();
+    CombatLogBuffer::LogStats();
+    MpqAsyncDecompress::LogStats();
 }
 
 // ================================================================
