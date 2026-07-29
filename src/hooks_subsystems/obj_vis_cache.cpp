@@ -14,6 +14,7 @@
 
 extern "C" void Log(const char* fmt, ...);
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 #if !TEST_DISABLE_OBJ_VIS_CACHE
 
@@ -210,6 +211,7 @@ bool Init() {
     }
 
     g_featureToken = CrashDumper::FeatureTokenForCounting("ObjVisCache");
+    SamplingProfiler::RegisterSelfSymbol("objvis_lookup", (const void*)&hooked_HashLookup);
     Log("[ObjVisCache] [ OK ] Hooked lookup, static pool=%d threads (no alloc)", MAX_THREADS);
     return true;
 }

@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <vector>
 #include "../allocators/loading_defrag.h"
+#include "../diagnostics/sampling_profiler.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -3673,6 +3674,11 @@ bool InitPhase2(lua_State* L) {
                 lua_settop_(L, -2); // pop table
 
                 e.hooked = true;
+                // Name it in the profile. Without this our own hot code shows
+                // up as "wowopt+0x39000" and cannot be told apart from any other
+                // hook, which is why the DLL's own 2.1% has never been broken
+                // down.
+                if (e.name) SamplingProfiler::RegisterSelfSymbol(e.name, e.hookFn);
                 hookedNow++;
                 hookedTotal++;
                 Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ] (Lua API path)",
@@ -3693,6 +3699,11 @@ bool InitPhase2(lua_State* L) {
                 }
 
                 e.hooked = true;
+                // Name it in the profile. Without this our own hot code shows
+                // up as "wowopt+0x39000" and cannot be told apart from any other
+                // hook, which is why the DLL's own 2.1% has never been broken
+                // down.
+                if (e.name) SamplingProfiler::RegisterSelfSymbol(e.name, e.hookFn);
                 hookedNow++;
                 hookedTotal++;
                 Log("[FastPath]   %-8s.%-8s  0x%08X  [ OK ]%s",

@@ -315,13 +315,37 @@ static uintptr_t g_selfEnd  = 0;
 
 // Our own functions, by absolute address, so a hot spot inside this DLL prints a
 // name instead of an offset nobody can resolve without the matching .map.
-static constexpr int MAX_SELF_SYMBOLS = 64;
+// Every Lua fast path registers itself, which alone is 55 names, plus the
+// allocator hooks and the caches. 64 was exactly enough to overflow.
+static constexpr int MAX_SELF_SYMBOLS = 128;
 struct SelfSymbol { uintptr_t addr; const char* name; };
 static SelfSymbol g_selfSymbols[MAX_SELF_SYMBOLS] = {};
 static int        g_selfSymbolCount = 0;
 
 void RegisterSelfSymbol(const char* name, const void* addr) {
-    if (!name || !addr || g_selfSymbolCount >= MAX_SELF_SYMBOLS) return;
+    if (!name || !addr) return;
+
+    // Phase 2 of the Lua fast path runs again after every UI reload, so the same
+    // hook can arrive here repeatedly. Registering it twice wastes a slot and
+    // makes the table lie about how full it is.
+    for (int i = 0; i < g_selfSymbolCount; i++) {
+        if (g_selfSymbols[i].addr == (uintptr_t)addr) return;
+    }
+
+    if (g_selfSymbolCount >= MAX_SELF_SYMBOLS) {
+        // Dropping this silently would leave the hot code it names showing as a
+        // raw offset, indistinguishable from code nobody registered - the same
+        // ambiguity the feature registry had before it started saying so.
+        static bool s_saidFull = false;
+        if (!s_saidFull) {
+            s_saidFull = true;
+            Log("[SamplingProfiler] Symbol table full at %d; '%s' and any after it "
+                "will appear as raw offsets. Raise MAX_SELF_SYMBOLS.",
+                MAX_SELF_SYMBOLS, name);
+        }
+        return;
+    }
+
     g_selfSymbols[g_selfSymbolCount].addr = (uintptr_t)addr;
     g_selfSymbols[g_selfSymbolCount].name = name;
     g_selfSymbolCount++;

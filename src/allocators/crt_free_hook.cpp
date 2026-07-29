@@ -14,6 +14,7 @@
 #include "crt_free_hook.h"
 #include "config.h"
 #include "crash_dumper.h"
+#include "sampling_profiler.h"
 
 extern "C" void Log(const char* fmt, ...);
 
@@ -150,6 +151,7 @@ bool InstallCrtFreeHook() {
     }
 
     g_token = CrashDumper::FeatureTokenForCounting("CrtFreeHook");
+    SamplingProfiler::RegisterSelfSymbol("crt_free", (const void*)&Hooked_CrtFree);
     g_installed = true;
     Log("[CrtFree] ACTIVE at 0x%08X - dropping the discarded _msize from every free",
         (unsigned)WOW_FREE_WRAPPER);
@@ -176,6 +178,7 @@ bool InstallCrtAllocHook() {
         return false;
     }
 
+    SamplingProfiler::RegisterSelfSymbol("crt_alloc", (const void*)&Hooked_WowAlloc);
     g_allocInstalled = true;
     Log("[CrtAlloc] ACTIVE at 0x%08X - dropping the discarded _msize from every allocation",
         (unsigned)WOW_ALLOC_WRAPPER);
