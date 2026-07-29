@@ -3727,6 +3727,12 @@ bool InitPhase2(lua_State* L) {
 // It is called from the periodic report instead, alongside FrameBench and the
 // feature-activity block, both of which demonstrably do appear in those logs.
 void LogStats() {
+    // Every line below is guarded on hits OR fallbacks, never on hits alone.
+    // Guarding on hits meant a fast path that ran thousands of times and fell
+    // back every time printed nothing - which reads exactly like a hook that was
+    // never installed. The first live 3.18.0 session showed no ToString line at
+    // all despite _G.tostring being hooked and enabled, and that guard is why.
+
     long fmtTotal = g_formatFastHits + g_formatFallbacks;
     if (fmtTotal > 0) {
         Log("[FastPath] Format: %ld fast, %ld fallback (%.1f%%)",
@@ -3737,15 +3743,14 @@ void LogStats() {
         Log("[FastPath] Find(plain): %ld fast, %ld fallback", g_findPlainHits, g_findFallbacks);
     if (g_matchHits > 0 || g_matchFallbacks > 0)
         Log("[FastPath] Match: %ld fast, %ld fallback", g_matchHits, g_matchFallbacks);
-    if (g_typeHits > 0)
+    if (g_typeHits > 0 || g_typeFallbacks > 0)
         Log("[FastPath] Type: %ld fast, %ld fallback", g_typeHits, g_typeFallbacks);
-    if (g_mathHits > 0)
+    if (g_mathHits > 0 || g_mathFallbacks > 0)
         Log("[FastPath] Math: %ld fast, %ld fallback", g_mathHits, g_mathFallbacks);
     if (g_strlenHits > 0) Log("[FastPath] StrLen: %ld fast", g_strlenHits);
     if (g_strbyteHits > 0) Log("[FastPath] StrByte: %ld fast", g_strbyteHits);
-    if (g_tostringHits > 0)
-        Log("[FastPath] ToString: %ld fast (%ld via integer conversion), %ld fallback",
-            g_tostringHits, g_tostringIntHits, g_tostringFallbacks);
+    if (g_tostringHits > 0 || g_tostringFallbacks > 0)
+        Log("[FastPath] ToString: %ld fast (%ld via integer conversion), %ld fallback", g_tostringHits, g_tostringIntHits, g_tostringFallbacks);
     if (g_tonumberHits > 0) Log("[FastPath] ToNumber: %ld fast", g_tonumberHits);
     if (g_nextHits > 0 || g_nextFallbacks > 0)
         Log("[FastPath] Next: %ld fast, %ld fallback", g_nextHits, g_nextFallbacks);
