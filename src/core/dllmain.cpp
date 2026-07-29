@@ -59,7 +59,6 @@
 #include "combatlog_incremental.h"
 #include "world_state_coalesce.h"
 #include "hooks_subsystems/sound_coalescer.h"
-#include "hooks_subsystems/lua_gc_governor.h"
 #include "hooks_subsystems/particle_density_scaler.h"
 #include "hooks_subsystems/vertex_buffer_prealloc.h"
 #include "hooks_subsystems/saved_vars_backup.h"
@@ -1510,7 +1509,6 @@ static void WINAPI hooked_Sleep(DWORD ms) {
             OnFrameRenderHooks(g_mainThreadId);
             OnFrameLogicHooks(g_mainThreadId);
             OnFrameAsyncHooks(g_mainThreadId);
-            // LuaGcGovernor::OnFrame((float)elapsedMs); // Disabled duplicate governor
 #if !TEST_DISABLE_LUA_GC_GOVERNOR
             LuaGCGovernor::OnFrame(elapsedMs);
 #endif
@@ -4487,7 +4485,6 @@ static void DumpPeriodicStats() {
     ApiCache::LogStats();
     D3D9StateCache::LogStats();
     AsyncSoundLoader::LogStats();
-    LuaGcGovernor::LogStats();
     VertexBufferPrealloc::LogStats();
     LuaBytecodeCache::LogStats();
     CombatLogBuffer::LogStats();
@@ -7870,7 +7867,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("");
     Log("--- 20 New Subsystem Performance & Stability Features ---");
     if (Config::g_settings.OptSoundCoalescer) SoundCoalescer::Init();
-    // LuaGcGovernor::Init(); // Disabled duplicate governor
     if (Config::g_settings.OptVertexBufferPrealloc) VertexBufferPrealloc::Init();
     if (Config::g_settings.OptSavedVarsBackup) SavedVarsBackup::Init();
     if (Config::g_settings.OptMouseClipRelease) MouseClipRelease::Init();

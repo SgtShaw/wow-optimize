@@ -407,8 +407,6 @@ add_library(wow_optimize SHARED
 
     src/hooks_subsystems/sound_coalescer.cpp
     src/hooks_subsystems/sound_coalescer.h
-    src/hooks_subsystems/lua_gc_governor.cpp
-    src/hooks_subsystems/lua_gc_governor.h
     src/hooks_subsystems/particle_density_scaler.cpp
     src/hooks_subsystems/particle_density_scaler.h
     src/hooks_subsystems/vertex_buffer_prealloc.cpp
