@@ -788,10 +788,16 @@ static bool IsFatalClass(DWORD code) {
     }
 }
 
+// Set while this thread is inside the probe. If reporting a fault somehow faults,
+// the second entry leaves at once instead of recursing.
+static __declspec(thread) bool t_inProbe = false;
+
 static LONG CALLBACK WowOpt_FirstChanceProbe(EXCEPTION_POINTERS* ep) {
     if (!ep || !ep->ExceptionRecord) return EXCEPTION_CONTINUE_SEARCH;
     DWORD code = ep->ExceptionRecord->ExceptionCode;
     if (!IsFatalClass(code)) return EXCEPTION_CONTINUE_SEARCH;
+    if (t_inProbe) return EXCEPTION_CONTINUE_SEARCH;
+    t_inProbe = true;
 
     uintptr_t at = (uintptr_t)ep->ExceptionRecord->ExceptionAddress;
 
@@ -803,23 +809,23 @@ static LONG CALLBACK WowOpt_FirstChanceProbe(EXCEPTION_POINTERS* ep) {
     // Log the first few properly, then fall silent, so a path that faults in a
     // loop behind a __except cannot fill the disk.
     if (InterlockedIncrement(&s_firstChanceLogged) <= FIRST_CHANCE_LOG_LIMIT) {
+        // Deliberately no GetModuleHandleExA here, unlike the unhandled filter.
+        // That call takes the loader lock, and this handler runs while the process
+        // is still alive - including on a fault raised by a thread that already
+        // holds that lock, which is exactly the startup and module-load case this
+        // was added to catch. The raw address resolves fine in a disassembler; a
+        // hang would not.
+        //
+        // Everything that remains is safe to call from here: the log path is
+        // lock-free (InterlockedCompareExchange into a ring, then WriteFile) and
+        // LogAccessViolationDetail only calls VirtualQuery.
         Log("!!! FIRST-CHANCE %s at 0x%08X TID=%lu - handled or not, it happened",
             ExceptionName(code), (unsigned)at, GetCurrentThreadId());
         LogAccessViolationDetail(ep->ExceptionRecord);
-
-        HMODULE hMod = nullptr;
-        if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                               (LPCSTR)at, &hMod) && hMod) {
-            char modPath[MAX_PATH] = "";
-            GetModuleFileNameA(hMod, modPath, sizeof(modPath));
-            const char* slash = strrchr(modPath, '\\');
-            Log("!!!   in %s+0x%08X", slash ? slash + 1 : modPath,
-                (unsigned)(at - (uintptr_t)hMod));
-        }
         LogFlushImmediate();
     }
 
+    t_inProbe = false;
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
