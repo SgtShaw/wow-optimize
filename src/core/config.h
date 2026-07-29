@@ -128,6 +128,10 @@ namespace Config {
         // SSE2 4x4 matrix multiply. Off by default for the same reason: verified
         // against the client's version numerically, never run in a game.
         bool OptMatrixMultiplySse2 = false;
+        // Counts draw calls per frame. A diagnostic, not an optimisation: it
+        // wraps the hottest call in the renderer, so it is meant to answer the
+        // question in one session and be switched off again.
+        bool OptDrawCensus = false;
         bool OptCrtFreeMsize = true;
         bool OptCrtAllocMsize = true;
         bool OptCrtMimalloc = false;

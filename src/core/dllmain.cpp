@@ -4527,6 +4527,7 @@ static void DumpPeriodicStats() {
     FontGlyphCache::LogStats();
     ApiCache::LogStats();
     D3D9StateCache::LogStats();
+    D3D9StateCache::ReportDrawCensus();
     AsyncSoundLoader::LogStats();
     VertexBufferPrealloc::LogStats();
     LuaBytecodeCache::LogStats();
