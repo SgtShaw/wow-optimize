@@ -9,6 +9,7 @@
 #endif
 #include <windows.h>
 #include <psapi.h>
+#include <tlhelp32.h>
 #include <cstdint>
 #include <cstring>
 #include <algorithm>
@@ -257,6 +258,153 @@ static const FuncEntry* FindNearestFunc(uintptr_t eip) {
     return &g_knownFuncs[best];
 }
 
+// ---- background threads --------------------------------------------------
+//
+// Everything above samples the main thread and nothing else, which makes this
+// profile blind to an entire half of the client. WoW decompresses MPQ data,
+// decodes sound and services IO completions on worker threads; if any of that
+// costs real time, the only trace it leaves in a main-thread profile is the main
+// thread waiting - which reads as "blocked" and says nothing about why.
+//
+// The question that exposed the gap was whether replacing the client's zlib
+// would be worth doing. It cannot be answered without looking here.
+//
+// Sampled far more slowly than the main thread and one at a time. Suspending
+// arbitrary threads is only safe because the sampler does nothing between the
+// suspend and the resume except read a register - no allocation, no lock, no
+// call that could need something the suspended thread is holding.
+static constexpr int WORKER_MAX      = 16;
+static constexpr int WORKER_EVERY_N  = 50;   // one worker sample per 50 main ones
+
+static HANDLE   g_workerThreads[WORKER_MAX] = {};
+static int      g_workerCount = 0;
+static int      g_workerCursor = 0;
+static uint64_t g_workerSamples = 0;
+
+struct WorkerBucket {
+    char     module[40];
+    uint64_t count;
+};
+static WorkerBucket g_workerBuckets[32] = {};
+static int          g_workerBucketCount = 0;
+
+static void EnumerateWorkerThreads() {
+    DWORD selfPid = GetCurrentProcessId();
+    DWORD mainTid = 0;
+    if (g_mainThread) mainTid = GetThreadId(g_mainThread);
+    DWORD samplerTid = GetCurrentThreadId();
+
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+    if (snap == INVALID_HANDLE_VALUE) return;
+
+    THREADENTRY32 te;
+    te.dwSize = sizeof(te);
+    if (Thread32First(snap, &te)) {
+        do {
+            if (te.th32OwnerProcessID != selfPid) continue;
+            if (te.th32ThreadID == mainTid || te.th32ThreadID == samplerTid) continue;
+            if (g_workerCount >= WORKER_MAX) break;
+
+            HANDLE h = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT,
+                                  FALSE, te.th32ThreadID);
+            if (h) g_workerThreads[g_workerCount++] = h;
+        } while (Thread32Next(snap, &te));
+    }
+    CloseHandle(snap);
+}
+
+// Buckets by owning module, because a worker's exact address is far less useful
+// than knowing whether the time went to the decompressor, the sound mixer or the
+// kernel.
+static void NoteWorkerSample(uintptr_t eip) {
+    char name[40] = "unknown";
+
+    HMODULE mod = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                           GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           (LPCSTR)eip, &mod) && mod) {
+        char path[MAX_PATH] = "";
+        GetModuleFileNameA(mod, path, sizeof(path));
+        const char* slash = strrchr(path, '\\');
+        const char* file = slash ? slash + 1 : path;
+
+        // wow.exe is the interesting case: name the address so it can be looked
+        // up, since that is where decompression would live if it is statically
+        // linked - which it is.
+        if (eip >= WOW_BASE && eip <= WOW_END)
+            wsprintfA(name, "wow!0x%08X", (unsigned)(eip & ~0xFFFu));
+        else
+            lstrcpynA(name, file, sizeof(name));
+    }
+
+    for (int i = 0; i < g_workerBucketCount; i++) {
+        if (lstrcmpiA(g_workerBuckets[i].module, name) == 0) {
+            g_workerBuckets[i].count++;
+            return;
+        }
+    }
+    if (g_workerBucketCount < 32) {
+        lstrcpynA(g_workerBuckets[g_workerBucketCount].module, name, 40);
+        g_workerBuckets[g_workerBucketCount].count = 1;
+        g_workerBucketCount++;
+    }
+}
+
+static void SampleOneWorker() {
+    if (g_workerCount == 0) return;
+
+    HANDLE h = g_workerThreads[g_workerCursor];
+    g_workerCursor = (g_workerCursor + 1) % g_workerCount;
+    if (!h) return;
+
+    CONTEXT wctx;
+    wctx.ContextFlags = CONTEXT_CONTROL;
+    if (SuspendThread(h) == (DWORD)-1) return;
+
+    uintptr_t eip = 0;
+    if (GetThreadContext(h, &wctx)) eip = (uintptr_t)wctx.Eip;
+    ResumeThread(h);
+
+    if (eip) {
+        g_workerSamples++;
+        NoteWorkerSample(eip);
+    }
+}
+
+static void DumpWorkerThreads(uint64_t mainSamples) {
+    if (g_workerSamples == 0) {
+        Log("[SamplingProfiler] === BACKGROUND THREADS: nothing sampled ===");
+        return;
+    }
+
+    Log("[SamplingProfiler] === BACKGROUND THREADS (%llu samples across %d threads, "
+        "one per %d main-thread samples) ===",
+        (unsigned long long)g_workerSamples, g_workerCount, WORKER_EVERY_N);
+    Log("[SamplingProfiler]   These are not frame time. They say where the client's "
+        "own workers spend theirs, which a main-thread profile cannot show.");
+
+    // Simple selection sort; at most 32 entries, once per report.
+    for (int i = 0; i < g_workerBucketCount; i++) {
+        int best = i;
+        for (int j = i + 1; j < g_workerBucketCount; j++)
+            if (g_workerBuckets[j].count > g_workerBuckets[best].count) best = j;
+        if (best != i) {
+            WorkerBucket t = g_workerBuckets[i];
+            g_workerBuckets[i] = g_workerBuckets[best];
+            g_workerBuckets[best] = t;
+        }
+    }
+
+    int shown = (g_workerBucketCount < 12) ? g_workerBucketCount : 12;
+    for (int i = 0; i < shown; i++) {
+        Log("[SamplingProfiler]   %2d. %-32s %8llu samples (%5.2f%%)",
+            i + 1, g_workerBuckets[i].module,
+            (unsigned long long)g_workerBuckets[i].count,
+            100.0 * (double)g_workerBuckets[i].count / (double)g_workerSamples);
+    }
+    (void)mainSamples;
+}
+
 // ---- sampler thread -----------------------------------------------
 static DWORD WINAPI SamplerThreadProc(LPVOID) {
     CONTEXT ctx;
@@ -287,6 +435,16 @@ static DWORD WINAPI SamplerThreadProc(LPVOID) {
                     g_skippedSamples++;
                 }
             }
+        }
+
+        // One background sample per WORKER_EVERY_N main ones. Enumeration is done
+        // once, after the warmup window, by which point the client has created
+        // the threads it is going to use.
+        static uint64_t tick = 0;
+        if (++tick % WORKER_EVERY_N == 0 &&
+            (GetTickCount() - g_samplerStartTick) >= PROFILER_WARMUP_MS) {
+            if (g_workerCount == 0) EnumerateWorkerThreads();
+            if (!LuaOpt::IsLoadingMode()) SampleOneWorker();
         }
 
         Sleep(SAMPLE_INTERVAL_MS);
@@ -815,6 +973,8 @@ static void DumpResults() {
                       "wow_optimize.dll HOT SPOTS (256-byte resolution)", "wowopt+0x%05X", 0);
     DumpFineHistogram(g_wowFineCounts, WOW_FINE_SLOTS, WOW_FINE_SHIFT, total,
                       "wow.exe HOT SPOTS (512-byte resolution)", "0x%08X", WOW_BASE);
+
+    DumpWorkerThreads(total);
 
     Log("[SamplingProfiler] === END PROFILE ===");
 }
