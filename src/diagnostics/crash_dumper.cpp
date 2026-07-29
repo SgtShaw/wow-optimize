@@ -771,6 +771,10 @@ static void LogAccessViolationDetail(EXCEPTION_RECORD* er) {
 // does, hence EXCEPTION_CONTINUE_SEARCH on every path.
 // ================================================================
 static volatile LONG s_firstChanceLogged = 0;
+
+// Totals, so the log can state the scale without printing every occurrence.
+static volatile LONG g_firstChanceTotal   = 0;
+static volatile LONG g_firstChanceRepeats = 0;
 static const LONG FIRST_CHANCE_LOG_LIMIT = 8;
 
 static bool IsFatalClass(DWORD code) {
@@ -803,8 +807,32 @@ static LONG CALLBACK WowOpt_FirstChanceProbe(EXCEPTION_POINTERS* ep) {
 
     // Always cheap: a mark in the ring costs no I/O and survives into whatever
     // report does eventually get written.
-    CrashDumper::Trace("first-chance %s at 0x%08X TID=%lu",
-                       ExceptionName(code), (unsigned)at, GetCurrentThreadId());
+    // Only the first sighting of an address reaches the ring.
+    //
+    // The unbounded version of this cost a tester 14%% of their main thread. One
+    // third-party module raised the same handled access violation 8889 times in a
+    // session - it uses exceptions as control flow - and every one wrote an entry
+    // to the event ring. That ring is the flight recorder for state transitions,
+    // and the slow-frame attribution prints all of it every time it fires, so
+    // 1363 slow frames each dumped a ring made entirely of this noise.
+    //
+    // Which is precisely the mistake the hook trace had to be cured of, where
+    // UIAccessor_FrameIsShown crowded out everything rarer. I put a
+    // high-frequency event into a ring meant for rare ones, one ring over.
+    //
+    // A repeated fault at one address is one fact, so it is recorded once and
+    // counted thereafter.
+    static uintptr_t s_lastFaultAddr = 0;
+    ++g_firstChanceTotal;
+    if (at != s_lastFaultAddr) {
+        s_lastFaultAddr = at;
+        CrashDumper::Trace("first-chance %s at 0x%08X TID=%lu",
+                           ExceptionName(code), (unsigned)at, GetCurrentThreadId());
+    } else {
+        ++g_firstChanceRepeats;
+        t_inProbe = false;
+        return EXCEPTION_CONTINUE_SEARCH;
+    }
 
     // Log the first few properly, then fall silent, so a path that faults in a
     // loop behind a __except cannot fill the disk.
@@ -1074,6 +1102,15 @@ int RegisteredFeatureCount() {
 void FeatureHit(int token) {
     if (token < 0 || token >= MAX_TRACKED_FEATURES) return;
     ++s_features[token].hits;
+}
+
+void ReportFirstChanceSummary() {
+    LONG total = g_firstChanceTotal;
+    if (total <= 0) return;
+    Log("[FirstChance] %ld fatal-class exceptions were raised and handled by "
+        "someone (%ld of them repeats of the previous address). These are not "
+        "crashes - something is using exceptions as control flow.",
+        total, (LONG)g_firstChanceRepeats);
 }
 
 void ReportFeatureActivity() {

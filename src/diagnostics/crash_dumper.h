@@ -73,6 +73,10 @@ int RegisteredFeatureCount();
     // Writes the "what actually ran" section to the log.
     void ReportFeatureActivity();
 
+// States how many handled fatal-class exceptions were seen, without printing one
+// line each - a single third-party module produced 8889 in one session.
+void ReportFirstChanceSummary();
+
     // Update feature state (call from hooks/fast-paths)
     void FeatureCall(const char* name);
     void FeatureError(const char* name, const char* desc);
