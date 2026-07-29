@@ -22,6 +22,7 @@
 #include "ui_cache.h"
 #include "api_cache.h"
 #include "lua_fastpath.h"
+#include "lua_alloc_census.h"
 #include "lua_internals.h"
 #include "lua_vm_cache.h"
 #include "crash_dumper.h"
@@ -4516,6 +4517,7 @@ static void DumpPeriodicStats() {
     CrashDumper::ReportFirstChanceSummary();
     PerfDiagnostics::LogStats();
     LuaGCGovernor::LogStats();
+    LuaAllocCensus::LogStats();
     ReportCrtFreeStats();
     if (g_spinTaken > 0 || g_spinSkipped > 0) {
         Log("[SleepPrecision] busy-wait taken %ld, handed back %ld (frames over "
@@ -4789,6 +4791,7 @@ extern "C" void WowOpt_OnFrameBoundary() {
     FontMetrics_OnFrame();
     QualityGovernor::OnFrame();
     CvarWatchdog_Check();
+    LuaAllocCensus::EnsureInstalled();
 #if !TEST_DISABLE_PARTICLE_THROTTLE
 #endif
 }

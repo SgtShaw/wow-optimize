@@ -132,6 +132,10 @@ namespace Config {
         // wraps the hottest call in the renderer, so it is meant to answer the
         // question in one session and be switched off again.
         bool OptDrawCensus = false;
+        // Counts Lua VM allocations by size through G->frealloc. A measurement,
+        // like the draw census - it decides whether a dedicated Lua arena is
+        // worth building.
+        bool OptLuaAllocCensus = false;
         bool OptCrtFreeMsize = true;
         bool OptCrtAllocMsize = true;
         bool OptCrtMimalloc = false;

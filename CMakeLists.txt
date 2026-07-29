@@ -80,6 +80,7 @@ add_library(wow_optimize SHARED
     src/hooks_subsystems/api_cache.cpp
     src/hooks_subsystems/api_cache.h
     src/runtime_vm/lua_fastpath.cpp
+    src/runtime_vm/lua_alloc_census.cpp
     src/runtime_vm/lua_fastpath.h
     src/runtime_vm/lua_internals.cpp
     src/runtime_vm/lua_internals.h
