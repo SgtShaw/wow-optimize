@@ -94,7 +94,10 @@ namespace Config {
         bool OptD3d9RenderThread = false;
 
         // 10 new features
-        bool OptCombatLogFilter = true;
+        // Off by default. It drops events by affiliation, not by subscription, so
+        // anything happening between two units outside your group never reaches
+        // addons - see the note in combat_log_filter.cpp.
+        bool OptCombatLogFilter = false;
         bool OptSoundVolumeLimit = true;
         bool OptUILayoutThrottle = true;
         bool OptTerrainHeightCache = true;
