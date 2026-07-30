@@ -35,144 +35,88 @@ The current public build is focused on real frametime stability, long-session sm
 
 ## What's New in v3.18.0
 
-Forty-six modules were removed because they never ran, three optimizations went
-in because the logs said where the time actually goes, and the settings that were
-quietly overwriting your graphics options are gone.
+Features that were quietly overwriting graphics settings you had chosen are gone,
+and one new feature replaces the lot of them. The rest of this release is the
+diagnostics catching themselves out — four cases of a log reporting something it
+had not actually measured.
 
-Thanks to [txtsd](https://github.com/txtsd), **Signalborn Soulweaver**, **Morbent**, and **prince**, who between them put this build through raids and a good deal of open world, and reported what broke. Every measured item below came out of a log somebody sent in.
-
-**Forty-six modules that did nothing at all**
-
-They appeared in the log at startup and had settings behind them. None installed
-a hook, patched anything, or was called from anywhere. `Init()` was
-`return true;` and the rest of the module was never entered.
-
-Most had no launcher switch at all and read a default of off, so nobody was
-running them — dead weight rather than active mistakes. Two separate minimap
-throttles existed, neither wired to anything. A JIT compiler sat behind a LuaJIT
-setting on a client that has no JIT. Two files shared a name and a namespace
-differing by one letter's case, and only one of them was ever wired up.
-
-Three of them had callers and still did nothing: a throttle whose enable flag was
-initialised to false and never set, a particle skip that asked a frustum nobody
-filled, and a "font alpha fast path" that turned alpha blending off whenever it
-should have left it alone — which would have painted text as solid rectangles had
-anything reached it.
-
-Two looked alive on inspection and were not. `ItemDataPrefetch::PrefetchItem` was
-an empty body under a comment saying the work was unsafe, called twice per item
-lookup into nothing. `CDataStoreBuffering` read a buffer pointer from an offset
-that actually holds a length, so the first call would have dereferenced a number
-as a pointer — which is presumably why nothing ever called it.
-
-`MpqMmapVfs` and `MpqPrefetch` went too. Both look up StormLib through
-`Storm.dll`, and 3.3.5a links Storm into the executable — there is no such file.
-Every tester log says so outright.
-
-What is left is a much shorter list of things that actually run: eleven settings
-are on unless you turn them off, and every one of them now has a switch.
-
-**Three optimizations that came from measurements, not guesses**
-
-- **The client asks the heap how big every block is, then throws the answer
-  away.** Both the `free` wrapper and the allocation wrapper call `_msize` and
-  discard the result — a walk into the heap on every single allocation and every
-  deallocation, from over a hundred call sites. Two
-  independent profiles measured that call at 8.09% and 10.59% of the time the
-  main thread spent executing. Both are gone; nothing else about either call
-  changes. A three-minute session with the fix in place reports 67,776
-  allocations and 28,393 deallocations served without it.
-
-- **`tostring` on numbers is about 50x cheaper.** It was the single largest
-  target in this project's own domain — 10.74% of execution in a CPU-bound
-  session. There was already a "fast path" hooked onto it, and for numbers it
-  called `sprintf("%.14g")`, which is exactly what Lua does, so it took the call
-  and paid full price. Integral values now convert directly: 841 ns to 16 ns for
-  the formatting step, verified byte-identical against `%.14g` across 200,139
-  values before it was allowed anywhere near a build.
-
-  The formatting is one part of a `tostring` call, so the end-to-end gain is
-  smaller than 50x. Your log now says how many conversions took the fast route.
+Thanks again to [txtsd](https://github.com/txtsd), whose testing rounds confirmed
+the 3.17.0 text-rendering fix and whose logs are where most of the problems below
+were found.
 
 **Your graphics settings are yours again**
 
-Two "adaptive" features scaled quality down when frame rate dropped, and both
-started from a number written into the code rather than the one you had set —
-so turning them on could raise your settings instead of lowering them.
+Three "adaptive" features scaled quality down when frame rate dropped. Each one
+started from a number written into the code rather than the number you had set, so
+turning them on could raise your settings instead of lowering them. **Dynamic Shadow
+Scaler** went in 3.17.0; the other two go now:
 
-- **Adaptive Farclip** assumed a draw distance of 1250. If yours was 500 it
-  dragged you *up* toward 1250, heavier while claiming to be lighter. It also
-  moved on thresholds three frames apart, so anyone playing near 60 fps had it
-  adjusting constantly.
-- **Particle Density Scaler** assumed 1.0 and restored to 1.0, pushing a
-  deliberate 0.5 back to full density.
+- **Adaptive Farclip** assumed a draw distance of 1250. If yours was 500 — a common
+  choice on older hardware — it dragged you *up* toward 1250, making the game
+  heavier while claiming to make it lighter. It also moved on thresholds three
+  frames apart (below 55 fps, above 58), so anyone playing near 60 had it adjusting
+  constantly.
+- **Particle Density Scaler** assumed 1.0 and restored to 1.0, so a deliberate 0.5
+  was pushed back to full density.
 
-Both removed. (**Dynamic Shadow Scaler**, same flaw, went in 3.17.0.)
+Neither survives. Nothing in the DLL now overwrites a setting it never read.
 
-**New: Adaptive Quality Governor** *(experimental, off by default)*
+**Adaptive Quality Governor** *(experimental, off by default)*
 
-One dial in place of three that argued with each other. It learns your ceiling by
-watching what the game writes when you change a setting and never exceeds it, so
-the worst it can do is give back what it took. It decides on the p95 of recent
-frames rather than an instant frame rate, degrades after 5 seconds past 33 ms and
-restores only after 30 seconds back under 20 ms — quality flickering up and down
-is worse than quality being slightly too low. Particles go first, then shadows,
-then draw distance.
+What replaces them is one dial instead of three that argued with each other. It
+learns your ceiling by watching what the game writes when you change a setting, and
+treats that as a limit it will never exceed — the worst it can do is give back what
+it took.
 
-It has not been proven on anyone's machine. That is why it is opt-in and on the
-Experimental tab.
+It reads the p95 of recent frames rather than an instant frame rate, so a single
+slow frame moves nothing. It degrades after 5 seconds past 33 ms and restores only
+after 30 seconds back under 20 ms; that asymmetry is deliberate, because quality
+flickering up and down is worse than quality being slightly too low. Order is
+particles, then shadows, then draw distance, on the assumption that you would rather
+see the world at full distance with fewer sparks.
 
-**New: Experimental tab in the launcher**
+It has not been proven on anyone's machine yet. That is why it is opt-in and on the
+Experimental tab — if you run it, the `[FrameBench]` block in your log says whether
+it helped.
 
-Unproven features live on their own tab, and **Enable All no longer switches them
-on**. It used to, which meant anyone testing "everything enabled" was also running
-code that had never executed in a real game.
+**An Experimental tab in the launcher**
 
-**Diagnostics that stop reporting what they never measured**
+Features that are new or unproven now live on their own tab, and **Enable All no
+longer switches them on**. Previously it did, which meant anyone testing "everything
+on" was also testing code that had never run in a game — and made their results
+impossible to interpret.
 
-- Eighteen modules printed their cache hit rates only from `Shutdown()`. The DLL
-  exits through `TerminateProcess` by design, so `Shutdown()` does not run and
-  **none of those numbers has ever appeared in a session**. Thirteen now print
-  from the periodic report instead. These are the figures that say whether a
-  cache earns its memory, and the project had never seen one.
-- The settings dump printed the ini file and called it the effective settings. A
-  setting the launcher never wrote is absent from that file, took its compiled
-  default, and left no trace. It now lists the resolved value of all of them and
-  marks the ones that fell back to a default.
-- A crash inside `memcpy` recorded only where the code was, never whether it was
-  reading or writing, or which address it touched. For an access violation those
-  are the two facts that identify the bug.
-- Crashes that any `__except` frame caught first were invisible to the crash
-  reporter, so some sessions ended with a log that simply stops mid-line. A
-  vectored handler now sees them regardless.
+**Diagnostics that stop reporting things they did not measure**
+
+Four of these, all found by reading logs testers sent in:
+
+- The CVar watchdog ran at injection, before the client had initialized anything it
+  inspects. Every one of its nine "CORRUPT" findings was a game that had not started
+  yet. It now waits until the client is up.
+- A 41.9-second loading screen was being recorded as a *frame*, which made `p99.9`
+  and `max` meaningless. Gaps over 2 seconds are now counted and reported separately
+  from frame times.
 - The profiler ranked `NtDelayExecution` — a thread doing nothing — as the second
-  hottest function, and named hot client code by 4KB page, which holds a dozen
-  functions and identified none of them. Waits are labelled as waits, and each
-  region now names its single hottest instruction.
-- A 41.9-second loading screen was recorded as a *frame*, making `p99.9` and
-  `max` meaningless. Gaps over 2 seconds are counted separately.
-- The CVar watchdog ran at injection, before the client had initialized anything
-  it inspects, and reported all nine of its findings as corruption.
+  hottest function, with a share of "executing" time it was by definition not using.
+- The loading report printed `0 ms inside ReadFile` in sessions where the ReadFile
+  hook was switched off and nothing had been measured at all.
 
-**Loading screens**
+**Loading screens are now measurable**
 
-Logs show them running past 30 seconds on some setups — on one tester's machine,
-7 of 12 loads. The cause is still unknown. This release adds timing that
-separates disk time from the rest, so if your loads are slow your log now carries
-the evidence.
+Logs show loading screens running past 30 seconds on some setups — on one tester's
+machine, 7 of 12 loads. The cause is not known yet. This release adds timing that
+separates disk time from everything else, without turning the MPQ cache back on to
+get it. If your loads are slow, your log now contains the evidence.
 
 ### Upgrading
 
-Settings carry over. Keys for the removed features are ignored, and no longer
-written into new config files.
+Settings carry over. If you had **Adaptive Farclip** or **Particle Density Scaler**
+on, they are gone, and your `farclip` and `particleDensity` will stay wherever you
+set them from now on. Worth checking them once in the game's own video options —
+these features may have left them somewhere you did not choose, and that value
+persisted in your config after the feature stopped running.
 
-If you had **Adaptive Farclip** or **Particle Density Scaler** on, they are gone
-and your `farclip` and `particleDensity` stay where you put them. Worth opening
-the game's own video options once to check them — those features may have left
-them somewhere you did not choose, and the value persists after the feature stops
-running.
-
-To try the replacement, enable **Adaptive Quality Governor** on the Experimental
+To try the replacement, turn on **Adaptive Quality Governor** on the Experimental
 tab.
 
 <details>
