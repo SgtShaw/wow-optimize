@@ -39,10 +39,7 @@ Forty-six modules were removed because they never ran, three optimizations went
 in because the logs said where the time actually goes, and the settings that were
 quietly overwriting your graphics options are gone.
 
-Thanks to [txtsd](https://github.com/txtsd) and **Signalborn Soulweaver**, who
-between them put this build through Naxxramas, Eye of Eternity, Obsidian
-Sanctum and a good deal of open world, and reported what broke. Every measured
-item below came out of a log somebody sent in.
+Thanks to [txtsd](https://github.com/txtsd), **Signalborn Soulweaver**, **Morbent**, and **prince**, who between them put this build through raids and a good deal of open world, and reported what broke. Every measured item below came out of a log somebody sent in.
 
 **Forty-six modules that did nothing at all**
 

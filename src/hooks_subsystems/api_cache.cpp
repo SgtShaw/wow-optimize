@@ -126,8 +126,30 @@ struct CachedRetVal {
     char   strVal[512];
 };
 
+// GetSpellInfo results are not stable for the life of a lua_State.
+//
+// A talent switch changes what GetSpellInfo returns - the icon most visibly - and
+// the only invalidation this cache had was "the lua_State changed". A talent
+// switch does not change it. So a cached icon survived the switch and kept being
+// served, which is exactly the bug three testers reported: a WeakAuras display
+// showing the pre-switch icon until /reload, and /reload working because it
+// builds a new state, which was the one thing that cleared the cache.
+//
+// One of them bisected it: 3.10 correct, 3.18 wrong. The default here is off, but
+// Enable All switched it on, so anyone testing "everything enabled" met it.
+//
+// The proper fix is invalidation on SPELLS_CHANGED and the talent events, which
+// needs a hook on the event dispatch - a very hot path - and the event ids
+// learned at startup. Until that is worth doing, staleness is bounded in time
+// instead of left unbounded: an entry older than this is a miss. A talent switch
+// takes far longer than a second, so the icon is correct by the time anyone looks
+// at it, and within one second the cache still absorbs the repeated calls it
+// exists for.
+static constexpr DWORD SPELL_ENTRY_TTL_MS = 1000;
+
 struct SpellCacheEntry {
     uint32_t     keyHash;
+    DWORD        stamp;          // GetTickCount when filled
     bool         valid;
     int          retCount;
     int          pushed;
@@ -338,6 +360,7 @@ static void CaptureSpellReturnValues(lua_State* L, SpellCacheEntry* e,
                                       int kType2, double kNum2, const char* kStr2) {
     if (pushed > SPELL_RETVALS) pushed = SPELL_RETVALS;
     e->keyHash   = keyHash;
+    e->stamp     = GetTickCount();
     e->valid     = true;
     e->retCount  = pushed;
     e->pushed    = pushed;
@@ -523,8 +546,11 @@ static int __cdecl Hooked_GetSpellInfo(lua_State* L) {
     SpellCacheEntry localEntry;
     bool found = false;
 
+    DWORD nowTick = GetTickCount();
+
     AcquireSRWLockShared(&g_spellCacheLock);
     if (e->valid && e->keyHash == keyHash &&
+        (nowTick - e->stamp) < SPELL_ENTRY_TTL_MS &&
         e->keyType1 == keyType1 && e->keyType2 == keyType2) {
         
         bool match = true;
