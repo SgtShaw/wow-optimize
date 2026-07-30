@@ -69,7 +69,7 @@ static const BoolSetting kBoolSettings[] = {
     { "Combat_Net", "SavedVarsPretoken", &Settings::OptSavedVarsPretoken },
     { "Combat_Net", "UnitAuraFast", &Settings::OptUnitAuraFast },
     { "Combat_Net", "NetworkGuidSse2", &Settings::OptNetworkGuidSse2 },
-    { "Combat_Net", "GetSpellInfoCache", &Settings::OptGetSpellInfoCache },
+    { "Combat_Net", "ApiCache", &Settings::OptApiCache },
     { "Combat_Net", "PacketOffload", &Settings::OptPacketOffload },
     { "Combat_Net", "NameplateMT", &Settings::OptNameplateMT },
     { "Graphics_Sound", "FastMemsetOpt", &Settings::OptFastMemsetOpt },
@@ -232,7 +232,6 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
             WritePrivateProfileStringA("Combat_Net", "SavedVarsPretoken", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "UnitAuraFast", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NetworkGuidSse2", "0", iniPath.c_str());
-            WritePrivateProfileStringA("Combat_Net", "GetSpellInfoCache", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "PacketOffload", "0", iniPath.c_str());
             WritePrivateProfileStringA("Combat_Net", "NameplateMT", "0", iniPath.c_str());
 
@@ -319,7 +318,7 @@ static const int kBoolSettingCount = (int)(sizeof(kBoolSettings) / sizeof(kBoolS
         g_settings.OptSavedVarsPretoken   = GetPrivateProfileIntA("Combat_Net", "SavedVarsPretoken", 0, iniPath.c_str()) != 0;
         g_settings.OptUnitAuraFast        = GetPrivateProfileIntA("Combat_Net", "UnitAuraFast", 0, iniPath.c_str()) != 0;
         g_settings.OptNetworkGuidSse2     = GetPrivateProfileIntA("Combat_Net", "NetworkGuidSse2", 0, iniPath.c_str()) != 0;
-        g_settings.OptGetSpellInfoCache   = GetPrivateProfileIntA("Combat_Net", "GetSpellInfoCache", 0, iniPath.c_str()) != 0;
+        g_settings.OptApiCache   = GetPrivateProfileIntA("Combat_Net", "ApiCache", 1, iniPath.c_str()) != 0;
         g_settings.OptPacketOffload       = GetPrivateProfileIntA("Combat_Net", "PacketOffload", 0, iniPath.c_str()) != 0;
         g_settings.OptNameplateMT         = GetPrivateProfileIntA("Combat_Net", "NameplateMT", 0, iniPath.c_str()) != 0;
 

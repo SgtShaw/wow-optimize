@@ -193,8 +193,6 @@ add_library(wow_optimize SHARED
     src/runtime_vm/regex_cache.h
     src/simd_math/trig_lut.cpp
     src/simd_math/trig_lut.h
-    src/hooks_subsystems/spell_cache.cpp
-    src/hooks_subsystems/spell_cache.h
     src/runtime_vm/lua_bytecode_cache.cpp
     src/runtime_vm/lua_bytecode_cache.h
     src/hooks_subsystems/addon_preload.cpp

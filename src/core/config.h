@@ -84,7 +84,14 @@ namespace Config {
         bool OptSavedVarsPretoken = false;
         bool OptUnitAuraFast = false;
         bool OptNetworkGuidSse2 = false;
-        bool OptGetSpellInfoCache = false;
+        // Caches GetItemInfo and GetSpellInfo. On by default because that is what
+        // every install has already been running: ApiCache::Init was called with no
+        // setting check at all. The switch named GetSpellInfoCache, which looked
+        // like it controlled this, gated a different module whose Init logged
+        // "DISABLED" and returned false - so a tester who turned the cache off
+        // still had the hook installed. This is the cache behind the WeakAuras
+        // icon that stays wrong after a talent switch.
+        bool OptApiCache = true;
         bool OptPacketOffload = false;
         bool OptNameplateMT = false;
 

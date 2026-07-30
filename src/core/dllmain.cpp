@@ -324,7 +324,6 @@ static void StopFreezeWatchdog() {
 }
 
 #include "frame_throttle.h"
-#include "spell_cache.h"
 // #include "ui_frame_batch.h" // REMOVED - optimization disabled
 
 #include "MinHook.h"
@@ -4419,17 +4418,6 @@ static void DumpPeriodicStats() {
     }
 
 
-    // Spell Cache stats
-    {
-        SpellCache::Stats stats;
-        SpellCache::GetStats(&stats);
-        if (stats.hits + stats.misses > 0) {
-            double hitRate = (double)stats.hits / (stats.hits + stats.misses) * 100.0;
-            Log("[Stats] Spell Cache: %ld hits, %ld misses, %ld evictions, %ld entries (%.1f%% hit rate)",
-                stats.hits, stats.misses, stats.evictions, stats.cacheSize, hitRate);
-        }
-    }
-
     // UI Frame Batch stats - REMOVED (optimization disabled)
     // {
     //     long batched = 0, iterations = 0, peak = 0;
@@ -6661,7 +6649,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     CrashDumper::RegisterFeature("HardwareCursor");
     CrashDumper::RegisterFeature("FrameThrottle");
     CrashDumper::RegisterFeature("UIFrameBatch");
-    CrashDumper::RegisterFeature("SpellCache");
     CrashDumper::RegisterFeature("LuaRawGetICache");
     CrashDumper::RegisterFeature("CombatLogFullCache");
     CrashDumper::RegisterFeature("ThreadAffinity");
@@ -7417,7 +7404,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     bool frameThrottleOk = Config::g_settings.OptUIFrameBatch && InstallFrameThrottling();
 
     Log("--- Spell Data Caching ---");
-    bool spellCacheOk = Config::g_settings.OptGetSpellInfoCache && SpellCache::Init();
 
     // UI Frame Batching - REMOVED due to calling convention issues
     // Caused MoveAnything addon to break even when disabled
@@ -7709,7 +7695,7 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("[ApiCache] DISABLED (baseline test)");
     bool apiCacheOk = false;
 #else
-    bool apiCacheOk = ApiCache::Init();
+    bool apiCacheOk = Config::g_settings.OptApiCache && ApiCache::Init();
 #endif
 
     Log("--- Timing Method Fix ---");
@@ -8214,7 +8200,6 @@ static DWORD WINAPI MainThread(LPVOID param) {
     Log("  [%s] Lua PushString (intern)",     luaPushStringOk ? " OK " : "SKIP");
     Log("  [%s] Lua RawGetI (int-key)",       luaRawGetIOk ? " OK " : "SKIP");
     Log("  [%s] CombatLog full cache",        combatLogFullCacheOk ? " OK " : "SKIP");
-    Log("  [%s] Spell data cache (LRU)",      spellCacheOk ? " OK " : "SKIP");
     Log("  [%s] Stream buffer fast path",     streamBufOk    ? " OK " : "SKIP");
     Log("  [%s] D3D9 State Manager (15 hooks)",   d3d9StateOk ? " OK " : "SKIP");
     Log("  [%s] Render Hooks (anim+backbuffer)",    renderHooksOk ? " OK " : "SKIP");
@@ -9956,7 +9941,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD reason, LPVOID reserved) {
             PerfDiagnostics::Shutdown();
             CrashDumper::Shutdown();
             ShutdownFrameThrottling();
-            SpellCache::Shutdown();
             // ShutdownUIFrameBatching(); // REMOVED - optimization disabled
             ShutdownCombatLogParser();
 #if !TEST_DISABLE_SAVED_VARS_ASYNC

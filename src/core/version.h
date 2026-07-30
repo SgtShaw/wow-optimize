@@ -388,14 +388,6 @@
 // Background writes are stabilized via handle duplication.
 #define TEST_DISABLE_SAVED_VARS_ASYNC   0
 
-// Spell Data Caching - cache spell coefficients, ranges, cooldowns
-// Target function uses __usercall calling convention (custom)
-// Hooking requires naked function with inline assembly.
-// DEAD FLAG — not referenced by any #if anywhere in src/. spell_cache.cpp's
-// Init() unconditionally logs "DISABLED" and returns false; the naked-function
-// thunk this comment describes was never written. Flipping this flag does
-// nothing. Either implement the __usercall thunk for real or delete the stub.
-#define TEST_DISABLE_SPELL_CACHE        1
 
 // Multithreaded Combat Log Parser - DISABLED.
 // The worker actually parses nothing: the queue (g_queueTail / entry->ready) is
