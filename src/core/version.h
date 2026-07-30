@@ -34,9 +34,20 @@
 // PRODUCTION FLAGS - stable configuration
 // ================================================================
 
-// GetItemInfo cache - breaks Aux / WCollections / ElvUI
+// GetItemInfo cache. This flag has been 0 - the cache enabled - for as long as
+// the comment above it said the cache "breaks Aux / WCollections / ElvUI",
+// which is not a note anyone should have left next to an enabled feature.
+//
+// The likely reason is now fixed. The cache is direct-mapped and compared its
+// string key after truncating to 255 characters, so two arguments sharing a
+// 255-character prefix compared equal and one item's data was served for
+// another. Aux walks tens of thousands of item links in a scan, which is the
+// workload that finds a collision of that kind. Keys that do not fit now bypass
+// the cache instead of being truncated. Also gone: an "is it loaded" test that
+// read return value four as the item level and refused to store anything with
+// an item level of zero, and a result count taken from how many values the
+// client pushed rather than how many it returned.
 #define TEST_DISABLE_GETITEMINFO_CACHE  0
-// GetSpellInfo hook also disabled below.
 #define TEST_DISABLE_ALL_APICACHE       0
 
 // Phase 2 Lua fast paths
@@ -90,9 +101,6 @@
 // Phase 2 DMA hooks (type, floor, ceil, abs, max, min, len, byte,
 // tostring, tonumber, select, rawequal)
 #define TEST_DISABLE_PHASE2_NEW_DMA     0
-
-// GetSpellInfo cache - icon corruption + relog crash
-#define TEST_DISABLE_GETSPELLINFO_CACHE 0
 
 // ================================================================
 // INDIVIDUAL PHASE 2 HOOK TOGGLES
